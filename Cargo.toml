@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+
+[workspace.dependencies]
+motif-core = { path = "crates/motif-core" }
+motif-script = { path = "crates/motif-script" }
+motif-render = { path = "crates/motif-render", default-features = false }
+motif-pixel = { path = "crates/motif-pixel" }
+kurbo = "0.13.1"
+tiny-skia = "0.12"
+png = "0.18"
+vello = "0.11"
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+egui = { version = "0.37", features = ["monochrome_emoji_fonts"] }
+rfd = "0.17"
+pollster = "1"
