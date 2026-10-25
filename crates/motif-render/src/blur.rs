@@ -9,6 +9,9 @@ use tiny_skia::Pixmap;
 /// Largest side of a blurred layer in pixels; bigger layers are drawn at a lower resolution,
 /// which the blur hides.
 const MAX_SIDE: f64 = 2048.0;
+/// A wide blur hides detail anyway, so its layer is drawn at a resolution where the blur is
+/// this many pixels and stretched back: zoomed in, a soft shadow costs no more than at 100%.
+const SIGMA_PX: f64 = 3.0;
 
 /// A blurred layer ready to composite.
 pub struct Layer {
@@ -59,7 +62,7 @@ pub fn render(ops: &[Op], radius: f64, view: Affine, antialias: bool, clip: Opti
     if area.width() < 1.0 || area.height() < 1.0 {
         return None;
     }
-    let k = (MAX_SIDE / area.width().max(area.height())).min(1.0);
+    let k = (MAX_SIDE / area.width().max(area.height())).min(SIGMA_PX / sigma.max(1e-9)).min(1.0);
     let mut pixmap = Pixmap::new((area.width() * k).ceil() as u32, (area.height() * k).ceil() as u32)?;
     let inner = Affine::scale(k) * Affine::translate(-area.origin().to_vec2()) * view;
     crate::cpu::draw_ops(&mut pixmap, ops, inner, antialias, None);
@@ -126,5 +129,32 @@ fn box_line(src: &[u8], dst: &mut [u8], start: usize, step: usize, len: usize, r
                 *s -= src[at(i - r) + c] as u32;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use motif_core::kurbo::Affine;
+    use motif_core::{Artboard, Color, Document, Node, Shadow, ShapeKind};
+
+    #[test]
+    fn a_soft_shadow_costs_the_same_zoomed_in() {
+        let mut doc = Document::new(Artboard::default());
+        let mut card = Node::new("card", ShapeKind::Rect);
+        (card.x, card.y, card.width, card.height) = (125.0, 100.0, 170.0, 110.0);
+        card.shadow = Some(Shadow { dx: 0.0, dy: 10.0, blur: 16.0, color: Color::BLACK });
+        doc.nodes.push(card);
+        doc.rig();
+        let ops = crate::display_ops(&doc);
+        let Some(crate::Op::Blur { ops, radius }) = ops.iter().find(|o| matches!(o, crate::Op::Blur { .. })) else { panic!("no shadow layer") };
+        let size = |zoom: f64| {
+            let l = super::render(ops, *radius, Affine::scale(zoom), true, None).unwrap();
+            // The layer still covers the shadow on the target.
+            let covered = l.transform.transform_rect_bbox(motif_core::kurbo::Rect::new(0.0, 0.0, l.pixmap.width() as f64, l.pixmap.height() as f64));
+            assert!(covered.width() > 170.0 * zoom, "{covered:?}");
+            l.pixmap.width() * l.pixmap.height()
+        };
+        let (near, far) = (size(10.0), size(1.0));
+        assert!(near <= far * 2, "{near} pixels at 1000% against {far} at 100%");
     }
 }
