@@ -2,6 +2,7 @@
 //! that the game sets (a flag, a number, a one-shot trigger).
 
 use crate::{Document, Prop};
+use kurbo::Point;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputKind {
@@ -84,10 +85,62 @@ pub struct Transition {
     pub blend: f64,
 }
 
+/// What a pointer listener watches on its object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerEvent {
+    /// A flag that is on while the pointer is over the object.
+    Hover,
+    /// A flag that is on while the button, pressed on the object, is held.
+    Press,
+    /// Released on the object it was pressed on: fires a trigger, flips a flag, adds 1 to a number.
+    Click,
+    /// Where the pointer is across the object, 0 at the left edge and 1 at the right.
+    X,
+    /// Where the pointer is down the object, 0 at the top and 1 at the bottom.
+    Y,
+}
+
+impl PointerEvent {
+    pub const ALL: [PointerEvent; 5] = [PointerEvent::Hover, PointerEvent::Press, PointerEvent::Click, PointerEvent::X, PointerEvent::Y];
+
+    pub fn keyword(self) -> &'static str {
+        match self {
+            PointerEvent::Hover => "hover",
+            PointerEvent::Press => "press",
+            PointerEvent::Click => "click",
+            PointerEvent::X => "x",
+            PointerEvent::Y => "y",
+        }
+    }
+
+    pub fn from_keyword(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|e| e.keyword() == s)
+    }
+
+    /// The kinds of input the event can drive.
+    pub fn fits(self, kind: InputKind) -> bool {
+        match self {
+            PointerEvent::Hover | PointerEvent::Press => kind == InputKind::Bool,
+            PointerEvent::Click => true,
+            PointerEvent::X | PointerEvent::Y => kind == InputKind::Number,
+        }
+    }
+}
+
+/// `listen btn hover -> hover`: the pointer on an object drives an input, so a button reacts by
+/// itself in the editor preview and in a game that passes the pointer to the machine.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Listener {
+    pub node: String,
+    pub event: PointerEvent,
+    pub input: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Machine {
     pub name: String,
     pub inputs: Vec<Input>,
+    pub listeners: Vec<Listener>,
     /// The first state is where the machine starts.
     pub states: Vec<State>,
     pub transitions: Vec<Transition>,
@@ -118,11 +171,25 @@ pub struct MachinePlayer {
     pub values: Vec<f64>,
     /// Springs, jiggling bones and soft bodies, stepped as the machine plays.
     pub sim: Option<crate::SimState>,
+    /// Whether the pointer button was down at the last [`pointer`](Self::pointer) call.
+    pub down: bool,
+    /// The listened objects the held button was pressed on.
+    pub grab: Vec<String>,
 }
 
 impl MachinePlayer {
     pub fn new(m: &Machine) -> Self {
-        MachinePlayer { state: 0, time: 0.0, prev: None, blend_time: 0.0, blend: 0.0, values: m.inputs.iter().map(|i| i.default).collect(), sim: None }
+        MachinePlayer {
+            state: 0,
+            time: 0.0,
+            prev: None,
+            blend_time: 0.0,
+            blend: 0.0,
+            values: m.inputs.iter().map(|i| i.default).collect(),
+            sim: None,
+            down: false,
+            grab: Vec::new(),
+        }
     }
 
     pub fn set(&mut self, m: &Machine, input: &str, value: f64) {
@@ -134,6 +201,49 @@ impl MachinePlayer {
     /// Fires a trigger (or sets a flag): the next [`advance`](Self::advance) sees it.
     pub fn fire(&mut self, m: &Machine, input: &str) {
         self.set(m, input, 1.0);
+    }
+
+    /// Passes the pointer to the machine's listeners: `at` is where it is in artboard space
+    /// (`None` off the artboard view), `down` whether the main button is held, `doc` the document
+    /// as it is shown now. Call it before [`advance`](Self::advance) every frame.
+    pub fn pointer(&mut self, m: &Machine, doc: &Document, at: Option<Point>, down: bool) {
+        self.values.resize(m.inputs.len(), 0.0);
+        let over = |node: &str| at.is_some_and(|p| doc.index_of(node).is_some_and(|i| doc.hits_tree(i, p)));
+        let pressed = down && !self.down;
+        let released = !down && self.down;
+        if pressed {
+            self.grab = m.listeners.iter().filter(|l| over(&l.node)).map(|l| l.node.clone()).collect();
+            self.grab.dedup();
+        }
+        for l in &m.listeners {
+            let Some(i) = m.input(&l.input) else { continue };
+            let held = self.grab.contains(&l.node);
+            match l.event {
+                PointerEvent::Hover => self.values[i] = f64::from(u8::from(over(&l.node))),
+                PointerEvent::Press => self.values[i] = f64::from(u8::from(down && held)),
+                PointerEvent::Click => {
+                    if released && held && over(&l.node) {
+                        self.values[i] = match m.inputs[i].kind {
+                            InputKind::Trigger => 1.0,
+                            InputKind::Bool => f64::from(u8::from(self.values[i] == 0.0)),
+                            InputKind::Number => self.values[i] + 1.0,
+                        };
+                    }
+                }
+                PointerEvent::X | PointerEvent::Y => {
+                    // Follows the pointer over the object, and keeps following a drag that began on it.
+                    let (Some(p), Some(b)) = (at, doc.index_of(&l.node).and_then(|n| doc.world_bounds(n))) else { continue };
+                    if over(&l.node) || (down && held) {
+                        let u = if l.event == PointerEvent::X { (p.x - b.x0) / b.width().max(1e-9) } else { (p.y - b.y0) / b.height().max(1e-9) };
+                        self.values[i] = (u.clamp(0.0, 1.0) * 1000.0).round() / 1000.0;
+                    }
+                }
+            }
+        }
+        if released {
+            self.grab.clear();
+        }
+        self.down = down;
     }
 
     /// Jumps straight to `state`, without a blend.
@@ -287,6 +397,7 @@ mod tests {
                 Input { name: "speed".into(), kind: InputKind::Number, default: 0.0 },
                 Input { name: "jump".into(), kind: InputKind::Trigger, default: 0.0 },
             ],
+            listeners: Vec::new(),
             states: vec![st("Idle"), st("Run"), st("Jump")],
             transitions: vec![
                 Transition { from: Some(0), to: 1, conds: vec![Cond { input: "speed".into(), op: CondOp::Gt, value: 0.5 }], at_end: false, blend: 0.5 },
@@ -344,5 +455,49 @@ mod tests {
         }
         assert!(xs[5] < 20.0, "{}", xs[5]);
         assert!(xs.iter().cloned().fold(f64::MIN, f64::max) > 101.0, "overshoots");
+    }
+
+    #[test]
+    fn pointer_listeners_drive_inputs() {
+        let mut d = doc();
+        let b = &mut d.nodes[0];
+        (b.x, b.y, b.width, b.height) = (100.0, 50.0, 100.0, 40.0);
+        let flag = |n: &str| Input { name: n.into(), kind: InputKind::Bool, default: 0.0 };
+        let listen = |event, input: &str| Listener { node: "b".into(), event, input: input.into() };
+        let mut m = machine();
+        m.inputs.extend([flag("hover"), flag("press"), flag("on")]);
+        m.listeners = vec![
+            listen(PointerEvent::Hover, "hover"),
+            listen(PointerEvent::Press, "press"),
+            listen(PointerEvent::Click, "jump"),
+            listen(PointerEvent::Click, "on"),
+            listen(PointerEvent::X, "speed"),
+        ];
+        let mut p = MachinePlayer::new(&m);
+        let v = |p: &MachinePlayer, n: &str| p.values[m.input(n).unwrap()];
+        p.pointer(&m, &d, Some(Point::new(10.0, 10.0)), false);
+        assert_eq!((v(&p, "hover"), v(&p, "speed")), (0.0, 0.0));
+        // Over the right quarter of the rect (it spans 50..150).
+        p.pointer(&m, &d, Some(Point::new(125.0, 50.0)), false);
+        assert_eq!((v(&p, "hover"), v(&p, "press"), v(&p, "speed")), (1.0, 0.0, 0.75));
+        p.pointer(&m, &d, Some(Point::new(125.0, 50.0)), true);
+        assert_eq!(v(&p, "press"), 1.0);
+        // Dragged off: still pressed, x follows the drag and stops at the edge.
+        p.pointer(&m, &d, Some(Point::new(300.0, 50.0)), true);
+        assert_eq!((v(&p, "hover"), v(&p, "press"), v(&p, "speed")), (0.0, 1.0, 1.0));
+        // Released off the object: no click.
+        p.pointer(&m, &d, Some(Point::new(300.0, 50.0)), false);
+        assert_eq!((v(&p, "press"), v(&p, "jump"), v(&p, "on")), (0.0, 0.0, 0.0));
+        // A click: the trigger fires and the flag flips; a second click flips it back.
+        for _ in 0..2 {
+            p.pointer(&m, &d, Some(Point::new(100.0, 50.0)), true);
+            p.pointer(&m, &d, Some(Point::new(100.0, 50.0)), false);
+        }
+        assert_eq!((v(&p, "jump"), v(&p, "on")), (1.0, 0.0));
+        assert_eq!(p.advance(&m, &d, 0.1), Some(2), "the click jumps");
+        // A press that starts outside does not count.
+        p.pointer(&m, &d, Some(Point::new(10.0, 10.0)), true);
+        p.pointer(&m, &d, Some(Point::new(100.0, 50.0)), true);
+        assert_eq!(v(&p, "press"), 0.0);
     }
 }

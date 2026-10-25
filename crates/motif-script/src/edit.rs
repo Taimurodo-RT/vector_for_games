@@ -381,7 +381,8 @@ pub fn delete_node(src: &str, scene: &Scene, node: &str) -> Option<String> {
     Some(remove_spans(src, node_spans(src, scene, node)?))
 }
 
-/// The whole lines declaring `node` and its children, with their animation tracks and overrides.
+/// The whole lines declaring `node` and its children, with their animation tracks, overrides and
+/// pointer listeners.
 pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Span>> {
     let site = scene.sites.get(node)?;
     if site.generated {
@@ -407,6 +408,10 @@ pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Spa
         spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
     spans.extend(scene.override_entries.iter().filter(|(n, _)| ids.contains(&n.as_str())).map(|(_, s)| whole_lines(src, *s)));
+    for m in &doc.machines {
+        let Some(site) = scene.machines.get(&m.name) else { continue };
+        spans.extend(m.listeners.iter().zip(&site.listeners).filter(|(l, _)| ids.contains(&l.node.as_str())).map(|(_, s)| whole_lines(src, *s)));
+    }
     Some(spans)
 }
 

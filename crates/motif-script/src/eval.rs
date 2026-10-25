@@ -242,9 +242,9 @@ impl<'a> Evaluator<'a> {
     }
 
     fn machine(&mut self, name: &str, lines: &[MachineLineAst], span: Span, close: usize) {
-        use motif_core::{Cond, CondOp, Input, InputKind, Machine, State, Transition};
-        let mut m = Machine { name: name.to_string(), inputs: Vec::new(), states: Vec::new(), transitions: Vec::new(), any_pos: None };
-        let mut site = MachineSite { span, close, inputs: Vec::new(), states: Vec::new(), transitions: Vec::new(), any: None };
+        use motif_core::{Cond, CondOp, Input, InputKind, Listener, Machine, State, Transition};
+        let mut m = Machine { name: name.to_string(), inputs: Vec::new(), listeners: Vec::new(), states: Vec::new(), transitions: Vec::new(), any_pos: None };
+        let mut site = MachineSite { span, close, inputs: Vec::new(), listeners: Vec::new(), states: Vec::new(), transitions: Vec::new(), any: None };
         // Inputs and states first: transitions may name them before they are written.
         for l in lines {
             match &l.line {
@@ -274,8 +274,29 @@ impl<'a> Evaluator<'a> {
                     m.any_pos = Some((*x, *y));
                     site.any = Some(l.span);
                 }
-                MachineLine::Transition { .. } => {}
+                MachineLine::Transition { .. } | MachineLine::Listen { .. } => {}
             }
+        }
+        for l in lines {
+            let MachineLine::Listen { node, node_span, event, input, input_span } = &l.line else { continue };
+            if self.scene.doc.node(node).is_none() {
+                self.err(*node_span, format!("нет объекта «{node}»"));
+                continue;
+            }
+            let Some(kind) = m.input(input).map(|i| m.inputs[i].kind) else {
+                self.err(*input_span, format!("нет входа «{input}»: добавьте строку input {input} false"));
+                continue;
+            };
+            if !event.fits(kind) {
+                let want = match event {
+                    motif_core::PointerEvent::X | motif_core::PointerEvent::Y => "числом: input имя 0",
+                    _ => "флагом: input имя false",
+                };
+                self.err(*input_span, format!("«{}» ведёт вход {want}", event.keyword()));
+                continue;
+            }
+            m.listeners.push(Listener { node: node.clone(), event: *event, input: input.clone() });
+            site.listeners.push(l.span);
         }
         for l in lines {
             let MachineLine::Transition { from, from_span, to, to_span, conds, at_end, blend } = &l.line else { continue };

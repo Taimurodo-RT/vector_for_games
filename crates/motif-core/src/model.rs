@@ -870,30 +870,45 @@ impl Document {
     pub fn hit_test(&self, point: Point) -> Option<usize> {
         let bones = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind == ShapeKind::Bone);
         let others = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind != ShapeKind::Bone);
-        bones.chain(others).find(|&i| {
-            let node = &self.nodes[i];
-            if !self.is_visible(i) || self.is_locked(i) {
-                return false;
-            }
-            let Some(path) = node.path() else { return false };
-            // A shape scaled to nothing (a pop-in keyed from scale 0) has no inside to hit.
-            let w = self.world_transform(i);
-            if w.determinant().abs() < 1e-12 {
-                return false;
-            }
-            let local = w.inverse() * point;
-            if !local.is_finite() {
-                return false;
-            }
-            // Text is picked by its whole box, not only the letters.
-            if let Some(t) = &node.text {
-                return t.bounds(&node.text_style).inflate(2.0, 2.0).contains(local);
-            }
-            if let Some(faces) = node.body_faces(self.light) {
-                return faces.iter().any(|f| f.path.contains(local));
-            }
-            path.contains(local) || (node.stroke.is_some() && near_outline(&path, local, node.stroke_width.max(4.0)))
-        })
+        bones.chain(others).find(|&i| self.is_visible(i) && !self.is_locked(i) && self.shape_hit(i, point))
+    }
+
+    /// Whether an artboard-space point is on node `i` or on a visible shape inside it, whatever
+    /// lies on top: what a pointer listener of a state machine reacts to.
+    pub fn hits_tree(&self, i: usize, point: Point) -> bool {
+        (0..self.nodes.len())
+            .any(|k| (k == i || self.is_inside(k, i)) && self.nodes[k].kind != ShapeKind::Bone && self.is_visible(k) && self.shape_hit(k, point))
+    }
+
+    /// The artboard-space box around node `i` and everything inside it.
+    pub fn world_bounds(&self, i: usize) -> Option<kurbo::Rect> {
+        (0..self.nodes.len())
+            .filter(|&k| k == i || self.is_inside(k, i))
+            .filter_map(|k| Some(self.world_transform(k).transform_rect_bbox(self.nodes[k].path()?.bounding_box())))
+            .reduce(|a, b| a.union(b))
+    }
+
+    /// Whether an artboard-space point is on the shape of node `i` itself.
+    fn shape_hit(&self, i: usize, point: Point) -> bool {
+        let node = &self.nodes[i];
+        let Some(path) = node.path() else { return false };
+        // A shape scaled to nothing (a pop-in keyed from scale 0) has no inside to hit.
+        let w = self.world_transform(i);
+        if w.determinant().abs() < 1e-12 {
+            return false;
+        }
+        let local = w.inverse() * point;
+        if !local.is_finite() {
+            return false;
+        }
+        // Text is picked by its whole box, not only the letters.
+        if let Some(t) = &node.text {
+            return t.bounds(&node.text_style).inflate(2.0, 2.0).contains(local);
+        }
+        if let Some(faces) = node.body_faces(self.light) {
+            return faces.iter().any(|f| f.path.contains(local));
+        }
+        path.contains(local) || (node.stroke.is_some() && near_outline(&path, local, node.stroke_width.max(4.0)))
     }
 
     pub fn animation(&self, name: &str) -> Option<&Animation> {
