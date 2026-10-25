@@ -4,10 +4,10 @@ use crate::theme::{self, ACCENT, DANGER, FAINT, FG, GOOD, MUTED, SEL};
 use egui::Color32;
 use egui::text::{LayoutJob, TextFormat};
 
-const KEYWORDS: &[&str] = &["artboard", "let", "group", "for", "in", "anim", "override", "loop", "rect", "ellipse", "star", "polygon", "path"];
+const KEYWORDS: &[&str] = &["artboard", "backdrop", "let", "group", "for", "in", "anim", "override", "loop", "rect", "ellipse", "star", "polygon", "path"];
 const PROPS: &[&str] = &[
     "at", "size", "r", "points", "inner", "rot", "scale", "opacity", "fill", "stroke", "hidden", "bg", "none", "d", "gradient", "clip", "skew", "pivot",
-    "dash", "cap", "join", "shadow", "blend",
+    "dash", "cap", "join", "shadow", "blend", "evenodd",
 ];
 
 /// Curve names, including the easings.net library and the words that take numbers.

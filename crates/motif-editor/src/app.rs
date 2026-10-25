@@ -36,6 +36,9 @@ pub enum DragOp {
         /// Pointer position (artboard space) when the drag started.
         from: Point,
         items: Vec<MoveItem>,
+        /// Bounds of everything moving at the start, and what it can line up with.
+        start_box: Option<motif_core::kurbo::Rect>,
+        targets: crate::guides::Targets,
     },
     /// Rubber-band selection; with Shift it adds to the selection.
     Marquee {
@@ -122,6 +125,8 @@ pub struct App {
     /// Values changed by the drag in progress: shown on the canvas, written to the script on release.
     live: Vec<(String, Prop, Value)>,
     pub(crate) snap: crate::snap::Snap,
+    /// Smart guides shown while moving.
+    guides: Vec<crate::guides::Guide>,
     /// Points placed by the pen so far.
     pub(crate) pen: Vec<PenPoint>,
     pub(crate) pen_dragging: bool,
@@ -140,6 +145,7 @@ pub struct App {
     pixel: PixelPreview,
     export: ExportSettings,
     canvas: Canvas,
+    pub(crate) backdrop_img: crate::importer::BackdropCache,
     pub(crate) status: String,
     last_poll: Instant,
     pointer_doc: Option<Point>,
@@ -196,6 +202,8 @@ impl App {
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
             export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true },
             canvas: Canvas::new(),
+            guides: Vec::new(),
+            backdrop_img: Default::default(),
             status,
             last_poll: Instant::now(),
             pointer_doc: None,
@@ -639,6 +647,15 @@ impl App {
                 if ui.add(egui::Button::new("Сохранить как…").shortcut_text("Ctrl+Shift+S")).clicked() {
                     self.save(true);
                 }
+                ui.separator();
+                if ui.add(egui::Button::new("Импорт SVG…")).on_hover_text("Фигуры из SVG станут контурами в новой группе").clicked()
+                {
+                    self.pick_svg();
+                }
+                if ui.add(egui::Button::new("Подложка PNG…")).on_hover_text("Картинка-референс под фигурами, только в редакторе").clicked()
+                {
+                    self.pick_backdrop();
+                }
                 if let Some(updater) = updater_path() {
                     ui.separator();
                     if ui.add(egui::Button::new("Проверить обновления…")).on_hover_text(format!("Версия {VERSION}")).clicked() {
@@ -1070,7 +1087,7 @@ impl App {
         });
     }
 
-    fn artboard_info(&self, ui: &mut egui::Ui) {
+    fn artboard_info(&mut self, ui: &mut egui::Ui) {
         let ab = &self.scene.doc.artboard;
         section(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1083,7 +1100,9 @@ impl App {
         section(ui, |ui| {
             ui.label(RichText::new("Выберите объект на холсте, в слоях или кликом по его строке в скрипте.").size(12.0).color(FAINT));
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
+            ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG — подложкой.").size(12.0).color(FAINT));
         });
+        self.backdrop_section(ui);
     }
 
     fn paint_row(&mut self, ui: &mut egui::Ui, id: &str, prop: Prop, paint: Option<Color>, changes: &mut Vec<(Prop, Value)>, diamonds: &mut Vec<Prop>) {
@@ -1184,16 +1203,18 @@ impl App {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let view = *self.view.get_or_insert_with(|| View::fit(rect, &self.scene.doc));
         let doc = self.display_doc();
-        match self.onion_doc() {
-            Some(with_ghosts) => self.canvas.paint(ui, frame, rect, view, &with_ghosts),
-            None => self.canvas.paint(ui, frame, rect, view, &doc),
-        }
+        let ghosts = self.onion_doc();
+        let backdrop = crate::importer::backdrop_view(&self.scene, &self.backdrop_img);
+        self.canvas.paint(ui, frame, rect, view, ghosts.as_ref().unwrap_or(&doc), backdrop);
         if self.pixel.on {
             self.paint_pixel_preview(ui, rect, view, &doc);
         }
         let board = artboard_rect(rect, view, &doc);
         let painter = ui.painter_at(rect);
         paint_dots(&painter, rect, board, view);
+        if self.snap.grid {
+            crate::guides::paint_grid(&painter, rect, view, &doc, self.snap.grid_size);
+        }
 
         // Zoom around the pointer.
         if resp.hovered() {
@@ -1307,8 +1328,11 @@ impl App {
                                 origin: doc.world_transform(k) * Point::ZERO,
                                 to_parent: doc.nodes[k].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse()),
                             })
-                            .collect();
-                        Some(DragOp::Move { from: dp, items })
+                            .collect::<Vec<_>>();
+                        let moving: Vec<usize> = items.iter().filter_map(|it| doc.index_of(&it.node)).collect();
+                        let start_box = moving.iter().filter_map(|&k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
+                        let targets = crate::guides::Targets::collect(&doc, &moving);
+                        Some(DragOp::Move { from: dp, items, start_box, targets })
                     }
                     None => Some(DragOp::Marquee { from: dp, to: dp, add: shift }),
                 }
@@ -1336,12 +1360,26 @@ impl App {
                     }
                 }
                 Some(DragOp::Create { to, .. } | DragOp::Marquee { to, .. }) => *to = dp,
-                Some(DragOp::Move { from, items }) => {
+                Some(DragOp::Move { from, items, start_box, targets }) => {
+                    let mut delta = dp - *from;
+                    let mut stuck = [false; 2];
+                    self.guides.clear();
+                    // Alt moves freely past the guides.
+                    if snap.guides
+                        && !ui.input(|i| i.modifiers.alt)
+                        && let Some(b) = start_box
+                    {
+                        let (d, s, g) = targets.snap(*b, delta, view.zoom);
+                        (delta, stuck, self.guides) = (d, s, g);
+                    }
+                    let fine = |v: f64| (v * 10.0).round() / 10.0;
                     let moves: Vec<(String, f64, f64)> = items
                         .iter()
                         .map(|it| {
-                            let target = it.to_parent * (it.origin + (dp - *from));
-                            (it.node.clone(), snap.pos(target.x), snap.pos(target.y))
+                            let target = it.to_parent * (it.origin + delta);
+                            let x = if stuck[0] { fine(target.x) } else { snap.pos(target.x) };
+                            let y = if stuck[1] { fine(target.y) } else { snap.pos(target.y) };
+                            (it.node.clone(), x, y)
                         })
                         .collect();
                     for (node, x, y) in moves {
@@ -1383,6 +1421,7 @@ impl App {
             }
         }
         if resp.drag_stopped() {
+            self.guides.clear();
             self.commit_live();
             match self.drag.take() {
                 Some(DragOp::Create { kind, from, to }) => self.create_shape(kind, from, to, shift),
@@ -1469,10 +1508,19 @@ impl App {
             let r = Rect::from_two_pos(view.to_screen(rect, *from), view.to_screen(rect, *to));
             painter.rect_stroke(r, 0.0, Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
+        crate::guides::paint_guides(&painter, rect, view, &self.guides);
+        let ruler = if self.snap.rulers {
+            let span =
+                self.selection().iter().filter_map(|id| doc.index_of(id)).filter_map(|k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
+            crate::guides::paint_rulers(&painter, rect, view, self.pointer_doc, span);
+            crate::guides::RULER
+        } else {
+            0.0
+        };
         if self.anim.is_some() {
             painter.rect_stroke(rect, 0.0, Stroke::new(2.0, ACCENT), StrokeKind::Inside);
             let badge = painter.layout_no_wrap("ANIMATE · АВТОКЛЮЧИ".into(), theme::semibold(11.0), ACCENT_INK);
-            let b = Rect::from_min_size(rect.min + vec2(12.0, 10.0), galley_size(&badge) + vec2(16.0, 6.0));
+            let b = Rect::from_min_size(rect.min + vec2(12.0 + ruler, 10.0 + ruler), galley_size(&badge) + vec2(16.0, 6.0));
             painter.rect_filled(b, 5.0, ACCENT);
             painter.galley(b.min + vec2(8.0, 3.0), badge, ACCENT_INK);
         }
@@ -1604,6 +1652,8 @@ impl App {
                     ("Shift+клик", "Добавить к выделению; рамка по пустому месту — выделить"),
                     ("Ctrl+C, Ctrl+V", "Копировать и вставить; Ctrl+D — дублировать, Ctrl+A — всё"),
                     ("F", "Вписать артборд"),
+                    ("G", "Сетка"),
+                    ("Alt при сдвиге", "Без умных направляющих"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
                     ("Ctrl+E", "Свернуть или развернуть скрипт"),
                     ("F1", "Шпаргалка по синтаксису скрипта"),
@@ -1699,6 +1749,9 @@ impl App {
         if plain(Key::Tab) {
             let on = self.anim.is_none();
             self.set_mode_animate(on);
+        }
+        if plain(Key::G) {
+            self.snap.grid = !self.snap.grid;
         }
         if plain(Key::F) || (i.modifiers.shift && i.key_pressed(Key::Num1)) {
             self.view = None;
@@ -1883,7 +1936,7 @@ fn updater_path() -> Option<PathBuf> {
     p.exists().then_some(p)
 }
 
-fn mtime(p: &std::path::Path) -> Option<SystemTime> {
+pub(crate) fn mtime(p: &std::path::Path) -> Option<SystemTime> {
     std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
@@ -1893,6 +1946,8 @@ impl eframe::App for App {
         let dt = ctx.input(|i| i.stable_dt);
         self.frame_ms = self.frame_ms * 0.9 + dt * 1000.0 * 0.1;
         self.poll_disk();
+        self.dropped_files(&ctx);
+        self.refresh_backdrop();
         self.shortcuts(&ctx);
         if self.playing {
             self.time += dt.min(0.1) as f64;

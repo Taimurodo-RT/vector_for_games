@@ -1,4 +1,4 @@
-use crate::{Op, Paint as Fill, display_ops, faded};
+use crate::{BackdropView, Op, Paint as Fill, display_ops, faded};
 use motif_core::kurbo::{Affine, PathEl};
 use motif_core::{Blend, Cap, Color, Document, Join};
 use tiny_skia::{FillRule, GradientStop, LinearGradient, Mask, Paint, PathBuilder, Pixmap, RadialGradient, SpreadMode, Stroke, Transform};
@@ -21,6 +21,11 @@ impl Default for CpuOptions {
 
 /// Renders the artboard into an RGBA image of `width * scale` by `height * scale` pixels.
 pub fn render_cpu(doc: &Document, opts: CpuOptions) -> Option<Pixmap> {
+    render_cpu_with(doc, opts, None)
+}
+
+/// [`render_cpu`] with a reference picture over the background, under the shapes.
+pub fn render_cpu_with(doc: &Document, opts: CpuOptions, backdrop: Option<BackdropView>) -> Option<Pixmap> {
     let w = (doc.artboard.width * opts.scale).round().max(1.0) as u32;
     let h = (doc.artboard.height * opts.scale).round().max(1.0) as u32;
     let mut pixmap = Pixmap::new(w, h)?;
@@ -29,6 +34,10 @@ pub fn render_cpu(doc: &Document, opts: CpuOptions) -> Option<Pixmap> {
         pixmap.fill(tiny_skia::Color::from_rgba8(c.r, c.g, c.b, c.a));
     }
     let view = Affine::scale(opts.scale);
+    if let Some(b) = backdrop {
+        let paint = tiny_skia::PixmapPaint { opacity: b.opacity.clamp(0.0, 1.0) as f32, quality: tiny_skia::FilterQuality::Bilinear, ..Default::default() };
+        pixmap.draw_pixmap(0, 0, b.image.pixmap.as_ref().as_ref(), &paint, to_transform(view * b.transform), None);
+    }
     // Nested clip layers: each mask already includes the ones around it.
     let mut masks: Vec<Mask> = Vec::new();
     for op in display_ops(doc) {
@@ -65,7 +74,7 @@ pub fn render_cpu(doc: &Document, opts: CpuOptions) -> Option<Pixmap> {
             && let Some(mut p) = fill_paint(fill, item.opacity, opts.antialias)
         {
             p.blend_mode = mode;
-            pixmap.fill_path(&path, &p, FillRule::Winding, ts, mask);
+            pixmap.fill_path(&path, &p, if item.even_odd { FillRule::EvenOdd } else { FillRule::Winding }, ts, mask);
         }
         if let Some((color, width)) = item.stroke {
             let line_join = match item.line.join {
@@ -210,5 +219,26 @@ mod tests {
         assert_eq!(at(10, 10).green(), 0);
         // Outside the mask: background.
         assert_eq!((at(30, 10).red(), at(30, 10).green()), (255, 255));
+    }
+
+    #[test]
+    fn backdrop_under_shapes() {
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 20.0, height: 10.0, background: Color::WHITE });
+        let mut n = Node::new("r", ShapeKind::Rect);
+        (n.x, n.y, n.width, n.height) = (15.0, 5.0, 10.0, 10.0);
+        n.fill = Some(Color::rgb(0, 0, 255));
+        doc.nodes.push(n);
+        let mut pic = Pixmap::new(2, 1).unwrap();
+        pic.fill(tiny_skia::Color::from_rgba8(255, 0, 0, 255));
+        let bd = crate::Backdrop::new(pic);
+        // Stretched over the whole artboard at half strength.
+        let view = crate::BackdropView { image: &bd, transform: Affine::scale_non_uniform(10.0, 10.0), opacity: 0.5 };
+        let px = render_cpu_with(&doc, CpuOptions { scale: 1.0, antialias: false, background: true }, Some(view)).unwrap();
+        let at = |x, y| px.pixel(x, y).unwrap().demultiply();
+        let c = at(4, 5);
+        assert!(c.red() == 255 && (120..=135).contains(&c.green()), "{c:?}");
+        assert_eq!((at(15, 5).red(), at(15, 5).blue()), (0, 255));
+        // Exports never pass one.
+        assert_eq!(render_cpu(&doc, CpuOptions::default()).unwrap().pixel(4, 5).unwrap().demultiply().green(), 255);
     }
 }

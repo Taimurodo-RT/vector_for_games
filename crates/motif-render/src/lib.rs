@@ -7,12 +7,55 @@ mod cpu;
 #[cfg(feature = "gpu")]
 mod gpu;
 
-pub use cpu::{CpuOptions, render_cpu};
+pub use cpu::{CpuOptions, render_cpu, render_cpu_with};
 #[cfg(feature = "gpu")]
 pub use gpu::{build_scene, vello};
 
 use motif_core::kurbo::{Affine, BezPath, Shape};
 use motif_core::{Blend, Cap, Color, Document, Gradient, Join};
+
+/// A reference picture drawn over the artboard background and under the shapes. Only the editor
+/// passes one: exports never include it.
+pub struct Backdrop {
+    /// Premultiplied RGBA, as tiny-skia decodes it.
+    pub pixmap: std::sync::Arc<tiny_skia::Pixmap>,
+    #[cfg(feature = "gpu")]
+    image: vello::peniko::ImageData,
+}
+
+impl Backdrop {
+    pub fn new(pixmap: tiny_skia::Pixmap) -> Self {
+        let pixmap = std::sync::Arc::new(pixmap);
+        Backdrop {
+            #[cfg(feature = "gpu")]
+            image: vello::peniko::ImageData {
+                data: vello::peniko::Blob::from(pixmap.data().to_vec()),
+                format: vello::peniko::ImageFormat::Rgba8,
+                alpha_type: vello::peniko::ImageAlphaType::AlphaPremultiplied,
+                width: pixmap.width(),
+                height: pixmap.height(),
+            },
+            pixmap,
+        }
+    }
+
+    /// Decodes a PNG file's bytes.
+    pub fn from_png(bytes: &[u8]) -> Result<Self, String> {
+        tiny_skia::Pixmap::decode_png(bytes).map(Backdrop::new).map_err(|e| e.to_string())
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        (self.pixmap.width(), self.pixmap.height())
+    }
+}
+
+/// Where and how to draw a [`Backdrop`]: `transform` maps image pixels to artboard space.
+#[derive(Clone, Copy)]
+pub struct BackdropView<'a> {
+    pub image: &'a Backdrop,
+    pub transform: Affine,
+    pub opacity: f64,
+}
 
 /// One shape ready to paint, in artboard space.
 #[derive(Clone, Debug)]
@@ -26,6 +69,7 @@ pub struct Item {
     /// Combined opacity of the node and its parent groups.
     pub opacity: f64,
     pub blend: Blend,
+    pub even_odd: bool,
 }
 
 /// How a stroke is drawn: dashes, ends and corners.
@@ -119,7 +163,7 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             if let Some(sh) = node.shadow {
                 shadow_items(&mut ops, i, &path, transform, sh, stroke.map_or(0.0, |s| s.1), opacity);
             }
-            ops.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend }));
+            ops.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd }));
         }
     }
     ops.extend(open.iter().map(|_| Op::Pop));
@@ -134,7 +178,8 @@ const SHADOW_RINGS: usize = 32;
 fn shadow_items(ops: &mut Vec<Op>, node: usize, path: &BezPath, transform: Affine, sh: motif_core::Shadow, stroke_w: f64, opacity: f64) {
     let moved = Affine::translate((sh.dx, sh.dy)) * transform;
     let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
-    let item = |fill, stroke| Item { node, path: path.clone(), transform: moved, fill, stroke, line: line.clone(), opacity, blend: Blend::Normal };
+    let item =
+        |fill, stroke| Item { node, path: path.clone(), transform: moved, fill, stroke, line: line.clone(), opacity, blend: Blend::Normal, even_odd: false };
     let body = (stroke_w > 0.0).then_some((sh.color, stroke_w));
     if sh.blur > 0.0 {
         // The blur is in artboard pixels; strokes are in the shape's local space.

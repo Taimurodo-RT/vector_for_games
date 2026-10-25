@@ -1,4 +1,4 @@
-use crate::{Op, Paint, display_ops, faded};
+use crate::{BackdropView, Op, Paint, display_ops, faded};
 use motif_core::kurbo::{Affine, Rect};
 use motif_core::{Blend, Cap, Color, Document, Join};
 pub use vello;
@@ -11,10 +11,17 @@ fn color(c: Color) -> peniko::Color {
 
 /// Appends the artboard (background, then shapes clipped to it) to a Vello scene.
 /// `view` maps artboard space to target pixels (pan and zoom).
-pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine) {
+/// A `backdrop` is drawn over the background, under the shapes.
+pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine, backdrop: Option<BackdropView>) {
     let bounds = Rect::new(0.0, 0.0, doc.artboard.width, doc.artboard.height);
     scene.fill(Fill::NonZero, view, color(doc.artboard.background), None, &bounds);
     scene.push_clip_layer(Fill::NonZero, view, &bounds);
+    if let Some(b) = backdrop
+        && b.opacity > 0.0
+    {
+        let brush = peniko::ImageBrush::new(b.image.image.clone()).with_alpha(b.opacity as f32);
+        scene.draw_image(&brush, view * b.transform);
+    }
     for op in display_ops(doc) {
         let item = match op {
             Op::Draw(item) => item,
@@ -35,8 +42,9 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine) {
             let bounds = motif_core::kurbo::Shape::bounding_box(&item.path).inflate(pad, pad);
             scene.push_layer(Fill::NonZero, peniko::BlendMode::new(mix(item.blend), peniko::Compose::SrcOver), 1.0, t, &bounds);
         }
+        let rule = if item.even_odd { Fill::EvenOdd } else { Fill::NonZero };
         match &item.fill {
-            Some(Paint::Solid(c)) => scene.fill(Fill::NonZero, t, color(faded(*c, item.opacity)), None, &item.path),
+            Some(Paint::Solid(c)) => scene.fill(rule, t, color(faded(*c, item.opacity)), None, &item.path),
             Some(Paint::Gradient { gradient, from, to }) => {
                 let n = gradient.colors.len().max(2) - 1;
                 let stops: Vec<peniko::ColorStop> =
@@ -44,7 +52,7 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine) {
                 let brush =
                     if gradient.radial { peniko::Gradient::new_radial(*from, from.distance(*to) as f32) } else { peniko::Gradient::new_linear(*from, *to) }
                         .with_stops(stops.as_slice());
-                scene.fill(Fill::NonZero, t, &brush, None, &item.path);
+                scene.fill(rule, t, &brush, None, &item.path);
             }
             None => {}
         }
