@@ -96,7 +96,7 @@ fn centroid(p: &[Point]) -> Point {
 }
 
 /// A closed smooth curve through `p` (Catmull-Rom as cubic Béziers).
-fn smooth(p: &[Point]) -> BezPath {
+pub(crate) fn smooth(p: &[Point]) -> BezPath {
     let n = p.len();
     let mut out = BezPath::new();
     if n < 3 {
@@ -112,13 +112,16 @@ fn smooth(p: &[Point]) -> BezPath {
 }
 
 /// A solid shape's outline on the artboard, and half its stroke: bodies stop at the stroke's edge.
-struct Wall {
-    poly: Vec<Point>,
-    margin: f64,
+#[derive(Clone)]
+pub(crate) struct Wall {
+    pub(crate) poly: Vec<Point>,
+    pub(crate) margin: f64,
+    /// The shape it is made from.
+    pub(crate) node: usize,
 }
 
 /// Solid shapes as closed polygons on the artboard.
-fn solids(doc: &Document) -> Vec<Wall> {
+pub(crate) fn solids(doc: &Document) -> Vec<Wall> {
     (0..doc.nodes.len())
         .filter(|&i| doc.nodes[i].solid && doc.is_visible(i))
         .filter_map(|i| {
@@ -140,13 +143,13 @@ fn solids(doc: &Document) -> Vec<Wall> {
             if cur.len() > 2 {
                 polys.push(cur);
             }
-            Some(polys.into_iter().map(move |poly| Wall { poly, margin }))
+            Some(polys.into_iter().map(move |poly| Wall { poly, margin, node: i }))
         })
         .flatten()
         .collect()
 }
 
-fn inside(poly: &[Point], p: Point) -> bool {
+pub(crate) fn inside(poly: &[Point], p: Point) -> bool {
     let n = poly.len();
     let mut c = false;
     for i in 0..n {
@@ -159,7 +162,7 @@ fn inside(poly: &[Point], p: Point) -> bool {
 }
 
 /// The point of the polygon's edge nearest to `p`, and the edge's direction there.
-fn nearest_edge(poly: &[Point], p: Point) -> (Point, Vec2) {
+pub(crate) fn nearest_edge(poly: &[Point], p: Point) -> (Point, Vec2) {
     let n = poly.len();
     let mut best = (f64::MAX, poly[0], Vec2::new(1.0, 0.0));
     for i in 0..n {

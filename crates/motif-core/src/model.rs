@@ -327,6 +327,16 @@ pub struct Node {
     /// Set by the simulation: where each particle is drawn (on the artboard) and its opacity.
     /// The shape itself is drawn only while this is `None`.
     pub particles: Option<Vec<(Affine, f64)>>,
+    /// A rope or a cloth: the outline hangs, swings and drapes while an animation plays.
+    pub rope: Option<crate::Rope>,
+    /// Rope only: objects holding its ends, by id: the end, or the start and the end.
+    pub tie: Vec<String>,
+    /// Hangs on this rope (an id), at this part of its length: 0 its start, 1 its end.
+    pub hang: Option<(String, f64)>,
+    /// Drawn as the links of a chain along this rope (an id) instead of itself.
+    pub links: Option<String>,
+    /// Set by hanging on a rope's end: extra turn in degrees, so the object swings with it.
+    pub swing: f64,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -470,6 +480,11 @@ impl Node {
             behind: None,
             emit: None,
             particles: None,
+            rope: None,
+            tie: Vec::new(),
+            hang: None,
+            links: None,
+            swing: 0.0,
         }
     }
 
@@ -568,7 +583,7 @@ impl Node {
         let tan = |deg: f64| deg.clamp(-89.0, 89.0).to_radians().tan();
         Affine::translate(Vec2::new(self.x, self.y) + self.pivot)
             * self.warp.unwrap_or(Affine::IDENTITY)
-            * Affine::rotate(self.rotation.to_radians())
+            * Affine::rotate((self.rotation + self.swing).to_radians())
             * Affine::skew(tan(self.skew_x), tan(self.skew_y))
             * Affine::scale_non_uniform(self.scale_x, self.scale_y)
             * Affine::translate(-self.pivot)

@@ -18,13 +18,14 @@ impl Document {
         self.place_orbits();
         self.solve_ik();
         self.skin_all();
+        self.hang_ropes();
     }
 
     /// Bends skinned shapes with their bones as they are posed now.
     pub fn skin_all(&mut self) {
         for i in 0..self.nodes.len() {
-            // Soft bodies get their outline from the simulation.
-            if self.nodes[i].soft.is_none() {
+            // Soft bodies, ropes and cloth get their outline from the simulation.
+            if self.nodes[i].soft.is_none() && self.nodes[i].rope.is_none() {
                 self.nodes[i].deformed = self.deform(i).or_else(|| self.wrapped(i));
             }
         }

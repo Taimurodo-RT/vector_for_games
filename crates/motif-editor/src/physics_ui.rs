@@ -37,9 +37,11 @@ impl App {
                 );
             }
             if node.kind.is_container() {
+                crate::rope_ui::rope_editor(ui, &mut edits, node, &self.scene.doc);
                 return;
             }
             emitter_editor(ui, &mut edits, node);
+            crate::rope_ui::rope_editor(ui, &mut edits, node, &self.scene.doc);
             let mut on = node.soft.is_some();
             if ui.checkbox(&mut on, RichText::new("Мягкое тело").size(12.5).color(FG)).changed() {
                 if on {

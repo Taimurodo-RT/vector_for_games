@@ -14,6 +14,7 @@ mod paint;
 mod pathedit;
 mod physics_ui;
 mod pixabridge;
+mod rope_ui;
 mod scriptui;
 mod selection;
 mod snap;
