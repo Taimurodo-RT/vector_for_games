@@ -117,6 +117,15 @@ pub struct App {
     pub(crate) last_anim: Option<String>,
     pub(crate) time: f64,
     pub(crate) playing: bool,
+    /// The bottom panel shows the state machine instead of the timeline.
+    pub(crate) bottom_machine: bool,
+    /// The machine picked in the bottom panel.
+    pub(crate) machine: Option<String>,
+    /// The state, transition or input picked in the machine graph.
+    pub(crate) machine_pick: Option<motif_script::MachineItem>,
+    /// The machine playing on the canvas.
+    pub(crate) run: Option<crate::machine_ui::Run>,
+    pub(crate) graph: crate::machine_ui::Graph,
     pub(crate) undo: Vec<String>,
     redo: Vec<String>,
     last_checkpoint: (String, Instant),
@@ -181,6 +190,11 @@ impl App {
             last_anim: None,
             time: 0.0,
             playing: false,
+            bottom_machine: false,
+            machine: None,
+            machine_pick: None,
+            run: None,
+            graph: Default::default(),
             undo: Vec::new(),
             redo: Vec::new(),
             last_checkpoint: (String::new(), Instant::now()),
@@ -238,6 +252,7 @@ impl App {
                     self.sel_key = None;
                 }
                 self.prune_selection();
+                self.prune_machine();
             }
             Err(errors) => self.errors = errors,
         }
@@ -355,6 +370,7 @@ impl App {
     }
 
     pub(crate) fn select_anim(&mut self, name: String) {
+        self.run = None;
         if self.anim.as_deref() != Some(name.as_str()) {
             self.time = 0.0;
             self.sel_key = None;
@@ -384,9 +400,10 @@ impl App {
     }
 
     pub(crate) fn display_doc(&self) -> Document {
-        let mut doc = match self.current_anim() {
-            Some(a) => a.pose(&self.scene.doc, self.time),
-            None => self.scene.doc.clone(),
+        let mut doc = match (self.running(), self.current_anim()) {
+            (Some((m, player)), _) => player.pose(m, &self.scene.doc),
+            (None, Some(a)) => a.pose(&self.scene.doc, self.time),
+            (None, None) => self.scene.doc.clone(),
         };
         if let Some(e) = &self.point_edit
             && let Some(o) = &e.live
@@ -1831,13 +1848,13 @@ impl App {
                     ("P", "Перо; Enter — закончить, клик по первой точке — замкнуть"),
                     ("Enter", "Редактировать точки контура (или двойной клик)"),
                     ("Tab", "Переключить Design / Animate"),
-                    ("Пробел", "Play / Pause; удерживать + тянуть — панорама"),
+                    ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),
                     ("K", "Ключ на позицию, поворот и масштаб выделенного"),
                     (", .", "Кадр назад / вперёд"),
                     ("Shift", "Пропорции при масштабе, шаг 15° при повороте"),
                     ("Стрелки", "Сдвиг на 1, с Shift — на 10"),
                     ("Ctrl+Z", "Отменить; Ctrl+Shift+Z или Ctrl+Y — повторить"),
-                    ("Delete", "Удалить объект или выбранный ключ"),
+                    ("Delete", "Удалить объект, выбранный ключ или (курсор над графом машины) состояние и переход"),
                     ("Shift+клик", "Добавить к выделению; рамка по пустому месту — выделить"),
                     ("Ctrl+C, Ctrl+V", "Копировать и вставить; Ctrl+D — дублировать, Ctrl+A — всё"),
                     ("F", "Вписать артборд"),
@@ -1927,7 +1944,9 @@ impl App {
         let plain = |k: Key| i.modifiers == Modifiers::NONE && i.key_pressed(k);
         // Space: a tap toggles playback, holding it while dragging pans.
         if i.key_released(Key::Space) {
-            if !self.space_used_for_pan && self.anim.is_some() {
+            if !self.space_used_for_pan && self.bottom_machine {
+                self.toggle_run();
+            } else if !self.space_used_for_pan && self.anim.is_some() {
                 self.playing = !self.playing;
             }
             self.space_used_for_pan = false;
@@ -1975,8 +1994,12 @@ impl App {
                 self.tool = Tool::Select;
             }
         }
-        if (plain(Key::Delete) || plain(Key::Backspace)) && !self.delete_point() {
-            self.delete_selection();
+        if plain(Key::Delete) || plain(Key::Backspace) {
+            if self.bottom_machine && self.graph.hovered && self.machine_pick.is_some() {
+                self.delete_machine_pick();
+            } else if !self.delete_point() {
+                self.delete_selection();
+            }
         }
         if let Some(anim) = self.current_anim().cloned() {
             let step = 1.0 / FPS;
@@ -2153,7 +2176,10 @@ impl eframe::App for App {
             self.status = status;
         }
         self.shortcuts(&ctx);
-        if self.playing {
+        if self.run.is_some() {
+            self.advance_run(dt.min(0.1));
+            ctx.request_repaint();
+        } else if self.playing {
             self.time += dt.min(0.1) as f64;
             ctx.request_repaint();
         } else if self.path.is_some() {

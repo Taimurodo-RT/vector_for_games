@@ -7,6 +7,7 @@
     ["tools.html", "Инструменты и холст"],
     ["properties.html", "Панель свойств"],
     ["animation.html", "Анимация"],
+    ["machine.html", "Машина состояний"],
     ["script.html", "Скрипт сцены"],
     ["export.html", "Экспорт и программы"],
   ];

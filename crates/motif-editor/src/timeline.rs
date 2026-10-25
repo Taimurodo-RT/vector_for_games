@@ -2,6 +2,7 @@
 //! Laid out like the prototype: a 172 px names column and lanes with a ruler and a red playhead.
 
 use crate::app::{App, FPS, KeyRef};
+use crate::machine_ui::vsep;
 use crate::theme::{self, ACCENT, ButtonKind, DANGER, FAINT, FG, Icon, LINE, MUTED, PANEL, PANEL_2, RAISE, SEL};
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Align, Align2, Color32, Layout, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
@@ -107,9 +108,32 @@ impl App {
         ui.painter().line_segment([full.left_top(), full.right_top()], Stroke::new(1.0, LINE));
         let anim = self.shown_anim();
         let bar = Rect::from_min_size(full.min, vec2(full.width(), BAR_H));
-        self.timeline_bar(ui, bar, anim.as_ref());
+        {
+            let mut ui = ui.new_child(UiBuilder::new().max_rect(bar.shrink2(vec2(10.0, 0.0))).layout(Layout::left_to_right(Align::Center)));
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if let Some(i) = theme::segmented(&mut ui, &["Таймлайн", "Машина состояний"], usize::from(self.bottom_machine), false) {
+                self.bottom_machine = i == 1;
+                if self.bottom_machine {
+                    self.playing = false;
+                } else if self.run.take().is_some() {
+                    self.status = "Машина остановлена".into();
+                }
+            }
+            vsep(&mut ui);
+            if self.bottom_machine {
+                self.machine_bar(&mut ui);
+            } else {
+                self.timeline_bar(&mut ui, anim.as_ref());
+            }
+        }
         ui.painter().line_segment([bar.left_bottom(), bar.right_bottom()], Stroke::new(1.0, LINE));
         let body = Rect::from_min_max(pos2(full.left(), bar.bottom() + 1.0), full.max);
+        if self.bottom_machine {
+            self.machine_body(ui, body);
+            ui.allocate_rect(full, Sense::hover());
+            return;
+        }
+        self.graph.hovered = false;
         match anim {
             Some(a) => self.timeline_body(ui, body, &a),
             None => {
@@ -125,25 +149,8 @@ impl App {
         ui.allocate_rect(full, Sense::hover());
     }
 
-    fn timeline_bar(&mut self, ui: &mut Ui, bar: Rect, anim: Option<&Animation>) {
-        let mut ui = ui.new_child(UiBuilder::new().max_rect(bar.shrink2(vec2(10.0, 0.0))).layout(Layout::left_to_right(Align::Center)));
-        let ui = &mut ui;
-        ui.spacing_mut().item_spacing.x = 8.0;
-        ui.label(egui::RichText::new("ТАЙМЛАЙН").font(theme::semibold(11.0)).color(MUTED).extra_letter_spacing(0.9));
-        vsep(ui);
-
-        // Animation tabs.
-        let names: Vec<String> = self.scene.doc.animations.iter().map(|a| a.name.clone()).collect();
-        ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            for name in &names {
-                let on = self.anim.as_deref() == Some(name.as_str());
-                let shown = anim.is_some_and(|a| &a.name == name);
-                if tab(ui, name, on, shown).clicked() {
-                    self.select_anim(name.clone());
-                }
-            }
-        });
+    fn timeline_bar(&mut self, ui: &mut Ui, anim: Option<&Animation>) {
+        self.anim_picker(ui, anim);
         if theme::icon_button(ui, Icon::Plus, "Новая анимация").clicked() && self.errors.is_empty() {
             let (out, name) = add_anim(&self.src, &self.scene);
             if self.apply("anim", Some(out)) {
@@ -469,28 +476,64 @@ fn key_of<'a>(anim: &'a Animation, k: &KeyRef) -> Option<&'a motif_core::Keyfram
     anim.tracks.iter().find(|t| t.node == k.node && t.prop == k.prop)?.keys.iter().find(|key| (key.time - k.time).abs() < 0.005)
 }
 
-fn vsep(ui: &mut Ui) {
-    let (r, _) = ui.allocate_exact_size(vec2(1.0, 20.0), Sense::hover());
-    ui.painter().rect_filled(r, 0.0, LINE);
-}
-
-/// An animation tab: raised when it is the active one, outlined when Design shows it as a preview.
-fn tab(ui: &mut Ui, text: &str, on: bool, shown: bool) -> egui::Response {
-    let g = ui.painter().layout_no_wrap(text.to_string(), theme::ui_font(13.0), Color32::PLACEHOLDER);
-    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 20.0, 26.0), Sense::click());
-    let (bg, fg) = if on {
-        (RAISE, FG)
-    } else if resp.hovered() {
-        (PANEL_2, FG)
-    } else {
-        (Color32::TRANSPARENT, MUTED)
-    };
-    ui.painter().rect_filled(r, 5.0, bg);
-    if shown && !on {
-        ui.painter().rect_stroke(r, 5.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
+impl App {
+    /// The animation list: the states of the machine first (picking one opens its animation),
+    /// then every animation.
+    fn anim_picker(&mut self, ui: &mut Ui, anim: Option<&Animation>) {
+        let machine = self.shown_machine().cloned();
+        // The picked state when it plays the shown animation, otherwise the first state that does.
+        let plays = |s: &&motif_core::State| anim.is_some_and(|a| a.name == s.anim);
+        let state = machine.as_ref().and_then(|m| match self.machine_pick {
+            Some(motif_script::MachineItem::State(i)) if m.states.get(i).is_some_and(|s| plays(&s)) => m.states.get(i),
+            _ => m.states.iter().find(plays),
+        });
+        let text = match (anim, state) {
+            (Some(a), Some(s)) if s.name != a.name => format!("{} · {}", s.name, a.name),
+            (Some(a), _) => a.name.clone(),
+            (None, _) => "нет анимаций".into(),
+        };
+        let mut pick: Option<(String, Option<usize>)> = None;
+        let resp = egui::ComboBox::from_id_salt("anim-pick")
+            .width(170.0)
+            .height(420.0)
+            .selected_text(egui::RichText::new(text).color(if self.anim.is_some() { FG } else { MUTED }))
+            .show_ui(ui, |ui| {
+                if let Some(m) = &machine
+                    && !m.states.is_empty()
+                {
+                    ui.label(egui::RichText::new(format!("Состояния · {}", m.name)).size(11.0).color(FAINT));
+                    for (i, s) in m.states.iter().enumerate() {
+                        let on = state.is_some_and(|st| st.name == s.name);
+                        let mut job = LayoutJob::default();
+                        job.append(&s.name, 0.0, TextFormat { font_id: theme::ui_font(13.0), color: FG, ..Default::default() });
+                        if s.anim != s.name {
+                            job.append(&format!("  {}", s.anim), 0.0, TextFormat { font_id: theme::mono(11.0), color: MUTED, ..Default::default() });
+                        }
+                        if ui.selectable_label(on, job).clicked() {
+                            pick = Some((s.anim.clone(), Some(i)));
+                        }
+                    }
+                }
+                // Animations no state plays.
+                let used = |name: &str| machine.as_ref().is_some_and(|m| m.states.iter().any(|s| s.anim == name));
+                let rest: Vec<String> = self.scene.doc.animations.iter().map(|a| a.name.clone()).filter(|n| !used(n)).collect();
+                if !rest.is_empty() && machine.as_ref().is_some_and(|m| !m.states.is_empty()) {
+                    ui.separator();
+                    ui.label(egui::RichText::new("Другие анимации").size(11.0).color(FAINT));
+                }
+                for name in rest {
+                    let on = anim.is_some_and(|x| x.name == name);
+                    if ui.selectable_label(on, &name).clicked() {
+                        pick = Some((name, None));
+                    }
+                }
+            });
+        resp.response.on_hover_text("Какую анимацию править: состояние машины или любую анимацию");
+        if let Some((name, state)) = pick {
+            self.select_anim(name);
+            self.machine_pick = state.map(motif_script::MachineItem::State);
+        }
     }
-    ui.painter().galley(r.center() - g.size() / 2.0, g, fg);
-    resp.on_hover_text("Открыть анимацию в режиме Animate")
 }
 
 fn paint_ruler(p: &egui::Painter, ruler: Rect, s: Scale) {

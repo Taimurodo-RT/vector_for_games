@@ -7,6 +7,7 @@ mod canvas;
 mod guides;
 mod highlight;
 mod importer;
+mod machine_ui;
 mod paint;
 mod pathedit;
 mod pixabridge;

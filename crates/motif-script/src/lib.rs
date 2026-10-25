@@ -27,6 +27,7 @@ mod eval;
 mod expr;
 mod fonts;
 mod lexer;
+mod machine;
 mod parser;
 mod svg;
 mod symbol;
@@ -36,6 +37,7 @@ pub use edit::{
     Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,
     set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_light, set_path, set_prop, set_style,
 };
+pub use machine::{MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_machine, fmt_transition, free_name, make_entry};
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
 use std::fmt;
@@ -134,6 +136,23 @@ pub struct Scene {
     pub symbols: Vec<SymbolSite>,
     /// Every copy of a symbol (`use` line), by the id of its group.
     pub instances: HashMap<String, Instance>,
+    /// Where each `machine` block and its lines are written, by machine name.
+    pub machines: HashMap<String, MachineSite>,
+}
+
+/// Where a `machine` block is written. The line lists match the machine's inputs, states and
+/// transitions one to one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MachineSite {
+    /// From `machine` to the closing brace.
+    pub span: Span,
+    /// Offset of the closing brace.
+    pub close: usize,
+    pub inputs: Vec<Span>,
+    pub states: Vec<Span>,
+    pub transitions: Vec<Span>,
+    /// The `any at x y` line, when there is one.
+    pub any: Option<Span>,
 }
 
 /// A `symbol` block: a reusable piece with parameters.

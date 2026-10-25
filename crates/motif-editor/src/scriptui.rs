@@ -70,6 +70,19 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
+        "Машина состояний",
+        &[
+            ("machine Player {", "состояния, переходы, входы"),
+            ("  input speed 0 · input hover false · input jump trigger", "вход: число, флаг, триггер"),
+            ("  state Idle at 40 80", "состояние играет анимацию Idle"),
+            ("  state Walk anim Run", "или другую анимацию"),
+            ("  Idle -> Walk when speed > 0.5 blend 0.2s", "переход: условие и смешивание"),
+            ("  any -> Jump when jump · Jump -> Idle at end", "из любого; в конце анимации"),
+            ("  … when hover and not dead", "несколько условий; not — флаг выключен"),
+            ("}", "первое состояние — начальное"),
+        ],
+    ),
+    (
         "Кривые",
         &[
             ("linear · ease · ease-in · ease-out · ease-in-out", "базовые (по умолчанию ease-in-out)"),
