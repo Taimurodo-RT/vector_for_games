@@ -7,6 +7,9 @@
 
 ![Окно редактора: скрипт, холст, слои и таймлайн](docs/editor.png)
 
+Подробная документация со скриншотами лежит в [`docs/`](docs/index.html): откройте `docs/index.html` в браузере. В сборке для
+Windows она в папке `docs` рядом с программой, а в редакторе открывается кнопкой «?» → «Открыть документацию».
+
 ## Сборка и запуск
 
 Нужен Rust 1.95 или новее.
@@ -167,18 +170,26 @@ cargo run --release -p motif-cli -- check  examples/bounce.msc
 cargo run --release -p motif-cli -- render examples/bounce.msc -o ball.png --scale 2
 cargo run --release -p motif-cli -- frames examples/bounce.msc --anim Idle --fps 12 --width 120 --no-aa -o out/idle
 cargo run --release -p motif-cli -- palette examples/bounce.msc -o out/scene.pal
+cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --preset my.preset --no-aa -o out/idle_px
 ```
 
 ## Пикселизация: PixaTool
 
-У PixaTool нет командной строки, поэтому Motif готовит для неё файлы.
+Motif сам управляет PixaTool 1.58: запускает его вне экрана, загружает пресет, прогоняет кадры анимации и забирает
+результат. Файлы PixaTool не меняются, а запускается он со своим профилем, поэтому ручная копия не затрагивается.
 
-* **PixaTool.** `frames` складывает кадры `ИМЯ_0000.png…`, которые PixaTool обрабатывает пакетом. `palette` сохраняет цвета
-  сцены в JASC `.pal` (не больше 192 цветов, это предел PixaTool), чтобы пикселизация не придумывала лишних оттенков.
-* **Пакетная обработка.** PixaTool берёт список кадров и пишет в выбранную папку `ИМЯ_0000_processed.png…`.
-* **Pixel FX Designer** (частицы от того же автора) читает те же JASC `.pal`, так что палитра у сцены и эффектов может быть общей.
+* **В редакторе.** «Экспорт → PixaTool»: Pixatool.exe находится сам в папке `tools` рядом с Motif или выше (его можно
+  указать и вручную), пресет — файл из кнопки «Save Preset» в PixaTool. «Пикселизировать кадры…» пишет `ИМЯ_0000.png…`
+  в выбранную папку; ход работы виден в окне и в строке состояния. Пути запоминаются в `motif.ini` рядом с программой.
+* **Из командной строки.** `motif pixel сцена.msc --anim Idle --preset пиксель4.preset --no-aa -o out/idle`.
+  PixaTool ищется в `--pixatool`, в переменной `MOTIF_PIXATOOL` и в папке `tools`.
+* **Палитра.** `palette` сохраняет цвета сцены в JASC `.pal` (не больше 192 цветов, это предел PixaTool): её можно
+  загрузить в PixaTool и сохранить в пресет. **Pixel FX Designer** читает те же `.pal`.
 * **Превью в редакторе.** Кнопка «Пиксели» показывает сцену в целевом разрешении и палитре, поэтому размеры и толщину
-  линий удобно подбирать до экспорта. `--no-aa` и шаговое время (`--fps 12`) дают кадры, с которыми PixaTool проще работать.
+  линий удобно подбирать до экспорта.
+* Ручной путь тоже остаётся: `frames` складывает кадры, а «Batch Images» в PixaTool обрабатывает их пакетом.
+
+Проверка моста на настоящем PixaTool: `MOTIF_TEST_PIXATOOL=путь/к/Pixatool cargo test -p motif-pixel -p motif-editor`.
 
 ## Устройство
 
@@ -187,7 +198,7 @@ cargo run --release -p motif-cli -- palette examples/bounce.msc -o out/scene.pal
 | `motif-core` | Модель сцены: объекты, трансформации, цвета, анимации и кривые |
 | `motif-script` | Лексер, парсер и вычислитель `.msc`; запись визуальных правок обратно в текст |
 | `motif-render` | Список отрисовки, CPU-рендер (tiny-skia), сцена Vello (`gpu`) |
-| `motif-pixel` | Палитры JASC, квантование, рендер кадров анимации |
+| `motif-pixel` | Палитры JASC, квантование, рендер кадров анимации, управление PixaTool |
 | `motif-cli` | Команда `motif` |
 | `motif-editor` | Окно редактора (eframe/egui + Vello), шрифты IBM Plex (OFL) |
 

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Анимация — Motif</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<main><div class="content">
+
+<h1>Анимация</h1>
+<p class="lead">Анимация в Motif — это ключи: в момент времени свойство имеет такое-то значение, а между ключами значение плавно меняется по кривой. В одной сцене может быть сколько угодно анимаций, например Idle, Hover и Press.</p>
+
+<h2 id="modes">Design и Animate</h2>
+<figure><img src="img/animate.png" alt="Режим Animate: оранжевая рамка и ключи на таймлайне"><figcaption>Режим Animate: холст обведён оранжевым, в панели свойств рядом с полями появились ромбы ключей.</figcaption></figure>
+<ul>
+  <li><b>Design</b> — правки меняют саму сцену, то есть начальные значения.</li>
+  <li><b>Animate</b> — любая правка ставит ключ на текущем времени выбранной анимации и записывает его в блок <code>anim</code> скрипта. Переключается кнопкой сверху или клавишей <kbd>Tab</kbd>. Клик по таймлайну тоже включает Animate.</li>
+</ul>
+<p>Ромб рядом со свойством в панели показывает его состояние: пустой — свойство не анимируется, контур — анимируется, но на этом времени ключа нет, закрашенный — ключ стоит здесь. Клик по ромбу ставит или снимает ключ. <kbd>K</kbd> ставит ключи позиции, поворота и масштаба сразу.</p>
+
+<h2 id="timeline">Таймлайн</h2>
+<figure><img src="img/timeline.png" alt="Таймлайн с дорожками ключей"></figure>
+<ul>
+  <li><b>Вкладки анимаций</b> («Idle», «Hover») и «+» для новой.</li>
+  <li><b>⏮ и ▶</b> — в начало и пуск. Пробел тоже запускает и останавливает анимацию.</li>
+  <li><b>«Повтор»</b> — анимация зациклена (<code>loop</code> в скрипте).</li>
+  <li><b>«Калька»</b> — показывает соседние позы, см. ниже.</li>
+  <li><b>Время и кадр</b> — текущее положение. <kbd>,</kbd> и <kbd>.</kbd> шагают на кадр назад и вперёд.</li>
+  <li><b>«Длит.»</b> — длительность анимации в секундах.</li>
+  <li><b>«Кривая»</b> — кривая выбранного ключа и её миниатюра.</li>
+</ul>
+<p>Ниже идут дорожки: строка объекта со сводкой его ключей и под ней строки анимированных свойств. Клик по линейке или дорожке переводит время. Ключ можно выбрать кликом, перетащить на другое время или удалить клавишей <kbd>Delete</kbd>.</p>
+
+<h2 id="curves">Кривые</h2>
+<p>Кривая задаёт, как значение идёт от одного ключа к следующему: равномерно, с разгоном, с торможением, с перелётом или прыжками. Она хранится на ключе, с которого начинается отрезок.</p>
+<figure><img src="img/curve-editor.png" alt="Редактор кривой с библиотекой"><figcaption>Клик по миниатюре кривой открывает редактор: слева две ручки Безье, справа библиотека.</figcaption></figure>
+<ul>
+  <li><b>Ручки</b> тянутся мышью. Если поднять ручку выше рамки, получится перелёт (overshoot): значение проскочит цель и вернётся. В скрипте это <code>cubic 0.3 0 0.6 1.2</code>.</li>
+  <li><b>Библиотека</b> — все 30 кривых с easings.net (sine, quad, cubic, quart, quint, expo, circ, back, elastic, bounce в вариантах in, out и in-out) и <code>steps N</code> для покадровой, «дёрганой» анимации.</li>
+  <li><b>Базовые</b>: <code>linear</code>, <code>ease</code>, <code>ease-in</code>, <code>ease-out</code>, <code>ease-in-out</code> (по умолчанию), <code>hold</code> (значение держится до следующего ключа), <code>spring</code>.</li>
+</ul>
+
+<h2 id="onion">Калька</h2>
+<div class="side">
+  <figure><img src="img/onion.png" alt="Калька: соседние позы мяча и звезды"></figure>
+  <div>
+    <p>«Калька» (onion skin) на паузе показывает соседние позы полупрозрачными: красные — раньше по времени, зелёные — позже, через 6 кадров. По ним видно траекторию и ритм движения, не запуская анимацию.</p>
+  </div>
+</div>
+
+<h2 id="what">Что можно анимировать</h2>
+<div class="table-wrap"><table>
+  <tr><th>В панели</th><th>В скрипте</th></tr>
+  <tr><td>Позиция, размер</td><td><code>x y w h</code></td></tr>
+  <tr><td>Поворот, масштаб, наклон</td><td><code>rot sx sy kx ky</code></td></tr>
+  <tr><td>Прозрачность</td><td><code>opacity</code></td></tr>
+  <tr><td>Скругление, лучи, внутренний радиус</td><td><code>r points inner</code></td></tr>
+  <tr><td>Заливка, цвет и толщина обводки</td><td><code>fill stroke stroke_w</code></td></tr>
+  <tr><td>Текст: размер, интервал, появление, волна</td><td><code>font-size letter-spacing reveal wave phase</code></td></tr>
+  <tr><td>Эффекты: размытие, высота, тень</td><td><code>blur elevation shadow-x shadow-y shadow-blur</code></td></tr>
+</table></div>
+
+<h2 id="script">Как анимация выглядит в скрипте</h2>
+<pre><code><span class="k">anim</span> Hover <span class="n">1.4s</span> <span class="k">loop</span> {
+  button.elevation <span class="n">0</span>: <span class="n">4</span> <span class="p">ease-in-out-sine</span> | <span class="n">0.7</span>: <span class="n">14</span> <span class="p">ease-in-out-sine</span> | <span class="n">1.4</span>: <span class="n">4</span>
+  button.y         <span class="n">0</span>: <span class="n">205</span> | <span class="n">0.7</span>: <span class="n">199</span> | <span class="n">1.4</span>: <span class="n">205</span>
+  back.blur        <span class="n">0</span>: <span class="n">14</span> | <span class="n">0.7</span>: <span class="n">22</span> | <span class="n">1.4</span>: <span class="n">14</span>
+}</code></pre>
+<p>Одна строка — одно свойство: <code>объект.свойство время: значение [кривая] | время: значение …</code>. Кривая после значения действует до следующего ключа. Подробнее — в разделе <a href="script.html#anim">«Скрипт сцены»</a>.</p>
+
+<div class="note">
+  <p><b>Совет для интерфейса.</b> Делайте по анимации на каждое состояние кнопки (Idle, Hover, Press) и анимируйте «Высоту»: тень будет вести себя согласованно на всём экране, потому что свет у сцены общий.</p>
+</div>
+
+</div></main>
+</div>
+<script src="site.js"></script>
+</body>
+</html>

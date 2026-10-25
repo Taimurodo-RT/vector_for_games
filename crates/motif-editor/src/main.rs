@@ -9,6 +9,7 @@ mod highlight;
 mod importer;
 mod paint;
 mod pathedit;
+mod pixabridge;
 mod scriptui;
 mod selection;
 mod snap;
