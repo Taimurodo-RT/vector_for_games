@@ -62,6 +62,7 @@ impl<'a> Evaluator<'a> {
                 instances: HashMap::new(),
                 machines: HashMap::new(),
                 world: None,
+                weights: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -114,6 +115,12 @@ impl<'a> Evaluator<'a> {
             }
         }
         self.check_rig();
+        for s in stmts {
+            if let Stmt::Weights { node, node_span, strokes, span, close } = s {
+                self.note_block(span.start);
+                self.weights(node, *node_span, strokes, *span, *close);
+            }
+        }
         // The setup pose is the one skinned shapes were drawn in.
         self.scene.doc.bind_skins();
         self.scene.doc.rig();
@@ -342,6 +349,41 @@ impl<'a> Evaluator<'a> {
         self.scene.machines.insert(name.to_string(), site);
     }
 
+    /// Weight-brush strokes over a skinned shape.
+    fn weights(&mut self, node: &str, node_span: Span, strokes: &[crate::parser::StrokeAst], span: Span, close: usize) {
+        if self.scene.weights.contains_key(node) {
+            self.err(node_span, format!("веса «{node}» уже есть: пишите все мазки в один блок"));
+            return;
+        }
+        let Some(i) = self.scene.doc.index_of(node) else {
+            self.err(node_span, format!("нет объекта «{node}»"));
+            return;
+        };
+        if self.scene.doc.nodes[i].skin.is_none() {
+            self.err(node_span, format!("«{node}» не гнётся костями: сначала skin кость …"));
+            return;
+        }
+        let mut paint = Vec::new();
+        let mut errors = Vec::new();
+        for st in strokes {
+            let skin = self.scene.doc.nodes[i].skin.as_ref().unwrap();
+            if !skin.bones.contains(&st.bone) {
+                errors.push((st.bone_span, format!("кость «{}» не гнёт «{node}»: её нет в skin", st.bone)));
+            }
+            paint.push(motif_core::WeightStroke {
+                bone: st.bone.clone(),
+                radius: st.radius.max(0.1),
+                amount: st.amount.clamp(-1.0, 1.0),
+                points: st.points.iter().map(|&(x, y)| motif_core::kurbo::Point::new(x, y)).collect(),
+            });
+        }
+        for (s, m) in errors {
+            self.err(s, m);
+        }
+        self.scene.doc.nodes[i].skin.as_mut().unwrap().paint = paint;
+        self.scene.weights.insert(node.to_string(), crate::WeightsSite { span, close, strokes: strokes.iter().map(|s| s.span).collect() });
+    }
+
     fn note_block(&mut self, start: usize) {
         self.scene.blocks_start = Some(self.scene.blocks_start.map_or(start, |s| s.min(start)));
     }
@@ -474,9 +516,9 @@ impl<'a> Evaluator<'a> {
                         None => self.vars.remove(var),
                     };
                 }
-                Stmt::Anim { .. } | Stmt::Override { .. } | Stmt::Machine { .. } => {
+                Stmt::Anim { .. } | Stmt::Override { .. } | Stmt::Machine { .. } | Stmt::Weights { .. } => {
                     if parent.is_some() {
-                        self.err(Span::new(0, 0), "anim, machine и override пишутся на верхнем уровне");
+                        self.err(Span::new(0, 0), "anim, machine, weights и override пишутся на верхнем уровне");
                     }
                 }
             }

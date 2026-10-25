@@ -159,6 +159,8 @@ pub struct App {
     pub(crate) run: Option<crate::machine_ui::Run>,
     /// The pointer listener being put together in the machine panel: object, event, input.
     pub(crate) listen_draft: (String, motif_core::PointerEvent, String),
+    /// The weight brush of skinned shapes.
+    pub(crate) brush_w: crate::weights_ui::WeightBrush,
     pub(crate) graph: crate::machine_ui::Graph,
     pub(crate) undo: Vec<String>,
     redo: Vec<String>,
@@ -255,6 +257,7 @@ impl App {
             pen: Vec::new(),
             pen_dragging: false,
             point_edit: None,
+            brush_w: Default::default(),
             onion: false,
             sel_keys: Vec::new(),
             key_drag: None,
@@ -507,6 +510,12 @@ impl App {
             if let Some(i) = doc.index_of(node) {
                 doc.nodes[i].set(*prop, *value);
             }
+        }
+        // The weight stroke being drawn bends the shape at once.
+        if let Some((node, stroke)) = self.brush_w.live()
+            && let Some(skin) = doc.index_of(node).and_then(|i| doc.nodes[i].skin.as_mut())
+        {
+            skin.paint.push(stroke);
         }
         doc.rig();
         doc
@@ -1227,6 +1236,7 @@ impl App {
             let interface = self.scene.doc.purpose != Purpose::Game;
             if game {
                 self.bone_section(ui, &node);
+                self.weights_section(ui, &node);
                 self.physics_section(ui, &node);
             }
             if !node.kind.is_container() {
@@ -1564,6 +1574,8 @@ impl App {
                 && self.drag.is_none()
                 && if self.tool == Tool::Pen {
                     self.pen_input(ui, &resp, rect, view);
+                    true
+                } else if self.brush_w.on.is_some() && self.weight_paint_input(ui, &resp, rect, view, &doc) {
                     true
                 } else if self.point_edit.is_some() {
                     self.point_edit_input(ui, &resp, rect, view, &doc)
@@ -2211,6 +2223,8 @@ impl App {
         if plain(Key::Escape) {
             if !self.pen.is_empty() {
                 self.pen.clear();
+            } else if self.brush_w.on.is_some() {
+                self.brush_w.on = None;
             } else if self.point_edit.is_some() {
                 self.point_edit = None;
             } else {

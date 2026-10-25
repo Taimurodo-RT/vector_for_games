@@ -1,0 +1,31 @@
+// Веса костей кистью: две одинаковые ноги, у правой веса дорисованы.
+// Слева бедро и голень тянут колено вместе — оно мнётся, как резина.
+// Справа бедро и голень закрашены каждая своей костью, сгиб остаётся только в самом колене.
+artboard "Веса" 480x360 bg #1d2233
+
+let ink = #10131d
+
+rect floor "Пол" at 240 340 size 480 40 fill #283049
+text left at 150 40 content "Без весов" font-size 16 fill #8b93ad
+text right at 330 40 content "С весами" font-size 16 fill #8b93ad
+
+rect leg1 "Нога" at 150 160 size 40 160 r 18 fill #5ab0ff stroke ink 4 skin hip1 shin1 skin-sharp 1
+bone hip1 "Бедро" at 150 80 len 80 rot 90 {
+  bone shin1 "Голень" at 80 0 len 80
+}
+
+rect leg2 "Нога с весами" at 330 160 size 40 160 r 18 fill #ff7a59 stroke ink 4 skin hip2 shin2 skin-sharp 1
+bone hip2 "Бедро" at 330 80 len 80 rot 90 {
+  bone shin2 "Голень" at 80 0 len 80
+}
+
+anim Kick 1.6s loop {
+  shin1.rot 0: 0 | 0.8: -95 ease-in-out-back | 1.6: 0
+  shin2.rot 0: 0 | 0.8: -95 ease-in-out-back | 1.6: 0
+}
+
+// Мазки кисти: кость, радиус, сила (минус — стереть) и точки в координатах ноги.
+weights leg2 {
+  hip2 18 1 at -10 -78 -10 -32 10 -32 10 -78
+  shin2 18 1 at 10 78 10 32 -10 32 -10 78
+}

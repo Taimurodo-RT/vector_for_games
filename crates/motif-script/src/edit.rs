@@ -412,6 +412,14 @@ pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Spa
         let Some(site) = scene.machines.get(&m.name) else { continue };
         spans.extend(m.listeners.iter().zip(&site.listeners).filter(|(l, _)| ids.contains(&l.node.as_str())).map(|(_, s)| whole_lines(src, *s)));
     }
+    // Weights go with their shape, and strokes with their bone.
+    for (shape, w) in &scene.weights {
+        if ids.contains(&shape.as_str()) {
+            spans.push(whole_lines(src, w.span));
+        } else if let Some(skin) = doc.node(shape).and_then(|n| n.skin.as_ref()) {
+            spans.extend(skin.paint.iter().zip(&w.strokes).filter(|(st, _)| ids.contains(&st.bone.as_str())).map(|(_, s)| whole_lines(src, *s)));
+        }
+    }
     Some(spans)
 }
 
