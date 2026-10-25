@@ -88,7 +88,18 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         Prop::StrokeColor => format!("stroke {text} {}", fmt_num(stroke_width)),
         Prop::StrokeWidth => format!("stroke {stroke_color} {text}"),
         Prop::SkewX | Prop::SkewY => format!("skew {} {}", pick(Prop::SkewX), pick(Prop::SkewY)),
-        Prop::FontSize | Prop::LetterSpacing | Prop::Reveal | Prop::Wave | Prop::Phase | Prop::Blur | Prop::Elevation => {
+        Prop::FontSize
+        | Prop::LetterSpacing
+        | Prop::Reveal
+        | Prop::Wave
+        | Prop::Phase
+        | Prop::Blur
+        | Prop::Elevation
+        | Prop::Lat
+        | Prop::Lon
+        | Prop::Alt
+        | Prop::Yaw
+        | Prop::Pitch => {
             format!("{} {text}", prop.path_name())
         }
         Prop::ShadowX | Prop::ShadowY | Prop::ShadowBlur => {

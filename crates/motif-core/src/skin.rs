@@ -11,9 +11,11 @@ const PIECE: f64 = 6.0;
 const MAX_PIECES: usize = 64;
 
 impl Document {
-    /// Bends every `ik` chain to its target, then bends skinned shapes with their bones.
+    /// Places objects on balls, bends every `ik` chain to its target, then bends skinned shapes
+    /// with their bones and wrapped shapes over their balls.
     /// Animations call it after posing, the editor before drawing.
     pub fn rig(&mut self) {
+        self.place_orbits();
         self.solve_ik();
         self.skin_all();
     }
@@ -23,7 +25,7 @@ impl Document {
         for i in 0..self.nodes.len() {
             // Soft bodies get their outline from the simulation.
             if self.nodes[i].soft.is_none() {
-                self.nodes[i].deformed = self.deform(i);
+                self.nodes[i].deformed = self.deform(i).or_else(|| self.wrapped(i));
             }
         }
     }
@@ -138,7 +140,7 @@ impl Dual {
 }
 
 /// `path` cut into short cubic pieces, each point passed through `f`.
-fn bent(path: &BezPath, f: impl Fn(Point) -> Point) -> BezPath {
+pub(crate) fn bent(path: &BezPath, f: impl Fn(Point) -> Point) -> BezPath {
     let mut out = BezPath::new();
     let mut start = Point::ZERO;
     let mut last = Point::ZERO;

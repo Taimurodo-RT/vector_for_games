@@ -44,6 +44,11 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::ShadowY => "Тень Y",
         Prop::ShadowBlur => "Размытие тени",
         Prop::Elevation => "Высота",
+        Prop::Lat => "Широта",
+        Prop::Lon => "Долгота",
+        Prop::Alt => "Над шаром",
+        Prop::Yaw => "Поворот шара",
+        Prop::Pitch => "Наклон шара",
     }
 }
 

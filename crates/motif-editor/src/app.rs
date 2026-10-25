@@ -1212,6 +1212,7 @@ impl App {
             }
             changes.extend(fx_changes);
             diamonds.extend(fx_diamonds);
+            self.orbit_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();
                 job.wrap.max_width = ui.available_width();

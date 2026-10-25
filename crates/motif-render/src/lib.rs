@@ -180,10 +180,14 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         }
         if node.kind == motif_core::ShapeKind::Group {
             let mask = node.clip.then(|| doc.nodes.iter().position(|n| n.parent == Some(i))).flatten().and_then(|m| Some((m, doc.nodes[m].path()?)));
-            if mask.is_some() || node.blur > 0.0 {
-                open.push(Open { group: i, clip: mask.is_some(), blur: (node.blur > 0.0).then(|| (node.blur, Vec::new())) });
-                if let Some((m, path)) = mask {
-                    target(&mut ops, &mut open).push(Op::PushClip { path, transform: doc.world_transform(m), even_odd: false });
+            let clip = match mask {
+                Some((m, path)) => Some(Op::PushClip { path, transform: doc.world_transform(m), even_odd: false }),
+                None => ball_clip(doc, i),
+            };
+            if clip.is_some() || node.blur > 0.0 {
+                open.push(Open { group: i, clip: clip.is_some(), blur: (node.blur > 0.0).then(|| (node.blur, Vec::new())) });
+                if let Some(clip) = clip {
+                    target(&mut ops, &mut open).push(clip);
                 }
             }
             continue;
@@ -225,6 +229,10 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             }));
         }
         own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd }));
+        if let Some(clip) = ball_clip(doc, i) {
+            own.insert(0, clip);
+            own.push(Op::Pop);
+        }
         let out = target(&mut ops, &mut open);
         if node.blur > 0.0 {
             out.push(Op::Blur { ops: own, radius: node.blur });
@@ -236,6 +244,19 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         close(&mut ops, &mut open);
     }
     ops
+}
+
+/// The clip of an object on a ball (see `Document::place_orbits`): inside the ball for a shape
+/// lying on it, outside it for one gone round its back.
+fn ball_clip(doc: &Document, i: usize) -> Option<Op> {
+    let (s, inside) = doc.nodes[i].behind?;
+    let ball = doc.world_transform(s) * doc.nodes.get(s)?.path()?;
+    if inside {
+        return Some(Op::PushClip { path: ball, transform: Affine::IDENTITY, even_odd: false });
+    }
+    let mut path = motif_core::kurbo::Rect::new(-1e6, -1e6, 1e6, 1e6).to_path(0.1);
+    path.extend(ball);
+    Some(Op::PushClip { path, transform: Affine::IDENTITY, even_odd: true })
 }
 
 /// A shadow: the shape (and its stroke body) moved by the offset in the shadow colour, blurred

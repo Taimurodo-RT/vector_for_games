@@ -114,10 +114,17 @@ pub enum Prop {
     ShadowBlur,
     /// Height above the artboard: casts a shadow away from the scene light, longer and softer when higher.
     Elevation,
+    /// Place on a ball: latitude, longitude (degrees) and height above the surface.
+    Lat,
+    Lon,
+    Alt,
+    /// Turn of a ball, degrees.
+    Yaw,
+    Pitch,
 }
 
 impl Prop {
-    pub const ALL: [Prop; 26] = [
+    pub const ALL: [Prop; 31] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -144,6 +151,11 @@ impl Prop {
         Prop::ShadowY,
         Prop::ShadowBlur,
         Prop::Elevation,
+        Prop::Lat,
+        Prop::Lon,
+        Prop::Alt,
+        Prop::Yaw,
+        Prop::Pitch,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -175,6 +187,11 @@ impl Prop {
             Prop::ShadowY => "shadow-y",
             Prop::ShadowBlur => "shadow-blur",
             Prop::Elevation => "elevation",
+            Prop::Lat => "lat",
+            Prop::Lon => "lon",
+            Prop::Alt => "alt",
+            Prop::Yaw => "yaw",
+            Prop::Pitch => "pitch",
         }
     }
 
@@ -293,6 +310,18 @@ pub struct Node {
     pub squash: Option<crate::Squash>,
     /// Stretch set by the simulation for `squash`, in the parent's space about the pivot.
     pub warp: Option<Affine>,
+    /// Sits on this ball (a shape's id): `lat`, `lon` and `alt` place it, `wrap` lays it on
+    /// the surface.
+    pub on: Option<String>,
+    pub lat: f64,
+    pub lon: f64,
+    pub alt: f64,
+    pub wrap: bool,
+    /// As a ball: turn around the vertical axis and tip towards the viewer, in degrees.
+    pub yaw: f64,
+    pub pitch: f64,
+    /// Set by `place_orbits`: the ball this hides behind (`false`) or is clipped to (`true`).
+    pub behind: Option<(usize, bool)>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -426,6 +455,14 @@ impl Node {
             jiggle: None,
             squash: None,
             warp: None,
+            on: None,
+            lat: 0.0,
+            lon: 0.0,
+            alt: 0.0,
+            wrap: false,
+            yaw: 0.0,
+            pitch: 0.0,
+            behind: None,
         }
     }
 
@@ -462,6 +499,11 @@ impl Node {
             Prop::ShadowY => Value::Num(self.shadow.map_or(0.0, |s| s.dy)),
             Prop::ShadowBlur => Value::Num(self.shadow.map_or(0.0, |s| s.blur)),
             Prop::Elevation => Value::Num(self.elevation),
+            Prop::Lat => Value::Num(self.lat),
+            Prop::Lon => Value::Num(self.lon),
+            Prop::Alt => Value::Num(self.alt),
+            Prop::Yaw => Value::Num(self.yaw),
+            Prop::Pitch => Value::Num(self.pitch),
         }
     }
 
@@ -504,6 +546,11 @@ impl Node {
             Prop::ShadowY => self.shadow.get_or_insert(Shadow::DEFAULT).dy = v,
             Prop::ShadowBlur => self.shadow.get_or_insert(Shadow::DEFAULT).blur = v.max(0.0),
             Prop::Elevation => self.elevation = v.max(0.0),
+            Prop::Lat => self.lat = v,
+            Prop::Lon => self.lon = v,
+            Prop::Alt => self.alt = v,
+            Prop::Yaw => self.yaw = v,
+            Prop::Pitch => self.pitch = v,
             Prop::Fill | Prop::StrokeColor => unreachable!(),
         }
     }

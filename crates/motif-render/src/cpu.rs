@@ -211,6 +211,27 @@ mod tests {
     }
 
     #[test]
+    fn objects_behind_a_ball_are_hidden_by_it() {
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 60.0, height: 20.0, background: Color::WHITE });
+        let mut ball = Node::new("ball", ShapeKind::Ellipse);
+        (ball.x, ball.y, ball.width, ball.height, ball.yaw) = (30.0, 10.0, 20.0, 20.0, 180.0);
+        ball.fill = Some(Color::rgb(0, 0, 255));
+        // A wide bar sitting on the front of the ball, turned to the back by the ball's yaw.
+        let mut bar = Node::new("bar", ShapeKind::Rect);
+        (bar.width, bar.height) = (50.0, 6.0);
+        bar.on = Some("ball".into());
+        bar.fill = Some(Color::rgb(255, 0, 0));
+        doc.nodes = vec![ball, bar];
+        doc.rig();
+        assert_eq!(doc.nodes[1].behind, Some((0, false)));
+        let px = render_cpu(&doc, CpuOptions { scale: 1.0, antialias: false, background: true }).unwrap();
+        let at = |x, y| px.pixel(x, y).unwrap().demultiply();
+        // Over the ball the ball shows; beside it the bar does.
+        assert_eq!((at(30, 10).red(), at(30, 10).blue()), (0, 255));
+        assert_eq!((at(8, 10).red(), at(8, 10).blue()), (255, 0));
+    }
+
+    #[test]
     fn masks_and_gradients() {
         let mut doc = Document::new(Artboard { name: "t".into(), width: 40.0, height: 20.0, background: Color::WHITE });
         let mut g = Node::new("g", ShapeKind::Group);

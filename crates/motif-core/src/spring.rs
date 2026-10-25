@@ -35,8 +35,23 @@ impl Spring {
 
 /// Properties a `spring` moves: the ones that place and size a shape. Colours and opacity are
 /// left alone, since overshooting them flickers instead of bouncing.
-pub const SPRUNG: [Prop; 10] =
-    [Prop::X, Prop::Y, Prop::Width, Prop::Height, Prop::Rotation, Prop::ScaleX, Prop::ScaleY, Prop::SkewX, Prop::SkewY, Prop::Radius];
+pub const SPRUNG: [Prop; 15] = [
+    Prop::X,
+    Prop::Y,
+    Prop::Width,
+    Prop::Height,
+    Prop::Rotation,
+    Prop::ScaleX,
+    Prop::ScaleY,
+    Prop::SkewX,
+    Prop::SkewY,
+    Prop::Radius,
+    Prop::Lat,
+    Prop::Lon,
+    Prop::Alt,
+    Prop::Yaw,
+    Prop::Pitch,
+];
 
 /// One property of one node following its keyed value on a spring.
 #[derive(Clone, Debug, PartialEq)]

@@ -5,6 +5,7 @@ mod ease;
 mod ik;
 mod machine;
 mod model;
+mod orbit;
 mod sim;
 mod skin;
 mod soft;
