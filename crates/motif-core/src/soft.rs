@@ -31,6 +31,8 @@ impl Default for Soft {
 
 /// Distance between particles along the outline, in artboard units.
 const SPACING: f64 = 5.0;
+/// How strongly each step evens out kinks in the outline, 0..1.
+const SMOOTH: f64 = 0.5;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Body {
@@ -47,6 +49,10 @@ pub(crate) struct Body {
     local_center: Point,
     /// Rotation of the shape when the simulation started, radians.
     start_angle: f64,
+    /// Particles at the start of the current step.
+    old: Vec<Point>,
+    /// The direction of the solid edge each particle rests on this step, if any.
+    touch: Vec<Option<Vec2>>,
 }
 
 fn angle(a: Affine) -> f64 {
@@ -197,17 +203,18 @@ impl Body {
             local_center: w.inverse() * c,
             start_angle: angle(w),
             v: vec![Vec2::ZERO; count],
+            old: p.clone(),
+            touch: vec![None; count],
             p,
         })
     }
 
-    /// One step of `dt` seconds. `pose` is the document as the keys put it now.
-    fn step(&mut self, pose: &Document, walls: &[Wall], dt: f64) {
+    /// Moves the particles on by `dt` seconds and pulls them back into shape; collisions and
+    /// velocities come after, in [`step_bodies`].
+    fn solve(&mut self, pose: &Document, walls: &[Wall], rim: f64, dt: f64) {
         let s = self.soft;
         let n = self.p.len();
-        // A per-frame strength turned into a per-step one, so it does not depend on the step size.
-        let per_step = |k: f64| 1.0 - (1.0 - k.clamp(0.0, 1.0)).powf(dt * SIM_FPS);
-        let damp = 1.0 - per_step(s.damp);
+        let per_step = |k: f64| per_step(k, dt);
         let old = self.p.clone();
         let node = &pose.nodes[self.node];
         let pull = pose.world.pull(node, s.gravity);
@@ -239,8 +246,21 @@ impl Body {
             }
         }
         let stiff = per_step(s.stiff);
+        // Walls near the body: a part of the drawn shape that lies inside one is wanted at the
+        // wall's nearest edge instead, so the body flows round corners rather than hooking on them.
+        let size = self.rest.iter().map(|r| r.hypot()).fold(0.0, f64::max);
+        let reach = self.bounds().inflate(size, size);
+        let near: Vec<&Wall> = walls.iter().filter(|w| overlaps(reach, poly_bounds(&w.poly), w.margin + rim)).collect();
         for (q, r) in self.p.iter_mut().zip(&self.rest) {
-            let goal = center + rotate(*r, turn);
+            let mut goal = center + rotate(*r, turn);
+            for w in &near {
+                if inside(&w.poly, goal) {
+                    let (on, along) = nearest_edge(&w.poly, goal);
+                    let gap = (goal - on).hypot();
+                    let out = if gap > 1e-9 { (on - goal) / gap } else { Vec2::new(along.y, -along.x) };
+                    goal = on + out * (w.margin + rim);
+                }
+            }
             *q += (goal - *q) * stiff;
         }
         // Even spacing along the outline.
@@ -253,6 +273,21 @@ impl Body {
                 self.p[i] += fix;
                 self.p[j] -= fix;
             }
+        }
+        // A smooth outline: each particle keeps its drawn bend relative to its two neighbours,
+        // so a dent spreads into a round dimple instead of a kink, like surface tension.
+        let mut fix = vec![Vec2::ZERO; n];
+        for i in 0..n {
+            let (a, b) = ((i + n - 1) % n, (i + 1) % n);
+            let bend = self.rest[i] - (self.rest[a] + self.rest[b]) / 2.0;
+            let want = (self.p[a].midpoint(self.p[b])) + rotate(bend, turn);
+            let d = (want - self.p[i]) * (SMOOTH / 3.0);
+            fix[i] += d * 2.0;
+            fix[a] -= d;
+            fix[b] -= d;
+        }
+        for (q, f) in self.p.iter_mut().zip(&fix) {
+            *q += *f;
         }
         // Keep the area: move every particle along the gradient of the area.
         let grad: Vec<Vec2> = (0..n)
@@ -268,34 +303,233 @@ impl Body {
                 *q += *g * lambda;
             }
         }
-        // Solid shapes push particles out past their edge, strokes included.
-        let mut touch = vec![None; n];
-        let own = &pose.nodes[self.node];
-        let own = if own.stroke.is_some() { own.stroke_width / 2.0 } else { 0.0 };
+        self.old = old;
+    }
+
+    /// Half the stroke: the drawn edge, not the particles, is what touches other shapes.
+    fn rim(&self, pose: &Document) -> f64 {
+        let n = &pose.nodes[self.node];
+        if n.stroke.is_some() { n.stroke_width / 2.0 } else { 0.0 }
+    }
+
+    /// Solid shapes push the body out past their edge, strokes included: particles out of the
+    /// shapes, and the outline between particles off the shapes' corners.
+    fn hit_walls(&mut self, walls: &[Wall], rim: f64) {
+        let n = self.p.len();
+        let bounds = self.bounds();
         for wall in walls {
-            let margin = wall.margin + own;
-            for (i, q) in self.p.iter_mut().enumerate() {
-                let into = inside(&wall.poly, *q);
-                let (on, along) = nearest_edge(&wall.poly, *q);
-                let gap = (*q - on).hypot();
-                if !into && gap >= margin {
+            let margin = wall.margin + rim;
+            if !overlaps(bounds, poly_bounds(&wall.poly), margin) {
+                continue;
+            }
+            for i in 0..n {
+                let q = self.p[i];
+                let (on, out, along) = match crossing(&wall.poly, self.old[i], q) {
+                    // It went into the shape this step: back out the side it came in by, even when
+                    // the far side is nearer (a thin wall, a sharp tip).
+                    Some((on, along)) => {
+                        let mut out = Vec2::new(along.y, -along.x);
+                        if out.dot(self.old[i] - on) < 0.0 {
+                            out = -out;
+                        }
+                        (on, out, along)
+                    }
+                    None => {
+                        let into = inside(&wall.poly, q);
+                        let (on, along) = nearest_edge(&wall.poly, q);
+                        let gap = (q - on).hypot();
+                        if !into && gap >= margin {
+                            continue;
+                        }
+                        let out = if gap > 1e-9 { (if into { on - q } else { q - on }) / gap } else { Vec2::new(along.y, -along.x) };
+                        (on, out, along)
+                    }
+                };
+                self.p[i] = on + out * margin;
+                self.touch[i] = Some(along);
+            }
+            // Corners of the shape that poke into the outline between two particles.
+            for &w in &wall.poly {
+                if !bounds.inflate(margin, margin).contains(w) {
                     continue;
                 }
-                // Outward: away from the edge when outside, towards it when inside.
-                let out = if gap > 1e-9 { (if into { on - *q } else { *q - on }) / gap } else { Vec2::new(along.y, -along.x) };
-                *q = on + out * margin;
-                touch[i] = Some(along);
+                if let Some((i, t, push)) = self.dent(w, margin) {
+                    let j = (i + 1) % n;
+                    shift_edge(&mut self.p, i, t, push);
+                    // The particles beside the edge give way a little too, for a round dimple
+                    // instead of a notch.
+                    for (k, share) in [(1, 0.4), (2, 0.15)] {
+                        self.p[(i + n - k) % n] += push * share;
+                        self.p[(j + k) % n] += push * share;
+                    }
+                    let along = (self.p[j] - self.p[i]).normalize();
+                    self.touch[i] = Some(along);
+                    self.touch[j] = Some(along);
+                }
             }
         }
-        for i in 0..n {
-            let mut v = (self.p[i] - old[i]) / dt * damp;
-            if let Some(along) = touch[i] {
-                // Sliding is slowed by friction; pushing into the wall is already undone.
-                let t = along * v.dot(along);
-                v = t * (1.0 - s.friction.clamp(0.0, 1.0));
+    }
+
+    /// Where the outline must move so that point `w` ends up `margin` outside it: the edge
+    /// (from particle `i`), the place along it and the shift. None when `w` is clear already.
+    fn dent(&self, w: Point, margin: f64) -> Option<(usize, f64, Vec2)> {
+        let (i, t, c) = nearest_on_ring(&self.p, w);
+        let into = inside(&self.p, w);
+        let gap = (w - c).hypot();
+        if !into && gap >= margin {
+            return None;
+        }
+        // Into the body, from the point.
+        let deeper = if gap > 1e-9 {
+            (if into { w - c } else { c - w }) / gap
+        } else {
+            let d = self.p[(i + 1) % self.p.len()] - self.p[i];
+            let n = Vec2::new(-d.y, d.x).normalize();
+            if inside(&self.p, c + n * 0.01) { n } else { -n }
+        };
+        Some((i, t, w + deeper * margin - c))
+    }
+
+    fn bounds(&self) -> kurbo::Rect {
+        poly_bounds(&self.p)
+    }
+
+    /// Velocities from this step's motion; sliding along a solid shape is slowed by friction.
+    fn finish(&mut self, dt: f64) {
+        let s = self.soft;
+        let damp = 1.0 - per_step(s.damp, dt);
+        // Per frame, like the other strengths, so that more steps do not mean more grip.
+        let keep = 1.0 - per_step(s.friction, dt);
+        for i in 0..self.p.len() {
+            let mut v = (self.p[i] - self.old[i]) / dt * damp;
+            if let Some(along) = self.touch[i].take() {
+                // Pushing into the wall is already undone.
+                v = along * v.dot(along) * keep;
             }
             self.v[i] = v;
         }
+    }
+}
+
+/// A per-frame strength turned into a per-step one, so it does not depend on the step size.
+fn per_step(k: f64, dt: f64) -> f64 {
+    1.0 - (1.0 - k.clamp(0.0, 1.0)).powf(dt * SIM_FPS)
+}
+
+fn poly_bounds(p: &[Point]) -> kurbo::Rect {
+    p.iter().fold(kurbo::Rect::new(f64::MAX, f64::MAX, f64::MIN, f64::MIN), |r, q| r.union_pt(*q))
+}
+
+fn overlaps(a: kurbo::Rect, b: kurbo::Rect, margin: f64) -> bool {
+    a.x0 - margin <= b.x1 && b.x0 - margin <= a.x1 && a.y0 - margin <= b.y1 && b.y0 - margin <= a.y1
+}
+
+/// The first edge of `poly` that the move from `from` to `to` crosses going in, when `from` is
+/// outside: the crossing point and the edge's direction.
+fn crossing(poly: &[Point], from: Point, to: Point) -> Option<(Point, Vec2)> {
+    if (to - from).hypot2() < 1e-18 || inside(poly, from) {
+        return None;
+    }
+    let d = to - from;
+    let n = poly.len();
+    let mut best: Option<(f64, Point, Vec2)> = None;
+    for i in 0..n {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        let e = b - a;
+        let den = d.cross(e);
+        // Moves that only touch the edge, or start on it, do not count: a particle resting on a
+        // shape must stay free to slide along it.
+        if den.abs() < 1e-12 || (from - a).cross(e).abs() / e.hypot().max(1e-12) < 1e-6 {
+            continue;
+        }
+        let s = (a - from).cross(e) / den;
+        let u = (a - from).cross(d) / den;
+        if (0.0..=1.0).contains(&s) && (0.0..=1.0).contains(&u) && best.is_none_or(|b| s < b.0) {
+            best = Some((s, from + d * s, e.normalize()));
+        }
+    }
+    best.map(|(_, p, e)| (p, e))
+}
+
+/// The nearest point of the closed outline through `p` to `w`: the edge (from particle `i`),
+/// the place along it, and the point.
+fn nearest_on_ring(p: &[Point], w: Point) -> (usize, f64, Point) {
+    let n = p.len();
+    let mut best = (f64::MAX, 0, 0.0, p[0]);
+    for i in 0..n {
+        let (a, b) = (p[i], p[(i + 1) % n]);
+        let ab = b - a;
+        let t = if ab.hypot2() > 0.0 { ((w - a).dot(ab) / ab.hypot2()).clamp(0.0, 1.0) } else { 0.0 };
+        let q = a + ab * t;
+        let d = (w - q).hypot2();
+        if d < best.0 {
+            best = (d, i, t, q);
+        }
+    }
+    (best.1, best.2, best.3)
+}
+
+/// Moves the point at `t` along the edge from particle `i` by `by`, sharing the move between
+/// the edge's two particles by how near each one is.
+fn shift_edge(p: &mut [Point], i: usize, t: f64, by: Vec2) {
+    let j = (i + 1) % p.len();
+    let (a, b) = (1.0 - t, t);
+    let s = a * a + b * b;
+    p[i] += by * (a / s);
+    p[j] += by * (b / s);
+}
+
+/// Where two soft bodies touch: a particle of one against an edge of the other.
+struct Contact {
+    /// The body and particle that hit.
+    a: usize,
+    i: usize,
+    /// The body and edge it hit, and the place along it.
+    b: usize,
+    j: usize,
+    t: f64,
+}
+
+/// Keeps soft bodies out of each other: each body's outline acts as a wall for the others,
+/// and both sides give way by half.
+fn hit_each_other(bodies: &mut [Body], rims: &[f64], contacts: &mut Vec<Contact>) {
+    let bounds: Vec<kurbo::Rect> = bodies.iter().map(Body::bounds).collect();
+    for a in 0..bodies.len() {
+        for b in 0..bodies.len() {
+            let margin = rims[a] + rims[b];
+            if a == b || !overlaps(bounds[a], bounds[b], margin) {
+                continue;
+            }
+            for i in 0..bodies[a].p.len() {
+                let q = bodies[a].p[i];
+                if !bounds[b].inflate(margin, margin).contains(q) {
+                    continue;
+                }
+                let Some((j, t, push)) = bodies[b].dent(q, margin) else { continue };
+                bodies[a].p[i] -= push * 0.5;
+                shift_edge(&mut bodies[b].p, j, t, push * 0.5);
+                contacts.push(Contact { a, i, b, j, t });
+            }
+        }
+    }
+}
+
+/// Friction between soft bodies that touch: slows their sliding against each other.
+fn rub(bodies: &mut [Body], contacts: &[Contact], dt: f64) {
+    for c in contacts {
+        let n = bodies[c.b].p.len();
+        let k = (c.j + 1) % n;
+        let keep = 1.0 - per_step((bodies[c.a].soft.friction + bodies[c.b].soft.friction) / 2.0, dt);
+        let along = (bodies[c.b].p[k] - bodies[c.b].p[c.j]).normalize();
+        let edge_v = bodies[c.b].v[c.j] * (1.0 - c.t) + bodies[c.b].v[k] * c.t;
+        let slide = along * (bodies[c.a].v[c.i] - edge_v).dot(along);
+        // Each side takes half of the slowdown.
+        let fix = slide * ((1.0 - keep) * 0.5);
+        bodies[c.a].v[c.i] -= fix;
+        let (x, y) = (1.0 - c.t, c.t);
+        let s = x * x + y * y;
+        bodies[c.b].v[c.j] += fix * (x / s);
+        bodies[c.b].v[k] += fix * (y / s);
     }
 }
 
@@ -310,10 +544,23 @@ pub(crate) fn step_bodies(bodies: &mut [Body], pose: &Document, dt: f64, steps: 
         return;
     }
     let walls = solids(pose);
+    let rims: Vec<f64> = bodies.iter().map(|b| b.rim(pose)).collect();
+    let h = dt / steps as f64;
+    let mut contacts = Vec::new();
     for _ in 0..steps {
-        for b in bodies.iter_mut() {
-            b.step(pose, &walls, dt / steps as f64);
+        for (b, rim) in bodies.iter_mut().zip(&rims) {
+            b.solve(pose, &walls, *rim, h);
         }
+        contacts.clear();
+        hit_each_other(bodies, &rims, &mut contacts);
+        // Walls last, so that no body is left inside one.
+        for (b, rim) in bodies.iter_mut().zip(&rims) {
+            b.hit_walls(&walls, *rim);
+        }
+        for b in bodies.iter_mut() {
+            b.finish(h);
+        }
+        rub(bodies, &contacts, h);
     }
 }
 
@@ -399,5 +646,72 @@ mod tests {
         let b = bounds(&end, "ball");
         assert!((b.max_y() - 200.0).abs() < 2.0, "rests on the floor: {b:?}");
         assert!(b.height() > 30.0, "keeps most of its shape: {b:?}");
+    }
+
+    /// The drawn outline of `node` on the artboard, as a polygon.
+    fn outline(doc: &Document, node: &str) -> Vec<Point> {
+        let i = doc.index_of(node).unwrap();
+        let mut out = Vec::new();
+        kurbo::flatten(doc.world_transform(i) * doc.nodes[i].path().unwrap(), 0.1, |el| {
+            if let PathEl::MoveTo(p) | PathEl::LineTo(p) = el {
+                out.push(p);
+            }
+        });
+        out
+    }
+
+    fn ball(id: &str, x: f64, y: f64, size: f64) -> Node {
+        let mut b = Node::new(id, ShapeKind::Ellipse);
+        (b.x, b.y, b.width, b.height) = (x, y, size, size);
+        b.soft = Some(Soft { stiff: 0.3, gravity: 900.0, drive: 0.0, ..Soft::default() });
+        b
+    }
+
+    #[test]
+    fn a_sharp_tip_dents_the_body_instead_of_poking_through() {
+        let mut d = Document::new(Artboard::default());
+        let mut spike = Node::new("spike", ShapeKind::Polygon);
+        (spike.x, spike.y, spike.width, spike.height) = (200.0, 240.0, 80.0, 70.0);
+        spike.solid = true;
+        d.nodes = vec![ball("ball", 200.0, 120.0, 70.0), spike];
+        let a = Animation { name: "Fall".into(), duration: 1.0, looping: false, tracks: Vec::new() };
+        let mut cache = SimCache::default();
+        let tip = Point::new(200.0, 205.0);
+        let mut touched = false;
+        for k in 1..=30 {
+            let pose = a.pose_with(&d, k as f64 / 30.0, &mut cache);
+            let body = outline(&pose, "ball");
+            let wall = outline(&pose, "spike");
+            assert!((wall[0] - tip).hypot() < 1e-6, "{:?}", wall[0]);
+            let poke = if inside(&body, tip) { (tip - nearest_edge(&body, tip).0).hypot() } else { 0.0 };
+            assert!(poke < 0.5, "the tip pokes {poke} into the outline at frame {k}");
+            let deepest = body.iter().filter(|q| inside(&wall, **q)).map(|q| (*q - nearest_edge(&wall, *q).0).hypot()).fold(0.0, f64::max);
+            assert!(deepest < 0.5, "the outline is {deepest} deep in the spike at frame {k}");
+            touched |= body.iter().any(|q| (*q - tip).hypot() < 1.0);
+        }
+        assert!(touched, "the ball reached the tip");
+    }
+
+    #[test]
+    fn a_soft_body_falling_on_another_rolls_off_it() {
+        let mut d = Document::new(Artboard::default());
+        let mut floor = Node::new("floor", ShapeKind::Rect);
+        (floor.x, floor.y, floor.width, floor.height) = (200.0, 260.0, 400.0, 40.0);
+        floor.solid = true;
+        d.nodes = vec![ball("low", 200.0, 180.0, 60.0), ball("high", 205.0, 80.0, 60.0), floor];
+        let a = Animation { name: "Fall".into(), duration: 2.0, looping: false, tracks: Vec::new() };
+        let mut cache = SimCache::default();
+        for k in 1..=20 {
+            let pose = a.pose_with(&d, k as f64 / 10.0, &mut cache);
+            let (low, high) = (outline(&pose, "low"), outline(&pose, "high"));
+            let deep = |a: &[Point], b: &[Point]| a.iter().filter(|q| inside(b, **q)).map(|q| (*q - nearest_edge(b, *q).0).hypot()).fold(0.0, f64::max);
+            let overlap = deep(&low, &high).max(deep(&high, &low));
+            assert!(overlap < 1.0, "the balls overlap by {overlap} at {}s", k as f64 / 10.0);
+        }
+        let end = a.pose_with(&d, 2.0, &mut cache);
+        let (low, high) = (bounds(&end, "low"), bounds(&end, "high"));
+        // Both end up on the floor, side by side.
+        assert!((low.max_y() - 240.0).abs() < 2.0 && (high.max_y() - 240.0).abs() < 2.0, "{low:?} {high:?}");
+        assert!(high.min_x() > low.max_x() - 1.0, "{low:?} {high:?}");
     }
 }
