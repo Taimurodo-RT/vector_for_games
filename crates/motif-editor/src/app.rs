@@ -698,8 +698,14 @@ impl App {
                     theme::ui_font(13.0),
                     if sel { FG } else { FG.gamma_multiply(dim) },
                 );
-                if self.scene.sites.get(&n.id).is_some_and(|s| s.generated) {
-                    ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, "for", theme::mono(10.5), FAINT);
+                let is_mask = n.parent.is_some_and(|p| doc.nodes[p].clip && doc.nodes.iter().position(|c| c.parent == Some(p)) == Some(i));
+                let tag = match (is_mask, self.scene.sites.get(&n.id).is_some_and(|s| s.generated)) {
+                    (true, _) => Some(("маска", ACCENT)),
+                    (false, true) => Some(("for", FAINT)),
+                    _ => None,
+                };
+                if let Some((tag, color)) = tag {
+                    ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, tag, theme::mono(10.5), color);
                 }
                 if resp.on_hover_text(format!("id: {}", n.id)).clicked() {
                     clicked = Some(n.id.clone());
@@ -869,10 +875,14 @@ impl App {
                     }
                 });
             }
+            self.mask_ui(ui, &node);
             if node.kind != ShapeKind::Group {
                 section(ui, |ui| {
                     theme::caption(ui, "Заливка");
-                    self.paint_row(ui, &id, Prop::Fill, node.fill, &mut changes, &mut diamonds);
+                    if self.fill_kind_ui(ui, &node) {
+                        ui.add_space(6.0);
+                        self.paint_row(ui, &id, Prop::Fill, node.fill, &mut changes, &mut diamonds);
+                    }
                 });
                 section(ui, |ui| {
                     theme::caption(ui, "Обводка");

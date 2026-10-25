@@ -257,6 +257,54 @@ pub fn set_path(src: &str, scene: &Scene, node: &str, path: &BezPath) -> Option<
     })
 }
 
+/// The script text of a gradient property: `gradient linear 90 #a #b` or `gradient radial #a #b`.
+pub fn gradient_text(g: &motif_core::Gradient) -> String {
+    let mut out = String::from(if g.radial { "gradient radial" } else { "gradient linear " });
+    if !g.radial {
+        out.push_str(&fmt_num(g.angle));
+    }
+    for c in &g.colors {
+        out.push(' ');
+        out.push_str(&c.to_hex());
+    }
+    out
+}
+
+/// Returns the script with the gradient of `node` set, replaced or removed (`None`: back to the
+/// plain fill). `None` when the node comes from a loop.
+pub fn set_gradient(src: &str, scene: &Scene, node: &str, gradient: Option<&motif_core::Gradient>) -> Option<String> {
+    let site = scene.sites.get(node)?;
+    if site.generated {
+        return None;
+    }
+    let text = gradient.map(gradient_text);
+    Some(match (scene.gradient_sources.get(node), text) {
+        (Some(span), Some(t)) => splice(src, *span, &t),
+        (Some(span), None) => splice(src, with_space_before(src, *span), ""),
+        (None, Some(t)) => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {t}")),
+        (None, None) => src.to_string(),
+    })
+}
+
+/// Returns the script with the `clip` flag of group `node` turned on or off.
+pub fn set_clip(src: &str, scene: &Scene, node: &str, on: bool) -> Option<String> {
+    let site = scene.sites.get(node)?;
+    if site.generated || scene.doc.node(node)?.kind != ShapeKind::Group {
+        return None;
+    }
+    Some(match (scene.clip_sources.get(node), on) {
+        (Some(span), false) => splice(src, with_space_before(src, *span), ""),
+        (None, true) => splice(src, Span::new(site.insert_at, site.insert_at), " clip"),
+        _ => src.to_string(),
+    })
+}
+
+/// Widens `span` to take the spaces in front of it, so removing it leaves no double space.
+fn with_space_before(src: &str, span: Span) -> Span {
+    let start = src[..span.start].trim_end_matches([' ', '\t']).len();
+    Span::new(start, span.end)
+}
+
 /// Returns the script with a new path whose outline is given in artboard space, and its id.
 /// The node is placed at the outline's centre; closed outlines get a fill, open ones a stroke.
 pub fn add_path(src: &str, scene: &Scene, outline: &BezPath) -> (String, String) {

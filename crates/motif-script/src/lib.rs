@@ -24,8 +24,8 @@ mod lexer;
 mod parser;
 
 pub use edit::{
-    Snippet, add_anim, add_node, add_path, copy_nodes, delete_key, delete_node, fmt_value, move_key, paste_nodes, path_to_d, set_anim_duration, set_anim_loop,
-    set_key, set_key_ease, set_path, set_prop,
+    Snippet, add_anim, add_node, add_path, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d, set_anim_duration,
+    set_anim_loop, set_clip, set_gradient, set_key, set_key_ease, set_path, set_prop,
 };
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
@@ -114,6 +114,9 @@ pub struct Scene {
     pub override_entries: Vec<(String, Span)>,
     /// The quoted `d "…"` outline of each path node (not for nodes made by loops).
     pub path_sources: HashMap<String, Span>,
+    /// The whole `gradient …` and `clip` properties of each node, by node id (not for loop nodes).
+    pub gradient_sources: HashMap<String, Span>,
+    pub clip_sources: HashMap<String, Span>,
 }
 
 /// Where an `anim` block is written in the script.

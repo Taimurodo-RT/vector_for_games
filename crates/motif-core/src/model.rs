@@ -184,6 +184,37 @@ pub struct Node {
     pub stroke_width: f64,
     /// Outline of a `Path` node in local space (empty for other kinds).
     pub geometry: BezPath,
+    /// Gradient fill; when set it paints instead of `fill`.
+    pub gradient: Option<Gradient>,
+    /// Group only: the first child is a mask that clips the other children and is not drawn.
+    pub clip: bool,
+}
+
+/// A two-or-more colour gradient spread over the shape's bounds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gradient {
+    pub radial: bool,
+    /// Direction of a linear gradient in degrees: 0 left to right, 90 top to bottom.
+    pub angle: f64,
+    /// Colours evenly spaced from start to end.
+    pub colors: Vec<Color>,
+}
+
+impl Gradient {
+    /// Start and end points of a linear gradient across `bounds` (or centre and radius point
+    /// for a radial one), in the same space as `bounds`.
+    pub fn line(&self, bounds: kurbo::Rect) -> (Point, Point) {
+        let c = bounds.center();
+        if self.radial {
+            let r = bounds.width().max(bounds.height()) / 2.0;
+            return (c, c + Vec2::new(r, 0.0));
+        }
+        let a = self.angle.to_radians();
+        let d = Vec2::new(a.cos(), a.sin());
+        // Half the extent of the bounds along the direction, so the colours reach the corners.
+        let half = (bounds.width() * d.x.abs() + bounds.height() * d.y.abs()) / 2.0;
+        (c - d * half, c + d * half)
+    }
 }
 
 impl Node {
@@ -210,6 +241,8 @@ impl Node {
             stroke: None,
             stroke_width: 0.0,
             geometry: BezPath::new(),
+            gradient: None,
+            clip: false,
         }
     }
 

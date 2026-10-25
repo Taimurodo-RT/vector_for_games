@@ -33,6 +33,8 @@ impl<'a> Evaluator<'a> {
                 blocks_start: None,
                 override_entries: Vec::new(),
                 path_sources: HashMap::new(),
+                gradient_sources: HashMap::new(),
+                clip_sources: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -188,7 +190,12 @@ impl<'a> Evaluator<'a> {
             scene.sources.insert((id.clone(), prop), Source { span: v.span, editable: v.is_literal() && !generated, paired, from_override: false });
         };
         for p in &n.props {
-            let vals: Vec<Option<Value>> = if p.key == "d" { Vec::new() } else { p.values.iter().map(|v| self.value(v)).collect() };
+            let vals: Vec<Option<Value>> = match p.key.as_str() {
+                "d" => Vec::new(),
+                // The first value of a gradient is its kind word, not a name.
+                "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
+                _ => p.values.iter().map(|v| self.value(v)).collect(),
+            };
             let num = |i: usize| vals.get(i).copied().flatten().and_then(Value::as_num);
             let bad = |ev: &mut Self| ev.err(p.key_span, format!("неверное значение для «{}»", p.key));
             match p.key.as_str() {
@@ -248,6 +255,45 @@ impl<'a> Evaluator<'a> {
                     _ => bad(self),
                 },
                 "hidden" => node.visible = false,
+                "clip" => {
+                    if n.kind != ShapeKind::Group {
+                        self.err(p.key_span, "маска clip бывает только у group: первый объект группы обрезает остальные");
+                        continue;
+                    }
+                    node.clip = true;
+                    if !generated {
+                        self.scene.clip_sources.insert(id.clone(), p.key_span);
+                    }
+                }
+                "gradient" => {
+                    let radial = match &p.values[0].kind {
+                        ValueKind::Ref(k) if k == "linear" => false,
+                        ValueKind::Ref(k) if k == "radial" => true,
+                        _ => {
+                            self.err(p.values[0].span, "после gradient укажите linear или radial");
+                            continue;
+                        }
+                    };
+                    let mut angle = 0.0;
+                    let mut colors = Vec::new();
+                    let mut ok = true;
+                    for (i, v) in vals.iter().enumerate().skip(1) {
+                        match v {
+                            Some(Value::Num(a)) if i == 1 && !radial => angle = *a,
+                            Some(Value::Color(c)) => colors.push(*c),
+                            _ => ok = false,
+                        }
+                    }
+                    if !ok || colors.len() < 2 {
+                        self.err(p.key_span, "градиент: gradient linear 90 #цвет #цвет или gradient radial #цвет #цвет (от двух цветов)");
+                        continue;
+                    }
+                    node.gradient = Some(motif_core::Gradient { radial, angle, colors });
+                    if !generated {
+                        let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
+                        self.scene.gradient_sources.insert(id.clone(), Span::new(p.key_span.start, end));
+                    }
+                }
                 "d" => {
                     let ValueKind::Path(data) = &p.values[0].kind else { continue };
                     if n.kind != ShapeKind::Path {

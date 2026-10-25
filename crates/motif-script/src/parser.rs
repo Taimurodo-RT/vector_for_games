@@ -125,8 +125,9 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "at" => (2, 2),
         "size" | "scale" | "stroke" => (1, 2),
         "r" | "rot" | "opacity" | "points" | "inner" | "fill" => (1, 1),
-        "hidden" => (0, 0),
+        "hidden" | "clip" => (0, 0),
         "d" => (1, 1),
+        "gradient" => (2, 10),
         _ => return None,
     })
 }

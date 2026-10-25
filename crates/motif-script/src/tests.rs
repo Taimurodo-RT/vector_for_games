@@ -281,3 +281,32 @@ fn copy_and_paste_nodes() {
     // Nodes made by a loop are not copied on their own.
     assert!(copy_nodes(&s, EXAMPLE, &["coin1".to_string()]).is_empty());
 }
+
+#[test]
+fn gradients_and_masks() {
+    let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40 gradient linear 90 #ff0000 #0000ff\ngroup g clip {\n  ellipse m at 0 0 size 40\n  rect b at 0 0 size 60\n}\n";
+    let s = scene(src);
+    let g = s.doc.node("a").unwrap().gradient.clone().unwrap();
+    assert!(!g.radial);
+    assert_eq!(g.angle, 90.0);
+    assert_eq!(g.colors.len(), 2);
+    assert!(s.doc.node("g").unwrap().clip);
+    // Replace with radial, then remove; the line stays tidy.
+    let radial = motif_core::Gradient { radial: true, angle: 0.0, colors: g.colors.clone() };
+    let out = set_gradient(src, &s, "a", Some(&radial)).unwrap();
+    assert!(out.contains("rect a at 50 50 size 40 gradient radial #ff0000 #0000ff\n"), "{out}");
+    let out = set_gradient(&out, &scene(&out), "a", None).unwrap();
+    assert!(out.contains("rect a at 50 50 size 40\n"), "{out}");
+    let out = set_gradient(&out, &scene(&out), "a", Some(&g)).unwrap();
+    assert!(out.contains("size 40 gradient linear 90 #ff0000 #0000ff\n"), "{out}");
+    // Clip on and off.
+    let out = set_clip(src, &s, "g", false).unwrap();
+    assert!(out.contains("group g {"), "{out}");
+    let out = set_clip(&out, &scene(&out), "g", true).unwrap();
+    assert!(out.contains("group g clip {"), "{out}");
+    assert!(set_clip(src, &s, "a", true).is_none());
+    // Errors.
+    assert!(parse("rect a gradient linear #ff0000").is_err());
+    assert!(parse("rect a gradient spiral #ff0000 #00ff00").is_err());
+    assert!(parse("rect a clip").is_err());
+}
