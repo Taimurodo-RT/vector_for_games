@@ -10,6 +10,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
         "Сцена",
         &[
             ("artboard \"Меню\" 480x360 bg #fff4e4", "артборд: имя, размер, фон"),
+            ("backdrop \"эскиз.png\" at 0 0 scale 1 opacity 0.4", "подложка-референс, только в редакторе"),
             ("let ink = #1b1d24", "переменная: число или цвет"),
             ("// комментарий", "до конца строки"),
         ],
@@ -32,7 +33,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("rot 15 · scale 1.2 [0.8] · skew 10 [0]", "поворот, масштаб, наклон"),
             ("pivot 0 -20", "точка вращения (transform-origin)"),
             ("opacity 0.5 · hidden", "прозрачность, скрыть"),
-            ("fill #ff5a36 · fill none", "заливка"),
+            ("fill #ff5a36 · fill none · evenodd", "заливка; evenodd — дырки по чётности"),
             ("gradient linear 90 #a #b · gradient radial #a #b", "градиент"),
             ("stroke #000 2 · dash 6 4 · cap round · join round", "обводка, пунктир, концы, углы"),
             ("shadow 0 4 8 #00000066", "тень: сдвиг x y, размытие, цвет"),

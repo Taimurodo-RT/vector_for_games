@@ -13,11 +13,17 @@ pub struct Snap {
     pub size: f64,
     /// Rotation step in degrees; Shift always gives 15°.
     pub rotation: f64,
+    /// Smart guides: moved objects stick to the edges and centres of others and of the artboard.
+    pub guides: bool,
+    /// Grid lines over the artboard every `grid_size` units.
+    pub grid: bool,
+    pub grid_size: f64,
+    pub rulers: bool,
 }
 
 impl Default for Snap {
     fn default() -> Self {
-        Snap { free: false, moving: 1.0, size: 1.0, rotation: 1.0 }
+        Snap { free: false, moving: 1.0, size: 1.0, rotation: 1.0, guides: true, grid: false, grid_size: 16.0, rulers: true }
     }
 }
 
@@ -81,6 +87,23 @@ impl App {
                 RichText::new("Шаг действует на перетаскивание, ручки размера и поворота, стрелки. Shift при повороте — всегда 15°.").size(11.5).color(MUTED),
             );
             ui.label(RichText::new("В свободном режиме значения пишутся с точностью 0.1.").size(11.5).color(FAINT));
+            ui.separator();
+            ui.label(RichText::new("Направляющие").font(theme::semibold(13.0)).color(theme::FG));
+            ui.checkbox(&mut self.snap.guides, "Умные направляющие").on_hover_text("Края и центры прилипают к другим объектам и артборду. Alt — без них");
+            ui.checkbox(&mut self.snap.rulers, "Линейки");
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.snap.grid, "Сетка");
+                let out = theme::num_field(ui, 110.0, "шаг", self.snap.grid_size, 0.2, 1.0..=512.0, 0, theme::KeyState::Hidden);
+                if let Some(v) = out.changed {
+                    self.snap.grid_size = v.round().max(1.0);
+                }
+            });
+            if theme::button(ui, "Шаг сдвига и размера = сетка", theme::ButtonKind::Normal).on_hover_text("Объекты будут вставать на линии сетки").clicked()
+            {
+                (self.snap.free, self.snap.moving, self.snap.size) = (false, self.snap.grid_size, self.snap.grid_size);
+                self.snap.grid = true;
+            }
+            ui.label(RichText::new("G — показать или скрыть сетку.").size(11.5).color(FAINT));
         });
     }
 }

@@ -91,6 +91,12 @@ pub enum Stmt {
         name: String,
         value: ValueAst,
     },
+    /// `backdrop "ref.png" at 0 0 scale 1 opacity 0.5 hidden`: a reference picture for the editor.
+    Backdrop {
+        file: String,
+        props: Vec<PropAst>,
+        span: Span,
+    },
     Node(NodeAst),
     For {
         var: String,
@@ -129,7 +135,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "pivot" => (2, 2),
         "dash" => (1, 8),
         "shadow" => (3, 4),
-        "hidden" | "clip" => (0, 0),
+        "hidden" | "clip" | "evenodd" => (0, 0),
         "d" => (1, 1),
         "gradient" => (2, 10),
         _ => return None,
@@ -261,9 +267,10 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
-        let (word, span) = self.ident("команда: artboard, let, rect, ellipse, star, polygon, path, group, for, anim или override")?;
+        let (word, span) = self.ident("команда: artboard, backdrop, let, rect, ellipse, star, polygon, path, group, for, anim или override")?;
         match word.as_str() {
             "artboard" => self.artboard(),
+            "backdrop" => self.backdrop(span.start),
             "let" => {
                 let (name, _) = self.ident("имя переменной")?;
                 self.expect(Tok::Eq, "«=»")?;
@@ -333,6 +340,32 @@ impl<'a> Parser<'a> {
             props.push(PropAst { key, key_span, values: vec![self.value()?] });
         }
         Ok(Stmt::Artboard { name, width, height, props })
+    }
+
+    fn backdrop(&mut self, start: usize) -> Result<Stmt, ScriptError> {
+        let file = match self.next() {
+            Some(Token { tok: Tok::Str(s), .. }) => s,
+            Some(t) => return Err(self.err(t.span, "после backdrop нужен файл в кавычках, например backdrop \"эскиз.png\"")),
+            None => return Err(self.err(self.peek_span(), "после backdrop нужен файл в кавычках")),
+        };
+        let mut end = self.toks[self.pos - 1].span.end;
+        let mut props = Vec::new();
+        while !self.at_line_end() {
+            let (key, key_span) = self.ident("свойство подложки: at, scale, opacity или hidden")?;
+            let n = match key.as_str() {
+                "at" => 2,
+                "scale" | "opacity" => 1,
+                "hidden" => 0,
+                _ => return Err(self.err(key_span, format!("у подложки нет свойства «{key}»: at, scale, opacity, hidden"))),
+            };
+            let mut values = Vec::new();
+            for _ in 0..n {
+                values.push(self.value()?);
+            }
+            end = values.last().map_or(key_span.end, |v| v.span.end);
+            props.push(PropAst { key, key_span, values });
+        }
+        Ok(Stmt::Backdrop { file, props, span: Span::new(start, end) })
     }
 
     fn node(&mut self, kind: ShapeKind, start: usize) -> Result<Stmt, ScriptError> {

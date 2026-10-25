@@ -375,3 +375,51 @@ fn css_like_properties() {
         assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn backdrop_line() {
+    let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40\n";
+    let s = scene(src);
+    assert!(s.backdrop.is_none());
+    let mut b = crate::Backdrop { file: "ref.png".into(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.4, hidden: false, span: Span::new(0, 0) };
+    let out = set_backdrop(src, &s, Some(&b));
+    assert_eq!(out, "artboard \"M\" 200x200\nbackdrop \"ref.png\" opacity 0.4\nrect a at 50 50 size 40\n");
+    let s2 = scene(&out);
+    let got = s2.backdrop.clone().unwrap();
+    assert_eq!((got.file.as_str(), got.opacity, got.scale, got.hidden), ("ref.png", 0.4, 1.0, false));
+    (b.x, b.y, b.scale, b.hidden) = (10.0, -5.0, 0.5, true);
+    let out = set_backdrop(&out, &s2, Some(&b));
+    assert!(out.contains("backdrop \"ref.png\" at 10 -5 scale 0.5 opacity 0.4 hidden\nrect"), "{out}");
+    let s3 = scene(&out);
+    assert!(s3.backdrop.as_ref().unwrap().hidden);
+    assert_eq!(set_backdrop(&out, &s3, None), src);
+    for bad in ["backdrop ref.png", "backdrop \"a.png\" glow 1", "backdrop \"a.png\"\nbackdrop \"b.png\"", "group g {\n  backdrop \"a.png\"\n}"] {
+        assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn svg_import() {
+    let src = "artboard \"M\" 200x100\n";
+    let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100" viewBox="0 0 400 100">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs>
+      <rect id="bar" x="0" y="0" width="200" height="100" fill="url(#g)"/>
+      <g opacity="0.5" transform="translate(200 0)">
+        <path id="rect" d="M0 0 L200 0 L200 100 Z M50 20 L150 20 L150 80 Z" fill="#00ff00" fill-rule="evenodd" stroke="#000" stroke-width="4" stroke-linecap="butt"/>
+      </g>
+    </svg>"##;
+    let (out, id) = crate::import_svg(src, &scene(src), svg, "logo").unwrap();
+    assert_eq!(id, "logo");
+    let s = scene(&out);
+    let g = s.doc.node("logo").unwrap();
+    assert_eq!((g.x, g.y), (100.0, 50.0));
+    // Scaled to fit 90% of the artboard width: 400 -> 180.
+    let bar = s.doc.node("bar").unwrap();
+    assert!((bar.x + 45.0).abs() < 0.2 && bar.gradient.is_some(), "{out}");
+    // `rect` is a command, so the second shape gets a fresh id.
+    let shape = s.doc.node("shape1").unwrap();
+    assert!(shape.even_odd && (shape.opacity - 0.5).abs() < 1e-9 && shape.cap == motif_core::Cap::Butt, "{out}");
+    assert!((shape.stroke_width - 1.8).abs() < 1e-9, "{out}");
+    assert!(crate::import_svg(src, &s, b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "x").is_err());
+    assert!(crate::import_svg(src, &s, b"not svg", "x").is_err());
+}

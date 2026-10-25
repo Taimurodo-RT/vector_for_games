@@ -22,14 +22,16 @@ mod eval;
 mod expr;
 mod lexer;
 mod parser;
+mod svg;
 
 pub use edit::{
-    Snippet, add_anim, add_node, add_path, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d, set_anim_duration,
-    set_anim_loop, set_clip, set_gradient, set_key, set_key_ease, set_path, set_prop, set_style,
+    Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,
+    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_path, set_prop, set_style,
 };
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
 use std::fmt;
+pub use svg::import_svg;
 
 /// Byte range in the script text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -117,6 +119,23 @@ pub struct Scene {
     /// Each property as written on a node line, key and values (`shadow 0 4 8 #0006`), by node id
     /// and key. Not for nodes made by loops.
     pub prop_spans: HashMap<(String, String), Span>,
+    /// The reference picture under the artboard, when the script has a `backdrop` line.
+    pub backdrop: Option<Backdrop>,
+}
+
+/// A reference picture drawn under the shapes in the editor only: never exported.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Backdrop {
+    /// File name as written, relative to the script.
+    pub file: String,
+    /// Top-left corner on the artboard.
+    pub x: f64,
+    pub y: f64,
+    pub scale: f64,
+    pub opacity: f64,
+    pub hidden: bool,
+    /// The whole `backdrop …` line.
+    pub span: Span,
 }
 
 /// Where an `anim` block is written in the script.

@@ -197,6 +197,8 @@ pub struct Node {
     pub gradient: Option<Gradient>,
     /// Group only: the first child is a mask that clips the other children and is not drawn.
     pub clip: bool,
+    /// Fill with the even-odd rule, so overlapping parts of the outline become holes (SVG `fill-rule`).
+    pub even_odd: bool,
     /// Degrees.
     pub skew_x: f64,
     pub skew_y: f64,
@@ -265,6 +267,7 @@ impl Node {
             geometry: BezPath::new(),
             gradient: None,
             clip: false,
+            even_odd: false,
             skew_x: 0.0,
             skew_y: 0.0,
             pivot: Vec2::ZERO,

@@ -4,7 +4,9 @@
 
 mod app;
 mod canvas;
+mod guides;
 mod highlight;
+mod importer;
 mod paint;
 mod pathedit;
 mod scriptui;

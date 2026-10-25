@@ -5,7 +5,7 @@ use egui::{Color32, ColorImage, Rect, TextureHandle, TextureId, TextureOptions};
 use motif_core::Document;
 use motif_core::kurbo::{Affine, Vec2};
 use motif_render::vello::{self, AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
-use motif_render::{CpuOptions, render_cpu};
+use motif_render::{BackdropView, CpuOptions, render_cpu_with};
 
 /// Maps artboard units to points on screen.
 #[derive(Clone, Copy, Debug)]
@@ -61,7 +61,7 @@ impl Canvas {
     }
 
     /// Paints `doc` into `rect` and returns nothing; overlays are drawn by the caller afterwards.
-    pub fn paint(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, rect: Rect, view: View, doc: &Document) {
+    pub fn paint(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, rect: Rect, view: View, doc: &Document, backdrop: Option<BackdropView>) {
         if self.gpu.is_none()
             && self.gpu_failed.is_none()
             && let Some(rs) = frame.wgpu_render_state()
@@ -73,7 +73,7 @@ impl Canvas {
             }
         }
         if let (Some(gpu), Some(rs)) = (self.gpu.as_mut(), frame.wgpu_render_state()) {
-            match paint_gpu(gpu, rs, ui, rect, view, doc) {
+            match paint_gpu(gpu, rs, ui, rect, view, doc, backdrop) {
                 Ok(()) => return,
                 Err(e) => {
                     self.gpu = None;
@@ -81,16 +81,16 @@ impl Canvas {
                 }
             }
         }
-        self.paint_cpu(ui, rect, view, doc);
+        self.paint_cpu(ui, rect, view, doc, backdrop);
     }
 
-    fn paint_cpu(&mut self, ui: &mut egui::Ui, rect: Rect, view: View, doc: &Document) {
+    fn paint_cpu(&mut self, ui: &mut egui::Ui, rect: Rect, view: View, doc: &Document, backdrop: Option<BackdropView>) {
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, STAGE);
         let ppp = ui.ctx().pixels_per_point();
         // Cap the raster size so a huge zoom does not allocate gigabytes.
         let scale = (view.zoom * ppp).min(4096.0 / doc.artboard.width.max(doc.artboard.height) as f32) as f64;
-        let Some(px) = render_cpu(doc, CpuOptions { scale, antialias: true, background: true }) else { return };
+        let Some(px) = render_cpu_with(doc, CpuOptions { scale, antialias: true, background: true }, backdrop) else { return };
         let image = ColorImage::from_rgba_premultiplied([px.width() as usize, px.height() as usize], px.data());
         let tex = match &mut self.cpu {
             Some(t) => {
@@ -113,7 +113,15 @@ pub fn artboard_rect(canvas: Rect, view: View, doc: &Document) -> Rect {
     Rect::from_min_size(canvas.min + view.pan, egui::vec2(doc.artboard.width as f32, doc.artboard.height as f32) * view.zoom)
 }
 
-fn paint_gpu(gpu: &mut Gpu, rs: &egui_wgpu::RenderState, ui: &mut egui::Ui, rect: Rect, view: View, doc: &Document) -> Result<(), String> {
+fn paint_gpu(
+    gpu: &mut Gpu,
+    rs: &egui_wgpu::RenderState,
+    ui: &mut egui::Ui,
+    rect: Rect,
+    view: View,
+    doc: &Document,
+    backdrop: Option<BackdropView>,
+) -> Result<(), String> {
     let ppp = ui.ctx().pixels_per_point();
     let size = [((rect.width() * ppp).round() as u32).max(1), ((rect.height() * ppp).round() as u32).max(1)];
     let needs_new = gpu.texture.as_ref().is_none_or(|t| t.3 != size);
@@ -143,7 +151,7 @@ fn paint_gpu(gpu: &mut Gpu, rs: &egui_wgpu::RenderState, ui: &mut egui::Ui, rect
 
     let mut scene = vello::Scene::new();
     let to_px = Affine::scale(ppp as f64) * Affine::translate(Vec2::new(view.pan.x as f64, view.pan.y as f64)) * Affine::scale(view.zoom as f64);
-    motif_render::build_scene(&mut scene, doc, to_px);
+    motif_render::build_scene(&mut scene, doc, to_px, backdrop);
     let params = RenderParams {
         base_color: vello::peniko::Color::from_rgba8(STAGE.r(), STAGE.g(), STAGE.b(), 255),
         width: size[0],

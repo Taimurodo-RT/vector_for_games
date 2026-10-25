@@ -209,7 +209,7 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
 }
 
 /// Inserts a top-level declaration line before the first `anim`/`override` block.
-fn insert_declaration(src: &str, scene: &Scene, line: &str) -> String {
+pub(crate) fn insert_declaration(src: &str, scene: &Scene, line: &str) -> String {
     match scene.blocks_start {
         Some(at) => {
             let at = src[..at].rfind('\n').map_or(0, |i| i + 1);
@@ -498,4 +498,43 @@ pub fn paste_nodes(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64,
         block.push('\n');
     }
     (insert_declaration(src, scene, &block), roots)
+}
+
+/// The script line of a backdrop, leaving out values that are at their defaults.
+pub fn backdrop_text(b: &crate::Backdrop) -> String {
+    let mut out = format!("backdrop \"{}\"", b.file.replace('"', "'"));
+    if b.x != 0.0 || b.y != 0.0 {
+        out.push_str(&format!(" at {} {}", fmt_num(b.x), fmt_num(b.y)));
+    }
+    if b.scale != 1.0 {
+        out.push_str(&format!(" scale {}", crate::fmt_num_with(b.scale, 4)));
+    }
+    out.push_str(&format!(" opacity {}", fmt_num(b.opacity)));
+    if b.hidden {
+        out.push_str(" hidden");
+    }
+    out
+}
+
+/// Returns the script with its `backdrop` line replaced, added under the `artboard` line, or
+/// removed (`None`).
+pub fn set_backdrop(src: &str, scene: &Scene, backdrop: Option<&crate::Backdrop>) -> String {
+    match (&scene.backdrop, backdrop) {
+        (Some(old), Some(b)) => splice(src, old.span, &backdrop_text(b)),
+        (Some(old), None) => remove_spans(src, vec![whole_lines(src, old.span)]),
+        (None, Some(b)) => {
+            // Under the artboard line, or at the top when there is none.
+            let at = src
+                .match_indices("artboard")
+                .find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n')
+                .map_or(0, |(i, _)| src[i..].find('\n').map_or(src.len(), |n| i + n + 1));
+            let mut line = backdrop_text(b);
+            line.push('\n');
+            if at == src.len() && !src.is_empty() && !src.ends_with('\n') {
+                line.insert(0, '\n');
+            }
+            splice(src, Span::new(at, at), &line)
+        }
+        (None, None) => src.to_string(),
+    }
 }

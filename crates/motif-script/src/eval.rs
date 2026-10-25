@@ -1,7 +1,7 @@
 //! Expands the statement tree into a `Document` and records where each property value came from.
 
 use crate::parser::{NodeAst, Stmt, ValueAst, ValueKind};
-use crate::{AnimSite, KeySite, NodeSite, Scene, ScriptError, Source, Span, TrackSite};
+use crate::{AnimSite, Backdrop, KeySite, NodeSite, Scene, ScriptError, Source, Span, TrackSite};
 use motif_core::kurbo::Shape;
 use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, ShapeKind, Track, Value};
 use std::collections::HashMap;
@@ -34,6 +34,7 @@ impl<'a> Evaluator<'a> {
                 override_entries: Vec::new(),
                 path_sources: HashMap::new(),
                 prop_spans: HashMap::new(),
+                backdrop: None,
             },
             errors: Vec::new(),
         }
@@ -136,6 +137,34 @@ impl<'a> Evaluator<'a> {
                             Value::None => None,
                         };
                     }
+                }
+                Stmt::Backdrop { file, props, span } => {
+                    if parent.is_some() || self.scene.backdrop.is_some() {
+                        self.err(*span, "подложка одна на сцену и пишется на верхнем уровне");
+                        continue;
+                    }
+                    let mut b = Backdrop { file: file.clone(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.5, hidden: false, span: *span };
+                    for p in props {
+                        let nums: Vec<f64> = p
+                            .values
+                            .iter()
+                            .filter_map(|v| match self.value(v) {
+                                Some(Value::Num(n)) => Some(n),
+                                _ => None,
+                            })
+                            .collect();
+                        if nums.len() != p.values.len() {
+                            self.err(p.key_span, format!("«{}» у подложки ждёт числа", p.key));
+                            continue;
+                        }
+                        match p.key.as_str() {
+                            "at" => (b.x, b.y) = (nums[0], nums[1]),
+                            "scale" => b.scale = nums[0].max(0.001),
+                            "opacity" => b.opacity = nums[0].clamp(0.0, 1.0),
+                            _ => b.hidden = true,
+                        }
+                    }
+                    self.scene.backdrop = Some(b);
                 }
                 Stmt::Node(n) => self.node(n, parent, generated),
                 Stmt::For { var, from, to, body } => {
@@ -325,6 +354,7 @@ impl<'a> Evaluator<'a> {
                     _ => bad(self),
                 },
                 "hidden" => node.visible = false,
+                "evenodd" => node.even_odd = true,
                 "clip" => {
                     if n.kind != ShapeKind::Group {
                         self.err(p.key_span, "маска clip бывает только у group: первый объект группы обрезает остальные");
