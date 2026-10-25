@@ -134,6 +134,15 @@ pub enum Icon {
     Pause,
     First,
     Plus,
+    Pen,
+    AlignLeft,
+    AlignCenterX,
+    AlignRight,
+    AlignTop,
+    AlignCenterY,
+    AlignBottom,
+    SpreadX,
+    SpreadY,
 }
 
 /// Line icons drawn as vectors, so they never depend on font coverage.
@@ -196,6 +205,54 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
             painter.rect_filled(Rect::from_center_size(p(-4.5, 0.0), vec2(1.8 * s, 9.0 * s)), 0.0, color);
             painter.add(Shape::convex_polygon(vec![p(4.5, -4.5), p(4.5, 4.5), p(-2.5, 0.0)], color, Stroke::NONE));
         }
+        Icon::Pen => {
+            painter.add(Shape::closed_line(vec![p(-6.0, 6.5), p(-5.0, 2.0), p(2.5, -5.5), p(5.5, -2.5), p(-2.0, 5.0)], st));
+            painter.line_segment([p(1.0, -4.0), p(4.0, -1.0)], st);
+        }
+        Icon::AlignLeft | Icon::AlignCenterX | Icon::AlignRight => {
+            let x = match icon {
+                Icon::AlignLeft => -6.0,
+                Icon::AlignCenterX => 0.0,
+                _ => 6.0,
+            };
+            painter.line_segment([p(x, -7.0), p(x, 7.0)], st);
+            let (w1, w2) = (9.0, 5.0);
+            let left = |w: f32| match icon {
+                Icon::AlignLeft => -6.0,
+                Icon::AlignCenterX => -w / 2.0,
+                _ => 6.0 - w,
+            };
+            painter.rect_filled(Rect::from_min_size(p(left(w1), -4.5), vec2(w1 * s, 3.0 * s)), 0.5, color);
+            painter.rect_filled(Rect::from_min_size(p(left(w2), 1.5), vec2(w2 * s, 3.0 * s)), 0.5, color);
+        }
+        Icon::AlignTop | Icon::AlignCenterY | Icon::AlignBottom => {
+            let y = match icon {
+                Icon::AlignTop => -6.0,
+                Icon::AlignCenterY => 0.0,
+                _ => 6.0,
+            };
+            painter.line_segment([p(-7.0, y), p(7.0, y)], st);
+            let (h1, h2) = (9.0, 5.0);
+            let top = |h: f32| match icon {
+                Icon::AlignTop => -6.0,
+                Icon::AlignCenterY => -h / 2.0,
+                _ => 6.0 - h,
+            };
+            painter.rect_filled(Rect::from_min_size(p(-4.5, top(h1)), vec2(3.0 * s, h1 * s)), 0.5, color);
+            painter.rect_filled(Rect::from_min_size(p(1.5, top(h2)), vec2(3.0 * s, h2 * s)), 0.5, color);
+        }
+        Icon::SpreadX => {
+            for x in [-6.5, 6.5] {
+                painter.line_segment([p(x, -7.0), p(x, 7.0)], st);
+            }
+            painter.rect_filled(Rect::from_center_size(c, vec2(3.0 * s, 8.0 * s)), 0.5, color);
+        }
+        Icon::SpreadY => {
+            for y in [-6.5, 6.5] {
+                painter.line_segment([p(-7.0, y), p(7.0, y)], st);
+            }
+            painter.rect_filled(Rect::from_center_size(c, vec2(8.0 * s, 3.0 * s)), 0.5, color);
+        }
         Icon::Plus => {
             painter.line_segment([p(-5.0, 0.0), p(5.0, 0.0)], st);
             painter.line_segment([p(0.0, -5.0), p(0.0, 5.0)], st);
@@ -211,6 +268,7 @@ pub fn shape_icon(kind: motif_core::ShapeKind) -> Icon {
         Ellipse => Icon::Ellipse,
         Star => Icon::Star,
         Polygon => Icon::Polygon,
+        Path => Icon::Pen,
     }
 }
 

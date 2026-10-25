@@ -42,6 +42,7 @@ fn ease_label(e: Ease) -> &'static str {
         Ease::EaseInOut => "Ease In-Out",
         Ease::Hold => "Hold",
         Ease::Spring => "Spring",
+        Ease::Cubic(_) => "Своя",
     }
 }
 
@@ -154,6 +155,15 @@ impl App {
             self.apply("loop", out);
         }
 
+        let onion_kind = if self.onion { ButtonKind::On } else { ButtonKind::Normal };
+        if theme::button(ui, "Калька", onion_kind).on_hover_text("Onion skin: соседние позы на паузе — красные раньше, зелёные позже (по 6 кадров)").clicked()
+        {
+            self.onion = !self.onion;
+            if self.anim.is_none() {
+                self.ensure_anim(&anim.name);
+            }
+        }
+
         // Timecode: 0.42 / 1.20 с · кадр 25
         let t = if self.anim.is_some() { anim.local_time(self.time) } else { 0.0 };
         let mut job = LayoutJob::default();
@@ -196,16 +206,21 @@ impl App {
                 })
                 .response
                 .on_disabled_hover_text("Выберите ключ на таймлайне");
+            let resp = ease_preview(ui, cur).on_hover_text("Редактор кривой: тяните ручки");
+            egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                if let Some(e) = curve_editor(ui, cur.unwrap_or(Ease::EaseInOut)) {
+                    pick = Some(e);
+                }
+            });
             if let (Some(e), Some(k)) = (pick, &sel)
                 && Some(e) != cur
             {
-                let out = set_key_ease(&self.src, &self.scene, &anim.name, &k.node, k.prop, k.time, e.keyword());
+                let out = set_key_ease(&self.src, &self.scene, &anim.name, &k.node, k.prop, k.time, &e.script());
                 if self.apply("ease", out) {
-                    self.status = format!("Кривая ключа {}.{} на {} с: {}", k.node, k.prop.path_name(), fmt_num(k.time), ease_label(e));
+                    self.status = format!("Кривая ключа {}.{} на {} с: {}", k.node, k.prop.path_name(), fmt_num(k.time), e.script());
                 }
             }
         });
-        ease_preview(ui, cur);
     }
 
     fn timeline_body(&mut self, ui: &mut Ui, body: Rect, anim: &Animation) {
@@ -488,11 +503,18 @@ fn paint_ruler(p: &egui::Painter, ruler: Rect, s: Scale) {
     }
 }
 
-/// Small curve preview next to the ease picker.
-fn ease_preview(ui: &mut Ui, ease: Option<Ease>) {
-    let (r, _) = ui.allocate_exact_size(vec2(34.0, 24.0), Sense::hover());
+/// Small curve preview next to the ease picker; a click opens the curve editor.
+fn ease_preview(ui: &mut Ui, ease: Option<Ease>) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(34.0, 24.0), Sense::click());
     let p = ui.painter();
-    p.rect_stroke(r, 4.0, Stroke::new(1.0, if ease.is_some() { Color32::from_rgb(0x3a, 0x41, 0x52) } else { LINE }), StrokeKind::Inside);
+    let border = if resp.hovered() {
+        ACCENT
+    } else if ease.is_some() {
+        Color32::from_rgb(0x3a, 0x41, 0x52)
+    } else {
+        LINE
+    };
+    p.rect_stroke(r, 4.0, Stroke::new(1.0, border), StrokeKind::Inside);
     let e = ease.unwrap_or(Ease::EaseInOut);
     let pts: Vec<Pos2> = (0..=24)
         .map(|i| {
@@ -502,4 +524,61 @@ fn ease_preview(ui: &mut Ui, ease: Option<Ease>) {
         })
         .collect();
     p.add(Shape::line(pts, Stroke::new(1.5, if ease.is_some() { ACCENT } else { FAINT })));
+    resp
+}
+
+/// A 1×1 graph of the curve with two draggable Bézier handles, and the presets.
+/// Returns the new curve when the user changes it.
+fn curve_editor(ui: &mut Ui, ease: Ease) -> Option<Ease> {
+    let mut out = None;
+    ui.set_max_width(240.0);
+    ui.label(egui::RichText::new("Кривая ключа").font(theme::semibold(13.0)).color(FG));
+    ui.label(egui::RichText::new("Время вправо, значение вверх. Ручки можно тянуть выше и ниже рамки — будет перелёт.").size(11.5).color(MUTED));
+    ui.add_space(4.0);
+    let (r, _) = ui.allocate_exact_size(vec2(240.0, 240.0), Sense::hover());
+    // The unit square sits in the middle; space above and below is for overshoot.
+    let sq = Rect::from_min_size(r.min + vec2(30.0, 60.0), vec2(180.0, 120.0));
+    let to = |x: f64, y: f64| pos2(sq.left() + x as f32 * sq.width(), sq.bottom() - y as f32 * sq.height());
+    let from = |p: Pos2| (((p.x - sq.left()) / sq.width()) as f64, ((sq.bottom() - p.y) / sq.height()) as f64);
+    let painter = ui.painter_at(r);
+    painter.rect_filled(r, 6.0, theme::BG);
+    for i in 0..=4 {
+        let f = i as f32 / 4.0;
+        let c = if i == 0 || i == 4 { LINE } else { theme::mix(LINE, theme::BG, 0.5) };
+        painter.line_segment([pos2(sq.left() + f * sq.width(), r.top()), pos2(sq.left() + f * sq.width(), r.bottom())], Stroke::new(1.0, c));
+        painter.line_segment([pos2(r.left(), sq.bottom() - f * sq.height()), pos2(r.right(), sq.bottom() - f * sq.height())], Stroke::new(1.0, c));
+    }
+    let pts: Vec<Pos2> = (0..=64).map(|i| i as f64 / 64.0).map(|u| to(u, ease.apply(u))).collect();
+    painter.add(Shape::line(pts, Stroke::new(2.0, ACCENT)));
+    // Presets without handles (Hold, Spring) start from Ease In-Out once a handle is dragged.
+    let mut h = ease.handles().unwrap_or([0.65, 0.0, 0.35, 1.0]);
+    let ends = [to(0.0, 0.0), to(1.0, 1.0)];
+    for k in 0..2 {
+        let at = to(h[k * 2], h[k * 2 + 1]);
+        let resp = ui.interact(Rect::from_center_size(at, vec2(16.0, 16.0)), ui.scope_id().with(("handle", k)), Sense::drag());
+        if ease.handles().is_some() {
+            painter.line_segment([ends[k], at], Stroke::new(1.0, MUTED));
+            painter.circle(at, 5.0, if resp.hovered() || resp.dragged() { ACCENT } else { FG }, Stroke::new(1.5, theme::BG));
+        }
+        if resp.dragged()
+            && let Some(p) = resp.interact_pointer_pos()
+        {
+            let (x, y) = from(p);
+            h[k * 2] = (x.clamp(0.0, 1.0) * 100.0).round() / 100.0;
+            h[k * 2 + 1] = (y.clamp(-0.5, 1.5) * 100.0).round() / 100.0;
+            out = Some(Ease::Cubic(h));
+        }
+    }
+    ui.add_space(4.0);
+    ui.label(egui::RichText::new(ease.script()).font(theme::mono(11.5)).color(FAINT));
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+        for e in Ease::ALL {
+            let kind = if e == ease { ButtonKind::On } else { ButtonKind::Normal };
+            if theme::button(ui, ease_label(e), kind).clicked() {
+                out = Some(e);
+            }
+        }
+    });
+    out
 }

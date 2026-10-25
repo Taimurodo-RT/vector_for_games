@@ -31,6 +31,8 @@ pub enum ShapeKind {
     Ellipse,
     Star,
     Polygon,
+    /// Free-form outline drawn with the pen: `path id at x y d "M 0 0 C …"`.
+    Path,
 }
 
 impl ShapeKind {
@@ -41,6 +43,7 @@ impl ShapeKind {
             ShapeKind::Ellipse => "ellipse",
             ShapeKind::Star => "star",
             ShapeKind::Polygon => "polygon",
+            ShapeKind::Path => "path",
         }
     }
 
@@ -51,6 +54,7 @@ impl ShapeKind {
             "ellipse" => ShapeKind::Ellipse,
             "star" => ShapeKind::Star,
             "polygon" => ShapeKind::Polygon,
+            "path" => ShapeKind::Path,
             _ => return None,
         })
     }
@@ -178,6 +182,39 @@ pub struct Node {
     pub fill: Option<Color>,
     pub stroke: Option<Color>,
     pub stroke_width: f64,
+    /// Outline of a `Path` node in local space (empty for other kinds).
+    pub geometry: BezPath,
+    /// Gradient fill; when set it paints instead of `fill`.
+    pub gradient: Option<Gradient>,
+    /// Group only: the first child is a mask that clips the other children and is not drawn.
+    pub clip: bool,
+}
+
+/// A two-or-more colour gradient spread over the shape's bounds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gradient {
+    pub radial: bool,
+    /// Direction of a linear gradient in degrees: 0 left to right, 90 top to bottom.
+    pub angle: f64,
+    /// Colours evenly spaced from start to end.
+    pub colors: Vec<Color>,
+}
+
+impl Gradient {
+    /// Start and end points of a linear gradient across `bounds` (or centre and radius point
+    /// for a radial one), in the same space as `bounds`.
+    pub fn line(&self, bounds: kurbo::Rect) -> (Point, Point) {
+        let c = bounds.center();
+        if self.radial {
+            let r = bounds.width().max(bounds.height()) / 2.0;
+            return (c, c + Vec2::new(r, 0.0));
+        }
+        let a = self.angle.to_radians();
+        let d = Vec2::new(a.cos(), a.sin());
+        // Half the extent of the bounds along the direction, so the colours reach the corners.
+        let half = (bounds.width() * d.x.abs() + bounds.height() * d.y.abs()) / 2.0;
+        (c - d * half, c + d * half)
+    }
 }
 
 impl Node {
@@ -203,6 +240,9 @@ impl Node {
             fill: if kind == ShapeKind::Group { None } else { Some(Color::rgb(0xcc, 0xcc, 0xcc)) },
             stroke: None,
             stroke_width: 0.0,
+            geometry: BezPath::new(),
+            gradient: None,
+            clip: false,
         }
     }
 
@@ -280,6 +320,7 @@ impl Node {
             ShapeKind::Ellipse => Ellipse::from_rect(rect).to_path(0.1),
             ShapeKind::Star => star_path(w, h, self.points.round().max(3.0) as usize, self.inner.clamp(0.05, 1.0)),
             ShapeKind::Polygon => polygon_path(w, h, self.points.round().max(3.0) as usize),
+            ShapeKind::Path => self.geometry.clone(),
         })
     }
 }
@@ -368,7 +409,7 @@ fn near_outline(path: &BezPath, p: Point, width: f64) -> bool {
     path.segments().any(|seg| seg.nearest(p, 0.1).distance_sq <= (width / 2.0).powi(2))
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Ease {
     Linear,
     EaseIn,
@@ -376,6 +417,8 @@ pub enum Ease {
     EaseInOut,
     Hold,
     Spring,
+    /// A custom curve like CSS `cubic-bezier(x1, y1, x2, y2)`: handles from (0,0) and to (1,1).
+    Cubic([f64; 4]),
 }
 
 impl Ease {
@@ -389,7 +432,28 @@ impl Ease {
             Ease::EaseInOut => "ease-in-out",
             Ease::Hold => "hold",
             Ease::Spring => "spring",
+            Ease::Cubic(_) => "cubic",
         }
+    }
+
+    /// How the curve is written after a key: the keyword, plus the four handle numbers of `cubic`.
+    pub fn script(self) -> String {
+        match self {
+            Ease::Cubic(c) => format!("cubic {}", c.map(|v| format!("{}", (v * 100.0).round() / 100.0)).join(" ")),
+            e => e.keyword().to_string(),
+        }
+    }
+
+    /// The handles of the curve as a cubic Bézier, where a preset has one (Hold and Spring do not).
+    pub fn handles(self) -> Option<[f64; 4]> {
+        Some(match self {
+            Ease::Linear => [0.0, 0.0, 1.0, 1.0],
+            Ease::EaseIn => [0.32, 0.0, 0.67, 0.0],
+            Ease::EaseOut => [0.33, 1.0, 0.68, 1.0],
+            Ease::EaseInOut => [0.65, 0.0, 0.35, 1.0],
+            Ease::Cubic(c) => c,
+            Ease::Hold | Ease::Spring => return None,
+        })
     }
 
     pub fn from_keyword(s: &str) -> Option<Self> {
@@ -417,6 +481,23 @@ impl Ease {
                 }
             }
             Ease::Spring => 1.0 - (u * 4.5 * std::f64::consts::PI).cos() * (-6.0 * u).exp(),
+            Ease::Cubic([x1, y1, x2, y2]) => {
+                if u <= 0.0 || u >= 1.0 {
+                    return u.clamp(0.0, 1.0);
+                }
+                let bez = |a: f64, b: f64, t: f64| 3.0 * a * t * (1.0 - t).powi(2) + 3.0 * b * t * t * (1.0 - t) + t * t * t;
+                // x(t) rises from 0 to 1 when x1, x2 are in 0..=1: find t with x(t) = u by bisection.
+                let (mut lo, mut hi) = (0.0, 1.0);
+                for _ in 0..40 {
+                    let mid = (lo + hi) / 2.0;
+                    if bez(x1, x2, mid) < u {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                bez(y1, y2, (lo + hi) / 2.0)
+            }
         }
     }
 }

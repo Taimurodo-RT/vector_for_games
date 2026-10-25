@@ -1,0 +1,272 @@
+//! Several selected objects: marquee and Shift-click, copy and paste, duplicate, align.
+
+use crate::app::App;
+use crate::theme::{self, Icon};
+use motif_core::kurbo::{Point, Rect as KRect, Vec2};
+use motif_core::{Document, Prop, Value};
+use motif_script::{copy_nodes, delete_node, paste_nodes};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Align {
+    Left,
+    CenterX,
+    Right,
+    Top,
+    CenterY,
+    Bottom,
+    /// Equal gaps between objects, left to right.
+    SpreadX,
+    /// Equal gaps between objects, top to bottom.
+    SpreadY,
+}
+
+/// Bounding box of a node (and its children) in artboard space.
+pub fn world_bounds(doc: &Document, i: usize) -> Option<KRect> {
+    crate::app::node_bounds(doc, i).map(|b| doc.world_transform(i).transform_rect_bbox(b))
+}
+
+impl App {
+    /// Selected ids, the primary one first.
+    pub(crate) fn selection(&self) -> Vec<String> {
+        self.selected.iter().chain(self.also.iter()).cloned().collect()
+    }
+
+    pub(crate) fn is_selected(&self, id: &str) -> bool {
+        self.selected.as_deref() == Some(id) || self.also.iter().any(|a| a == id)
+    }
+
+    pub(crate) fn select_only(&mut self, id: Option<String>) {
+        self.selected = id;
+        self.also.clear();
+        self.sel_key = None;
+    }
+
+    /// Shift-click: adds an object to the selection or takes it out.
+    pub(crate) fn toggle_selected(&mut self, id: String) {
+        if self.selected.as_deref() == Some(id.as_str()) {
+            self.selected = if self.also.is_empty() { None } else { Some(self.also.remove(0)) };
+        } else if let Some(k) = self.also.iter().position(|a| *a == id) {
+            self.also.remove(k);
+        } else if self.selected.is_none() {
+            self.selected = Some(id);
+        } else {
+            self.also.push(id);
+        }
+        self.sel_key = None;
+    }
+
+    /// Drops ids that no longer exist, e.g. after undo.
+    pub(crate) fn prune_selection(&mut self) {
+        let doc = &self.scene.doc;
+        self.also.retain(|a| doc.node(a).is_some());
+        if self.selected.is_none() && !self.also.is_empty() {
+            self.selected = Some(self.also.remove(0));
+        }
+        let primary = self.selected.clone();
+        self.also.retain(|a| Some(a) != primary.as_ref());
+        self.also.dedup();
+    }
+
+    pub(crate) fn select_all(&mut self) {
+        let mut ids = self.scene.doc.nodes.iter().filter(|n| n.parent.is_none()).map(|n| n.id.clone());
+        self.selected = ids.next();
+        self.also = ids.collect();
+        self.sel_key = None;
+    }
+
+    /// Copies the selection: kept for pasting and put on the system clipboard as script text.
+    pub(crate) fn copy_selection(&mut self, ctx: &egui::Context) -> bool {
+        let ids = self.selection();
+        if ids.is_empty() {
+            return false;
+        }
+        let snippets = copy_nodes(&self.scene, &self.src, &ids);
+        if snippets.is_empty() {
+            self.status = "Объекты из циклов копируются вместе с циклом в скрипте".into();
+            return false;
+        }
+        let text = snippets.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join("\n");
+        ctx.copy_text(text.clone());
+        self.status = format!("Скопировано объектов: {}", snippets.len());
+        self.clipboard = (text, snippets);
+        true
+    }
+
+    /// Pastes what was copied in the editor; text copied elsewhere is inserted as declarations.
+    pub(crate) fn paste(&mut self, text: Option<&str>) {
+        if !self.can_edit() {
+            return;
+        }
+        let ours = text.is_none_or(|t| t.trim() == self.clipboard.0.trim());
+        if ours && !self.clipboard.1.is_empty() {
+            let (out, ids) = paste_nodes(&self.src, &self.scene, &self.clipboard.1, (10.0, 10.0));
+            if self.apply("paste", Some(out)) {
+                self.select_list(ids);
+                self.status = "Вставлено. Копия сдвинута на 10 px".into();
+            }
+            return;
+        }
+        let Some(text) = text else { return };
+        // Text from elsewhere: try it as declarations; keep the script unchanged if it does not parse.
+        let candidate = format!("{}\n{}\n", self.src.trim_end(), text.trim_end());
+        match motif_script::parse(&candidate) {
+            Ok(_) => {
+                self.apply("paste", Some(candidate));
+                self.status = "Текст из буфера добавлен в конец скрипта".into();
+            }
+            Err(e) => self.status = format!("Буфер не похож на объекты сцены: {}", e[0]),
+        }
+    }
+
+    /// Ctrl+D: copy and paste in one step.
+    pub(crate) fn duplicate(&mut self) {
+        let ids = self.selection();
+        if ids.is_empty() || !self.can_edit() {
+            return;
+        }
+        let snippets = copy_nodes(&self.scene, &self.src, &ids);
+        if snippets.is_empty() {
+            self.status = "Объекты из циклов дублируются вместе с циклом в скрипте".into();
+            return;
+        }
+        let (out, new) = paste_nodes(&self.src, &self.scene, &snippets, (10.0, 10.0));
+        if self.apply("duplicate", Some(out)) {
+            self.select_list(new);
+            self.status = "Дубликат сдвинут на 10 px".into();
+        }
+    }
+
+    fn select_list(&mut self, ids: Vec<String>) {
+        let mut ids = ids.into_iter();
+        self.selected = ids.next();
+        self.also = ids.collect();
+        self.sel_key = None;
+    }
+
+    /// Deletes every selected object with its keys. Returns how many were removed.
+    pub(crate) fn delete_selected_nodes(&mut self) -> usize {
+        let mut removed = 0;
+        let mut skipped = Vec::new();
+        for id in self.selection() {
+            if self.scene.doc.node(&id).is_none() {
+                continue; // removed with its group
+            }
+            match delete_node(&self.src, &self.scene, &id) {
+                Some(out) => {
+                    self.apply("delete", Some(out));
+                    removed += 1;
+                }
+                None => skipped.push(id),
+            }
+        }
+        self.select_only(None);
+        self.status = match (removed, skipped.is_empty()) {
+            (_, false) => format!("Удалено: {removed}. Из циклов не удаляются: {}", skipped.join(", ")),
+            (1, true) => "Объект удалён вместе с его ключами".into(),
+            _ => format!("Удалено объектов: {removed}"),
+        };
+        removed
+    }
+
+    /// Moves the selected objects so their edges or centres line up, or spreads them evenly.
+    pub(crate) fn align(&mut self, how: Align) {
+        let doc = self.display_doc();
+        let mut items: Vec<(String, usize, KRect)> =
+            self.selection().into_iter().filter_map(|id| doc.index_of(&id).and_then(|i| world_bounds(&doc, i).map(|b| (id, i, b)))).collect();
+        if items.len() < 2 || (matches!(how, Align::SpreadX | Align::SpreadY) && items.len() < 3) {
+            return;
+        }
+        let all = items.iter().fold(items[0].2, |acc, it| acc.union(it.2));
+        let mut moves: Vec<(String, usize, Vec2)> = Vec::new();
+        match how {
+            Align::SpreadX | Align::SpreadY => {
+                let x = how == Align::SpreadX;
+                items.sort_by(|a, b| if x { a.2.x0.total_cmp(&b.2.x0) } else { a.2.y0.total_cmp(&b.2.y0) });
+                let total: f64 = items.iter().map(|it| if x { it.2.width() } else { it.2.height() }).sum();
+                let span = if x { all.width() } else { all.height() };
+                let gap = (span - total) / (items.len() - 1) as f64;
+                let mut at = if x { all.x0 } else { all.y0 };
+                for (id, i, b) in &items {
+                    let d = if x { Vec2::new(at - b.x0, 0.0) } else { Vec2::new(0.0, at - b.y0) };
+                    moves.push((id.clone(), *i, d));
+                    at += (if x { b.width() } else { b.height() }) + gap;
+                }
+            }
+            _ => {
+                for (id, i, b) in &items {
+                    let d = match how {
+                        Align::Left => Vec2::new(all.x0 - b.x0, 0.0),
+                        Align::CenterX => Vec2::new(all.center().x - b.center().x, 0.0),
+                        Align::Right => Vec2::new(all.x1 - b.x1, 0.0),
+                        Align::Top => Vec2::new(0.0, all.y0 - b.y0),
+                        Align::CenterY => Vec2::new(0.0, all.center().y - b.center().y),
+                        _ => Vec2::new(0.0, all.y1 - b.y1),
+                    };
+                    moves.push((id.clone(), *i, d));
+                }
+            }
+        }
+        self.edit_group = Some("align".into());
+        for (id, i, d) in moves {
+            if d.hypot() < 1e-6 {
+                continue;
+            }
+            // Artboard-space offset into the parent's space.
+            let n = &doc.nodes[i];
+            let to_parent = n.parent.map_or(motif_core::kurbo::Affine::IDENTITY, |p| doc.world_transform(p).inverse());
+            let origin = doc.world_transform(i) * Point::ZERO;
+            let target = to_parent * (origin + d);
+            self.edit(&id, Prop::X, Value::Num((target.x * 10.0).round() / 10.0));
+            self.edit(&id, Prop::Y, Value::Num((target.y * 10.0).round() / 10.0));
+        }
+        self.edit_group = None;
+    }
+
+    /// The properties panel for several objects: count, align and spread.
+    pub(crate) fn multi_panel(&mut self, ui: &mut egui::Ui) {
+        let ids = self.selection();
+        crate::app::section(ui, |ui| {
+            ui.label(egui::RichText::new(format!("Выбрано объектов: {}", ids.len())).font(theme::semibold(14.0)).color(theme::FG));
+            ui.label(egui::RichText::new(ids.join(", ")).size(11.5).color(theme::FAINT));
+        });
+        let mut pick = None;
+        crate::app::section(ui, |ui| {
+            theme::caption(ui, "Выравнивание");
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for (icon, how, tip) in [
+                    (Icon::AlignLeft, Align::Left, "По левому краю"),
+                    (Icon::AlignCenterX, Align::CenterX, "По центру по горизонтали"),
+                    (Icon::AlignRight, Align::Right, "По правому краю"),
+                    (Icon::AlignTop, Align::Top, "По верху"),
+                    (Icon::AlignCenterY, Align::CenterY, "По центру по вертикали"),
+                    (Icon::AlignBottom, Align::Bottom, "По низу"),
+                ] {
+                    if theme::icon_button(ui, icon, tip).clicked() {
+                        pick = Some(how);
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let enough = ids.len() >= 3;
+                ui.add_enabled_ui(enough, |ui| {
+                    if theme::icon_button(ui, Icon::SpreadX, "Равные промежутки по горизонтали (от 3 объектов)").clicked()
+                    {
+                        pick = Some(Align::SpreadX);
+                    }
+                    if theme::icon_button(ui, Icon::SpreadY, "Равные промежутки по вертикали (от 3 объектов)").clicked() {
+                        pick = Some(Align::SpreadY);
+                    }
+                });
+            });
+        });
+        crate::app::section(ui, |ui| {
+            let hint = "Shift+клик или рамка — добавить к выделению. Ctrl+C / Ctrl+V — копировать и вставить, Ctrl+D — дублировать, Delete — удалить.";
+            ui.label(egui::RichText::new(hint).size(12.0).color(theme::MUTED));
+        });
+        if let Some(how) = pick {
+            self.align(how);
+        }
+    }
+}

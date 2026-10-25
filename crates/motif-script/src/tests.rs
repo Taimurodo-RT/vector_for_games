@@ -218,3 +218,115 @@ fn anim_header_edits() {
     let eased = set_key_ease(src, &s, "Go", "a", Prop::X, 1.0, "spring").unwrap();
     assert!(eased.contains("| 1: 5 spring"), "{eased}");
 }
+
+#[test]
+fn paths_parse_edit_and_add() {
+    use motif_core::kurbo::{BezPath, Point, Shape};
+    let src = "path leaf \"Лист\" at 100 80 d \"M 0 -20 C 15 -20 20 0 0 20 L -10 0 Z\" fill #4fd38c\nanim Go 1s {\n}\n";
+    let s = scene(src);
+    let leaf = s.doc.node("leaf").unwrap();
+    assert_eq!(leaf.kind, ShapeKind::Path);
+    assert_eq!(leaf.geometry.elements().len(), 4);
+    assert_eq!(leaf.height, 40.0);
+    assert!(s.doc.hit_test(Point::new(100.0, 80.0)).is_some());
+
+    let mut tri = BezPath::new();
+    tri.move_to((0.0, 0.0));
+    tri.line_to((10.5, 0.0));
+    tri.line_to((5.0, 8.25));
+    tri.close_path();
+    let out = set_path(src, &s, "leaf", &tri).unwrap();
+    assert!(out.contains("d \"M 0 0 L 10.5 0 L 5 8.25 Z\" fill"), "{out}");
+    assert_eq!(scene(&out).doc.node("leaf").unwrap().geometry, tri);
+
+    // New outlines are centred on their node and go before the blocks.
+    let mut open = BezPath::new();
+    open.move_to((10.0, 10.0));
+    open.line_to((30.0, 50.0));
+    let (out, id) = add_path(src, &s, &open);
+    assert_eq!(id, "path1");
+    assert!(out.contains("path path1 at 20 30 d \"M -10 -20 L 10 20\" fill none stroke #1b1d24 3\n\nanim Go"), "{out}");
+    let p = scene(&out).doc.node("path1").unwrap().clone();
+    assert_eq!(p.geometry.bounding_box().center(), Point::ORIGIN);
+
+    // Mistakes are reported, not ignored.
+    assert!(parse("rect a d \"M 0 0\"").is_err());
+    assert!(parse("path a d \"M 0 0 Q\"").is_err());
+    assert!(parse("path a d 5").is_err());
+}
+
+#[test]
+fn copy_and_paste_nodes() {
+    let s = scene(EXAMPLE);
+    // The ball alone: new id, moved by the offset, inserted before the blocks.
+    let snips = copy_nodes(&s, EXAMPLE, &["ball".to_string()]);
+    assert_eq!(snips.len(), 1);
+    let (out, ids) = paste_nodes(EXAMPLE, &s, &snips, (10.0, 10.0));
+    assert_eq!(ids, vec!["ball1".to_string()]);
+    let pasted = scene(&out);
+    let copy = pasted.doc.node("ball1").unwrap();
+    assert_eq!((copy.x, copy.y), (160.0, 160.0));
+    assert_eq!(copy.fill, s.doc.node("ball").unwrap().fill);
+    // A group with a loop inside: children get a suffix so the copy parses.
+    let snips = copy_nodes(&s, EXAMPLE, &["coins".to_string(), "coin2".to_string()]);
+    assert_eq!(snips.len(), 1, "a child of a copied group is not copied twice");
+    let (out, ids) = paste_nodes(EXAMPLE, &s, &snips, (0.0, 0.0));
+    let pasted = scene(&out);
+    assert_eq!(ids, vec!["coins1".to_string()]);
+    assert!(pasted.doc.node("coin3_2").is_some());
+    assert_eq!(pasted.doc.nodes.len(), s.doc.nodes.len() + 6);
+    // Pasting twice still gives fresh ids.
+    let again = paste_nodes(&out, &pasted, &snips, (0.0, 0.0)).0;
+    scene(&again);
+    // Nodes made by a loop are not copied on their own.
+    assert!(copy_nodes(&s, EXAMPLE, &["coin1".to_string()]).is_empty());
+}
+
+#[test]
+fn gradients_and_masks() {
+    let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40 gradient linear 90 #ff0000 #0000ff\ngroup g clip {\n  ellipse m at 0 0 size 40\n  rect b at 0 0 size 60\n}\n";
+    let s = scene(src);
+    let g = s.doc.node("a").unwrap().gradient.clone().unwrap();
+    assert!(!g.radial);
+    assert_eq!(g.angle, 90.0);
+    assert_eq!(g.colors.len(), 2);
+    assert!(s.doc.node("g").unwrap().clip);
+    // Replace with radial, then remove; the line stays tidy.
+    let radial = motif_core::Gradient { radial: true, angle: 0.0, colors: g.colors.clone() };
+    let out = set_gradient(src, &s, "a", Some(&radial)).unwrap();
+    assert!(out.contains("rect a at 50 50 size 40 gradient radial #ff0000 #0000ff\n"), "{out}");
+    let out = set_gradient(&out, &scene(&out), "a", None).unwrap();
+    assert!(out.contains("rect a at 50 50 size 40\n"), "{out}");
+    let out = set_gradient(&out, &scene(&out), "a", Some(&g)).unwrap();
+    assert!(out.contains("size 40 gradient linear 90 #ff0000 #0000ff\n"), "{out}");
+    // Clip on and off.
+    let out = set_clip(src, &s, "g", false).unwrap();
+    assert!(out.contains("group g {"), "{out}");
+    let out = set_clip(&out, &scene(&out), "g", true).unwrap();
+    assert!(out.contains("group g clip {"), "{out}");
+    assert!(set_clip(src, &s, "a", true).is_none());
+    // Errors.
+    assert!(parse("rect a gradient linear #ff0000").is_err());
+    assert!(parse("rect a gradient spiral #ff0000 #00ff00").is_err());
+    assert!(parse("rect a clip").is_err());
+}
+
+#[test]
+fn cubic_ease() {
+    let src = "artboard \"M\" 100x100\nrect a at 0 0 size 10\nanim A 1s {\n  a.x 0: 0 cubic 0.2 0 0.2 1.4 | 1: 100\n}\n";
+    let s = scene(src);
+    let k = &s.doc.animations[0].tracks[0].keys[0];
+    assert_eq!(k.ease, motif_core::Ease::Cubic([0.2, 0.0, 0.2, 1.4]));
+    // Overshoots past the end value before settling.
+    assert!(k.ease.apply(0.8) > 1.0);
+    assert!((k.ease.apply(1.0) - 1.0).abs() < 1e-9);
+    // Writing a curve back keeps the script parseable.
+    let e = motif_core::Ease::Cubic([0.25, 0.1, 0.25, 1.0]);
+    let out = set_key_ease(src, &s, "A", "a", Prop::X, 0.0, &e.script()).unwrap();
+    assert!(out.contains("a.x 0: 0 cubic 0.25 0.1 0.25 1 | 1: 100"), "{out}");
+    assert_eq!(scene(&out).doc.animations[0].tracks[0].keys[0].ease, e);
+    let out = set_key_ease(&out, &scene(&out), "A", "a", Prop::X, 0.0, "linear").unwrap();
+    assert!(out.contains("a.x 0: 0 linear | 1: 100"), "{out}");
+    assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 cubic 0.2 0 | 1: 5\n}").is_err());
+    assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 cubic 2 0 0.2 1 | 1: 5\n}").is_err());
+}

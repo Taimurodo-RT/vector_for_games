@@ -1,6 +1,7 @@
 //! Writes visual edits back into the script text, touching as little of it as possible.
 
 use crate::{Scene, Span, TrackSite, fmt_num};
+use motif_core::kurbo::{Affine, BezPath, PathEl, Point, Shape};
 use motif_core::{Color, Prop, ShapeKind, Value};
 
 pub fn fmt_value(v: Value) -> String {
@@ -199,11 +200,16 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
         ShapeKind::Ellipse => "#ff5a36",
         ShapeKind::Star => "#ffc531",
         ShapeKind::Polygon => "#4fd38c",
-        ShapeKind::Group => "none",
+        ShapeKind::Group | ShapeKind::Path => "none",
     };
     let size = if (size.0 - size.1).abs() < 1e-9 { fmt_num(size.0) } else { format!("{} {}", fmt_num(size.0), fmt_num(size.1)) };
     let line = format!("{} {id} at {} {} size {size} fill {fill}\n", kind.keyword(), fmt_num(center.0), fmt_num(center.1));
-    let out = match scene.blocks_start {
+    (insert_declaration(src, scene, &line), id)
+}
+
+/// Inserts a top-level declaration line before the first `anim`/`override` block.
+fn insert_declaration(src: &str, scene: &Scene, line: &str) -> String {
+    match scene.blocks_start {
         Some(at) => {
             let at = src[..at].rfind('\n').map_or(0, |i| i + 1);
             splice(src, Span::new(at, at), &format!("{line}\n"))
@@ -213,11 +219,103 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
             if !out.is_empty() && !out.ends_with('\n') {
                 out.push('\n');
             }
-            out.push_str(&line);
+            out.push_str(line);
             out
         }
-    };
-    (out, id)
+    }
+}
+
+/// SVG path data with short numbers: `M 0 -40 C 20 -40 30 -20 30 0 L 0 40 Z`.
+pub fn path_to_d(path: &BezPath) -> String {
+    let pt = |p: Point| format!("{} {}", fmt_num(p.x), fmt_num(p.y));
+    let parts: Vec<String> = path
+        .elements()
+        .iter()
+        .map(|el| match *el {
+            PathEl::MoveTo(p) => format!("M {}", pt(p)),
+            PathEl::LineTo(p) => format!("L {}", pt(p)),
+            PathEl::QuadTo(a, p) => format!("Q {} {}", pt(a), pt(p)),
+            PathEl::CurveTo(a, b, p) => format!("C {} {} {}", pt(a), pt(b), pt(p)),
+            PathEl::ClosePath => "Z".into(),
+        })
+        .collect();
+    parts.join(" ")
+}
+
+/// Returns the script with the outline of path `node` replaced. `None` when the node is not a path
+/// written in the script by hand (paths made by loops are edited in the text).
+pub fn set_path(src: &str, scene: &Scene, node: &str, path: &BezPath) -> Option<String> {
+    let n = scene.doc.node(node)?;
+    let site = scene.sites.get(node)?;
+    if n.kind != ShapeKind::Path || site.generated {
+        return None;
+    }
+    let d = format!("\"{}\"", path_to_d(path));
+    Some(match scene.path_sources.get(node) {
+        Some(span) => splice(src, *span, &d),
+        None => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" d {d}")),
+    })
+}
+
+/// The script text of a gradient property: `gradient linear 90 #a #b` or `gradient radial #a #b`.
+pub fn gradient_text(g: &motif_core::Gradient) -> String {
+    let mut out = String::from(if g.radial { "gradient radial" } else { "gradient linear " });
+    if !g.radial {
+        out.push_str(&fmt_num(g.angle));
+    }
+    for c in &g.colors {
+        out.push(' ');
+        out.push_str(&c.to_hex());
+    }
+    out
+}
+
+/// Returns the script with the gradient of `node` set, replaced or removed (`None`: back to the
+/// plain fill). `None` when the node comes from a loop.
+pub fn set_gradient(src: &str, scene: &Scene, node: &str, gradient: Option<&motif_core::Gradient>) -> Option<String> {
+    let site = scene.sites.get(node)?;
+    if site.generated {
+        return None;
+    }
+    let text = gradient.map(gradient_text);
+    Some(match (scene.gradient_sources.get(node), text) {
+        (Some(span), Some(t)) => splice(src, *span, &t),
+        (Some(span), None) => splice(src, with_space_before(src, *span), ""),
+        (None, Some(t)) => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {t}")),
+        (None, None) => src.to_string(),
+    })
+}
+
+/// Returns the script with the `clip` flag of group `node` turned on or off.
+pub fn set_clip(src: &str, scene: &Scene, node: &str, on: bool) -> Option<String> {
+    let site = scene.sites.get(node)?;
+    if site.generated || scene.doc.node(node)?.kind != ShapeKind::Group {
+        return None;
+    }
+    Some(match (scene.clip_sources.get(node), on) {
+        (Some(span), false) => splice(src, with_space_before(src, *span), ""),
+        (None, true) => splice(src, Span::new(site.insert_at, site.insert_at), " clip"),
+        _ => src.to_string(),
+    })
+}
+
+/// Widens `span` to take the spaces in front of it, so removing it leaves no double space.
+fn with_space_before(src: &str, span: Span) -> Span {
+    let start = src[..span.start].trim_end_matches([' ', '\t']).len();
+    Span::new(start, span.end)
+}
+
+/// Returns the script with a new path whose outline is given in artboard space, and its id.
+/// The node is placed at the outline's centre; closed outlines get a fill, open ones a stroke.
+pub fn add_path(src: &str, scene: &Scene, outline: &BezPath) -> (String, String) {
+    let id = free_id(scene, "path");
+    let c = outline.bounding_box().center();
+    let c = Point::new(c.x.round(), c.y.round());
+    let local = Affine::translate(-c.to_vec2()) * outline.clone();
+    let closed = outline.elements().last() == Some(&PathEl::ClosePath);
+    let paint = if closed { "fill #4fd38c" } else { "fill none stroke #1b1d24 3" };
+    let line = format!("path {id} at {} {} d \"{}\" {paint}\n", fmt_num(c.x), fmt_num(c.y), path_to_d(&local));
+    (insert_declaration(src, scene, &line), id)
 }
 
 /// Returns the script without `node`, its children, and every key and override that refers to them.
@@ -291,7 +389,7 @@ pub fn move_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, fr
 }
 
 /// Returns the script with the curve of the key of `node.prop` at `time` set to `ease`
-/// (`linear`, `ease-in`, `ease-out`, `ease-in-out`, `hold` or `spring`).
+/// as written in the script (`ease-out`, `cubic 0.4 0 0.2 1`, see `Ease::script`).
 pub fn set_key_ease(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, time: f64, ease: &str) -> Option<String> {
     let track = find_track(scene, anim, node, prop)?;
     let time = key_time(time);
@@ -300,4 +398,102 @@ pub fn set_key_ease(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop
         Some(span) => splice(src, span, ease),
         None => splice(src, Span::new(key.value.end, key.value.end), &format!(" {ease}")),
     })
+}
+
+/// Copied declarations: the text of each statement with the places to rewrite on paste.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Snippet {
+    pub text: String,
+    /// Ids written in the text (relative spans), with whether they are loop templates.
+    pub ids: Vec<(Span, String, bool)>,
+    /// The `at x y` literals of the copied node, to offset the copy.
+    pub at: Option<(Span, Span)>,
+}
+
+/// Copies the declarations of `ids` (a node's children come along with it). Nodes made by loops
+/// are skipped: their line makes several nodes.
+pub fn copy_nodes(scene: &Scene, src: &str, ids: &[String]) -> Vec<Snippet> {
+    let doc = &scene.doc;
+    let chosen: Vec<usize> = ids.iter().filter_map(|id| doc.index_of(id)).collect();
+    let has_chosen_ancestor = |i: usize| {
+        let mut cur = doc.nodes[i].parent;
+        while let Some(p) = cur {
+            if chosen.contains(&p) {
+                return true;
+            }
+            cur = doc.nodes[p].parent;
+        }
+        false
+    };
+    let mut roots: Vec<usize> = chosen.iter().copied().filter(|&i| !has_chosen_ancestor(i)).collect();
+    roots.sort_unstable();
+    let mut out = Vec::new();
+    for i in roots {
+        let id = &doc.nodes[i].id;
+        let Some(site) = scene.sites.get(id).filter(|s| !s.generated) else { continue };
+        let span = site.span;
+        let rel = |s: Span| Span::new(s.start - span.start, s.end - span.start);
+        let inside = |s: Span| s.start >= span.start && s.end <= span.end;
+        let mut names: Vec<(Span, String, bool)> = Vec::new();
+        for (nid, ns) in &scene.sites {
+            if inside(ns.span) && !names.iter().any(|(s, _, _)| *s == rel(ns.id_span)) {
+                let written = src[ns.id_span.start..ns.id_span.end].to_string();
+                names.push((rel(ns.id_span), if ns.generated { written } else { nid.clone() }, ns.generated));
+            }
+        }
+        names.sort_by_key(|(s, _, _)| s.start);
+        let at = match (scene.sources.get(&(id.clone(), Prop::X)), scene.sources.get(&(id.clone(), Prop::Y))) {
+            (Some(x), Some(y)) if x.editable && y.editable && !x.from_override && inside(x.span) && inside(y.span) => Some((rel(x.span), rel(y.span))),
+            _ => None,
+        };
+        out.push(Snippet { text: src[span.start..span.end].to_string(), ids: names, at });
+    }
+    out
+}
+
+/// Inserts copies of `snippets` with fresh ids, moved by `offset`. Returns the script and the ids
+/// of the pasted top-level nodes.
+pub fn paste_nodes(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64, f64)) -> (String, Vec<String>) {
+    let mut taken: Vec<String> = scene.doc.nodes.iter().map(|n| n.id.clone()).collect();
+    let mut block = String::new();
+    let mut roots = Vec::new();
+    for snip in snippets {
+        let mut edits: Vec<(Span, String)> = Vec::new();
+        // Plain ids get the next free number; loop templates get a suffix so every copy is new.
+        let templates: Vec<&String> = snip.ids.iter().filter(|(_, _, g)| *g).map(|(_, t, _)| t).collect();
+        let suffix = (2..)
+            .map(|k| format!("_{k}"))
+            .find(|sfx| !templates.iter().any(|t| taken.iter().any(|id| id.starts_with(t.split('{').next().unwrap_or("")) && id.ends_with(sfx.as_str()))))
+            .expect("suffixes are unbounded");
+        for (i, (span, id, generated)) in snip.ids.iter().enumerate() {
+            let new = if *generated {
+                format!("{id}{suffix}")
+            } else {
+                let base = id.trim_end_matches(|c: char| c.is_ascii_digit());
+                let base = if base.is_empty() { "copy" } else { base };
+                let new = (1..).map(|k| format!("{base}{k}")).find(|c| !taken.contains(c)).expect("ids are unbounded");
+                taken.push(new.clone());
+                new
+            };
+            if i == 0 {
+                roots.push(new.clone());
+            }
+            edits.push((*span, new));
+        }
+        if let Some((x, y)) = snip.at {
+            for (span, d) in [(x, offset.0), (y, offset.1)] {
+                if let Ok(v) = snip.text[span.start..span.end].parse::<f64>() {
+                    edits.push((span, fmt_num(v + d)));
+                }
+            }
+        }
+        edits.sort_by_key(|(s, _)| std::cmp::Reverse(s.start));
+        let mut text = snip.text.clone();
+        for (span, new) in edits {
+            text = splice(&text, span, &new);
+        }
+        block.push_str(&text);
+        block.push('\n');
+    }
+    (insert_declaration(src, scene, &block), roots)
 }

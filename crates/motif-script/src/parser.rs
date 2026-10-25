@@ -14,6 +14,8 @@ pub enum ValueKind {
     Ref(String),
     /// Inline expression `{...}`.
     Expr(String),
+    /// SVG path data of `d "M 0 0 L 10 0 Z"`.
+    Path(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,7 +56,7 @@ pub struct NodeAst {
 pub struct KeyAst {
     pub time: f64,
     pub value: ValueAst,
-    pub ease: Option<String>,
+    pub ease: Option<motif_core::Ease>,
     /// From the time to the end of the value or curve: the whole `0.6: 278 ease-out`.
     pub span: Span,
     pub time_span: Span,
@@ -123,7 +125,9 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "at" => (2, 2),
         "size" | "scale" | "stroke" => (1, 2),
         "r" | "rot" | "opacity" | "points" | "inner" | "fill" => (1, 1),
-        "hidden" => (0, 0),
+        "hidden" | "clip" => (0, 0),
+        "d" => (1, 1),
+        "gradient" => (2, 10),
         _ => return None,
     })
 }
@@ -253,7 +257,7 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
-        let (word, span) = self.ident("команда: artboard, let, rect, ellipse, star, polygon, group, for, anim или override")?;
+        let (word, span) = self.ident("команда: artboard, let, rect, ellipse, star, polygon, path, group, for, anim или override")?;
         match word.as_str() {
             "artboard" => self.artboard(),
             "let" => {
@@ -348,6 +352,12 @@ impl<'a> Parser<'a> {
                 return Err(self.err(key_span, format!("неизвестное свойство «{key}»")));
             };
             let mut values = Vec::new();
+            if key == "d" {
+                match self.next() {
+                    Some(Token { tok: Tok::Str(s), span }) => values.push(ValueAst { kind: ValueKind::Path(s), span }),
+                    _ => return Err(self.err(key_span, "после d нужен контур в кавычках, например d \"M 0 0 L 40 0 L 20 30 Z\"")),
+                }
+            }
             while values.len() < max && self.is_value_start() {
                 values.push(self.value()?);
             }
@@ -439,8 +449,29 @@ impl<'a> Parser<'a> {
                 Some(Tok::Ident(_)) => {
                     let (e, span) = self.ident("кривая")?;
                     end = span.end;
-                    ease_span = Some(span);
-                    Some(e)
+                    let ease = match motif_core::Ease::from_keyword(&e) {
+                        Some(ease) => ease,
+                        None if e == "cubic" => {
+                            // cubic x1 y1 x2 y2: the two handles of a custom curve.
+                            let mut c = [0.0; 4];
+                            for v in &mut c {
+                                match self.next() {
+                                    Some(Token { tok: Tok::Num(n), span }) => {
+                                        *v = n;
+                                        end = span.end;
+                                    }
+                                    _ => return Err(self.err(span, "после cubic нужны четыре числа: cubic 0.4 0 0.2 1")),
+                                }
+                            }
+                            if !(0.0..=1.0).contains(&c[0]) || !(0.0..=1.0).contains(&c[2]) {
+                                return Err(self.err(span, "у cubic первое и третье число (время ручек) от 0 до 1"));
+                            }
+                            motif_core::Ease::Cubic(c)
+                        }
+                        None => return Err(self.err(span, format!("неизвестная кривая «{e}»: linear, ease-in, ease-out, ease-in-out, hold, spring, cubic"))),
+                    };
+                    ease_span = Some(Span::new(span.start, end));
+                    Some(ease)
                 }
                 _ => None,
             };
