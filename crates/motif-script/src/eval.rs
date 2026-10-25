@@ -59,6 +59,7 @@ impl<'a> Evaluator<'a> {
                 symbols: Vec::new(),
                 instances: HashMap::new(),
                 machines: HashMap::new(),
+                world: None,
             },
             errors: Vec::new(),
         }
@@ -124,11 +125,21 @@ impl<'a> Evaluator<'a> {
                 let mut anim = Animation { name: name.clone(), duration: *duration, looping: *looping, tracks: Vec::new() };
                 let mut site = AnimSite { close: *close, duration: *duration_span, loop_word: *loop_span, tracks: Vec::new() };
                 for t in tracks {
-                    if self.scene.doc.index_of(&t.node).is_none() {
+                    let world = t.node == "world" && self.scene.doc.index_of(&t.node).is_none();
+                    if !world && self.scene.doc.index_of(&t.node).is_none() {
                         self.err(t.span, format!("нет объекта «{}»", t.node));
                         continue;
                     }
                     let Some(prop) = self.prop_path(&t.prop, t.span) else { continue };
+                    if world != prop.is_world() {
+                        let msg = if world {
+                            "у мира ключи gravity-x, gravity-y, wind-x, wind-y и gust: world.wind-x 0: 0 | 2: 300".to_string()
+                        } else {
+                            format!("«{}» — свойство мира: world.{}", t.prop, t.prop)
+                        };
+                        self.err(t.span, msg);
+                        continue;
+                    }
                     let mut keys = Vec::new();
                     for k in &t.keys {
                         let ease = k.ease.unwrap_or(Ease::EaseInOut);
@@ -336,6 +347,35 @@ impl<'a> Evaluator<'a> {
                             Value::Color(c) => self.vars.insert(name.clone(), Var::Color(c)),
                             Value::None => None,
                         };
+                    }
+                }
+                Stmt::World { props, span } => {
+                    if parent.is_some() || self.scene.world.is_some() {
+                        self.err(*span, "мир один на сцену и пишется на верхнем уровне: world gravity 0 900 wind 200 0");
+                        continue;
+                    }
+                    self.scene.world = Some(*span);
+                    let mut bad = Vec::new();
+                    for p in props {
+                        let nums: Vec<Option<f64>> = p
+                            .values
+                            .iter()
+                            .map(|v| match self.value(v) {
+                                Some(Value::Num(n)) => Some(n),
+                                _ => None,
+                            })
+                            .collect();
+                        let w = &mut self.scene.doc.world;
+                        match (p.key.as_str(), nums.as_slice()) {
+                            ("gravity", [Some(x), Some(y)]) => w.gravity = motif_core::kurbo::Vec2::new(*x, *y),
+                            ("wind", [Some(x), Some(y)]) => w.wind = motif_core::kurbo::Vec2::new(*x, *y),
+                            ("gust", [Some(g)]) if (0.0..=1.0).contains(g) => w.gust = *g,
+                            ("gust", _) => bad.push((p.key_span, "gust — порывистость ветра от 0 (ровный) до 1: gust 0.4")),
+                            _ => bad.push((p.key_span, "gravity и wind — два числа, X и Y: gravity 0 900, wind 200 0")),
+                        }
+                    }
+                    for (span, msg) in bad {
+                        self.err(span, msg);
                     }
                 }
                 Stmt::Backdrop { file, props, span } => {
@@ -892,6 +932,14 @@ impl<'a> Evaluator<'a> {
                         _ => self.err(p.key_span, "«roll» — сцепление с шаром от 0 до 1 (1 — вращается вместе с ним) и затухание от 0 до 1: roll 0.3 0.05"),
                     }
                 }
+                "weight" => match num(0) {
+                    Some(v) => node.weight = Some(v),
+                    None => self.err(p.key_span, "«weight» — вес для гравитации сцены: 1 обычный, 0 невесомый, 2 вдвое тяжелее"),
+                },
+                "sail" => match num(0) {
+                    Some(v) if v >= 0.0 => node.sail = Some(v),
+                    _ => self.err(p.key_span, "«sail» — сколько ветра ловит объект: 1 обычно, 0 не замечает ветра"),
+                },
                 "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,

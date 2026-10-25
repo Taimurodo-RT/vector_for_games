@@ -38,6 +38,7 @@ impl App {
             }
             if node.kind.is_container() {
                 crate::rope_ui::rope_editor(ui, &mut edits, node, &self.scene.doc);
+                weight_editor(ui, &mut edits, node);
                 return;
             }
             emitter_editor(ui, &mut edits, node);
@@ -71,18 +72,16 @@ impl App {
                     field(ui, "Трение", "friction", s.friction, d.friction, 0.0..=1.0, 0.005);
                     field(ui, "Затухание", "damp", s.damp, d.damp, 0.0..=1.0, 0.005);
                 });
-                ui.horizontal(|ui| {
-                    field(ui, "За ключами", "drive", s.drive, d.drive, 0.0..=1.0, 0.005);
-                    field(ui, "Гравитация", "gravity", s.gravity, d.gravity, -5000.0..=5000.0, 5.0);
-                });
+                ui.horizontal(|ui| field(ui, "За ключами", "drive", s.drive, d.drive, 0.0..=1.0, 0.005));
                 ui.label(
                     RichText::new(
-                        "Форму считает физика, пока играет анимация. Ключи положения задают, куда тело тянут («За ключами»: 0 — только гравитация, 1 — точно по ключам). Упругость возвращает нарисованную форму, давление держит объём.",
+                        "Форму считает физика, пока играет анимация. Ключи положения задают, куда тело тянут («За ключами»: 0 — только гравитация, 1 — точно по ключам); чтобы тело падало, задайте ему вес. Упругость возвращает нарисованную форму, давление держит объём.",
                     )
                     .size(11.5)
                     .color(FAINT),
                 );
             }
+            weight_editor(ui, &mut edits, node);
             let mut solid = node.solid;
             if ui.checkbox(&mut solid, RichText::new("Препятствие").size(12.5).color(FG)).changed() {
                 edits.push(("solid", solid.then(|| "solid".to_string())));
@@ -93,6 +92,30 @@ impl App {
             self.apply_styles(&node.id, edits);
         }
     }
+}
+
+/// «Вес» and «Парусность»: the object's share of the scene's gravity and wind, for anything
+/// simulated on it that falls.
+fn weight_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, node: &Node) {
+    let Some(own) = motif_core::own_gravity(node) else { return };
+    let half = (ui.available_width() - 6.0) / 2.0;
+    let round = |v: f64| (v * 100.0).round() / 100.0;
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Вес", motif_core::weight(node, own), 0.01, -20.0..=20.0, 2, KeyState::Hidden).changed {
+            // The weight takes over from the old per-simulation gravity.
+            edits.push(("gravity", None));
+            edits.push(("weight", Some(format!("weight {}", fmt_num(round(v))))));
+        }
+        if let Some(v) = theme::num_field(ui, half, "Парусность", motif_core::sail(node), 0.01, 0.0..=20.0, 2, KeyState::Hidden).changed {
+            let v = round(v);
+            edits.push(("sail", (v != 1.0).then(|| format!("sail {}", fmt_num(v)))));
+        }
+    });
+    ui.label(
+        RichText::new("Вес — доля гравитации сцены (раздел «Мир» у артборда): 1 обычный, 0 невесомый, меньше 0 — всплывает. Парусность — сколько ветра ловит: лист 3, камень 0.")
+            .size(11.5)
+            .color(FAINT),
+    );
 }
 
 /// A checkbox that turns a spring property on, and its frequency and damping fields.
@@ -186,14 +209,13 @@ fn emitter_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, node: &Node) {
         field(ui, "Конус °", "spread", e.spread, d.spread, 0.0..=360.0, 1.0);
     });
     ui.horizontal(|ui| {
-        field(ui, "Гравитация", "gravity", e.gravity, d.gravity, -5000.0..=5000.0, 5.0);
         field(ui, "Сопротивл.", "drag", e.drag, d.drag, 0.0..=1.0, 0.005);
+        field(ui, "Вращение °/с", "spin", e.spin, d.spin, -3600.0..=3600.0, 2.0);
     });
     ui.horizontal(|ui| {
         field(ui, "Альфа к концу", "fade", e.fade, d.fade, 0.0..=1.0, 0.005);
         field(ui, "Размер к концу", "grow", e.grow, d.grow, 0.0..=10.0, 0.01);
     });
-    ui.horizontal(|ui| field(ui, "Вращение °/с", "spin", e.spin, d.spin, -3600.0..=3600.0, 2.0));
     ui.label(
         RichText::new("Пока играет анимация, из фигуры вылетают её копии; сама она не рисуется. Угол −90 — вверх, конус 360 — во все стороны. Источник можно двигать ключами и вешать на кости.")
             .size(11.5)
@@ -224,12 +246,6 @@ fn fluid_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, node: &Node) {
         if let Some(v) = theme::num_field(ui, half, "Поток, к/с", f.flow, 0.5, 0.0..=1000.0, 0, KeyState::Hidden).changed {
             let v = v.round();
             edits.push(("flow", (v > 0.0).then(|| format!("flow {}", fmt_num(v)))));
-        }
-    });
-    ui.horizontal(|ui| {
-        if let Some(v) = theme::num_field(ui, half, "Гравитация", f.gravity, 5.0, -5000.0..=5000.0, 0, KeyState::Hidden).changed {
-            let v = v.round();
-            edits.push(("gravity", (v != d.gravity).then(|| format!("gravity {}", fmt_num(v)))));
         }
     });
     ui.label(

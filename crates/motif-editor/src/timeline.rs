@@ -49,6 +49,11 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::Alt => "Над шаром",
         Prop::Yaw => "Поворот шара",
         Prop::Pitch => "Наклон шара",
+        Prop::GravityX => "Гравитация X",
+        Prop::GravityY => "Гравитация Y",
+        Prop::WindX => "Ветер X",
+        Prop::WindY => "Ветер Y",
+        Prop::Gust => "Порывы",
     }
 }
 
@@ -347,6 +352,17 @@ impl App {
             }
             for t in tracks {
                 rows.push(Row::Prop { id: n.id.clone(), prop: t.prop });
+            }
+        }
+        // The scene's gravity and wind, when they are keyed.
+        let world: Vec<_> = motif_core::World::PROPS.iter().filter_map(|p| anim.tracks.iter().find(|t| t.node == "world" && t.prop == *p)).collect();
+        if !world.is_empty() {
+            let mut times: Vec<f64> = world.iter().flat_map(|t| t.keys.iter().map(|k| k.time)).collect();
+            times.sort_by(f64::total_cmp);
+            times.dedup_by(|a, b| (*a - *b).abs() < 0.005);
+            rows.push(Row::Head { id: "world".into(), name: "Мир".into(), kind: ShapeKind::Group, times });
+            for t in world {
+                rows.push(Row::Prop { id: "world".into(), prop: t.prop });
             }
         }
         rows

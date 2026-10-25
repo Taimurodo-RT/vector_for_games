@@ -1,0 +1,37 @@
+// Гравитация и ветер сцены (world): всё, что считает физика, падает туда, куда тянет мир, и
+// сносится ветром. Каждый объект берёт свою долю: вес (weight) и парусность (sail).
+// Ветер ключами нарастает до бури и стихает, а в конце гравитация на миг пропадает.
+artboard "Буря" 640x360 bg #141826
+world wind 60 0 gust 0.5
+
+let ink = #0d1018
+
+rect ground "Земля" at 320 345 size 640 30 fill #232a3d solid
+
+// Дождь: тяжёлые капли почти не сносит, лёгкие листья летят по ветру.
+group rain "Дождь" at 0 -10 {
+  for i in 0..9 {
+    rect drop{i} at {20 + i * 60} 0 size 2 12 fill #8fb4ff opacity 0.7 emit 7 life 1.4 speed 150 angle 90 spread 3 fade 0.5 weight 1 sail 0.6
+  }
+}
+ellipse leaf "Листья" at 70 150 size 12 7 fill #5ee0a0 stroke ink 1 emit 6 life 4 speed 30 spread 180 spin 300 weight 0.08 sail 1.2
+
+// Флаг на столбе: ткань без своего ветра, её треплет ветер сцены.
+rect pole "Столб" at 470 230 size 8 210 fill #3a4258 stroke ink 2
+rect flag "Флаг" at 522 150 size 100 60 fill #ff5d73 stroke ink 3 cloth 1 0.02 pin left weight 0.35 sail 4
+
+// Фонарь на шнуре раскачивает ветер.
+rect beam "Балка" at 250 40 size 120 12 r 4 fill #6b4a2f stroke ink 3
+path cord "Шнур" at 250 46 d "M 0 0 L 0 90" fill none stroke #c9a26b 3 rope sail 2
+group lantern "Фонарь" pivot 0 -22 hang cord {
+  rect glass "Стекло" size 28 34 r 7 fill #ffd23f stroke ink 3
+  rect lid "Крышка" at 0 -20 size 20 7 r 2 fill #6b4a2f stroke ink 2
+}
+
+// Мячик — мягкое тело с весом: падает, и ветер катит его по земле.
+ellipse ball "Мяч" at 130 260 size 50 50 fill #6aa8ff stroke ink 3 soft 0.6 drive 0 weight 1 sail 0.5
+
+anim Storm 6s {
+  world.wind-x 0: 60 ease-in | 2: 700 | 3.5: 700 ease-out | 4.5: 40
+  world.gravity-y 0: 900 | 4.6: 900 ease-out | 5: 0 ease-in | 5.6: 900
+}

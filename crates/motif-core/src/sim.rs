@@ -27,6 +27,8 @@ pub struct SimState {
     pools: Vec<Pool>,
     sprays: Vec<Spray>,
     bodies: Vec<Body>,
+    /// Seconds simulated, which drives the wind's gusts.
+    time: f64,
     /// Nodes in the document it was started from: a different count means the scene changed.
     nodes: usize,
 }
@@ -52,6 +54,7 @@ impl SimState {
             pools: fluid::pools(&pose),
             sprays: particles::sprays(&pose),
             bodies: soft::bodies(&pose),
+            time: 0.0,
             nodes: keys.nodes.len(),
         }
     }
@@ -64,6 +67,8 @@ impl SimState {
     /// Moves on by `dt` seconds (at most one frame) towards `keys`.
     pub fn step(&mut self, keys: &Document, dt: f64) {
         let mut pose = keys.clone();
+        pose.world.time = self.time;
+        self.time += dt;
         spring::step_values(&mut self.values, keys, dt, SUBSTEPS);
         spring::apply_values(&self.values, &mut pose);
         roll::step_rollers(&mut self.rollers, &pose, dt, SUBSTEPS);

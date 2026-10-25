@@ -82,11 +82,7 @@ fn settings(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, node: &Node, r: &Rope
         }
     });
     ui.horizontal(|ui| {
-        if let Some(v) = theme::num_field(ui, half, "Гравитация", r.gravity, 5.0, -5000.0..=5000.0, 0, KeyState::Hidden).changed {
-            let v = v.round();
-            edits.push(("gravity", (v != d.gravity).then(|| format!("gravity {}", fmt_num(v)))));
-        }
-        if let Some(v) = theme::num_field(ui, half, "Ветер", r.wind, 5.0, -5000.0..=5000.0, 0, KeyState::Hidden).changed {
+        if let Some(v) = theme::num_field(ui, half, "Свой ветер", r.wind, 5.0, -5000.0..=5000.0, 0, KeyState::Hidden).changed {
             let v = v.round();
             edits.push(("wind", (v != 0.0).then(|| format!("wind {}", fmt_num(v)))));
         }

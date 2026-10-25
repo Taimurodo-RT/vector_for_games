@@ -12,6 +12,8 @@ pub struct Document {
     pub machines: Vec<crate::Machine>,
     /// Direction shadows fall from raised objects (`elevation`), in degrees: 90 is straight down.
     pub light: f64,
+    /// Gravity and wind of the scene (`world`).
+    pub world: crate::World,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -121,6 +123,12 @@ pub enum Prop {
     /// Turn of a ball, degrees.
     Yaw,
     Pitch,
+    /// The scene's gravity and wind (`world.gravity-y`), keyed on the world, not on a node.
+    GravityX,
+    GravityY,
+    WindX,
+    WindY,
+    Gust,
 }
 
 impl Prop {
@@ -192,11 +200,16 @@ impl Prop {
             Prop::Alt => "alt",
             Prop::Yaw => "yaw",
             Prop::Pitch => "pitch",
+            Prop::GravityX => "gravity-x",
+            Prop::GravityY => "gravity-y",
+            Prop::WindX => "wind-x",
+            Prop::WindY => "wind-y",
+            Prop::Gust => "gust",
         }
     }
 
     pub fn from_path_name(s: &str) -> Option<Self> {
-        Prop::ALL.into_iter().find(|p| p.path_name() == s).or(match s {
+        Prop::ALL.into_iter().chain(crate::World::PROPS).find(|p| p.path_name() == s).or(match s {
             "rotation" => Some(Prop::Rotation),
             "width" | "len" => Some(Prop::Width),
             "height" => Some(Prop::Height),
@@ -205,6 +218,11 @@ impl Prop {
             "skew_y" => Some(Prop::SkewY),
             _ => None,
         })
+    }
+
+    /// True for the scene's gravity and wind, keyed as `world.gravity-x`.
+    pub fn is_world(self) -> bool {
+        crate::World::PROPS.contains(&self)
     }
 
     pub fn is_color(self) -> bool {
@@ -341,6 +359,11 @@ pub struct Node {
     pub fluid: Option<crate::Fluid>,
     /// On a ball (`on`): rolls over it under gravity instead of sitting where its keys put it.
     pub roll: Option<crate::Roll>,
+    /// How heavy it is for the scene's gravity (`weight 2`): 0 floats. Unset, each simulation
+    /// keeps its own (`gravity`).
+    pub weight: Option<f64>,
+    /// How much wind it catches (`sail 0.5`): 0 ignores it. Unset, 1.
+    pub sail: Option<f64>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -491,6 +514,8 @@ impl Node {
             swing: 0.0,
             fluid: None,
             roll: None,
+            weight: None,
+            sail: None,
         }
     }
 
@@ -532,6 +557,7 @@ impl Node {
             Prop::Alt => Value::Num(self.alt),
             Prop::Yaw => Value::Num(self.yaw),
             Prop::Pitch => Value::Num(self.pitch),
+            Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => Value::None,
         }
     }
 
@@ -580,6 +606,7 @@ impl Node {
             Prop::Yaw => self.yaw = v,
             Prop::Pitch => self.pitch = v,
             Prop::Fill | Prop::StrokeColor => unreachable!(),
+            Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => {}
         }
     }
 
@@ -665,7 +692,7 @@ fn polygon_path(w: f64, h: f64, sides: usize) -> BezPath {
 
 impl Document {
     pub fn new(artboard: Artboard) -> Self {
-        Document { artboard, nodes: Vec::new(), animations: Vec::new(), machines: Vec::new(), light: 90.0 }
+        Document { artboard, nodes: Vec::new(), animations: Vec::new(), machines: Vec::new(), light: 90.0, world: crate::World::default() }
     }
 
     pub fn index_of(&self, id: &str) -> Option<usize> {
@@ -806,7 +833,10 @@ impl Animation {
         let t = self.local_time(t);
         let mut out = doc.clone();
         for track in &self.tracks {
-            if let (Some(i), Some(v)) = (out.index_of(&track.node), track.sample(t)) {
+            let Some(v) = track.sample(t) else { continue };
+            if track.prop.is_world() {
+                out.world.set(track.prop, v);
+            } else if let Some(i) = out.index_of(&track.node) {
                 out.nodes[i].set(track.prop, v);
             }
         }

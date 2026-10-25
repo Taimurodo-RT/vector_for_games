@@ -961,3 +961,37 @@ fn rolling_parses() {
     let errs = parse("ellipse ball size 200 200\nellipse a size 20 20 roll\nellipse b size 20 20 on ball roll 2\n").unwrap_err();
     assert_eq!(errs.len(), 2, "{errs:?}");
 }
+
+#[test]
+fn the_world_and_weights_parse() {
+    use motif_core::kurbo::Vec2;
+    let s = scene("artboard 400x300\nworld gravity 100 -450 wind 200 0 gust 0.4\nellipse leaf weight 0.2 sail 3\n");
+    let w = s.doc.world;
+    assert_eq!((w.gravity, w.wind, w.gust), (Vec2::new(100.0, -450.0), Vec2::new(200.0, 0.0), 0.4));
+    let leaf = s.doc.node("leaf").unwrap();
+    assert_eq!((leaf.weight, leaf.sail), (Some(0.2), Some(3.0)));
+    assert!(scene("ellipse e\n").doc.world.is_default());
+    let errs = parse("world wind 1 2 gust 3\nworld gust 0.1\nellipse e sail -1\n").unwrap_err();
+    assert_eq!(errs.len(), 3, "{errs:?}");
+}
+
+#[test]
+fn the_world_is_keyed_and_edited() {
+    let src = "artboard 400x300\nworld wind 100 0\nellipse e\nanim Blow 2s {\n  world.wind-x 0: 0 | 2: 300\n}\n";
+    let s = scene(src);
+    let a = s.doc.animation("Blow").unwrap();
+    assert_eq!(a.keys_at(&s.doc, 1.0).world.wind.x, 150.0);
+    assert!(parse("ellipse e\nanim A 1s {\n  e.wind-x 0: 0\n}\n").is_err());
+    assert!(parse("ellipse e\nanim A 1s {\n  world.x 0: 0\n}\n").is_err());
+    // Editing rewrites the line, adds one under the artboard, or removes it at the defaults.
+    let mut w = s.doc.world;
+    w.gust = 0.5;
+    let out = set_world(src, &s, &w);
+    assert!(out.contains("world wind 100 0 gust 0.5\n"), "{out}");
+    let out = set_world(src, &s, &motif_core::World::default());
+    assert!(!out.contains("world wind"), "{out}");
+    let bare = "artboard 400x300\nellipse e\n";
+    let out = set_world(bare, &scene(bare), &w);
+    assert_eq!(out, "artboard 400x300\nworld wind 100 0 gust 0.5\nellipse e\n");
+    assert_eq!(scene(&out).doc.world.gust, 0.5);
+}

@@ -5,8 +5,8 @@ use egui::Color32;
 use egui::text::{LayoutJob, TextFormat};
 
 const KEYWORDS: &[&str] = &[
-    "artboard", "backdrop", "let", "group", "for", "in", "anim", "override", "loop", "symbol", "use", "machine", "input", "state", "any", "when", "and", "not",
-    "rect", "ellipse", "star", "polygon", "path", "text",
+    "artboard", "world", "backdrop", "let", "group", "for", "in", "anim", "override", "loop", "symbol", "use", "machine", "input", "state", "any", "when",
+    "and", "not", "rect", "ellipse", "star", "polygon", "path", "text",
 ];
 const PROPS: &[&str] = &[
     "at",

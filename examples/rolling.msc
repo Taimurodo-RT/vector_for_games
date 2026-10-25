@@ -30,11 +30,11 @@ group m4 "Шарик 4" on globe lat 10 lon 50 alt 12 roll 0.2 0.03 {
 // мяч без сцепления (0) остаётся спереди, а планета скользит под ним.
 ellipse planet "Планета" at 450 165 size 180 180 fill #ff7a59 stroke ink 4
 ellipse crater "Кратер" size 50 40 on planet lat 20 lon 0 wrap fill #d65a3c stroke ink 3
-group rover "Ровер" on planet lat -10 lon -20 alt 10 roll 1 0.05 gravity 0 {
+group rover "Ровер" on planet lat -10 lon -20 alt 10 roll 1 0.05 weight 0 {
   rect rb size 26 16 r 4 fill #e8f0ff stroke ink 3
   ellipse rw size 8 8 at 0 9 fill ink
 }
-group ball "Мяч" on planet lat -25 lon 15 alt 10 roll 0 0.05 gravity 0 {
+group ball "Мяч" on planet lat -25 lon 15 alt 10 roll 0 0.05 weight 0 {
   ellipse qb size 20 20 fill #5ee0a0 stroke ink 3
   rect qs size 18 4 fill ink
 }

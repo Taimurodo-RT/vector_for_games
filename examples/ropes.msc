@@ -29,7 +29,7 @@ polygon f4 size 18 20 points 3 rot 180 pivot 0 -8 hang garland 0.6 fill #6aa8ff 
 polygon f5 size 18 20 points 3 rot 180 pivot 0 -8 hang garland 0.75 fill #c58bff stroke ink 2
 
 // Флаг на столбе: ткань закреплена левым краем и полощется на ветру.
-rect flag "Флаг" at 312 140 size 110 64 fill #ff5d73 stroke ink 3 cloth 1 0.02 pin left gravity 300 wind 900
+rect flag "Флаг" at 312 140 size 110 64 fill #ff5d73 stroke ink 3 cloth 1 0.02 pin left weight 0.33 wind 900
 
 // Цепь с гирей: начинается горизонтально и падает маятником.
 path chain "Цепь" at 470 190 d "M 0 0 L 90 0" fill none rope pin start

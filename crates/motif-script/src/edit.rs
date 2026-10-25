@@ -27,6 +27,9 @@ pub(crate) fn splice(src: &str, span: Span, text: &str) -> String {
 /// * A value computed from `let`, an expression or a loop is left alone; the change goes into
 ///   an `override { }` block instead, so the formula keeps working.
 pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) -> Option<String> {
+    if prop.is_world() {
+        return None;
+    }
     let current = scene.doc.node(node)?;
     let text = fmt_value(value);
     let key = (node.to_string(), prop);
@@ -102,6 +105,7 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         | Prop::Pitch => {
             format!("{} {text}", prop.path_name())
         }
+        Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => return None,
         Prop::ShadowX | Prop::ShadowY | Prop::ShadowBlur => {
             let color = current.shadow.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
             format!("shadow {} {} {} {color}", pick(Prop::ShadowX), pick(Prop::ShadowY), pick(Prop::ShadowBlur))
@@ -157,7 +161,7 @@ fn find_track<'a>(scene: &'a Scene, anim: &str, node: &str, prop: Prop) -> Optio
 ///   the value for the whole animation.
 pub fn set_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, time: f64, value: Value) -> Option<String> {
     let site = scene.anims.get(anim)?;
-    let base = scene.doc.node(node)?.get(prop);
+    let base = if prop.is_world() { scene.doc.world.get(prop) } else { scene.doc.node(node)?.get(prop) };
     let time = key_time(time);
     let key = format!("{}: {}", fmt_num(time), fmt_value(value));
     let Some(track) = find_track(scene, anim, node, prop) else {
@@ -564,20 +568,48 @@ pub fn set_backdrop(src: &str, scene: &Scene, backdrop: Option<&crate::Backdrop>
     match (&scene.backdrop, backdrop) {
         (Some(old), Some(b)) => splice(src, old.span, &backdrop_text(b)),
         (Some(old), None) => remove_spans(src, vec![whole_lines(src, old.span)]),
-        (None, Some(b)) => {
-            // Under the artboard line, or at the top when there is none.
-            let at = src
-                .match_indices("artboard")
-                .find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n')
-                .map_or(0, |(i, _)| src[i..].find('\n').map_or(src.len(), |n| i + n + 1));
-            let mut line = backdrop_text(b);
-            line.push('\n');
-            if at == src.len() && !src.is_empty() && !src.ends_with('\n') {
-                line.insert(0, '\n');
-            }
-            splice(src, Span::new(at, at), &line)
-        }
+        (None, Some(b)) => under_artboard(src, &backdrop_text(b)),
         (None, None) => src.to_string(),
+    }
+}
+
+/// Returns the script with `line` added under the `artboard` line, or at the top when there is none.
+fn under_artboard(src: &str, line: &str) -> String {
+    let at = src
+        .match_indices("artboard")
+        .find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n')
+        .map_or(0, |(i, _)| src[i..].find('\n').map_or(src.len(), |n| i + n + 1));
+    let mut line = format!("{line}\n");
+    if at == src.len() && !src.is_empty() && !src.ends_with('\n') {
+        line.insert(0, '\n');
+    }
+    splice(src, Span::new(at, at), &line)
+}
+
+/// The script line of the scene's gravity and wind, leaving out values that are at their defaults.
+pub fn world_text(w: &motif_core::World) -> String {
+    let d = motif_core::World::default();
+    let mut out = "world".to_string();
+    if w.gravity != d.gravity {
+        out.push_str(&format!(" gravity {} {}", fmt_num(w.gravity.x), fmt_num(w.gravity.y)));
+    }
+    if w.wind != d.wind {
+        out.push_str(&format!(" wind {} {}", fmt_num(w.wind.x), fmt_num(w.wind.y)));
+    }
+    if w.gust != d.gust {
+        out.push_str(&format!(" gust {}", fmt_num(w.gust)));
+    }
+    out
+}
+
+/// Returns the script with its `world` line set to `world`: replaced, added under the
+/// `artboard` line, or removed when everything is at its default.
+pub fn set_world(src: &str, scene: &Scene, world: &motif_core::World) -> String {
+    match (scene.world, world.is_default()) {
+        (Some(span), false) => splice(src, span, &world_text(world)),
+        (Some(span), true) => remove_spans(src, vec![whole_lines(src, span)]),
+        (None, false) => under_artboard(src, &world_text(world)),
+        (None, true) => src.to_string(),
     }
 }
 
