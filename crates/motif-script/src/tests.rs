@@ -887,3 +887,21 @@ fn squash_parses() {
     let errs = parse("rect r squash -1\nrect q squash 1 0\n").unwrap_err();
     assert_eq!(errs.len(), 2, "{errs:?}");
 }
+
+#[test]
+fn orbits_parse_and_place() {
+    let src = "ellipse planet at 200 200 size 200 200 yaw 90\nellipse moon size 10 10 on planet lat 0 lon 0 alt 20\nellipse spot size 30 30 on planet lon -90 wrap\nanim Spin 2s {\n  moon.lon 0: 0 | 2: 360\n}\n";
+    let s = scene(src);
+    let moon = s.doc.node("moon").unwrap();
+    assert_eq!((moon.on.as_deref(), moon.alt), (Some("planet"), 20.0));
+    assert!(s.doc.node("spot").unwrap().wrap);
+    // Turned by yaw 90, the front of the planet faces right: the moon sits at its right edge.
+    assert!((moon.x - 320.0).abs() < 1e-6, "{}", moon.x);
+    let half = s.doc.animations[0].pose(&s.doc, 1.0);
+    let moon = half.node("moon").unwrap();
+    assert!((moon.x - 80.0).abs() < 1e-6, "half way round it is on the left: {}", moon.x);
+    let out = set_prop(src, &s, "planet", motif_core::Prop::Pitch, motif_core::Value::Num(15.0)).unwrap();
+    assert!(out.starts_with("ellipse planet at 200 200 size 200 200 yaw 90 pitch 15\n"), "{out}");
+    let errs = parse("ellipse a on nowhere\ngroup g\nellipse b on g\nellipse c on c\nellipse d wrap\n").unwrap_err();
+    assert_eq!(errs.len(), 4, "{errs:?}");
+}

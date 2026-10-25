@@ -213,6 +213,8 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "soft" => (0, 1),
         "spring" | "jiggle" => (0, 2),
         "squash" => (0, 3),
+        "on" | "lat" | "lon" | "alt" | "yaw" | "pitch" => (1, 1),
+        "wrap" => (0, 0),
         "pressure" | "friction" | "damp" | "gravity" | "drive" => (1, 1),
         "skin" => (1, 16),
         _ => return None,
@@ -526,8 +528,8 @@ impl<'a> Parser<'a> {
                     _ => return Err(self.err(key_span, "после d нужен контур в кавычках, например d \"M 0 0 L 40 0 L 20 30 Z\"")),
                 }
             }
-            // Ids of objects: the IK target, the bones of a skin.
-            if key == "ik" || key == "skin" {
+            // Ids of objects: the IK target, the bones of a skin, the ball something sits on.
+            if key == "ik" || key == "skin" || key == "on" {
                 while values.len() < max
                     && let Some(Tok::Ident(s)) = self.peek()
                     && (values.is_empty() || prop_arity(s).is_none())
@@ -540,6 +542,8 @@ impl<'a> Parser<'a> {
                 if values.is_empty() {
                     let hint = if key == "ik" {
                         "после ik нужен id цели, например ik hand_target"
+                    } else if key == "on" {
+                        "после on нужен id шара, например on planet"
                     } else {
                         "после skin нужны id костей, например skin arm forearm"
                     };

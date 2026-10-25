@@ -9,6 +9,7 @@ mod guides;
 mod highlight;
 mod importer;
 mod machine_ui;
+mod orbit_ui;
 mod paint;
 mod pathedit;
 mod physics_ui;

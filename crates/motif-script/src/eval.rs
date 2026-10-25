@@ -25,6 +25,8 @@ pub struct Evaluator<'a> {
     depth: usize,
     /// Ids named by `ik` and `skin`, checked once every object exists: node, id, where it is written.
     rig_refs: Vec<(usize, String, Span)>,
+    /// Balls named by `on`, checked once every object exists.
+    ball_refs: Vec<(usize, String, Span)>,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
@@ -39,6 +41,7 @@ impl<'a> Evaluator<'a> {
             prefix: String::new(),
             depth: 0,
             rig_refs: Vec::new(),
+            ball_refs: Vec::new(),
             scene: Scene {
                 doc: Document::new(Artboard::default()),
                 sources: HashMap::new(),
@@ -185,6 +188,16 @@ impl<'a> Evaluator<'a> {
                 }
                 _ if doc.nodes[t].kind != ShapeKind::Bone => errors.push((span, format!("«{id}» — не кость: skin перечисляет кости"))),
                 _ => {}
+            }
+        }
+        for (i, id, span) in std::mem::take(&mut self.ball_refs) {
+            match doc.index_of(&id) {
+                None => errors.push((span, format!("нет объекта «{id}»"))),
+                Some(b) if b == i => errors.push((span, "объект не может лежать на самом себе".to_string())),
+                Some(b) if matches!(doc.nodes[b].kind, ShapeKind::Group | ShapeKind::Bone) => {
+                    errors.push((span, format!("«{id}» — не фигура: шаром для on служит ellipse или другая фигура")))
+                }
+                Some(_) => {}
             }
         }
         for (span, msg) in errors {
@@ -459,13 +472,14 @@ impl<'a> Evaluator<'a> {
         let mut skin: Option<Vec<(String, Span)>> = None;
         let mut sharp = motif_core::Skin::SHARP;
         let mut soft: Option<motif_core::Soft> = None;
+        let mut on: Option<(String, Span)> = None;
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
                 self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
-                "d" | "content" | "font" | "align" | "ik" | "skin" => Vec::new(),
+                "d" | "content" | "font" | "align" | "ik" | "skin" | "on" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
@@ -694,6 +708,11 @@ impl<'a> Evaluator<'a> {
                         }
                     }
                 }
+                "on" => match &p.values[0].kind {
+                    ValueKind::Path(t) => on = Some((t.clone(), p.values[0].span)),
+                    _ => self.err(p.key_span, "on — на каком шаре лежит объект: on planet"),
+                },
+                "wrap" => node.wrap = true,
                 "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
@@ -803,6 +822,11 @@ impl<'a> Evaluator<'a> {
                         "phase" => Prop::Phase,
                         "blur" => Prop::Blur,
                         "elevation" => Prop::Elevation,
+                        "lat" => Prop::Lat,
+                        "lon" => Prop::Lon,
+                        "alt" => Prop::Alt,
+                        "yaw" => Prop::Yaw,
+                        "pitch" => Prop::Pitch,
                         "r" => Prop::Radius,
                         "rot" => Prop::Rotation,
                         "opacity" => Prop::Opacity,
@@ -835,6 +859,12 @@ impl<'a> Evaluator<'a> {
             self.rig_refs.push((index, format!("{}{target}", self.prefix), span));
         }
         node.soft = soft;
+        if let Some((ball, span)) = on {
+            node.on = Some(format!("{}{ball}", self.prefix));
+            self.ball_refs.push((index, format!("{}{ball}", self.prefix), span));
+        } else if node.wrap {
+            self.err(n.id_span, "wrap кладёт фигуру на шар: нужен ещё on шар");
+        }
         if let Some(bones) = skin {
             let ids = bones.iter().map(|(b, _)| format!("{}{b}", self.prefix)).collect();
             node.skin = Some(motif_core::Skin { sharp, ..motif_core::Skin::new(ids) });

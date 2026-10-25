@@ -28,6 +28,7 @@ impl SimState {
     pub fn new(keys: &Document) -> SimState {
         let values = spring::sprung(keys);
         let mut pose = keys.clone();
+        pose.place_orbits();
         pose.solve_ik();
         let tips = spring::tips(&pose);
         let stretches = squash::stretches(&pose);
@@ -45,6 +46,7 @@ impl SimState {
         let mut pose = keys.clone();
         spring::step_values(&mut self.values, keys, dt, SUBSTEPS);
         spring::apply_values(&self.values, &mut pose);
+        pose.place_orbits();
         pose.solve_ik();
         spring::step_tips(&mut self.tips, &mut pose, dt, SUBSTEPS);
         squash::step_stretches(&mut self.stretches, &mut pose, dt, SUBSTEPS);
@@ -66,6 +68,7 @@ impl SimState {
     pub fn apply(&self, keys: &Document) -> Document {
         let mut out = keys.clone();
         spring::apply_values(&self.values, &mut out);
+        out.place_orbits();
         out.solve_ik();
         spring::apply_tips(&self.tips, &mut out);
         squash::apply_stretches(&self.stretches, &mut out);

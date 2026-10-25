@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Орбиты 2.5D — Motif</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<main><div class="content">
+
+<h1>Орбиты 2.5D</h1>
+<p class="lead">Объект можно положить на шар: широта и долгота задают, где он, а Motif сам считает, куда он попадёт на экране, когда уйдёт за край и спрячется за шаром. Шар можно поворачивать, и всё, что на нём лежит, поедет вместе с ним. Объекты остаются плоскими векторными фигурами, 3D-модели не нужны.</p>
+
+<figure><img src="img/orbit-render.png" alt="Четыре кадра: планета вращается, материк уходит за край, луна облетает планету; голова поворачивается, глаза и нос съезжают вбок"><figcaption>Пример <code>orbit.msc</code>: планета крутится одним ключом <code>yaw</code>, луна облетает её и прячется сзади. Голова поворачивается и кивает ключами <code>yaw</code> и <code>pitch</code>, а глаза, нос и рот съезжают и сужаются сами.</figcaption></figure>
+
+<h2 id="how">Как это работает</h2>
+<ul>
+  <li><b>Шар</b> — любая фигура, обычно <code>ellipse</code>. Его ширина и высота — радиусы, так что вытянутый эллипс работает как яйцо: голову можно сделать выше, чем шире.</li>
+  <li><b>Объект на шаре</b> получает <code>on шар</code>, широту <code>lat</code> (вверх положительная, от −90 до 90) и долготу <code>lon</code> (вправо положительная). <code>alt</code> поднимает его над поверхностью: так летают спутники.</li>
+  <li><b>Поворот шара</b>: <code>yaw</code> крутит его влево-вправо вокруг вертикальной оси, <code>pitch</code> наклоняет верх к зрителю. Все пять чисел ставятся на ключи и работают с пружиной (<code>spring</code>).</li>
+  <li><b>За шаром</b> объект прячется: видна только та часть, что не закрыта шаром. Поэтому в скрипте объекты на шаре пишутся после него.</li>
+  <li><b>Лежит на поверхности</b> (<code>wrap</code>): фигура не просто едет, а изгибается по шару. У края она сужается, а за краем уходит из вида, как рисунок на глобусе. Её собственный поворот и масштаб действуют вдоль поверхности. Обрезается она по контуру шара.</li>
+  <li>Позицию такого объекта задаёт шар: поля X и Y у него пересчитываются и не нужны.</li>
+</ul>
+
+<h2 id="panel">Раздел «Орбита»</h2>
+<div class="pair">
+<figure><img src="img/orbit-panel.png" alt="Раздел «Орбита (2.5D)»: на шаре planet, широта 18, долгота 0, над шаром 50"><figcaption>Луна из примера: на шаре <code>planet</code>, широта 18, над шаром 50.</figcaption></figure>
+<div class="table-wrap"><table>
+  <tr><th>Поле</th><th>В скрипте</th><th>Что делает</th></tr>
+  <tr><td>На шаре</td><td><code>on planet</code></td><td>На какой фигуре лежит объект.</td></tr>
+  <tr><td>Широта</td><td><code>lat 20</code></td><td>Вверх-вниз по шару, градусы.</td></tr>
+  <tr><td>Долгота</td><td><code>lon -30</code></td><td>Влево-вправо по шару, градусы. 360 — полный круг.</td></tr>
+  <tr><td>Над шаром</td><td><code>alt 50</code></td><td>Высота над поверхностью.</td></tr>
+  <tr><td>Лежит на поверхности</td><td><code>wrap</code></td><td>Изгибает фигуру по шару.</td></tr>
+  <tr><td>Поворот шара</td><td><code>yaw 30</code>, <code>pitch 10</code></td><td>У шара: крутит всё, что на нём лежит.</td></tr>
+</table></div>
+</div>
+
+<h2 id="recipes">Рецепты</h2>
+<ul>
+  <li><b>Поворот головы.</b> Голова — эллипс, глаза, нос и рот — <code>on head … wrap</code>. Ключи <code>head.yaw</code> поворачивают её без перерисовки видов сбоку.</li>
+  <li><b>Вращающаяся планета.</b> Пятна с <code>wrap</code>, ключи <code>planet.yaw 0: 0 | 4: 360</code>.</li>
+  <li><b>Спутник.</b> <code>alt 50</code> и ключи долготы <code>moon.lon 0: 0 | 4: 360</code>. Наклон орбиты — через широту или <code>pitch</code> шара.</li>
+  <li><b>Живее.</b> <code>spring</code> на голове: поворот догоняется с лёгким перелётом.</li>
+</ul>
+
+<h2 id="script">В скрипте</h2>
+<pre><code><span class="k">ellipse</span> head <span class="p">at</span> <span class="n">420 170</span> <span class="p">size</span> <span class="n">150 170</span>
+<span class="k">ellipse</span> eye  <span class="p">size</span> <span class="n">18 24</span> <span class="p">on</span> head <span class="p">lat</span> <span class="n">12</span> <span class="p">lon</span> <span class="n">-22</span> <span class="p">wrap</span>
+<span class="k">ellipse</span> moon <span class="p">size</span> <span class="n">26</span> <span class="p">on</span> planet <span class="p">alt</span> <span class="n">50</span>
+
+<span class="k">anim</span> Turn <span class="n">2s</span> {
+  head.yaw <span class="n">0</span>: <span class="n">0</span> | <span class="n">1</span>: <span class="n">50</span> | <span class="n">2</span>: <span class="n">0</span>
+}</code></pre>
+<p class="muted">Это не полное 3D: объекты перекрываются целиком, а не по точкам. Фигура на шаре прячется за ним, но два объекта, проткнутые друг через друга, будут выглядеть неверно. Перетаскивание объекта по шару мышью пока не сделано: меняйте широту и долготу в панели.</p>
+
+</div></main>
+</div>
+<script src="site.js"></script>
+</body>
+</html>
