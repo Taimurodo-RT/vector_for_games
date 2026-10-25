@@ -230,8 +230,7 @@ impl App {
             ui.label(egui::RichText::new(ids.join(", ")).size(11.5).color(theme::FAINT));
         });
         let mut pick = None;
-        crate::app::section(ui, |ui| {
-            theme::caption(ui, "Выравнивание");
+        crate::app::fold(ui, "Выравнивание", |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for (icon, how, tip) in [
@@ -262,8 +261,7 @@ impl App {
             });
         });
         let mut bool_op = None;
-        crate::app::section(ui, |ui| {
-            theme::caption(ui, "Булевы операции");
+        crate::app::fold(ui, "Булевы операции", |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for op in motif_script::BoolOp::ALL {

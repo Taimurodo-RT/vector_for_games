@@ -1,7 +1,7 @@
 //! Symbols in the panels: a copy's parameters, «Сделать символом» for a group, and the list of
 //! symbols to place copies from.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::theme::{self, ACCENT, ButtonKind, FAINT, FG, KeyState, LINE, MUTED};
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
 use motif_core::{Color, Node, ShapeKind, Value};
@@ -25,8 +25,7 @@ impl App {
         let generated = self.scene.sites.get(&node.id).is_some_and(|s| s.generated);
         if let Some(inst) = self.scene.instances.get(&node.id).cloned() {
             let mut change: Option<(String, Value)> = None;
-            section(ui, |ui| {
-                theme::caption(ui, &format!("Символ {}", inst.symbol));
+            fold(ui, &format!("Символ {}", inst.symbol), |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 if inst.params.is_empty() {
                     ui.label(RichText::new("У символа нет параметров. Их пишут в строке symbol: symbol Имя size=16 color=#ffd23f.").size(11.5).color(FAINT));
@@ -83,8 +82,7 @@ impl App {
             return;
         }
         let mut make = false;
-        section(ui, |ui| {
-            theme::caption(ui, "Символ");
+        fold(ui, "Символ", |ui| {
             make = theme::button(ui, "Сделать символом", ButtonKind::Normal)
                 .on_hover_text("Группа станет символом, а на её месте останется копия. Новые копии — из панели артборда (клик по пустому месту).")
                 .clicked();
@@ -102,8 +100,7 @@ impl App {
     /// The list of symbols, each with «Вставить» to place a copy in the middle of the artboard.
     pub(crate) fn symbols_library(&mut self, ui: &mut egui::Ui) {
         let mut place = None;
-        section(ui, |ui| {
-            theme::caption(ui, "Символы");
+        fold(ui, "Символы", |ui| {
             if self.scene.symbols.is_empty() {
                 ui.label(RichText::new("Пока нет. Выделите группу и нажмите «Сделать символом» или напишите в скрипте блок symbol.").size(11.5).color(FAINT));
                 return;

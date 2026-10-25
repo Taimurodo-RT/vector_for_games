@@ -171,6 +171,7 @@ pub struct App {
     last_poll: Instant,
     pointer_doc: Option<Point>,
     frame_ms: f32,
+    pub(crate) layers: crate::layers::Layers,
     /// Soft-body frames already simulated, for the script and animation they were simulated for.
     sim: std::cell::RefCell<(u64, motif_core::SimCache)>,
 }
@@ -239,6 +240,7 @@ impl App {
             pointer_doc: None,
             frame_ms: 16.0,
             sim: Default::default(),
+            layers: Default::default(),
         };
         app.reparse();
         app
@@ -514,7 +516,7 @@ impl App {
         Some(out)
     }
 
-    fn delete_selection(&mut self) {
+    pub(crate) fn delete_selection(&mut self) {
         if let Some(k) = self.sel_key.clone()
             && let Some(anim) = self.anim.clone()
         {
@@ -896,81 +898,6 @@ impl App {
         });
     }
 
-    // ---------- layers ----------
-
-    fn layers_panel(&mut self, ui: &mut egui::Ui) {
-        let doc = &self.scene.doc;
-        panel_header(ui, "Слои", &doc.nodes.len().to_string());
-        let mut clicked = None;
-        let foot_h = 52.0;
-        egui::ScrollArea::vertical().id_salt("layers").max_height(ui.available_height() - foot_h).auto_shrink([false, false]).show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            ui.add_space(4.0);
-            // Artboard row.
-            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::hover());
-            theme::paint_icon(ui.painter(), Rect::from_center_size(pos2(r.left() + 19.0, r.center().y), vec2(14.0, 14.0)), Icon::Artboard, MUTED);
-            ui.painter().text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, &doc.artboard.name, theme::semibold(13.0), FG);
-            ui.painter().text(
-                pos2(r.right() - 10.0, r.center().y),
-                Align2::RIGHT_CENTER,
-                format!("{}×{}", fmt_num(doc.artboard.width), fmt_num(doc.artboard.height)),
-                theme::mono(11.0),
-                FAINT,
-            );
-            // Topmost first, like in every layer list.
-            for i in (0..doc.nodes.len()).rev() {
-                let n = &doc.nodes[i];
-                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
-                let sel = self.is_selected(&n.id);
-                if sel {
-                    ui.painter().rect_filled(r, 0.0, theme::mix(SEL, PANEL, 0.18));
-                } else if resp.hovered() || self.hovered.as_deref() == Some(n.id.as_str()) {
-                    ui.painter().rect_filled(r, 0.0, theme::PANEL_2);
-                }
-                let x = r.left() + 26.0 + 16.0 * doc.depth(i) as f32;
-                let dim = if doc.is_visible(i) { 1.0 } else { 0.4 };
-                theme::paint_icon(
-                    ui.painter(),
-                    Rect::from_center_size(pos2(x - 7.0, r.center().y), vec2(14.0, 14.0)),
-                    theme::shape_icon(n.kind),
-                    MUTED.gamma_multiply(dim),
-                );
-                ui.painter().text(
-                    pos2(x + 6.0, r.center().y),
-                    Align2::LEFT_CENTER,
-                    n.display_name(),
-                    theme::ui_font(13.0),
-                    if sel { FG } else { FG.gamma_multiply(dim) },
-                );
-                let is_mask = n.parent.is_some_and(|p| doc.nodes[p].clip && doc.nodes.iter().position(|c| c.parent == Some(p)) == Some(i));
-                let symbol = self.symbol_of(&n.id);
-                let tag = match (is_mask, self.scene.instances.get(&n.id), symbol, self.scene.sites.get(&n.id).is_some_and(|s| s.generated)) {
-                    (true, ..) => Some(("маска", ACCENT)),
-                    (false, Some(inst), ..) => Some((inst.symbol.as_str(), ACCENT)),
-                    (false, None, Some(sym), _) => Some((sym, FAINT)),
-                    (false, None, None, true) => Some(("for", FAINT)),
-                    _ => None,
-                };
-                if let Some((tag, color)) = tag {
-                    ui.painter().text(pos2(r.right() - 10.0, r.center().y), Align2::RIGHT_CENTER, tag, theme::mono(10.5), color);
-                }
-                if resp.on_hover_text(format!("id: {}", n.id)).clicked() {
-                    clicked = Some(n.id.clone());
-                }
-            }
-        });
-        let (foot, _) = ui.allocate_exact_size(vec2(ui.available_width(), foot_h), Sense::hover());
-        ui.painter().line_segment([foot.left_top(), foot.right_top()], Stroke::new(1.0, LINE));
-        ui.painter().text(foot.left_top() + vec2(12.0, 10.0), Align2::LEFT_TOP, "Клик по строке скрипта тоже\nвыбирает объект", theme::ui_font(12.0), FAINT);
-        if let Some(id) = clicked {
-            if ui.input(|i| i.modifiers.shift || i.modifiers.command) {
-                self.toggle_selected(id);
-            } else {
-                self.select_only(Some(id));
-            }
-        }
-    }
-
     // ---------- script ----------
 
     fn script_panel(&mut self, ui: &mut egui::Ui) {
@@ -1103,8 +1030,7 @@ impl App {
                         diamonds.push(prop);
                     }
                 };
-            section(ui, |ui| {
-                theme::caption(ui, "Трансформация");
+            fold(ui, "Трансформация", |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 ui.horizontal(|ui| {
                     field(self, ui, "X", Prop::X, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
@@ -1139,8 +1065,7 @@ impl App {
                     let t = self.src[s.start..s.end].trim_start_matches("font").trim();
                     t.trim_matches('"').to_string()
                 });
-                section(ui, |ui| {
-                    theme::caption(ui, "Текст");
+                fold(ui, "Текст", |ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                     crate::text_ui::content_row(ui, &node, &mut styles);
                     ui.horizontal(|ui| {
@@ -1155,8 +1080,7 @@ impl App {
                         outline_text = true;
                     }
                 });
-                section(ui, |ui| {
-                    theme::caption(ui, "Анимация букв");
+                fold(ui, "Анимация букв", |ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                     ui.horizontal(|ui| {
                         field(self, ui, "Появл. %", Prop::Reveal, 0.01, 0.0..=1.0, 100.0, 0);
@@ -1173,8 +1097,7 @@ impl App {
                 });
             }
             if matches!(node.kind, ShapeKind::Rect | ShapeKind::Star | ShapeKind::Polygon) {
-                section(ui, |ui| {
-                    theme::caption(ui, "Форма");
+                fold(ui, "Форма", |ui| {
                     let corners = node.kind == ShapeKind::Rect && node.radii.is_some();
                     if !corners {
                         ui.horizontal(|ui| match node.kind {
@@ -1198,8 +1121,7 @@ impl App {
             if node.kind == ShapeKind::Path {
                 let info = crate::pathedit::Outline::from_bez(&node.geometry)
                     .map(|o| format!("{} точ. · {}", o.verts.len(), if o.closed { "замкнут" } else { "открыт" }));
-                section(ui, |ui| {
-                    theme::caption(ui, "Контур");
+                fold(ui, "Контур", |ui| {
                     ui.label(RichText::new(info.clone().unwrap_or_else(|| "несколько частей: правка в скрипте".into())).size(12.0).color(MUTED));
                     let editing = self.point_edit.as_ref().is_some_and(|e| e.node == id);
                     let kind = if editing { ButtonKind::On } else { ButtonKind::Normal };
@@ -1218,15 +1140,13 @@ impl App {
             self.bone_section(ui, &node);
             self.physics_section(ui, &node);
             if !node.kind.is_container() {
-                section(ui, |ui| {
-                    theme::caption(ui, "Заливка");
+                fold(ui, "Заливка", |ui| {
                     if self.fill_kind_ui(ui, &node) {
                         ui.add_space(6.0);
                         self.paint_row(ui, &id, Prop::Fill, node.fill, &mut changes, &mut diamonds);
                     }
                 });
-                section(ui, |ui| {
-                    theme::caption(ui, "Обводка");
+                fold(ui, "Обводка", |ui| {
                     self.paint_row(ui, &id, Prop::StrokeColor, node.stroke, &mut changes, &mut diamonds);
                     if node.stroke.is_some() {
                         let w = ui.available_width();
@@ -1248,8 +1168,7 @@ impl App {
             let mut fx_changes = Vec::new();
             let mut fx_diamonds = Vec::new();
             if node.kind != ShapeKind::Bone {
-                section(ui, |ui| {
-                    theme::caption(ui, "Эффекты");
+                fold(ui, "Эффекты", |ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                     let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
                         let v = node.get(prop).as_num().unwrap_or(0.0);
@@ -1355,8 +1274,7 @@ impl App {
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG — подложкой.").size(12.0).color(FAINT));
         });
         let mut light = None;
-        section(ui, |ui| {
-            theme::caption(ui, "Свет сцены");
+        fold(ui, "Свет сцены", |ui| {
             let w = ui.available_width();
             if let Some(v) = theme::num_field(ui, w, "Тени падают в сторону °", self.scene.doc.light, 1.0, -360.0..=360.0, 0, KeyState::Hidden).changed
             {
@@ -1718,7 +1636,7 @@ impl App {
                 Some(DragOp::Marquee { from, to, add }) => {
                     let area = motif_core::kurbo::Rect::from_points(from, to);
                     let hits: Vec<String> = (0..doc.nodes.len())
-                        .filter(|&i| doc.nodes[i].parent.is_none() && doc.is_visible(i))
+                        .filter(|&i| doc.nodes[i].parent.is_none() && doc.is_visible(i) && !doc.is_locked(i))
                         .filter(|&i| crate::selection::world_bounds(&doc, i).is_some_and(|b| b.intersect(area).area() > 0.0 || area.contains(b.center())))
                         .map(|i| doc.nodes[i].id.clone())
                         .collect();
@@ -2301,7 +2219,7 @@ fn galley_size(g: &std::sync::Arc<egui::Galley>) -> egui::Vec2 {
 }
 
 /// Caps title with a counter on the right, under a bottom line (`СЛОИ 5`).
-fn panel_header(ui: &mut egui::Ui, title: &str, meta: &str) {
+pub(crate) fn panel_header(ui: &mut egui::Ui, title: &str, meta: &str) {
     panel_header_colored(ui, title, meta, MUTED);
 }
 
@@ -2323,6 +2241,41 @@ pub(crate) fn section(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     });
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
     ui.painter().rect_filled(r, 0.0, LINE);
+}
+
+/// A properties section under a caption that folds it away. Whether a caption is folded is kept
+/// per caption, so «Эффекты» folded once stays folded for every object.
+pub(crate) fn fold(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    let key = egui::Id::unique(("fold", title));
+    let mut open = ui.data_mut(|d| d.get_persisted::<bool>(key)).unwrap_or(true);
+    egui::Frame::new().inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = 8.0;
+        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 16.0), Sense::click());
+        let color = if resp.hovered() { FG } else { MUTED };
+        fold_arrow(ui.painter(), pos2(r.left() + 5.0, r.center().y), open, color);
+        let g = ui.painter().layout_no_wrap(title.to_uppercase(), theme::semibold(11.0), color);
+        ui.painter().galley(pos2(r.left() + 16.0, r.center().y - g.size().y / 2.0), g, color);
+        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            open = !open;
+            ui.data_mut(|d| d.insert_persisted(key, open));
+        }
+        if open {
+            add(ui);
+        }
+    });
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().rect_filled(r, 0.0, LINE);
+}
+
+/// The small triangle of a folding row: pointing down when open, right when folded.
+pub(crate) fn fold_arrow(painter: &egui::Painter, c: Pos2, open: bool, color: Color32) {
+    let pts = if open {
+        vec![c + vec2(-4.0, -2.0), c + vec2(4.0, -2.0), c + vec2(0.0, 3.0)]
+    } else {
+        vec![c + vec2(-2.0, -4.0), c + vec2(3.0, 0.0), c + vec2(-2.0, 4.0)]
+    };
+    painter.add(egui::Shape::convex_polygon(pts, color, Stroke::NONE));
 }
 
 fn kind_name(kind: ShapeKind) -> &'static str {

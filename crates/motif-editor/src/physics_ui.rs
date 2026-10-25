@@ -1,7 +1,7 @@
 //! The «Физика» section: springs on keyed values, jiggling bones, soft bodies and the solids
 //! soft bodies bump into.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
@@ -15,8 +15,7 @@ impl App {
     pub(crate) fn physics_section(&mut self, ui: &mut egui::Ui, node: &Node) {
         let mut edits: Vec<StyleEdit> = Vec::new();
         let mut fields = None;
-        section(ui, |ui| {
-            theme::caption(ui, "Физика");
+        fold(ui, "Физика", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             spring_editor(
                 ui,

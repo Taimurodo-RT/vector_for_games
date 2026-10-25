@@ -1,6 +1,6 @@
 //! The «Морфинг» section: which shapes this one flows into, and how far.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, MUTED};
 use egui::{RichText, vec2};
@@ -35,8 +35,7 @@ impl App {
         let written = self.scene.sources.get(&(id.clone(), Prop::Morph)).map(|s| self.src[s.span.start..s.span.end].to_string());
         let line =
             |list: &[String]| (!list.is_empty()).then(|| format!("morph {}{}", list.join(" "), written.as_ref().map_or(String::new(), |w| format!(" {w}"))));
-        section(ui, |ui| {
-            theme::caption(ui, "Морфинг");
+        fold(ui, "Морфинг", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             if !targets.is_empty() {
                 ui.horizontal_wrapped(|ui| {

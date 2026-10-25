@@ -203,6 +203,49 @@ fn delete_node_takes_children_keys_and_overrides() {
 }
 
 #[test]
+fn layers_rename_lock_and_reorder() {
+    let src = "rect a \"Фон\" at 10 10\ngroup g at 100 50 {\n  rect b at 5 5 // кнопка\n}\nrect c\nanim Go 1s {\n  a.x  0: 0\n}\n";
+    let s = scene(src);
+    // Names: replaced, added, removed.
+    let out = rename_node(src, &s, "a", "Небо \"синее\"").unwrap();
+    assert!(out.starts_with("rect a \"Небо синее\" at 10 10\n"), "{out}");
+    assert!(rename_node(src, &s, "c", "Пол").unwrap().contains("rect c \"Пол\"\n"));
+    assert!(rename_node(src, &s, "a", " ").unwrap().starts_with("rect a at 10 10\n"));
+    // Locked shapes are drawn but not picked on the canvas.
+    let out = set_style(src, &s, "c", "locked", Some("locked")).unwrap();
+    assert!(out.contains("rect c locked\n"), "{out}");
+    let locked = scene(&out);
+    assert!(locked.doc.node("c").unwrap().locked);
+    let p = motif_core::kurbo::Point::new(10.0, 10.0);
+    assert_eq!((s.doc.hit_test(p), locked.doc.hit_test(p)), (Some(3), Some(0)));
+    // Order: over c, then under a.
+    let out = move_node(src, &s, "a", "c", Place::After).unwrap();
+    assert_eq!(scene(&out).doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["g", "b", "c", "a"]);
+    assert!(out.contains("a.x  0: 0"));
+    let out = move_node(src, &s, "c", "a", Place::Before).unwrap();
+    assert!(out.starts_with("rect c\nrect a"), "{out}");
+    // Into a group: indented, and still at the same place on the artboard.
+    let out = move_node(src, &s, "a", "g", Place::Into).unwrap();
+    assert!(out.contains("  rect b at 5 5 // кнопка\n  rect a \"Фон\" at -90 -40\n}"), "{out}");
+    let moved = scene(&out);
+    let i = moved.doc.index_of("a").unwrap();
+    assert_eq!(moved.doc.nodes[i].parent, moved.doc.index_of("g"));
+    assert_eq!(moved.doc.world_transform(i) * motif_core::kurbo::Point::ZERO, motif_core::kurbo::Point::new(10.0, 10.0));
+    // Out of it, with its comment, and a missing `at` written.
+    let out = move_node(src, &s, "b", "c", Place::After).unwrap();
+    assert!(out.contains("group g at 100 50 {\n}\nrect c\nrect b at 105 55 // кнопка\n"), "{out}");
+    let out = move_node(src, &s, "c", "g", Place::Into).unwrap();
+    assert!(out.contains("  rect c at -100 -50\n}"), "{out}");
+    // Comments above a declaration go along with it.
+    let src2 = "// небо\nrect a\n// земля\n// и трава\nrect b\n";
+    let out = move_node(src2, &scene(src2), "b", "a", Place::Before).unwrap();
+    assert_eq!(out, "// земля\n// и трава\nrect b\n// небо\nrect a\n");
+    // Not into itself, not into a shape.
+    assert!(move_node(src, &s, "g", "b", Place::After).is_none());
+    assert!(move_node(src, &s, "a", "c", Place::Into).is_none());
+}
+
+#[test]
 fn anim_header_edits() {
     let src = "rect a\nanim Go 1.2s loop {\n  a.x  0: 0 | 1: 5 linear\n}\n";
     let s = scene(src);

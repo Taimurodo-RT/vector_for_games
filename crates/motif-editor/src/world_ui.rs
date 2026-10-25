@@ -1,6 +1,6 @@
 //! The «Мир» section of the artboard: the scene's gravity and wind, keyable like any property.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::theme::{self, FAINT};
 use egui::{RichText, vec2};
 use motif_core::{Prop, Value};
@@ -10,8 +10,7 @@ impl App {
         let world = self.display_doc().world;
         let mut change = None;
         let mut diamond = None;
-        section(ui, |ui| {
-            theme::caption(ui, "Мир");
+        fold(ui, "Мир", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             let half = (ui.available_width() - 6.0) / 2.0;
             let mut field = |ui: &mut egui::Ui, label: &str, prop: Prop, range: std::ops::RangeInclusive<f64>, speed: f64, decimals: usize| {

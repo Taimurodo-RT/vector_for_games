@@ -1,7 +1,7 @@
 //! Bones in the editor: the bone tool, the skeleton drawn over the canvas, dragging bones, and
 //! the panels for length, IK, skin and making a shape follow a bone.
 
-use crate::app::{App, DragOp, MoveItem, Tool, section};
+use crate::app::{App, DragOp, MoveItem, Tool, fold};
 use crate::canvas::View;
 use crate::theme::{self, ButtonKind, FAINT, FG, MUTED, SEL};
 use egui::{Color32, Pos2, Rect, RichText, Stroke, vec2};
@@ -48,7 +48,7 @@ fn bone_parent(doc: &Document, i: usize) -> Option<usize> {
 /// so they are easier to pick on screen than by their outline.
 pub(crate) fn pick_bone(doc: &Document, rect: Rect, view: View, p: Pos2) -> Option<usize> {
     (0..doc.nodes.len())
-        .filter(|&i| is_bone(doc, i) && doc.is_visible(i))
+        .filter(|&i| is_bone(doc, i) && doc.is_visible(i) && !doc.is_locked(i))
         .map(|i| {
             let (a, b) = ends(doc, i);
             let (a, b) = (view.to_screen(rect, a), view.to_screen(rect, b));
@@ -215,8 +215,7 @@ impl App {
         }
         let mut new_skin: Option<Option<Skin>> = None;
         let mut attach: Option<Option<String>> = None;
-        section(ui, |ui| {
-            theme::caption(ui, "Кости");
+        fold(ui, "Кости", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             let parent = bone_parent(&doc, i).map(|p| doc.nodes[p].id.clone());
             ui.horizontal(|ui| {
@@ -320,8 +319,7 @@ impl App {
             false
         };
         let candidates: Vec<String> = (0..doc.nodes.len()).filter(|&k| !is_bone(doc, k) && !inside(k)).map(|k| doc.nodes[k].id.clone()).collect();
-        section(ui, |ui| {
-            theme::caption(ui, "Инверсная кинематика (IK)");
+        fold(ui, "Инверсная кинематика (IK)", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Цель").size(12.0).color(MUTED));

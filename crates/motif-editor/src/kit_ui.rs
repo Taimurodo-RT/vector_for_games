@@ -1,6 +1,6 @@
 //! The «Интерфейс» section: marking a piece of game UI and its nine-slice margins.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
@@ -27,8 +27,7 @@ impl App {
         if node.kind == ShapeKind::Bone {
             return;
         }
-        section(ui, |ui| {
-            theme::caption(ui, "Интерфейс");
+        fold(ui, "Интерфейс", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             let mut on = node.ui || node.slice.is_some();
             if ui.checkbox(&mut on, RichText::new("Деталь интерфейса").size(12.5).color(FG)).changed() {

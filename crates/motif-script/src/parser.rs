@@ -44,6 +44,8 @@ pub struct NodeAst {
     pub id: String,
     pub id_span: Span,
     pub name: Option<String>,
+    /// The quoted name with its quotes.
+    pub name_span: Option<Span>,
     pub props: Vec<PropAst>,
     /// Byte offset where a new property can be appended on the node's line.
     pub insert_at: usize,
@@ -231,7 +233,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "links" => (1, 1),
         "morph" => (1, 9),
         "extrude" => (1, 2),
-        "ui" => (0, 0),
+        "ui" | "locked" => (0, 0),
         "slice" => (1, 4),
         "rough" => (1, 2),
         "boil" | "bands" | "seed" => (1, 1),
@@ -544,12 +546,14 @@ impl<'a> Parser<'a> {
             return Err(self.err(id_span, format!("«{id}» — это свойство; сначала укажите id объекта")));
         }
         let mut name = None;
+        let mut name_span = None;
         let mut insert_at = id_span.end;
         if let Some(Tok::Str(_)) = self.peek() {
             let t = self.next().unwrap();
             if let Tok::Str(s) = t.tok {
                 name = Some(s);
             }
+            name_span = Some(t.span);
             insert_at = t.span.end;
         }
         let mut props = Vec::new();
@@ -637,7 +641,7 @@ impl<'a> Parser<'a> {
             children = self.block(true);
             end = self.close_block()? + 1;
         }
-        Ok(NodeAst { kind, id, id_span, name, props, insert_at, children, span: Span::new(start, end) })
+        Ok(NodeAst { kind, id, id_span, name, name_span, props, insert_at, children, span: Span::new(start, end) })
     }
 
     fn path(&mut self) -> Result<(String, String, Span), ScriptError> {
