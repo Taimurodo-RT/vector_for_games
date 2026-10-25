@@ -127,8 +127,11 @@ impl<'a> Evaluator<'a> {
                     ab.width = *width;
                     ab.height = *height;
                     for p in props {
-                        if let Some(Value::Color(c)) = self.value(&p.values[0]) {
-                            self.scene.doc.artboard.background = c;
+                        match (p.key.as_str(), self.value(&p.values[0])) {
+                            ("bg", Some(Value::Color(c))) => self.scene.doc.artboard.background = c,
+                            ("light", Some(Value::Num(a))) => self.scene.doc.light = a,
+                            ("light", _) => self.err(p.values[0].span, "light: угол в градусах, куда падают тени (90 — вниз)"),
+                            _ => {}
                         }
                     }
                 }
@@ -307,7 +310,12 @@ impl<'a> Evaluator<'a> {
                     let nums: Vec<f64> = (0..p.values.len() - 1).filter_map(num).collect();
                     match (color, nums.len() == p.values.len() - 1) {
                         (Some(color), true) => {
-                            node.shadow = Some(motif_core::Shadow { dx: nums[0], dy: nums[1], blur: nums.get(2).copied().unwrap_or(0.0).max(0.0), color })
+                            node.shadow = Some(motif_core::Shadow { dx: nums[0], dy: nums[1], blur: nums.get(2).copied().unwrap_or(0.0).max(0.0), color });
+                            record(&mut self.scene, Prop::ShadowX, &p.values[0], None);
+                            record(&mut self.scene, Prop::ShadowY, &p.values[1], None);
+                            if nums.len() == 3 {
+                                record(&mut self.scene, Prop::ShadowBlur, &p.values[2], None);
+                            }
                         }
                         _ => self.err(p.key_span, "тень: shadow x y [размытие] #цвет, например shadow 0 4 8 #00000055"),
                     }
@@ -464,6 +472,8 @@ impl<'a> Evaluator<'a> {
                         "reveal" => Prop::Reveal,
                         "wave" => Prop::Wave,
                         "phase" => Prop::Phase,
+                        "blur" => Prop::Blur,
+                        "elevation" => Prop::Elevation,
                         "r" => Prop::Radius,
                         "rot" => Prop::Rotation,
                         "opacity" => Prop::Opacity,

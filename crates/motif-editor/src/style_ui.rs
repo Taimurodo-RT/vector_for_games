@@ -2,7 +2,7 @@
 //! shadow and blend mode. Each row collects whole-property edits (`dash 6 4`) applied afterwards.
 
 use crate::app::App;
-use crate::theme::{self, ButtonKind, FAINT, FG, KeyState, LINE, MUTED};
+use crate::theme::{self, ButtonKind, FG, KeyState, LINE, MUTED};
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
 use motif_core::{Blend, Cap, Color, Join, Node, Shadow};
 use motif_script::fmt_num;
@@ -110,44 +110,33 @@ fn shadow_text(s: &Shadow) -> String {
     }
 }
 
-/// Shadow and blend mode.
-pub fn effects_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) {
+/// Shadow on or off, and its colour. Returns whether the node has a shadow, so the caller can
+/// draw its offset and blur as keyable fields.
+pub fn shadow_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) -> bool {
     let mut on = node.shadow.is_some();
-    if ui.checkbox(&mut on, RichText::new("Тень").size(12.5).color(FG)).changed() {
-        let s = Shadow { dx: 0.0, dy: 4.0, blur: 8.0, color: Color { r: 0, g: 0, b: 0, a: 0x55 } };
-        edits.push(("shadow", on.then(|| shadow_text(&s))));
-    }
-    if let Some(s) = node.shadow {
-        let mut s2 = s;
-        let mut changed = false;
-        if let Some([dx, dy]) = pair(ui, ["X", "Y"], [s.dx, s.dy], 0.5, -1000.0..=1000.0) {
-            (s2.dx, s2.dy) = (dx, dy);
-            changed = true;
+    ui.horizontal(|ui| {
+        if ui.checkbox(&mut on, RichText::new("Тень").size(12.5).color(FG)).changed() {
+            let s = Shadow { dx: 0.0, dy: 4.0, blur: 8.0, ..Shadow::DEFAULT };
+            edits.push(("shadow", on.then(|| shadow_text(&s))));
         }
-        ui.horizontal(|ui| {
-            // Colour swatch with alpha: shadows are usually translucent.
-            let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-            ui.painter().rect_filled(sw, 6.0, Color32::from_rgba_unmultiplied(s.color.r, s.color.g, s.color.b, s.color.a));
-            ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
-            let mut c32 = Color32::from_rgba_unmultiplied(s.color.r, s.color.g, s.color.b, s.color.a);
-            egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-                if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::OnlyBlend) {
-                    let [r, g, b, a] = c32.to_srgba_unmultiplied();
-                    s2.color = Color { r, g, b, a };
-                    changed = true;
-                }
-            });
-            let w = ui.available_width();
-            if let Some(b) = theme::num_field(ui, w, "Размытие", s.blur, 0.2, 0.0..=200.0, 1, KeyState::Hidden).changed {
-                s2.blur = (b * 10.0).round() / 10.0;
-                changed = true;
+        let Some(s) = node.shadow.filter(|_| on) else { return };
+        // Colour swatch with alpha: shadows are usually translucent.
+        let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+        let mut c32 = Color32::from_rgba_unmultiplied(s.color.r, s.color.g, s.color.b, s.color.a);
+        ui.painter().rect_filled(sw, 6.0, c32);
+        ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
+        egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::OnlyBlend) {
+                let [r, g, b, a] = c32.to_srgba_unmultiplied();
+                edits.push(("shadow", Some(shadow_text(&Shadow { color: Color { r, g, b, a }, ..s }))));
             }
         });
-        if changed {
-            edits.push(("shadow", Some(shadow_text(&s2))));
-        }
-        ui.label(RichText::new("Размытие 0 — жёсткая тень, удобно для пиксель-арта.").size(11.5).color(FAINT));
-    }
+    });
+    on && node.shadow.is_some()
+}
+
+/// Blend mode.
+pub fn blend_row(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Наложение").size(12.0).color(MUTED));
         let mut pick = None;

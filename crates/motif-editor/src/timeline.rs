@@ -38,6 +38,11 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::Reveal => "Появление букв",
         Prop::Wave => "Волна",
         Prop::Phase => "Фаза волны",
+        Prop::Blur => "Размытие",
+        Prop::ShadowX => "Тень X",
+        Prop::ShadowY => "Тень Y",
+        Prop::ShadowBlur => "Размытие тени",
+        Prop::Elevation => "Высота",
     }
 }
 

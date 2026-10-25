@@ -8,6 +8,8 @@ pub struct Document {
     /// Nodes in paint order (parents always come before their children).
     pub nodes: Vec<Node>,
     pub animations: Vec<Animation>,
+    /// Direction shadows fall from raised objects (`elevation`), in degrees: 90 is straight down.
+    pub light: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -92,10 +94,18 @@ pub enum Prop {
     /// Height of a wave through the letters, and its position (1 = one cycle).
     Wave,
     Phase,
+    /// Gaussian blur of the whole object, in artboard units.
+    Blur,
+    /// Shadow offset and softness.
+    ShadowX,
+    ShadowY,
+    ShadowBlur,
+    /// Height above the artboard: casts a shadow away from the scene light, longer and softer when higher.
+    Elevation,
 }
 
 impl Prop {
-    pub const ALL: [Prop; 21] = [
+    pub const ALL: [Prop; 26] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -117,6 +127,11 @@ impl Prop {
         Prop::Reveal,
         Prop::Wave,
         Prop::Phase,
+        Prop::Blur,
+        Prop::ShadowX,
+        Prop::ShadowY,
+        Prop::ShadowBlur,
+        Prop::Elevation,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -143,6 +158,11 @@ impl Prop {
             Prop::Reveal => "reveal",
             Prop::Wave => "wave",
             Prop::Phase => "phase",
+            Prop::Blur => "blur",
+            Prop::ShadowX => "shadow-x",
+            Prop::ShadowY => "shadow-y",
+            Prop::ShadowBlur => "shadow-blur",
+            Prop::Elevation => "elevation",
         }
     }
 
@@ -239,6 +259,10 @@ pub struct Node {
     /// Text only: the letters read from the font, and how they are laid out.
     pub text: Option<std::sync::Arc<crate::text::TextShape>>,
     pub text_style: crate::text::TextStyle,
+    /// Gaussian blur of the whole object (a group blurs its children together), in artboard units.
+    pub blur: f64,
+    /// Height above the artboard for the procedural shadow; 0 casts none.
+    pub elevation: f64,
 }
 
 /// A two-or-more colour gradient spread over the shape's bounds.
@@ -315,6 +339,8 @@ impl Node {
                 wave: 0.0,
                 phase: 0.0,
             },
+            blur: 0.0,
+            elevation: 0.0,
         }
     }
 
@@ -346,6 +372,11 @@ impl Node {
             Prop::Reveal => Value::Num(self.text_style.reveal),
             Prop::Wave => Value::Num(self.text_style.wave),
             Prop::Phase => Value::Num(self.text_style.phase),
+            Prop::Blur => Value::Num(self.blur),
+            Prop::ShadowX => Value::Num(self.shadow.map_or(0.0, |s| s.dx)),
+            Prop::ShadowY => Value::Num(self.shadow.map_or(0.0, |s| s.dy)),
+            Prop::ShadowBlur => Value::Num(self.shadow.map_or(0.0, |s| s.blur)),
+            Prop::Elevation => Value::Num(self.elevation),
         }
     }
 
@@ -383,6 +414,11 @@ impl Node {
             Prop::Reveal => self.text_style.reveal = v,
             Prop::Wave => self.text_style.wave = v,
             Prop::Phase => self.text_style.phase = v,
+            Prop::Blur => self.blur = v.max(0.0),
+            Prop::ShadowX => self.shadow.get_or_insert(Shadow::DEFAULT).dx = v,
+            Prop::ShadowY => self.shadow.get_or_insert(Shadow::DEFAULT).dy = v,
+            Prop::ShadowBlur => self.shadow.get_or_insert(Shadow::DEFAULT).blur = v.max(0.0),
+            Prop::Elevation => self.elevation = v.max(0.0),
             Prop::Fill | Prop::StrokeColor => unreachable!(),
         }
     }
@@ -443,7 +479,7 @@ fn polygon_path(w: f64, h: f64, sides: usize) -> BezPath {
 
 impl Document {
     pub fn new(artboard: Artboard) -> Self {
-        Document { artboard, nodes: Vec::new(), animations: Vec::new() }
+        Document { artboard, nodes: Vec::new(), animations: Vec::new(), light: 90.0 }
     }
 
     pub fn index_of(&self, id: &str) -> Option<usize> {

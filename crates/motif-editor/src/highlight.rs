@@ -41,6 +41,9 @@ const PROPS: &[&str] = &[
     "reveal",
     "wave",
     "phase",
+    "blur",
+    "elevation",
+    "light",
 ];
 
 /// Curve names, including the easings.net library and the words that take numbers.

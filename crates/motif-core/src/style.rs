@@ -129,3 +129,22 @@ pub struct Shadow {
     pub blur: f64,
     pub color: Color,
 }
+
+impl Shadow {
+    /// A soft dark shadow, used when a shadow is added without one being written.
+    pub const DEFAULT: Shadow = Shadow { dx: 0.0, dy: 0.0, blur: 0.0, color: Color { r: 0, g: 0, b: 0, a: 0x55 } };
+
+    /// This shadow, or [`Shadow::DEFAULT`], moved and softened for an object raised `elevation`
+    /// above the artboard and lit so shadows fall toward `light` degrees.
+    pub fn cast(shadow: Option<Shadow>, elevation: f64, light: f64) -> Option<Shadow> {
+        if elevation <= 0.0 {
+            return shadow;
+        }
+        let mut s = shadow.unwrap_or(Shadow::DEFAULT);
+        let a = light.to_radians();
+        s.dx += a.cos() * elevation;
+        s.dy += a.sin() * elevation;
+        s.blur += elevation * 0.6;
+        Some(s)
+    }
+}

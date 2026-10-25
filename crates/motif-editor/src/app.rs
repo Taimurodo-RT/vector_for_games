@@ -1094,11 +1094,52 @@ impl App {
                     ui.label(RichText::new("Слои обводки под фигурой").size(12.0).color(MUTED));
                     crate::text_ui::outline_rows(ui, &node, &mut styles);
                 });
-                section(ui, |ui| {
-                    theme::caption(ui, "Эффекты");
-                    crate::style_ui::effects_rows(ui, &node, &mut styles);
-                });
             }
+            // Blur, height and shadow: keyable, so they animate like position or colour.
+            let mut fx_changes = Vec::new();
+            let mut fx_diamonds = Vec::new();
+            section(ui, |ui| {
+                theme::caption(ui, "Эффекты");
+                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
+                    let v = node.get(prop).as_num().unwrap_or(0.0);
+                    let range = if matches!(prop, Prop::ShadowX | Prop::ShadowY) { -1000.0..=1000.0 } else { 0.0..=500.0 };
+                    let out = theme::num_field(ui, half, label, v, 0.2, range, 1, self.key_state(&id, prop));
+                    if let Some(nv) = out.changed {
+                        fx_changes.push((prop, Value::Num((nv * 10.0).round() / 10.0)));
+                    }
+                    if out.diamond {
+                        fx_diamonds.push(prop);
+                    }
+                };
+                ui.horizontal(|ui| {
+                    fx(ui, "Размытие", Prop::Blur);
+                    if node.kind != ShapeKind::Group {
+                        fx(ui, "Высота", Prop::Elevation);
+                    }
+                });
+                if node.kind == ShapeKind::Group {
+                    ui.label(RichText::new("Группа размывается целиком, вместе со всеми детьми.").size(11.5).color(FAINT));
+                    return;
+                }
+                if crate::style_ui::shadow_rows(ui, &node, &mut styles) {
+                    ui.horizontal(|ui| {
+                        fx(ui, "Тень X", Prop::ShadowX);
+                        fx(ui, "Тень Y", Prop::ShadowY);
+                    });
+                    ui.horizontal(|ui| fx(ui, "Мягкость", Prop::ShadowBlur));
+                }
+                ui.label(
+                    RichText::new(
+                        "«Высота» поднимает объект над артбордом: тень уходит от света сцены, длиннее и мягче. Размытие 0 — жёсткая тень для пиксель-арта.",
+                    )
+                    .size(11.5)
+                    .color(FAINT),
+                );
+                crate::style_ui::blend_row(ui, &node, &mut styles);
+            });
+            changes.extend(fx_changes);
+            diamonds.extend(fx_diamonds);
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();
                 job.wrap.max_width = ui.available_width();
@@ -1153,6 +1194,22 @@ impl App {
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG — подложкой.").size(12.0).color(FAINT));
         });
+        let mut light = None;
+        section(ui, |ui| {
+            theme::caption(ui, "Свет сцены");
+            let w = ui.available_width();
+            if let Some(v) = theme::num_field(ui, w, "Тени падают в сторону °", self.scene.doc.light, 1.0, -360.0..=360.0, 0, KeyState::Hidden).changed
+            {
+                light = Some(v.round());
+            }
+            ui.label(RichText::new("90 — вниз, 0 — вправо. Действует на объекты с «Высотой».").size(11.5).color(FAINT));
+        });
+        if let Some(a) = light
+            && self.can_edit()
+        {
+            let out = motif_script::set_light(&self.src, a);
+            self.apply("light", out);
+        }
         self.backdrop_section(ui);
     }
 

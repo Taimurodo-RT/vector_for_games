@@ -79,6 +79,10 @@ cargo run --release -p motif-editor -- examples/bounce.msc
   (`phase`) двигает волну (`wave`) по тексту. «В кривые» заменяет текст контуром.
 * **Слои обводки.** `outline #1b1d24 18 #fff 10` рисует под фигурой несколько обводок, широкие снизу, как у игровых
   заголовков и цифр урона. Пример — [`examples/title.msc`](examples/title.msc).
+* **Размытие и глубина.** `blur 6` размывает фигуру или целую группу настоящим гауссовым размытием, тень `shadow` тоже
+  мягкая по-настоящему. `elevation 12` поднимает объект над артбордом: тень сама уходит от света сцены (`light 120` в строке
+  `artboard`, 90 — вниз), чем выше, тем длиннее и мягче. Всё это анимируется ключами: `blur`, `elevation`, `shadow-x`,
+  `shadow-y`, `shadow-blur`. В редакторе и при экспорте картинка одна и та же. Пример — [`examples/depth.msc`](examples/depth.msc).
 * **Пиксельное превью.** Кнопка «Пиксели» рендерит сцену без сглаживания в заданную ширину и приводит её к палитре сцены
   или к загруженной `.pal`. Так видно, что получится после пикселизации, ещё до экспорта.
 * **Экспорт** кадров PNG и палитры `.pal` (кнопка «Экспорт»).
@@ -133,6 +137,8 @@ anim Idle 1.2s loop {
 | Градиент (вместо заливки) | `gradient linear 90 #ffe7a3 #ff9d5c`, `gradient radial #fff #3b5bff #000` |
 | Пунктир, концы, углы линии | `dash 6 4`, `cap butt\|round\|square`, `join miter\|round\|bevel` |
 | Тень (размытие можно опустить) | `shadow 0 4 8 #00000055`, `shadow 4 4 #000` |
+| Размытие объекта или группы | `blur 6` |
+| Высота над артбордом (тень от света) | `elevation 12`; свет сцены: `artboard "Имя" 480x300 light 120` |
 | Наложение | `blend multiply`, `screen`, `overlay`, `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity` |
 | Маска у группы | `group окно clip { ellipse форма … остальное … }` |
 | Скрыть | `hidden` |
