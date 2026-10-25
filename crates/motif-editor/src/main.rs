@@ -6,6 +6,7 @@ mod app;
 mod canvas;
 mod highlight;
 mod pathedit;
+mod selection;
 mod theme;
 mod timeline;
 

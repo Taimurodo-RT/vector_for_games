@@ -287,7 +287,9 @@ impl<'a> Evaluator<'a> {
         }
         let index = self.scene.doc.nodes.len();
         self.scene.doc.nodes.push(node);
-        self.scene.sites.insert(id, NodeSite { insert_at: n.insert_at, generated, line: crate::line_of(self.src, n.id_span.start), span: n.span });
+        self.scene
+            .sites
+            .insert(id, NodeSite { insert_at: n.insert_at, generated, line: crate::line_of(self.src, n.id_span.start), span: n.span, id_span: n.id_span });
         self.stmts(&n.children, Some(index), generated);
     }
 

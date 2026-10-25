@@ -24,8 +24,8 @@ mod lexer;
 mod parser;
 
 pub use edit::{
-    add_anim, add_node, add_path, delete_key, delete_node, fmt_value, move_key, path_to_d, set_anim_duration, set_anim_loop, set_key, set_key_ease, set_path,
-    set_prop,
+    Snippet, add_anim, add_node, add_path, copy_nodes, delete_key, delete_node, fmt_value, move_key, paste_nodes, path_to_d, set_anim_duration, set_anim_loop,
+    set_key, set_key_ease, set_path, set_prop,
 };
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
@@ -94,6 +94,8 @@ pub struct NodeSite {
     pub line: usize,
     /// The whole declaration, including a group's children.
     pub span: Span,
+    /// The id as written (a template such as `coin{i}` for nodes made by loops).
+    pub id_span: Span,
 }
 
 /// A parsed scene: the document plus everything needed to edit the script it came from.

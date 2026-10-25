@@ -351,3 +351,101 @@ pub fn set_key_ease(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop
         None => splice(src, Span::new(key.value.end, key.value.end), &format!(" {ease}")),
     })
 }
+
+/// Copied declarations: the text of each statement with the places to rewrite on paste.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Snippet {
+    pub text: String,
+    /// Ids written in the text (relative spans), with whether they are loop templates.
+    pub ids: Vec<(Span, String, bool)>,
+    /// The `at x y` literals of the copied node, to offset the copy.
+    pub at: Option<(Span, Span)>,
+}
+
+/// Copies the declarations of `ids` (a node's children come along with it). Nodes made by loops
+/// are skipped: their line makes several nodes.
+pub fn copy_nodes(scene: &Scene, src: &str, ids: &[String]) -> Vec<Snippet> {
+    let doc = &scene.doc;
+    let chosen: Vec<usize> = ids.iter().filter_map(|id| doc.index_of(id)).collect();
+    let has_chosen_ancestor = |i: usize| {
+        let mut cur = doc.nodes[i].parent;
+        while let Some(p) = cur {
+            if chosen.contains(&p) {
+                return true;
+            }
+            cur = doc.nodes[p].parent;
+        }
+        false
+    };
+    let mut roots: Vec<usize> = chosen.iter().copied().filter(|&i| !has_chosen_ancestor(i)).collect();
+    roots.sort_unstable();
+    let mut out = Vec::new();
+    for i in roots {
+        let id = &doc.nodes[i].id;
+        let Some(site) = scene.sites.get(id).filter(|s| !s.generated) else { continue };
+        let span = site.span;
+        let rel = |s: Span| Span::new(s.start - span.start, s.end - span.start);
+        let inside = |s: Span| s.start >= span.start && s.end <= span.end;
+        let mut names: Vec<(Span, String, bool)> = Vec::new();
+        for (nid, ns) in &scene.sites {
+            if inside(ns.span) && !names.iter().any(|(s, _, _)| *s == rel(ns.id_span)) {
+                let written = src[ns.id_span.start..ns.id_span.end].to_string();
+                names.push((rel(ns.id_span), if ns.generated { written } else { nid.clone() }, ns.generated));
+            }
+        }
+        names.sort_by_key(|(s, _, _)| s.start);
+        let at = match (scene.sources.get(&(id.clone(), Prop::X)), scene.sources.get(&(id.clone(), Prop::Y))) {
+            (Some(x), Some(y)) if x.editable && y.editable && !x.from_override && inside(x.span) && inside(y.span) => Some((rel(x.span), rel(y.span))),
+            _ => None,
+        };
+        out.push(Snippet { text: src[span.start..span.end].to_string(), ids: names, at });
+    }
+    out
+}
+
+/// Inserts copies of `snippets` with fresh ids, moved by `offset`. Returns the script and the ids
+/// of the pasted top-level nodes.
+pub fn paste_nodes(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64, f64)) -> (String, Vec<String>) {
+    let mut taken: Vec<String> = scene.doc.nodes.iter().map(|n| n.id.clone()).collect();
+    let mut block = String::new();
+    let mut roots = Vec::new();
+    for snip in snippets {
+        let mut edits: Vec<(Span, String)> = Vec::new();
+        // Plain ids get the next free number; loop templates get a suffix so every copy is new.
+        let templates: Vec<&String> = snip.ids.iter().filter(|(_, _, g)| *g).map(|(_, t, _)| t).collect();
+        let suffix = (2..)
+            .map(|k| format!("_{k}"))
+            .find(|sfx| !templates.iter().any(|t| taken.iter().any(|id| id.starts_with(t.split('{').next().unwrap_or("")) && id.ends_with(sfx.as_str()))))
+            .expect("suffixes are unbounded");
+        for (i, (span, id, generated)) in snip.ids.iter().enumerate() {
+            let new = if *generated {
+                format!("{id}{suffix}")
+            } else {
+                let base = id.trim_end_matches(|c: char| c.is_ascii_digit());
+                let base = if base.is_empty() { "copy" } else { base };
+                let new = (1..).map(|k| format!("{base}{k}")).find(|c| !taken.contains(c)).expect("ids are unbounded");
+                taken.push(new.clone());
+                new
+            };
+            if i == 0 {
+                roots.push(new.clone());
+            }
+            edits.push((*span, new));
+        }
+        if let Some((x, y)) = snip.at {
+            for (span, d) in [(x, offset.0), (y, offset.1)] {
+                if let Ok(v) = snip.text[span.start..span.end].parse::<f64>() {
+                    edits.push((span, fmt_num(v + d)));
+                }
+            }
+        }
+        edits.sort_by_key(|(s, _)| std::cmp::Reverse(s.start));
+        let mut text = snip.text.clone();
+        for (span, new) in edits {
+            text = splice(&text, span, &new);
+        }
+        block.push_str(&text);
+        block.push('\n');
+    }
+    (insert_declaration(src, scene, &block), roots)
+}

@@ -31,13 +31,15 @@ pub enum Tool {
 pub enum DragOp {
     Pan,
     Move {
-        node: String,
         /// Pointer position (artboard space) when the drag started.
         from: Point,
-        /// Node origin in artboard space when the drag started.
-        origin: Point,
-        /// Artboard space to the node's parent space.
-        to_parent: Affine,
+        items: Vec<MoveItem>,
+    },
+    /// Rubber-band selection; with Shift it adds to the selection.
+    Marquee {
+        from: Point,
+        to: Point,
+        add: bool,
     },
     Resize {
         node: String,
@@ -56,6 +58,15 @@ pub enum DragOp {
         from: Point,
         to: Point,
     },
+}
+
+/// One object moved by a drag.
+pub struct MoveItem {
+    node: String,
+    /// Node origin in artboard space when the drag started.
+    origin: Point,
+    /// Artboard space to the node's parent space.
+    to_parent: Affine,
 }
 
 /// A key picked in the timeline: node, property and time.
@@ -88,6 +99,12 @@ pub struct App {
     pub(crate) scene: Scene,
     pub(crate) errors: Vec<ScriptError>,
     pub(crate) selected: Option<String>,
+    /// Further selected objects besides `selected` (Shift-click, marquee).
+    pub(crate) also: Vec<String>,
+    /// Last copy: its text on the system clipboard and the declarations to paste.
+    pub(crate) clipboard: (String, Vec<motif_script::Snippet>),
+    /// Undo-step name shared by a batch of edits (moving or aligning several objects).
+    pub(crate) edit_group: Option<String>,
     hovered: Option<String>,
     view: Option<View>,
     pub(crate) anim: Option<String>,
@@ -140,6 +157,9 @@ impl App {
             scene,
             errors: Vec::new(),
             selected: None,
+            also: Vec::new(),
+            clipboard: (String::new(), Vec::new()),
+            edit_group: None,
             hovered: None,
             view: None,
             anim: None,
@@ -195,6 +215,7 @@ impl App {
                 {
                     self.sel_key = None;
                 }
+                self.prune_selection();
             }
             Err(errors) => self.errors = errors,
         }
@@ -253,7 +274,8 @@ impl App {
             }
             None => set_prop(&self.src, &self.scene, node, prop, value),
         };
-        self.apply(&format!("{node}.{}", prop.path_name()), new_src);
+        let kind = self.edit_group.clone().unwrap_or_else(|| format!("{node}.{}", prop.path_name()));
+        self.apply(&kind, new_src);
     }
 
     /// The diamond next to a property: removes the key at the current time, or keys the current value.
@@ -359,6 +381,10 @@ impl App {
         }
         let Some(id) = self.selected.clone() else { return };
         if !self.can_edit() {
+            return;
+        }
+        if !self.also.is_empty() {
+            self.delete_selected_nodes();
             return;
         }
         match delete_node(&self.src, &self.scene, &id) {
@@ -651,7 +677,7 @@ impl App {
             for i in (0..doc.nodes.len()).rev() {
                 let n = &doc.nodes[i];
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
-                let sel = self.selected.as_deref() == Some(n.id.as_str());
+                let sel = self.is_selected(&n.id);
                 if sel {
                     ui.painter().rect_filled(r, 0.0, theme::mix(SEL, PANEL, 0.18));
                 } else if resp.hovered() || self.hovered.as_deref() == Some(n.id.as_str()) {
@@ -684,8 +710,11 @@ impl App {
         ui.painter().line_segment([foot.left_top(), foot.right_top()], Stroke::new(1.0, LINE));
         ui.painter().text(foot.left_top() + vec2(12.0, 10.0), Align2::LEFT_TOP, "Клик по строке скрипта тоже\nвыбирает объект", theme::ui_font(12.0), FAINT);
         if let Some(id) = clicked {
-            self.selected = Some(id);
-            self.sel_key = None;
+            if ui.input(|i| i.modifiers.shift || i.modifiers.command) {
+                self.toggle_selected(id);
+            } else {
+                self.select_only(Some(id));
+            }
         }
     }
 
@@ -757,6 +786,10 @@ impl App {
                 self.artboard_info(ui);
                 return;
             };
+            if !self.also.is_empty() {
+                self.multi_panel(ui);
+                return;
+            }
             let Some(node) = self.display_doc().node(&id).cloned() else { return };
             let generated = self.scene.sites.get(&id).is_some_and(|s| s.generated);
             section(ui, |ui| {
@@ -1026,7 +1059,7 @@ impl App {
         let doc_pt = pointer.map(|p| view.to_doc(rect, p));
         self.pointer_doc = doc_pt.filter(|_| resp.hovered() || resp.dragged());
         self.hovered = if self.drag.is_none() { doc_pt.and_then(|p| doc.hit_test(p)).map(|i| doc.nodes[i].id.clone()) } else { None };
-        let handles = self.selected.as_ref().and_then(|s| doc.index_of(s)).and_then(|i| handle_points(rect, view, &doc, i));
+        let handles = self.selected.as_ref().filter(|_| self.also.is_empty()).and_then(|s| doc.index_of(s)).and_then(|i| handle_points(rect, view, &doc, i));
         let hit_handle = |p: Pos2| -> Option<Handle> {
             let h = handles.as_ref()?;
             if h.rotate.distance(p) < 8.0 {
@@ -1075,9 +1108,12 @@ impl App {
             ui.ctx().set_cursor_icon(cursor);
         }
 
+        // Drags start where the button went down, not where the movement threshold was passed.
+        let press = ui.input(|i| i.pointer.press_origin()).or(pointer);
         if !special
             && resp.drag_started()
-            && let (Some(p), Some(dp)) = (pointer, doc_pt)
+            && let Some(p) = press
+            && let dp = view.to_doc(rect, p)
         {
             self.drag = if pan_gesture {
                 if space {
@@ -1103,13 +1139,25 @@ impl App {
                 match doc.hit_test(dp) {
                     Some(i) => {
                         let id = doc.nodes[i].id.clone();
-                        self.selected = Some(id.clone());
+                        if shift && !self.is_selected(&id) {
+                            self.toggle_selected(id.clone());
+                        } else if !self.is_selected(&id) {
+                            self.select_only(Some(id.clone()));
+                        }
                         self.sel_key = None;
-                        let to_parent = doc.nodes[i].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse());
-                        let origin = doc.world_transform(i) * Point::ZERO;
-                        Some(DragOp::Move { node: id, from: dp, origin, to_parent })
+                        let items = self
+                            .selection()
+                            .into_iter()
+                            .filter_map(|id| doc.index_of(&id).map(|k| (id, k)))
+                            .map(|(node, k)| MoveItem {
+                                node,
+                                origin: doc.world_transform(k) * Point::ZERO,
+                                to_parent: doc.nodes[k].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse()),
+                            })
+                            .collect();
+                        Some(DragOp::Move { from: dp, items })
                     }
-                    None => Some(DragOp::Pan),
+                    None => Some(DragOp::Marquee { from: dp, to: dp, add: shift }),
                 }
             };
         }
@@ -1122,17 +1170,28 @@ impl App {
                         v.pan += resp.drag_delta();
                     }
                 }
-                Some(DragOp::Create { to, .. }) => *to = dp,
-                Some(DragOp::Move { node, from, origin, to_parent }) => {
-                    let target = *to_parent * (*origin + (dp - *from));
-                    let (node, x, y) = (node.clone(), target.x.round(), target.y.round());
-                    let cur = doc.node(&node).map(|n| (n.x, n.y));
-                    if cur.is_some_and(|c| c.0 != x) {
-                        self.edit(&node, Prop::X, Value::Num(x));
+                Some(DragOp::Create { to, .. } | DragOp::Marquee { to, .. }) => *to = dp,
+                Some(DragOp::Move { from, items }) => {
+                    let moves: Vec<(String, f64, f64)> = items
+                        .iter()
+                        .map(|it| {
+                            let target = it.to_parent * (it.origin + (dp - *from));
+                            (it.node.clone(), target.x.round(), target.y.round())
+                        })
+                        .collect();
+                    if moves.len() > 1 {
+                        self.edit_group = Some("move".into());
                     }
-                    if cur.is_some_and(|c| c.1 != y) {
-                        self.edit(&node, Prop::Y, Value::Num(y));
+                    for (node, x, y) in moves {
+                        let cur = doc.node(&node).map(|n| (n.x, n.y));
+                        if cur.is_some_and(|c| c.0 != x) {
+                            self.edit(&node, Prop::X, Value::Num(x));
+                        }
+                        if cur.is_some_and(|c| c.1 != y) {
+                            self.edit(&node, Prop::Y, Value::Num(y));
+                        }
                     }
+                    self.edit_group = None;
                 }
                 Some(DragOp::Resize { node, to_local, start }) => {
                     let local = *to_local * dp;
@@ -1163,8 +1222,25 @@ impl App {
             }
         }
         if resp.drag_stopped() {
-            if let Some(DragOp::Create { kind, from, to }) = self.drag.take() {
-                self.create_shape(kind, from, to, shift);
+            match self.drag.take() {
+                Some(DragOp::Create { kind, from, to }) => self.create_shape(kind, from, to, shift),
+                Some(DragOp::Marquee { from, to, add }) => {
+                    let area = motif_core::kurbo::Rect::from_points(from, to);
+                    let hits: Vec<String> = (0..doc.nodes.len())
+                        .filter(|&i| doc.nodes[i].parent.is_none() && doc.is_visible(i))
+                        .filter(|&i| crate::selection::world_bounds(&doc, i).is_some_and(|b| b.intersect(area).area() > 0.0 || area.contains(b.center())))
+                        .map(|i| doc.nodes[i].id.clone())
+                        .collect();
+                    if !add {
+                        self.select_only(None);
+                    }
+                    for id in hits {
+                        if !self.is_selected(&id) {
+                            self.toggle_selected(id);
+                        }
+                    }
+                }
+                _ => {}
             }
             self.drag = None;
         }
@@ -1176,8 +1252,11 @@ impl App {
             {
                 self.create_shape(kind, p, p, false);
             } else if !doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_some() {
-                self.selected = doc_pt.and_then(|p| doc.hit_test(p)).map(|i| doc.nodes[i].id.clone());
-                self.sel_key = None;
+                let hit = doc_pt.and_then(|p| doc.hit_test(p)).map(|i| doc.nodes[i].id.clone());
+                match hit {
+                    Some(id) if shift => self.toggle_selected(id),
+                    hit => self.select_only(hit),
+                }
             }
         }
 
@@ -1203,6 +1282,7 @@ impl App {
             }
             if let Some(h) = &handles
                 && self.point_edit.is_none()
+                && self.also.is_empty()
             {
                 let top_mid = h.corners[0].lerp(h.corners[1], 0.5);
                 painter.line_segment([top_mid, h.rotate], Stroke::new(1.0, SEL));
@@ -1213,6 +1293,15 @@ impl App {
                     }
                 }
             }
+        }
+        for a in &self.also {
+            if let Some(i) = doc.index_of(a) {
+                outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            }
+        }
+        if let Some(DragOp::Marquee { from, to, .. }) = &self.drag {
+            let r = Rect::from_two_pos(view.to_screen(rect, *from), view.to_screen(rect, *to));
+            painter.rect(r, 0.0, SEL.gamma_multiply(0.08), Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
         if let Some(DragOp::Create { from, to, .. }) = &self.drag {
             let r = Rect::from_two_pos(view.to_screen(rect, *from), view.to_screen(rect, *to));
@@ -1350,6 +1439,8 @@ impl App {
                     ("Стрелки", "Сдвиг на 1, с Shift — на 10"),
                     ("Ctrl+Z", "Отменить; Ctrl+Shift+Z или Ctrl+Y — повторить"),
                     ("Delete", "Удалить объект или выбранный ключ"),
+                    ("Shift+клик", "Добавить к выделению; рамка по пустому месту — выделить"),
+                    ("Ctrl+C, Ctrl+V", "Копировать и вставить; Ctrl+D — дублировать, Ctrl+A — всё"),
                     ("F", "Вписать артборд"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
                     ("Ctrl+E", "Показать или скрыть скрипт"),
@@ -1391,6 +1482,26 @@ impl App {
         }
         if typing {
             return;
+        }
+        for e in &i.events {
+            match e {
+                egui::Event::Copy => {
+                    self.copy_selection(ctx);
+                }
+                egui::Event::Cut => {
+                    if self.copy_selection(ctx) {
+                        self.delete_selected_nodes();
+                    }
+                }
+                egui::Event::Paste(text) => self.paste(Some(text)),
+                _ => {}
+            }
+        }
+        if cmd(Key::D) {
+            self.duplicate();
+        }
+        if cmd(Key::A) {
+            self.select_all();
         }
         if cmd(Key::Z) {
             self.undo();
@@ -1441,8 +1552,7 @@ impl App {
             } else if self.point_edit.is_some() {
                 self.point_edit = None;
             } else {
-                self.selected = None;
-                self.sel_key = None;
+                self.select_only(None);
                 self.tool = Tool::Select;
             }
         }
@@ -1508,7 +1618,7 @@ fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) -> Option<Han
     Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path) })
 }
 
-fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo::Rect> {
+pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo::Rect> {
     match doc.nodes[i].path() {
         Some(p) => Some(p.bounding_box()),
         // Groups: the union of their direct children.
@@ -1569,7 +1679,7 @@ fn panel_header_colored(ui: &mut egui::Ui, title: &str, meta: &str, meta_color: 
 }
 
 /// A properties section: padded, with a line under it.
-fn section(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn section(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new().inner_margin(egui::Margin::same(12)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 8.0;

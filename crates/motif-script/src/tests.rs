@@ -254,3 +254,30 @@ fn paths_parse_edit_and_add() {
     assert!(parse("path a d \"M 0 0 Q\"").is_err());
     assert!(parse("path a d 5").is_err());
 }
+
+#[test]
+fn copy_and_paste_nodes() {
+    let s = scene(EXAMPLE);
+    // The ball alone: new id, moved by the offset, inserted before the blocks.
+    let snips = copy_nodes(&s, EXAMPLE, &["ball".to_string()]);
+    assert_eq!(snips.len(), 1);
+    let (out, ids) = paste_nodes(EXAMPLE, &s, &snips, (10.0, 10.0));
+    assert_eq!(ids, vec!["ball1".to_string()]);
+    let pasted = scene(&out);
+    let copy = pasted.doc.node("ball1").unwrap();
+    assert_eq!((copy.x, copy.y), (160.0, 160.0));
+    assert_eq!(copy.fill, s.doc.node("ball").unwrap().fill);
+    // A group with a loop inside: children get a suffix so the copy parses.
+    let snips = copy_nodes(&s, EXAMPLE, &["coins".to_string(), "coin2".to_string()]);
+    assert_eq!(snips.len(), 1, "a child of a copied group is not copied twice");
+    let (out, ids) = paste_nodes(EXAMPLE, &s, &snips, (0.0, 0.0));
+    let pasted = scene(&out);
+    assert_eq!(ids, vec!["coins1".to_string()]);
+    assert!(pasted.doc.node("coin3_2").is_some());
+    assert_eq!(pasted.doc.nodes.len(), s.doc.nodes.len() + 6);
+    // Pasting twice still gives fresh ids.
+    let again = paste_nodes(&out, &pasted, &snips, (0.0, 0.0)).0;
+    scene(&again);
+    // Nodes made by a loop are not copied on their own.
+    assert!(copy_nodes(&s, EXAMPLE, &["coin1".to_string()]).is_empty());
+}
