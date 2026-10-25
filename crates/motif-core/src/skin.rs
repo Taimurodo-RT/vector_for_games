@@ -16,7 +16,10 @@ impl Document {
     pub fn rig(&mut self) {
         self.solve_ik();
         for i in 0..self.nodes.len() {
-            self.nodes[i].deformed = self.deform(i);
+            // Soft bodies get their outline from the simulation.
+            if self.nodes[i].soft.is_none() {
+                self.nodes[i].deformed = self.deform(i);
+            }
         }
     }
 

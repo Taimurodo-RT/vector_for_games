@@ -458,6 +458,7 @@ impl<'a> Evaluator<'a> {
         let (mut chain, mut flip) = (2, false);
         let mut skin: Option<Vec<(String, Span)>> = None;
         let mut sharp = motif_core::Skin::SHARP;
+        let mut soft: Option<motif_core::Soft> = None;
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
@@ -638,6 +639,32 @@ impl<'a> Evaluator<'a> {
                     Some(v) if v > 0.0 => sharp = v,
                     _ => bad(self),
                 },
+                "soft" | "pressure" | "friction" | "damp" | "gravity" | "drive" if n.kind.is_container() => {
+                    self.err(p.key_span, format!("«{}» бывает у фигур: мягким телом становится контур", p.key));
+                }
+                "soft" | "pressure" | "friction" | "damp" | "gravity" | "drive" => {
+                    let s = soft.get_or_insert_with(motif_core::Soft::default);
+                    let v = num(0);
+                    let unit = |v: Option<f64>| v.filter(|v| (0.0..=1.0).contains(v));
+                    let ok = match p.key.as_str() {
+                        "soft" if p.values.is_empty() => true,
+                        "soft" => unit(v).map(|v| s.stiff = v).is_some(),
+                        "friction" => unit(v).map(|v| s.friction = v).is_some(),
+                        "damp" => unit(v).map(|v| s.damp = v).is_some(),
+                        "drive" => unit(v).map(|v| s.drive = v).is_some(),
+                        "pressure" => v.filter(|v| *v >= 0.0).map(|v| s.pressure = v).is_some(),
+                        _ => v.map(|v| s.gravity = v).is_some(),
+                    };
+                    if !ok {
+                        let hint = match p.key.as_str() {
+                            "pressure" => "pressure — объём относительно нарисованного, 0 и больше: pressure 1",
+                            "gravity" => "gravity — ускорение вниз в единицах артборда за секунду²: gravity 900",
+                            _ => "значение от 0 до 1",
+                        };
+                        self.err(p.key_span, format!("«{}»: {hint}", p.key));
+                    }
+                }
+                "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
                 "clip" => {
@@ -777,6 +804,7 @@ impl<'a> Evaluator<'a> {
             node.ik = Some(motif_core::Ik { target: format!("{}{target}", self.prefix), chain, flip });
             self.rig_refs.push((index, format!("{}{target}", self.prefix), span));
         }
+        node.soft = soft;
         if let Some(bones) = skin {
             let ids = bones.iter().map(|(b, _)| format!("{}{b}", self.prefix)).collect();
             node.skin = Some(motif_core::Skin { sharp, ..motif_core::Skin::new(ids) });

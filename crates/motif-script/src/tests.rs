@@ -844,3 +844,21 @@ fn variables_named_like_bone_props_stay_values() {
     assert_eq!(a.fill, Color::from_hex("#5ee0a0"));
     assert_eq!(a.width, 30.0);
 }
+
+#[test]
+fn soft_bodies_and_solids_parse() {
+    let s = scene("ellipse b size 40 soft 0.2 pressure 1.1 gravity 900 drive 0\nrect w size 100 20 solid\nrect plain\n");
+    let soft = s.doc.node("b").unwrap().soft.unwrap();
+    assert_eq!((soft.stiff, soft.pressure, soft.gravity, soft.drive), (0.2, 1.1, 900.0, 0.0));
+    assert_eq!(soft.friction, motif_core::Soft::default().friction);
+    assert!(s.doc.node("w").unwrap().solid);
+    assert!(s.doc.node("plain").unwrap().soft.is_none());
+    // `soft` alone uses the defaults; the panel's edits write single keys.
+    let src = "ellipse b soft\n";
+    let s = scene(src);
+    assert_eq!(s.doc.node("b").unwrap().soft, Some(motif_core::Soft::default()));
+    let out = set_style(src, &s, "b", "friction", Some("friction 0.6")).unwrap();
+    assert_eq!(out, "ellipse b soft friction 0.6\n");
+    let errs = parse("ellipse b soft 3\ngroup g soft\n").unwrap_err();
+    assert_eq!(errs.len(), 2, "{errs:?}");
+}

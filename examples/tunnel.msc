@@ -1,0 +1,17 @@
+// Мягкое тело: шар протискивается через узкий тоннель.
+// Ключи двигают шар вправо, а форму считает физика: стенки (solid) сжимают его,
+// упругость и давление возвращают круглую форму на выходе.
+artboard "Тоннель" 480x300 bg #1b2030
+
+let ink = #10131d
+let wall = #3a4466
+
+rect top    "Стенка сверху" at 240 86  size 140 84 r 10 fill wall stroke ink 4 solid
+rect bottom "Стенка снизу"  at 240 214 size 140 84 r 10 fill wall stroke ink 4 solid
+rect floor  "Пол"           at 240 290 size 480 20 fill #283049
+
+ellipse ball "Шар" at 70 150 size 70 70 fill #ff7a59 stroke ink 4 soft 0.12 pressure 1 friction 0.2 drive 0.4
+
+anim Squeeze 3s {
+  ball.x 0: 70 ease-in-out | 3: 410
+}

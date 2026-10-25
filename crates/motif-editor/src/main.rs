@@ -11,6 +11,7 @@ mod importer;
 mod machine_ui;
 mod paint;
 mod pathedit;
+mod physics_ui;
 mod pixabridge;
 mod scriptui;
 mod selection;

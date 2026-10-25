@@ -279,8 +279,12 @@ pub struct Node {
     pub ik: Option<Ik>,
     /// Bends the outline with bones: each point follows the bones near it.
     pub skin: Option<Skin>,
-    /// The outline bent by `skin`, set by `Document::rig`; `path` returns it when present.
+    /// The outline bent by `skin` or by a soft-body simulation; `path` returns it when present.
     pub deformed: Option<BezPath>,
+    /// A soft body: the outline is simulated as an elastic ring while an animation plays.
+    pub soft: Option<crate::Soft>,
+    /// Soft bodies cannot pass through this shape.
+    pub solid: bool,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -408,6 +412,8 @@ impl Node {
             ik: None,
             skin: None,
             deformed: None,
+            soft: None,
+            solid: false,
         }
     }
 
@@ -696,9 +702,7 @@ impl Animation {
 
     /// Returns a copy of the document posed at `t` seconds, with bones solved and shapes bent.
     pub fn pose(&self, doc: &Document, t: f64) -> Document {
-        let mut out = self.keys_at(doc, t);
-        out.rig();
-        out
+        self.pose_with(doc, t, &mut crate::SimCache::default())
     }
 
     /// The document with this animation's keys applied at `t` seconds, before `Document::rig`.
