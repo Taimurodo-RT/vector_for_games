@@ -330,3 +330,48 @@ fn cubic_ease() {
     assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 cubic 0.2 0 | 1: 5\n}").is_err());
     assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 cubic 2 0 0.2 1 | 1: 5\n}").is_err());
 }
+
+#[test]
+fn named_and_stepped_eases() {
+    let src = "artboard \"M\" 100x100\nrect a at 0 0 size 10\nanim A 1s {\n  a.x 0: 0 ease-out-bounce | 0.5: 50 steps 4 | 0.8: 80 ease | 1: 100\n}\n";
+    let s = scene(src);
+    let keys = &s.doc.animations[0].tracks[0].keys;
+    assert_eq!(keys[0].ease, motif_core::Ease::Named(motif_core::Family::Bounce, motif_core::Dir::Out));
+    assert_eq!(keys[1].ease, motif_core::Ease::Steps(4));
+    assert_eq!(keys[2].ease, motif_core::Ease::Css);
+    let out = set_key_ease(src, &s, "A", "a", Prop::X, 0.5, &motif_core::Ease::Steps(6).script()).unwrap();
+    assert!(out.contains("0.5: 50 steps 6 |"), "{out}");
+    assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 steps 0 | 1: 5\n}").is_err());
+    assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 ease-sideways | 1: 5\n}").is_err());
+}
+
+#[test]
+fn css_like_properties() {
+    let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40 r 8 4 skew 10 pivot 0 20 stroke #000 2 dash 6 4 cap butt join bevel shadow 0 4 8 #00000055 blend multiply\nrect b at 0 0 size 10 shadow 2 2 #000000\n";
+    let s = scene(src);
+    let a = s.doc.node("a").unwrap();
+    assert_eq!(a.radii, Some([8.0, 4.0, 8.0, 4.0]));
+    assert_eq!((a.skew_x, a.skew_y), (10.0, 0.0));
+    assert_eq!((a.pivot.x, a.pivot.y), (0.0, 20.0));
+    assert_eq!(a.dash, vec![6.0, 4.0]);
+    assert_eq!((a.cap, a.join, a.blend), (motif_core::Cap::Butt, motif_core::Join::Bevel, motif_core::Blend::Multiply));
+    let sh = a.shadow.unwrap();
+    assert_eq!((sh.dx, sh.dy, sh.blur, sh.color.a), (0.0, 4.0, 8.0, 0x55));
+    assert_eq!(s.doc.node("b").unwrap().shadow.unwrap().blur, 0.0);
+    // Whole properties are replaced, added and removed in place.
+    let out = set_style(src, &s, "a", "dash", Some("dash 2")).unwrap();
+    assert!(out.contains(" dash 2 cap butt"), "{out}");
+    let out = set_style(&out, &scene(&out), "a", "blend", None).unwrap();
+    assert!(out.contains("#00000055\n"), "{out}");
+    let out = set_style(&out, &scene(&out), "b", "blend", Some("blend screen")).unwrap();
+    assert!(out.contains("shadow 2 2 #000000 blend screen\n"), "{out}");
+    // A single skew value is skewX; editing skewY writes both.
+    let out = set_prop(src, &s, "a", Prop::SkewY, Value::Num(5.0)).unwrap();
+    assert!(out.contains("skew 10 5"), "{out}");
+    // Skew animates by its path names.
+    let anim = format!("{src}anim A 1s {{\n  a.kx 0: 0 | 1: 20\n}}\n");
+    assert_eq!(scene(&anim).doc.animations[0].tracks[0].prop, Prop::SkewX);
+    for bad in ["rect a cap wavy", "rect a blend glow", "rect a shadow 1 2", "rect a dash -1", "rect a pivot 3"] {
+        assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
+    }
+}

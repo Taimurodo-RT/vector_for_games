@@ -171,6 +171,8 @@ pub struct PointEdit {
     pub node: String,
     pub selected: Option<usize>,
     pub grab: Option<(PointGrab, Outline)>,
+    /// The outline while a point is being dragged; written to the script on release.
+    pub live: Option<Outline>,
 }
 
 /// An anchor placed by the pen in artboard space, with its outgoing handle offset.
@@ -311,7 +313,7 @@ impl App {
             self.status = format!("«{id}» создан циклом: его контур правится в скрипте");
             return;
         }
-        self.point_edit = Some(PointEdit { node: id, selected: None, grab: None });
+        self.point_edit = Some(PointEdit { node: id, selected: None, grab: None, live: None });
         self.status = "Клик по линии — новая точка · двойной клик — угол/плавная · Alt — ручки отдельно · Delete — удалить".into();
     }
 
@@ -404,12 +406,15 @@ impl App {
                     }
                 }
             }
-            changed = Some(o);
+            if let Some(e) = self.point_edit.as_mut() {
+                e.live = Some(o);
+            }
         }
         if resp.drag_stopped()
             && let Some(e) = self.point_edit.as_mut()
         {
             e.grab = None;
+            changed = e.live.take();
         }
         if resp.double_clicked()
             && let Some(p) = resp.interact_pointer_pos()

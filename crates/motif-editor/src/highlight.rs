@@ -4,9 +4,16 @@ use crate::theme::{self, ACCENT, DANGER, FAINT, FG, GOOD, MUTED, SEL};
 use egui::Color32;
 use egui::text::{LayoutJob, TextFormat};
 
-const KEYWORDS: &[&str] = &["artboard", "let", "group", "for", "in", "anim", "override", "loop", "rect", "ellipse", "star", "polygon"];
-const PROPS: &[&str] = &["at", "size", "r", "points", "inner", "rot", "scale", "opacity", "fill", "stroke", "hidden", "bg", "none"];
-const EASES: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out", "hold", "spring"];
+const KEYWORDS: &[&str] = &["artboard", "let", "group", "for", "in", "anim", "override", "loop", "rect", "ellipse", "star", "polygon", "path"];
+const PROPS: &[&str] = &[
+    "at", "size", "r", "points", "inner", "rot", "scale", "opacity", "fill", "stroke", "hidden", "bg", "none", "d", "gradient", "clip", "skew", "pivot",
+    "dash", "cap", "join", "shadow", "blend",
+];
+
+/// Curve names, including the easings.net library and the words that take numbers.
+fn is_ease(word: &str) -> bool {
+    matches!(word, "cubic" | "steps") || motif_core::Ease::from_keyword(word).is_some()
+}
 const NUMBER: Color32 = Color32::from_rgb(0xff, 0xb8, 0x6b);
 const PROP: Color32 = Color32::from_rgb(0xc7, 0x9b, 0xff);
 
@@ -90,7 +97,7 @@ fn tokens(line: &str) -> Vec<(usize, usize, Color32)> {
             let word = &line[start..i];
             if KEYWORDS.contains(&word) {
                 SEL
-            } else if EASES.contains(&word) {
+            } else if is_ease(word) {
                 GOOD.gamma_multiply(0.8)
             } else if PROPS.contains(&word) {
                 PROP
