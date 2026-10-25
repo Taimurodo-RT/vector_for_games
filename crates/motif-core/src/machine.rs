@@ -205,15 +205,15 @@ impl MachinePlayer {
     /// The document posed by the current state, mixed with the previous one during a blend.
     pub fn pose(&self, m: &Machine, doc: &Document) -> Document {
         let pose_of = |state: usize, t: f64| match m.states.get(state).and_then(|s| doc.animation(&s.anim)) {
-            Some(a) => a.pose(doc, t),
+            Some(a) => a.keys_at(doc, t),
             None => doc.clone(),
         };
         let mut out = pose_of(self.state, self.time);
-        let Some((prev, prev_t)) = self.prev else { return out };
         let w = self.blend_amount();
-        if w >= 1.0 {
+        let Some((prev, prev_t)) = self.prev.filter(|_| w < 1.0) else {
+            out.rig();
             return out;
-        }
+        };
         let old = pose_of(prev, prev_t);
         let mut props: Vec<(&str, Prop)> = Vec::new();
         for s in [prev, self.state] {
@@ -229,6 +229,7 @@ impl MachinePlayer {
                 out.nodes[i].set(prop, v);
             }
         }
+        out.rig();
         out
     }
 }

@@ -208,6 +208,9 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "blur" | "elevation" => (1, 1),
         "outline" => (2, 8),
         "gradient" => (2, 10),
+        "len" | "chain" | "skin-sharp" | "ik" => (1, 1),
+        "flip" => (0, 0),
+        "skin" => (1, 16),
         _ => return None,
     })
 }
@@ -514,6 +517,26 @@ impl<'a> Parser<'a> {
                     _ => return Err(self.err(key_span, "после d нужен контур в кавычках, например d \"M 0 0 L 40 0 L 20 30 Z\"")),
                 }
             }
+            // Ids of objects: the IK target, the bones of a skin.
+            if key == "ik" || key == "skin" {
+                while values.len() < max
+                    && let Some(Tok::Ident(s)) = self.peek()
+                    && (values.is_empty() || prop_arity(s).is_none())
+                {
+                    let t = self.next().unwrap();
+                    if let Tok::Ident(s) = t.tok {
+                        values.push(ValueAst { kind: ValueKind::Path(s), span: t.span });
+                    }
+                }
+                if values.is_empty() {
+                    let hint = if key == "ik" {
+                        "после ik нужен id цели, например ik hand_target"
+                    } else {
+                        "после skin нужны id костей, например skin arm forearm"
+                    };
+                    return Err(self.err(key_span, hint));
+                }
+            }
             // A font file in quotes, or `font bold`.
             if key == "font"
                 && let Some(Tok::Str(_)) = self.peek()
@@ -536,8 +559,8 @@ impl<'a> Parser<'a> {
             if params.is_some() {
                 return Err(self.err(self.peek_span(), "у use нет своего блока: содержимое берётся из символа"));
             }
-            if kind != ShapeKind::Group {
-                return Err(self.err(self.peek_span(), "вложенные объекты бывают только у group"));
+            if !kind.is_container() {
+                return Err(self.err(self.peek_span(), "вложенные объекты бывают только у group и bone"));
             }
             self.pos += 1;
             children = self.block(true);

@@ -63,15 +63,23 @@ pub enum DragOp {
         from: Point,
         to: Point,
     },
+    /// The tip of a bone: turns it, and in Design also sets its length.
+    BoneTip {
+        node: String,
+        /// The bone's joint on the artboard.
+        joint: Point,
+        /// Direction of the parent's x axis, radians.
+        parent_angle: f64,
+    },
 }
 
 /// One object moved by a drag.
 pub struct MoveItem {
-    node: String,
+    pub(crate) node: String,
     /// Node origin in artboard space when the drag started.
-    origin: Point,
+    pub(crate) origin: Point,
     /// Artboard space to the node's parent space.
-    to_parent: Affine,
+    pub(crate) to_parent: Affine,
 }
 
 /// A key picked in the timeline: node, property and time.
@@ -110,7 +118,7 @@ pub struct App {
     pub(crate) clipboard: (String, Vec<motif_script::Snippet>),
     /// Undo-step name shared by a batch of edits (moving or aligning several objects).
     pub(crate) edit_group: Option<String>,
-    hovered: Option<String>,
+    pub(crate) hovered: Option<String>,
     view: Option<View>,
     pub(crate) anim: Option<String>,
     /// Animation to return to when switching back to Animate.
@@ -130,7 +138,7 @@ pub struct App {
     redo: Vec<String>,
     last_checkpoint: (String, Instant),
     pub(crate) tool: Tool,
-    drag: Option<DragOp>,
+    pub(crate) drag: Option<DragOp>,
     /// Values changed by the drag in progress: shown on the canvas, written to the script on release.
     live: Vec<(String, Prop, Value)>,
     pub(crate) snap: crate::snap::Snap,
@@ -416,11 +424,12 @@ impl App {
                 doc.nodes[i].set(*prop, *value);
             }
         }
+        doc.rig();
         doc
     }
 
     /// A drag step: shown at once, written to the script when the mouse is released.
-    fn preview(&mut self, node: &str, prop: Prop, value: Value) {
+    pub(crate) fn preview(&mut self, node: &str, prop: Prop, value: Value) {
         match self.live.iter_mut().find(|(n, p, _)| n == node && *p == prop) {
             Some(slot) => slot.2 = value,
             None => self.live.push((node.to_string(), prop, value)),
@@ -778,6 +787,10 @@ impl App {
                     self.tool = tool;
                 }
             }
+            let tip = "Кость: тяните от сустава к кончику. С выбранной костью новая становится её продолжением";
+            if theme::tool_button(ui, Icon::Bone, self.bone_tool(), "B", tip).clicked() {
+                self.tool = Tool::Create(ShapeKind::Bone);
+            }
             let tip = "Перо: клик — угол, протяжка — плавная точка, клик по первой точке замыкает";
             if theme::tool_button(ui, Icon::Pen, self.tool == Tool::Pen, "P", tip).clicked() {
                 self.tool = Tool::Pen;
@@ -1002,7 +1015,9 @@ impl App {
                     field(self, ui, "X", Prop::X, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                     field(self, ui, "Y", Prop::Y, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                 });
-                if !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) {
+                if node.kind == ShapeKind::Bone {
+                    ui.horizontal(|ui| field(self, ui, "Длина", Prop::Width, 1.0, 0.0..=100_000.0, 1.0, 1));
+                } else if !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) {
                     ui.horizontal(|ui| {
                         field(self, ui, "W", Prop::Width, 1.0, 0.0..=100_000.0, 1.0, 1);
                         field(self, ui, "H", Prop::Height, 1.0, 0.0..=100_000.0, 1.0, 1);
@@ -1105,7 +1120,8 @@ impl App {
             }
             self.mask_ui(ui, &node);
             self.symbol_section(ui, &node);
-            if node.kind != ShapeKind::Group {
+            self.bone_section(ui, &node);
+            if !node.kind.is_container() {
                 section(ui, |ui| {
                     theme::caption(ui, "Заливка");
                     if self.fill_kind_ui(ui, &node) {
@@ -1135,46 +1151,48 @@ impl App {
             // Blur, height and shadow: keyable, so they animate like position or colour.
             let mut fx_changes = Vec::new();
             let mut fx_diamonds = Vec::new();
-            section(ui, |ui| {
-                theme::caption(ui, "Эффекты");
-                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
-                    let v = node.get(prop).as_num().unwrap_or(0.0);
-                    let range = if matches!(prop, Prop::ShadowX | Prop::ShadowY) { -1000.0..=1000.0 } else { 0.0..=500.0 };
-                    let out = theme::num_field(ui, half, label, v, 0.2, range, 1, self.key_state(&id, prop));
-                    if let Some(nv) = out.changed {
-                        fx_changes.push((prop, Value::Num((nv * 10.0).round() / 10.0)));
-                    }
-                    if out.diamond {
-                        fx_diamonds.push(prop);
-                    }
-                };
-                ui.horizontal(|ui| {
-                    fx(ui, "Размытие", Prop::Blur);
-                    if node.kind != ShapeKind::Group {
-                        fx(ui, "Высота", Prop::Elevation);
-                    }
-                });
-                if node.kind == ShapeKind::Group {
-                    ui.label(RichText::new("Группа размывается целиком, вместе со всеми детьми.").size(11.5).color(FAINT));
-                    return;
-                }
-                if crate::style_ui::shadow_rows(ui, &node, &mut styles) {
+            if node.kind != ShapeKind::Bone {
+                section(ui, |ui| {
+                    theme::caption(ui, "Эффекты");
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
+                        let v = node.get(prop).as_num().unwrap_or(0.0);
+                        let range = if matches!(prop, Prop::ShadowX | Prop::ShadowY) { -1000.0..=1000.0 } else { 0.0..=500.0 };
+                        let out = theme::num_field(ui, half, label, v, 0.2, range, 1, self.key_state(&id, prop));
+                        if let Some(nv) = out.changed {
+                            fx_changes.push((prop, Value::Num((nv * 10.0).round() / 10.0)));
+                        }
+                        if out.diamond {
+                            fx_diamonds.push(prop);
+                        }
+                    };
                     ui.horizontal(|ui| {
-                        fx(ui, "Тень X", Prop::ShadowX);
-                        fx(ui, "Тень Y", Prop::ShadowY);
+                        fx(ui, "Размытие", Prop::Blur);
+                        if node.kind != ShapeKind::Group {
+                            fx(ui, "Высота", Prop::Elevation);
+                        }
                     });
-                    ui.horizontal(|ui| fx(ui, "Мягкость", Prop::ShadowBlur));
-                }
-                ui.label(
-                    RichText::new(
-                        "«Высота» поднимает объект над артбордом: тень уходит от света сцены, длиннее и мягче. Размытие 0 — жёсткая тень для пиксель-арта.",
-                    )
-                    .size(11.5)
-                    .color(FAINT),
-                );
-                crate::style_ui::blend_row(ui, &node, &mut styles);
-            });
+                    if node.kind == ShapeKind::Group {
+                        ui.label(RichText::new("Группа размывается целиком, вместе со всеми детьми.").size(11.5).color(FAINT));
+                        return;
+                    }
+                    if crate::style_ui::shadow_rows(ui, &node, &mut styles) {
+                        ui.horizontal(|ui| {
+                            fx(ui, "Тень X", Prop::ShadowX);
+                            fx(ui, "Тень Y", Prop::ShadowY);
+                        });
+                        ui.horizontal(|ui| fx(ui, "Мягкость", Prop::ShadowBlur));
+                    }
+                    ui.label(
+                        RichText::new(
+                            "«Высота» поднимает объект над артбордом: тень уходит от света сцены, длиннее и мягче. Размытие 0 — жёсткая тень для пиксель-арта.",
+                        )
+                        .size(11.5)
+                        .color(FAINT),
+                    );
+                    crate::style_ui::blend_row(ui, &node, &mut styles);
+                });
+            }
             changes.extend(fx_changes);
             diamonds.extend(fx_diamonds);
             section(ui, |ui| {
@@ -1382,7 +1400,14 @@ impl App {
         let pointer = resp.interact_pointer_pos().or(resp.hover_pos());
         let doc_pt = pointer.map(|p| view.to_doc(rect, p));
         self.pointer_doc = doc_pt.filter(|_| resp.hovered() || resp.dragged());
-        self.hovered = if self.drag.is_none() { doc_pt.and_then(|p| doc.hit_test(p)).map(|i| doc.nodes[i].id.clone()) } else { None };
+        self.hovered = if self.drag.is_none() {
+            pointer
+                .and_then(|p| crate::bone_ui::pick_bone(&doc, rect, view, p))
+                .or_else(|| doc_pt.and_then(|p| doc.hit_test(p)))
+                .map(|i| doc.nodes[i].id.clone())
+        } else {
+            None
+        };
         let handles = self.selected.as_ref().filter(|_| self.also.is_empty()).and_then(|s| doc.index_of(s)).and_then(|i| handle_points(rect, view, &doc, i));
         let hit_handle = |p: Pos2| -> Option<Handle> {
             let h = handles.as_ref()?;
@@ -1459,6 +1484,11 @@ impl App {
                         Some(DragOp::Rotate { node: id, center, start_angle: a, start_rot: n.rotation })
                     }
                 }
+            } else if self.tool == Tool::Select
+                && !shift
+                && let Some(op) = self.bone_drag(&doc, rect, view, p, dp)
+            {
+                Some(op)
             } else {
                 match doc.hit_test(dp) {
                     Some(i) => {
@@ -1500,6 +1530,13 @@ impl App {
             theme::paint_icon(&fg, r, Icon::Rotate, Color32::WHITE);
         }
         let snap = self.snap;
+        if resp.dragged()
+            && let Some(dp) = doc_pt
+            && let Some(DragOp::BoneTip { node, joint, parent_angle }) = &self.drag
+        {
+            let (node, joint, parent_angle) = (node.clone(), *joint, *parent_angle);
+            self.drag_bone_tip(&doc, &node, joint, parent_angle, dp, shift);
+        }
         if resp.dragged()
             && let Some(dp) = doc_pt
         {
@@ -1567,13 +1604,14 @@ impl App {
                         self.preview(&node, Prop::Rotation, Value::Num(rot));
                     }
                 }
-                None => {}
+                Some(DragOp::BoneTip { .. }) | None => {}
             }
         }
         if resp.drag_stopped() {
             self.guides.clear();
             self.commit_live();
             match self.drag.take() {
+                Some(DragOp::Create { kind: ShapeKind::Bone, from, to }) => self.create_bone(from, to, 10.0 / view.zoom as f64),
                 Some(DragOp::Create { kind, from, to }) => self.create_shape(kind, from, to, shift),
                 Some(DragOp::Marquee { from, to, add }) => {
                     let area = motif_core::kurbo::Rect::from_points(from, to);
@@ -1598,12 +1636,19 @@ impl App {
         if !special && resp.double_clicked() && self.selected.as_ref().and_then(|s| doc.node(s)).is_some_and(|n| n.kind == ShapeKind::Path) {
             self.begin_point_edit();
         } else if !special && resp.clicked() && !pan_gesture {
-            if let Tool::Create(kind) = self.tool
+            if self.bone_tool()
+                && let Some(p) = doc_pt
+            {
+                self.create_bone(p, p, 10.0 / view.zoom as f64);
+            } else if let Tool::Create(kind) = self.tool
                 && let Some(p) = doc_pt
             {
                 self.create_shape(kind, p, p, false);
             } else if !doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_some() {
-                let hit = doc_pt.and_then(|p| doc.hit_test(p)).map(|i| doc.nodes[i].id.clone());
+                let hit = pointer
+                    .and_then(|p| crate::bone_ui::pick_bone(&doc, rect, view, p))
+                    .or_else(|| doc_pt.and_then(|p| doc.hit_test(p)))
+                    .map(|i| doc.nodes[i].id.clone());
                 match hit {
                     Some(id) if shift => self.toggle_selected(id),
                     hit => self.select_only(hit),
@@ -1619,6 +1664,7 @@ impl App {
             theme::ui_font(12.0),
             MUTED,
         );
+        self.paint_bones(&painter, rect, view, &doc);
         if let Some(h) = &self.hovered
             && self.selected.as_ref() != Some(h)
             && let Some(i) = doc.index_of(h)
@@ -1654,7 +1700,9 @@ impl App {
             let r = Rect::from_two_pos(view.to_screen(rect, *from), view.to_screen(rect, *to));
             painter.rect(r, 0.0, SEL.gamma_multiply(0.08), Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
-        if let Some(DragOp::Create { from, to, .. }) = &self.drag {
+        if let Some(DragOp::Create { from, to, kind }) = &self.drag
+            && *kind != ShapeKind::Bone
+        {
             let r = Rect::from_two_pos(view.to_screen(rect, *from), view.to_screen(rect, *to));
             painter.rect_stroke(r, 0.0, Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
@@ -1846,6 +1894,7 @@ impl App {
                     ("R O S N", "Прямоугольник, эллипс, звезда, многоугольник"),
                     ("T", "Текст: клик по холсту"),
                     ("P", "Перо; Enter — закончить, клик по первой точке — замкнуть"),
+                    ("B", "Кость: протяжка от сустава к кончику, следующая продолжает цепочку"),
                     ("Enter", "Редактировать точки контура (или двойной клик)"),
                     ("Tab", "Переключить Design / Animate"),
                     ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),
@@ -1960,6 +2009,7 @@ impl App {
             (Key::N, Tool::Create(ShapeKind::Polygon)),
             (Key::T, Tool::Create(ShapeKind::Text)),
             (Key::P, Tool::Pen),
+            (Key::B, Tool::Create(ShapeKind::Bone)),
         ] {
             if plain(k) {
                 self.tool = tool;
@@ -2051,6 +2101,10 @@ struct Handles {
 
 fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) -> Option<Handles> {
     let node = &doc.nodes[i];
+    // Bones have their own handles: the joint and the tip.
+    if node.kind == ShapeKind::Bone {
+        return None;
+    }
     let bounds = node_bounds(doc, i)?;
     let t = doc.world_transform(i);
     let corners = [(bounds.x0, bounds.y0), (bounds.x1, bounds.y0), (bounds.x1, bounds.y1), (bounds.x0, bounds.y1)]
@@ -2077,6 +2131,9 @@ pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo:
 }
 
 fn outline(painter: &egui::Painter, rect: Rect, view: View, doc: &Document, i: usize, stroke: Stroke) {
+    if doc.nodes[i].kind == ShapeKind::Bone {
+        return;
+    }
     let Some(bounds) = node_bounds(doc, i) else { return };
     let t = doc.world_transform(i);
     let corners = [(bounds.x0, bounds.y0), (bounds.x1, bounds.y0), (bounds.x1, bounds.y1), (bounds.x0, bounds.y1)]
@@ -2142,6 +2199,7 @@ fn kind_name(kind: ShapeKind) -> &'static str {
         ShapeKind::Polygon => "Многоугольник",
         ShapeKind::Path => "Контур",
         ShapeKind::Text => "Текст",
+        ShapeKind::Bone => "Кость",
     }
 }
 

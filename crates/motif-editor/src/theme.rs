@@ -154,6 +154,8 @@ pub enum Icon {
     Step,
     /// A capital T: text.
     Text,
+    /// Two joints and a thin diamond between them: a bone.
+    Bone,
 }
 
 /// Line icons drawn as vectors, so they never depend on font coverage.
@@ -220,6 +222,12 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
             painter.line_segment([p(-6.0, -6.0), p(6.0, -6.0)], st);
             painter.line_segment([p(0.0, -6.0), p(0.0, 6.5)], st);
             painter.line_segment([p(-2.5, 6.5), p(2.5, 6.5)], st);
+        }
+        Icon::Bone => {
+            let (a, b) = (p(-5.0, 5.0), p(5.0, -5.0));
+            painter.add(Shape::closed_line(vec![a, p(-1.5, -0.5), b, p(0.5, 1.5)], st));
+            painter.circle_stroke(a, 2.0 * s, st);
+            painter.circle_filled(b, 1.2 * s, color);
         }
         Icon::Pen => {
             painter.add(Shape::closed_line(vec![p(-6.0, 6.5), p(-5.0, 2.0), p(2.5, -5.5), p(5.5, -2.5), p(-2.0, 5.0)], st));
@@ -317,6 +325,7 @@ pub fn shape_icon(kind: motif_core::ShapeKind) -> Icon {
         Polygon => Icon::Polygon,
         Path => Icon::Pen,
         Text => Icon::Text,
+        Bone => Icon::Bone,
     }
 }
 

@@ -39,6 +39,9 @@ pub enum ShapeKind {
     Path,
     /// Letters as outlines: `text title at x y content "Привет" font-size 32`.
     Text,
+    /// A bone of a skeleton: starts at its position, points along its rotation, `len` long.
+    /// Shapes inside it move with it; it is drawn only in the editor.
+    Bone,
 }
 
 impl ShapeKind {
@@ -51,7 +54,13 @@ impl ShapeKind {
             ShapeKind::Polygon => "polygon",
             ShapeKind::Path => "path",
             ShapeKind::Text => "text",
+            ShapeKind::Bone => "bone",
         }
+    }
+
+    /// Group and bone: they hold other nodes and draw nothing of their own.
+    pub fn is_container(self) -> bool {
+        matches!(self, ShapeKind::Group | ShapeKind::Bone)
     }
 
     pub fn from_keyword(s: &str) -> Option<Self> {
@@ -63,6 +72,7 @@ impl ShapeKind {
             "polygon" => ShapeKind::Polygon,
             "path" => ShapeKind::Path,
             "text" => ShapeKind::Text,
+            "bone" => ShapeKind::Bone,
             _ => return None,
         })
     }
@@ -171,7 +181,7 @@ impl Prop {
     pub fn from_path_name(s: &str) -> Option<Self> {
         Prop::ALL.into_iter().find(|p| p.path_name() == s).or(match s {
             "rotation" => Some(Prop::Rotation),
-            "width" => Some(Prop::Width),
+            "width" | "len" => Some(Prop::Width),
             "height" => Some(Prop::Height),
             "radius" => Some(Prop::Radius),
             "skew_x" => Some(Prop::SkewX),
@@ -265,6 +275,54 @@ pub struct Node {
     pub blur: f64,
     /// Height above the artboard for the procedural shadow; 0 casts none.
     pub elevation: f64,
+    /// Bone only: turn this bone and the ones above it so that its tip reaches a target.
+    pub ik: Option<Ik>,
+    /// Bends the outline with bones: each point follows the bones near it.
+    pub skin: Option<Skin>,
+    /// The outline bent by `skin`, set by `Document::rig`; `path` returns it when present.
+    pub deformed: Option<BezPath>,
+}
+
+/// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
+/// nearest one, and both of them around a joint, so an arm bends smoothly at the elbow.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Skin {
+    pub bones: Vec<String>,
+    /// How fast a bone's pull fades with distance: higher keeps the bend tight around the joint.
+    pub sharp: f64,
+    /// The pose the outline was drawn in, set by `Document::bind_skins`.
+    pub bind: Vec<SkinBind>,
+    /// The shape's own transform into the artboard in that pose.
+    pub bind_world: Affine,
+}
+
+impl Skin {
+    pub const SHARP: f64 = 4.0;
+
+    pub fn new(bones: Vec<String>) -> Self {
+        Skin { bones, sharp: Skin::SHARP, bind: Vec::new(), bind_world: Affine::IDENTITY }
+    }
+}
+
+/// One bone of a skin at bind time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkinBind {
+    pub bone: String,
+    /// From the shape's space into the bone's space.
+    pub to_bone: Affine,
+    /// The bone from joint to tip, in the shape's space.
+    pub a: Point,
+    pub b: Point,
+}
+
+/// Inverse kinematics on a bone: the chain of `chain` bones ending in this one bends so that
+/// its tip reaches the origin of `target`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ik {
+    pub target: String,
+    pub chain: usize,
+    /// Bend the other way (an elbow or a knee can point either side).
+    pub flip: bool,
 }
 
 /// A two-or-more colour gradient spread over the shape's bounds.
@@ -296,7 +354,11 @@ impl Gradient {
 
 impl Node {
     pub fn new(id: impl Into<String>, kind: ShapeKind) -> Self {
-        let (w, h) = if kind == ShapeKind::Group { (0.0, 0.0) } else { (100.0, 100.0) };
+        let (w, h) = match kind {
+            ShapeKind::Group => (0.0, 0.0),
+            ShapeKind::Bone => (60.0, 0.0),
+            _ => (100.0, 100.0),
+        };
         Node {
             id: id.into(),
             name: None,
@@ -314,7 +376,7 @@ impl Node {
             radius: 0.0,
             points: if kind == ShapeKind::Polygon { 6.0 } else { 5.0 },
             inner: 0.45,
-            fill: if kind == ShapeKind::Group { None } else { Some(Color::rgb(0xcc, 0xcc, 0xcc)) },
+            fill: if kind.is_container() { None } else { Some(Color::rgb(0xcc, 0xcc, 0xcc)) },
             stroke: None,
             stroke_width: 0.0,
             geometry: BezPath::new(),
@@ -343,6 +405,9 @@ impl Node {
             },
             blur: 0.0,
             elevation: 0.0,
+            ik: None,
+            skin: None,
+            deformed: None,
         }
     }
 
@@ -436,8 +501,16 @@ impl Node {
             * Affine::translate(-self.pivot)
     }
 
-    /// Geometry in local space, centered on the origin. Groups have none.
+    /// Geometry in local space, centered on the origin, bent by bones when skinned. Groups have none.
     pub fn path(&self) -> Option<BezPath> {
+        match &self.deformed {
+            Some(d) => Some(d.clone()),
+            None => self.base_path(),
+        }
+    }
+
+    /// Geometry as drawn, before bones bend it.
+    pub fn base_path(&self) -> Option<BezPath> {
         let (w, h) = (self.width.abs(), self.height.abs());
         let rect = kurbo::Rect::new(-w / 2.0, -h / 2.0, w / 2.0, h / 2.0);
         Some(match self.kind {
@@ -452,7 +525,24 @@ impl Node {
             ShapeKind::Polygon => polygon_path(w, h, self.points.round().max(3.0) as usize),
             ShapeKind::Path => self.geometry.clone(),
             ShapeKind::Text => self.text.as_ref().map(|t| t.layout(&self.text_style)).unwrap_or_default(),
+            ShapeKind::Bone => {
+                // A thin diamond from the joint to the tip, for picking and outlining in the editor.
+                let len = self.width;
+                let w = (len.abs() * 0.1).clamp(2.0, 7.0);
+                let mut p = BezPath::new();
+                p.move_to((0.0, 0.0));
+                p.line_to((len * 0.15, w));
+                p.line_to((len, 0.0));
+                p.line_to((len * 0.15, -w));
+                p.close_path();
+                p
+            }
         })
+    }
+
+    /// The tip of a bone in its own space: `(len, 0)`.
+    pub fn bone_tip(&self) -> Point {
+        Point::new(self.width, 0.0)
     }
 }
 
@@ -518,9 +608,12 @@ impl Document {
         self.nodes[index].parent.map_or(0, |p| self.depth(p) + 1)
     }
 
-    /// Topmost visible shape under an artboard-space point.
+    /// Topmost visible shape under an artboard-space point. Bones come first: they are thin and
+    /// drawn over the shapes they move.
     pub fn hit_test(&self, point: Point) -> Option<usize> {
-        (0..self.nodes.len()).rev().find(|&i| {
+        let bones = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind == ShapeKind::Bone);
+        let others = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind != ShapeKind::Bone);
+        bones.chain(others).find(|&i| {
             let node = &self.nodes[i];
             if !self.is_visible(i) {
                 return false;
@@ -601,8 +694,15 @@ impl Animation {
         }
     }
 
-    /// Returns a copy of the document posed at `t` seconds.
+    /// Returns a copy of the document posed at `t` seconds, with bones solved and shapes bent.
     pub fn pose(&self, doc: &Document, t: f64) -> Document {
+        let mut out = self.keys_at(doc, t);
+        out.rig();
+        out
+    }
+
+    /// The document with this animation's keys applied at `t` seconds, before `Document::rig`.
+    pub fn keys_at(&self, doc: &Document, t: f64) -> Document {
         let t = self.local_time(t);
         let mut out = doc.clone();
         for track in &self.tracks {

@@ -174,6 +174,10 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         {
             continue;
         }
+        // Bones are drawn by the editor only.
+        if node.kind == motif_core::ShapeKind::Bone {
+            continue;
+        }
         if node.kind == motif_core::ShapeKind::Group {
             let mask = node.clip.then(|| doc.nodes.iter().position(|n| n.parent == Some(i))).flatten().and_then(|m| Some((m, doc.nodes[m].path()?)));
             if mask.is_some() || node.blur > 0.0 {

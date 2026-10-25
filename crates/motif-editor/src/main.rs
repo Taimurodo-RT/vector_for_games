@@ -3,6 +3,7 @@
 //! Motif editor: write a scene script, see it live, finish it with the mouse.
 
 mod app;
+mod bone_ui;
 mod canvas;
 mod guides;
 mod highlight;

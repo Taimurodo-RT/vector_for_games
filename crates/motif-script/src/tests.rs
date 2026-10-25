@@ -724,3 +724,115 @@ fn edits_machines() {
     let s2 = scene(&out);
     assert_eq!(delete_machine(&out, &s2, "Machine").unwrap().trim_end(), src.trim_end());
 }
+
+const ARM: &str = "artboard 400x300
+rect sleeve at 150 100 size 100 24 skin upper lower
+group hand at 180 140
+bone upper at 100 100 len 50 {
+  bone lower at 50 0 len 50 ik hand flip
+}
+anim Wave 1s {
+  hand.x 0: 180 | 1: 120
+}
+";
+
+#[test]
+fn bones_parse_with_ik_and_skin() {
+    let s = scene(ARM);
+    let lower = s.doc.node("lower").unwrap();
+    assert_eq!(lower.kind, ShapeKind::Bone);
+    assert_eq!(lower.width, 50.0);
+    assert_eq!(lower.ik, Some(motif_core::Ik { target: "hand".into(), chain: 2, flip: true }));
+    assert_eq!(s.doc.nodes[lower.parent.unwrap()].id, "upper");
+    let skin = s.doc.node("sleeve").unwrap().skin.as_ref().unwrap();
+    assert_eq!((skin.bones.len(), skin.bind.len()), (2, 2));
+    // The setup pose already reaches for the target.
+    let tip = s.doc.world_transform(s.doc.index_of("lower").unwrap()) * lower.bone_tip();
+    assert!((tip - motif_core::kurbo::Point::new(180.0, 140.0)).hypot() < 0.1, "{tip:?}");
+    // Posing moves the target, the arm follows and the sleeve bends with it.
+    let a = s.doc.animation("Wave").unwrap();
+    let end = a.pose(&s.doc, 1.0);
+    let i = end.index_of("lower").unwrap();
+    let tip = end.world_transform(i) * end.nodes[i].bone_tip();
+    assert!((tip - motif_core::kurbo::Point::new(120.0, 140.0)).hypot() < 0.1, "{tip:?}");
+    assert_ne!(end.node("sleeve").unwrap().path(), s.doc.node("sleeve").unwrap().path());
+    // Bones draw nothing in the game.
+    assert!(s.doc.node("upper").unwrap().fill.is_none());
+}
+
+#[test]
+fn bone_errors_point_at_the_line() {
+    let msg = |src: &str| parse(src).unwrap_err().iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("\n");
+    assert!(msg("rect a len 5\n").contains("только у bone"));
+    assert!(msg("bone b len 50 ik nobody\n").contains("nobody"));
+    assert!(msg("rect r skin r\n").contains("не кость"));
+    assert!(msg("group g skin b\nbone b\n").contains("не у group"));
+    assert!(msg("bone a len 50 {\n  bone b at 50 0 len 50 ik t {\n    group t\n  }\n}\n").contains("внутри цепочки"));
+}
+
+#[test]
+fn bone_edits_round_trip() {
+    let src = "artboard 400x300\nrect body at 200 150 size 40 80\nanim Idle 1s {\n}\n";
+    let s = scene(src);
+    // A root bone, then a child inside its block.
+    let (out, root) = add_bone(src, &s, None, (200.0, 100.0), 50.0, 90.0).unwrap();
+    assert!(out.contains("bone bone1 at 200 100 len 50 rot 90\n"), "{out}");
+    let s = scene(&out);
+    let (out, child) = add_bone(&out, &s, Some(&root), (50.0, 0.0), 40.0, 0.0).unwrap();
+    assert!(out.contains("bone bone1 at 200 100 len 50 rot 90 {\n  bone bone2 at 50 0 len 40\n}"), "{out}");
+    let s = scene(&out);
+    assert_eq!(s.doc.nodes[s.doc.node(&child).unwrap().parent.unwrap()].id, root);
+    // A third bone goes after the second, in the same block.
+    let (out, _) = add_bone(&out, &s, Some(&root), (50.0, 0.0), 10.0, 0.0).unwrap();
+    assert!(out.contains("  bone bone2 at 50 0 len 40\n  bone bone3 at 50 0 len 10\n}"), "{out}");
+    let s = scene(&out);
+    // Length edits write `len`.
+    let out = set_prop(&out, &s, &child, Prop::Width, Value::Num(45.0)).unwrap();
+    assert!(out.contains("bone bone2 at 50 0 len 45"));
+    let s = scene(&out);
+
+    // IK with a fresh target at the tip.
+    let (out, target) = add_ik_target(&out, &s, &child).unwrap();
+    let s = scene(&out);
+    let t = s.doc.node(&target).unwrap();
+    assert!((t.x - 200.0).abs() < 0.2 && (t.y - 195.0).abs() < 0.2, "{} {}", t.x, t.y);
+    let ik = motif_core::Ik { target: target.clone(), chain: 2, flip: true };
+    let out = set_ik(&out, &s, &child, Some(&ik)).unwrap();
+    assert!(out.contains(&format!("len 45 ik {target} flip")), "{out}");
+    let s = scene(&out);
+    assert_eq!(s.doc.node(&child).unwrap().ik.as_ref(), Some(&ik));
+    let out = set_ik(&out, &s, &child, Some(&motif_core::Ik { chain: 1, flip: false, ..ik })).unwrap();
+    assert!(out.contains(&format!("len 45 ik {target} chain 1\n")), "{out}");
+    let s = scene(&out);
+    let out = set_ik(&out, &s, &child, None).unwrap();
+    assert!(out.contains("bone bone2 at 50 0 len 45\n"), "{out}");
+    let s = scene(&out);
+
+    // Skin and back.
+    let skin = motif_core::Skin { sharp: 6.0, ..motif_core::Skin::new(vec![root.clone(), child.clone()]) };
+    let out = set_skin(&out, &s, "body", Some(&skin)).unwrap();
+    assert!(out.contains("rect body at 200 150 size 40 80 skin bone1 bone2 skin-sharp 6\n"), "{out}");
+    let s = scene(&out);
+    assert_eq!(s.doc.node("body").unwrap().skin.as_ref().unwrap().bind.len(), 2);
+    let out2 = set_skin(&out, &s, "body", None).unwrap();
+    assert!(out2.contains("rect body at 200 150 size 40 80\n"), "{out2}");
+
+    // Attaching keeps the shape where it is on the artboard.
+    let before = s.doc.world_transform(s.doc.index_of("body").unwrap());
+    let out = attach_to_bone(&out, &s, "body", Some(&child)).unwrap();
+    let s = scene(&out);
+    let i = s.doc.index_of("body").unwrap();
+    assert_eq!(s.doc.nodes[s.doc.nodes[i].parent.unwrap()].id, child);
+    let after = s.doc.world_transform(i);
+    for p in [motif_core::kurbo::Point::ZERO, motif_core::kurbo::Point::new(10.0, 20.0)] {
+        assert!(((before * p) - (after * p)).hypot() < 0.2, "{out}");
+    }
+    assert!(out.contains("    rect body at "), "{out}");
+    // And out again.
+    let out = attach_to_bone(&out, &s, "body", None).unwrap();
+    let s = scene(&out);
+    let i = s.doc.index_of("body").unwrap();
+    assert!(s.doc.nodes[i].parent.is_none());
+    assert!(((before * motif_core::kurbo::Point::ZERO) - (s.doc.world_transform(i) * motif_core::kurbo::Point::ZERO)).hypot() < 0.2, "{out}");
+    assert!(out.contains("\nrect body at 200 150"), "{out}");
+}

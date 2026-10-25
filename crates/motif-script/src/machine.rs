@@ -112,7 +112,7 @@ fn full_line(src: &str, span: Span) -> Span {
     Span::new(start, end)
 }
 
-fn apply(src: &str, mut edits: Vec<(Span, String)>) -> String {
+pub(crate) fn apply(src: &str, mut edits: Vec<(Span, String)>) -> String {
     edits.sort_by(|a, b| b.0.start.cmp(&a.0.start).then(b.0.end.cmp(&a.0.end)));
     let mut out = src.to_string();
     for (span, text) in edits {

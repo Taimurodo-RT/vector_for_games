@@ -63,6 +63,7 @@
   <tr><td>Цикл</td><td><code>for i in 0..5 { … }</code></td><td>Повторяет строки внутри, <code>i</code> от 0 до 4.</td></tr>
   <tr><td>Группа</td><td><code>group g at 40 40 { … }</code></td><td>Вложенные объекты двигаются вместе с группой.</td></tr>
   <tr><td>Символ и копия</td><td><code>symbol Coin size=16 { … }</code>, <code>use Coin c1 at 40 40 size=24</code></td><td>Рисуется один раз, вставляется много раз. См. <a href="#symbols">«Символы»</a>.</td></tr>
+  <tr><td>Кость</td><td><code>bone arm at 100 80 len 60 { bone hand at 60 0 len 40 ik target }</code>, <code>rect sleeve … skin arm hand</code></td><td>Скелет, IK и фигуры, которые гнутся костями. См. <a href="bones.html#script">«Кости и IK»</a>.</td></tr>
   <tr><td>Машина состояний</td><td><code>machine Hero { state Idle … Idle -&gt; Run when speed &gt; 0.5 }</code></td><td>Какую анимацию играть. См. <a href="machine.html#script">«Машина состояний»</a>.</td></tr>
 </table></div>
 
