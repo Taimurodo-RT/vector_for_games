@@ -157,11 +157,27 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             (_, Some(c)) => Some(Paint::Solid(c)),
             _ => None,
         };
-        if opacity > 0.0 && (fill.is_some() || stroke.is_some()) {
+        if opacity > 0.0 && (fill.is_some() || stroke.is_some() || !node.outlines.is_empty()) {
             let transform = doc.world_transform(i);
             let line = Line { dash: node.dash.clone(), cap: node.cap, join: node.join };
+            let widest = node.outlines.first().map_or(0.0, |o| o.1);
             if let Some(sh) = node.shadow {
-                shadow_items(&mut ops, i, &path, transform, sh, stroke.map_or(0.0, |s| s.1), opacity);
+                shadow_items(&mut ops, i, &path, transform, sh, stroke.map_or(0.0, |s| s.1).max(widest), opacity);
+            }
+            // Layered outlines under the shape, widest first, with round corners like a sticker.
+            for &(c, w) in &node.outlines {
+                let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
+                ops.push(Op::Draw(Item {
+                    node: i,
+                    path: path.clone(),
+                    transform,
+                    fill: None,
+                    stroke: Some((c, w)),
+                    line,
+                    opacity,
+                    blend: node.blend,
+                    even_odd: false,
+                }));
             }
             ops.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd }));
         }

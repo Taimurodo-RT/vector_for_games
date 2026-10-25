@@ -216,7 +216,7 @@ impl App {
     // ---------- script state ----------
 
     pub(crate) fn reparse(&mut self) {
-        match parse(&self.src) {
+        match motif_script::parse_in(&self.src, self.path.as_ref().and_then(|p| p.parent())) {
             Ok(scene) => {
                 self.scene = scene;
                 self.errors.clear();
@@ -737,6 +737,7 @@ impl App {
                 (ShapeKind::Ellipse, "O", "Эллипс: тяните по холсту"),
                 (ShapeKind::Star, "S", "Звезда: тяните по холсту"),
                 (ShapeKind::Polygon, "N", "Многоугольник: тяните по холсту"),
+                (ShapeKind::Text, "T", "Текст: клик по холсту (протяжка задаёт высоту букв)"),
             ];
             for (kind, key, tip) in shapes {
                 let tool = Tool::Create(kind);
@@ -965,7 +966,7 @@ impl App {
                     field(self, ui, "X", Prop::X, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                     field(self, ui, "Y", Prop::Y, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                 });
-                if !matches!(node.kind, ShapeKind::Group | ShapeKind::Path) {
+                if !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) {
                     ui.horizontal(|ui| {
                         field(self, ui, "W", Prop::Width, 1.0, 0.0..=100_000.0, 1.0, 1);
                         field(self, ui, "H", Prop::Height, 1.0, 0.0..=100_000.0, 1.0, 1);
@@ -985,6 +986,46 @@ impl App {
                 });
                 crate::style_ui::pivot_row(ui, &node, &mut styles);
             });
+            let mut pick_font = false;
+            let mut outline_text = false;
+            if node.kind == ShapeKind::Text {
+                let font = self.scene.prop_spans.get(&(id.clone(), "font".to_string())).map(|s| {
+                    let t = self.src[s.start..s.end].trim_start_matches("font").trim();
+                    t.trim_matches('"').to_string()
+                });
+                section(ui, |ui| {
+                    theme::caption(ui, "Текст");
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    crate::text_ui::content_row(ui, &node, &mut styles);
+                    ui.horizontal(|ui| {
+                        field(self, ui, "Размер", Prop::FontSize, 0.5, 1.0..=2000.0, 1.0, 1);
+                        field(self, ui, "Интервал", Prop::LetterSpacing, 0.1, -500.0..=500.0, 1.0, 1);
+                    });
+                    pick_font = crate::text_ui::layout_rows(ui, &node, font.as_deref(), &mut styles);
+                    if theme::button(ui, "В кривые", ButtonKind::Normal)
+                        .on_hover_text("Заменить текст контуром: буквы можно править по точкам, шрифт больше не нужен")
+                        .clicked()
+                    {
+                        outline_text = true;
+                    }
+                });
+                section(ui, |ui| {
+                    theme::caption(ui, "Анимация букв");
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    ui.horizontal(|ui| {
+                        field(self, ui, "Появл. %", Prop::Reveal, 0.01, 0.0..=1.0, 100.0, 0);
+                        field(self, ui, "Волна", Prop::Wave, 0.2, -500.0..=500.0, 1.0, 1);
+                    });
+                    ui.horizontal(|ui| {
+                        field(self, ui, "Фаза", Prop::Phase, 0.01, -1000.0..=1000.0, 1.0, 2);
+                    });
+                    ui.label(
+                        RichText::new("Ставьте ключи в Animate: «Появление» 0 → 100% — буквы выпрыгивают по одной; «Фаза» 0 → 1 — волна пробегает по тексту.")
+                            .size(11.5)
+                            .color(FAINT),
+                    );
+                });
+            }
             if matches!(node.kind, ShapeKind::Rect | ShapeKind::Star | ShapeKind::Polygon) {
                 section(ui, |ui| {
                     theme::caption(ui, "Форма");
@@ -1049,6 +1090,9 @@ impl App {
                         }
                         crate::style_ui::line_rows(ui, &node, &mut styles);
                     }
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Слои обводки под фигурой").size(12.0).color(MUTED));
+                    crate::text_ui::outline_rows(ui, &node, &mut styles);
                 });
                 section(ui, |ui| {
                     theme::caption(ui, "Эффекты");
@@ -1084,6 +1128,13 @@ impl App {
                 self.edit(&id, prop, value);
             }
             self.apply_styles(&id, styles);
+            if pick_font {
+                self.pick_font(&id);
+            }
+            if outline_text {
+                self.select_only(Some(id.clone()));
+                self.boolean(motif_script::BoolOp::Union);
+            }
         });
     }
 
@@ -1740,6 +1791,7 @@ impl App {
             (Key::O, Tool::Create(ShapeKind::Ellipse)),
             (Key::S, Tool::Create(ShapeKind::Star)),
             (Key::N, Tool::Create(ShapeKind::Polygon)),
+            (Key::T, Tool::Create(ShapeKind::Text)),
             (Key::P, Tool::Pen),
         ] {
             if plain(k) {
@@ -1836,7 +1888,7 @@ fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) -> Option<Han
     let center = corners[0].lerp(corners[2], 0.5);
     let up = (top_mid - center).normalized();
     let up = if up.is_finite() { up } else { vec2(0.0, -1.0) };
-    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path) })
+    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) })
 }
 
 pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo::Rect> {
@@ -1918,6 +1970,7 @@ fn kind_name(kind: ShapeKind) -> &'static str {
         ShapeKind::Star => "Звезда",
         ShapeKind::Polygon => "Многоугольник",
         ShapeKind::Path => "Контур",
+        ShapeKind::Text => "Текст",
     }
 }
 

@@ -423,3 +423,71 @@ fn svg_import() {
     assert!(crate::import_svg(src, &s, b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "x").is_err());
     assert!(crate::import_svg(src, &s, b"not svg", "x").is_err());
 }
+
+#[test]
+fn boolean_ops() {
+    use motif_core::kurbo::Shape;
+    let src = "artboard \"M\" 200x200\nrect a \"Низ\" at 50 50 size 40 fill #ff0000 stroke #000 2\ngroup g at 10 0 {\n  ellipse b at 60 50 size 40 fill #00ff00\n}\nanim A 1s {\n  b.x 0: 60 | 1: 80\n}\n";
+    let s = scene(src);
+    let ids = vec!["a".to_string(), "b".to_string()];
+    // Union: one path in place of the bottom rect, with its name and style; b and its keys are gone.
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Union).unwrap();
+    let u = scene(&out);
+    assert!(u.doc.node("a").is_none() && u.doc.node("b").is_none() && !out.contains("b.x"), "{out}");
+    let p = u.doc.node(&id).unwrap();
+    assert!(out.contains(&format!("\npath {id} \"Низ\" at ")) && p.even_odd && p.stroke_width == 2.0, "{out}");
+    let bb = p.path().unwrap().bounding_box();
+    assert!((bb.width() - 60.0).abs() < 0.5 && (bb.height() - 40.0).abs() < 0.5, "{bb:?}");
+    // Subtract: the rect minus the circle reaching into it from the right (circle centre x = 70, rect 30..70).
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Subtract).unwrap();
+    let d = scene(&out).doc.node(&id).unwrap().path().unwrap().bounding_box();
+    assert!((d.width() - 40.0).abs() < 0.5, "{d:?}");
+    // Intersect: only the overlap, x from 50 to 70 (the circle spans 50..90).
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Intersect).unwrap();
+    let i = scene(&out).doc.node(&id).unwrap().path().unwrap().bounding_box();
+    assert!((i.width() - 20.0).abs() < 0.5, "{i:?}");
+    // Exclude keeps the outer extent.
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Exclude).unwrap();
+    assert!((scene(&out).doc.node(&id).unwrap().path().unwrap().bounding_box().width() - 60.0).abs() < 0.5);
+    assert!(crate::boolean(src, &s, &["a".into()], crate::BoolOp::Union).is_err());
+    assert!(crate::boolean(src, &s, &["a".into(), "g".into()], crate::BoolOp::Union).is_err());
+}
+
+#[test]
+fn text_and_outlines() {
+    use motif_core::kurbo::Shape;
+    let src = "artboard \"M\" 400x200\ntext t at 200 100 content \"Hi\\nyou\" font bold font-size 40 letter-spacing 4 line-height 1.5 align left outline #000 10 #fff 16 fill #f00\n";
+    let s = scene(src);
+    let t = s.doc.node("t").unwrap();
+    let shape = t.text.as_ref().unwrap();
+    assert_eq!(shape.lines.len(), 2);
+    assert_eq!((t.text_style.size, t.text_style.spacing, t.text_style.line_height, t.text_style.align), (40.0, 4.0, 1.5, motif_core::TextAlign::Left));
+    // Widest outline first.
+    assert_eq!(t.outlines.iter().map(|o| o.1).collect::<Vec<_>>(), vec![16.0, 10.0]);
+    // Left aligned: letters start at the origin; two lines of 60 units.
+    let bb = t.path().unwrap().bounding_box();
+    assert!(bb.x0 >= 0.0 && bb.x0 < 6.0 && bb.height() > 60.0 && bb.height() < 120.0, "{bb:?}");
+    // Font size animates; reveal 0 hides every letter.
+    let anim = format!("{src}anim A 1s {{\n  t.font-size 0: 40 | 1: 80\n  t.reveal 0: 0 | 1: 1\n}}\n");
+    let s2 = scene(&anim);
+    let a = &s2.doc.animations[0];
+    let start = a.pose(&s2.doc, 0.0);
+    assert!(start.node("t").unwrap().path().unwrap().elements().is_empty());
+    let end = a.pose(&s2.doc, 1.0);
+    assert!(end.node("t").unwrap().path().unwrap().bounding_box().width() > bb.width() * 1.8);
+    // Editing writes the CSS-like names.
+    let out = set_prop(src, &s, "t", Prop::FontSize, Value::Num(50.0)).unwrap();
+    assert!(out.contains("font-size 50"), "{out}");
+    let out = set_style(src, &s, "t", "content", Some("content \"Yo\"")).unwrap();
+    assert_eq!(scene(&out).doc.node("t").unwrap().text.as_ref().unwrap().content, "Yo");
+    for bad in ["rect r content \"x\"", "text t font \"nope.ttf\"", "text t align middle", "rect r outline #000"] {
+        assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
+    }
+    // A text alone turns into outlines.
+    let (out, id) = crate::boolean(src, &s, &["t".into()], crate::BoolOp::Union).unwrap();
+    let p = scene(&out).doc.node(&id).unwrap().path().unwrap();
+    assert!(!out.contains("content") && (p.bounding_box().width() - bb.width()).abs() < 1.0, "{out}");
+    // The title example parses.
+    let title = include_str!("../../../examples/title.msc");
+    assert!(scene(title).doc.node("title").unwrap().text.is_some());
+}

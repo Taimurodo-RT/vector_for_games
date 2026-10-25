@@ -110,6 +110,13 @@ impl App {
         self.status = format!("Подложка {} ({w}×{h}) — видна только в редакторе, в экспорт не попадает", b.file);
     }
 
+    /// Asks for a TrueType or OpenType file for text `node`.
+    pub(crate) fn pick_font(&mut self, node: &str) {
+        let Some(file) = rfd::FileDialog::new().set_title("Шрифт").add_filter("Шрифт", &["ttf", "otf"]).pick_file() else { return };
+        let text = format!("font \"{}\"", self.script_name(&file));
+        self.apply_styles(node, vec![("font", Some(text))]);
+    }
+
     /// Asks for an SVG file and imports it.
     pub(crate) fn pick_svg(&mut self) {
         let Some(file) = rfd::FileDialog::new().set_title("Импорт SVG").add_filter("SVG", &["svg"]).pick_file() else { return };

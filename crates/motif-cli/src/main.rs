@@ -20,8 +20,8 @@ motif — скрипты сцен Motif без окна редактора
   --no-aa          без сглаживания краёв (удобно перед пикселизацией)
   --transparent    без фона артборда
 
-frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их можно обработать в PixaTool пакетом
-или открыть в PixelOver. palette сохраняет цвета сцены в формате JASC .pal для PixaTool.";
+frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их можно обработать в PixaTool пакетом.
+palette сохраняет цвета сцены в формате JASC .pal для PixaTool.";
 
 struct Args {
     cmd: String,
@@ -68,7 +68,8 @@ fn parse_args() -> Result<Args, String> {
 fn run() -> Result<(), String> {
     let a = parse_args()?;
     let src = std::fs::read_to_string(&a.scene).map_err(|e| format!("{}: {e}", a.scene.display()))?;
-    let scene = motif_script::parse(&src).map_err(|errs| errs.iter().map(|e| format!("{}: {e}", a.scene.display())).collect::<Vec<_>>().join("\n"))?;
+    let scene = motif_script::parse_in(&src, a.scene.parent())
+        .map_err(|errs| errs.iter().map(|e| format!("{}: {e}", a.scene.display())).collect::<Vec<_>>().join("\n"))?;
     let doc = scene.doc;
     let scale = match (a.width, a.scale) {
         (Some(w), _) => w / doc.artboard.width,

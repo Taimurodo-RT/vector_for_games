@@ -33,6 +33,11 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::StrokeWidth => "Толщина обводки",
         Prop::SkewX => "Наклон X",
         Prop::SkewY => "Наклон Y",
+        Prop::FontSize => "Размер шрифта",
+        Prop::LetterSpacing => "Межбуквенный",
+        Prop::Reveal => "Появление букв",
+        Prop::Wave => "Волна",
+        Prop::Phase => "Фаза волны",
     }
 }
 

@@ -17,13 +17,16 @@
 //! [`parse`] builds the document and remembers the source span of every value, so that
 //! [`set_prop`] can write a visual edit back into the text without reformatting it.
 
+mod boolean;
 mod edit;
 mod eval;
 mod expr;
+mod fonts;
 mod lexer;
 mod parser;
 mod svg;
 
+pub use boolean::{BoolOp, boolean};
 pub use edit::{
     Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,
     set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_path, set_prop, set_style,
@@ -176,10 +179,15 @@ pub struct KeySite {
 
 /// Parses and evaluates a scene script. Returns every error found, not only the first.
 pub fn parse(src: &str) -> Result<Scene, Vec<ScriptError>> {
+    parse_in(src, None)
+}
+
+/// [`parse`] for a script saved in `base`: font files are looked up there.
+pub fn parse_in(src: &str, base: Option<&std::path::Path>) -> Result<Scene, Vec<ScriptError>> {
     let toks = lexer::lex(src).map_err(|e| vec![e])?;
     let mut parser = parser::Parser::new(src, toks);
     let stmts = parser.block(false);
-    let mut ev = eval::Evaluator::new(src);
+    let mut ev = eval::Evaluator::new(src, base);
     ev.run(&stmts);
     let mut errors = parser.errors;
     errors.extend(ev.errors);

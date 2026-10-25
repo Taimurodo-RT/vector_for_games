@@ -136,7 +136,9 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "dash" => (1, 8),
         "shadow" => (3, 4),
         "hidden" | "clip" | "evenodd" => (0, 0),
-        "d" => (1, 1),
+        "d" | "content" => (1, 1),
+        "font" | "font-size" | "letter-spacing" | "line-height" | "align" | "reveal" | "wave" | "phase" => (1, 1),
+        "outline" => (2, 8),
         "gradient" => (2, 10),
         _ => return None,
     })
@@ -391,11 +393,19 @@ impl<'a> Parser<'a> {
                 return Err(self.err(key_span, format!("неизвестное свойство «{key}»")));
             };
             let mut values = Vec::new();
-            if key == "d" {
+            if key == "d" || key == "content" {
                 match self.next() {
                     Some(Token { tok: Tok::Str(s), span }) => values.push(ValueAst { kind: ValueKind::Path(s), span }),
+                    _ if key == "content" => return Err(self.err(key_span, "после content нужен текст в кавычках, например content \"Привет\"")),
                     _ => return Err(self.err(key_span, "после d нужен контур в кавычках, например d \"M 0 0 L 40 0 L 20 30 Z\"")),
                 }
+            }
+            // A font file in quotes, or `font bold`.
+            if key == "font"
+                && let Some(Tok::Str(_)) = self.peek()
+                && let Some(Token { tok: Tok::Str(s), span }) = self.next()
+            {
+                values.push(ValueAst { kind: ValueKind::Path(s), span });
             }
             while values.len() < max && self.is_value_start() {
                 values.push(self.value()?);

@@ -76,6 +76,7 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         Prop::StrokeColor => format!("stroke {text} {}", fmt_num(stroke_width)),
         Prop::StrokeWidth => format!("stroke {stroke_color} {text}"),
         Prop::SkewX | Prop::SkewY => format!("skew {} {}", pick(Prop::SkewX), pick(Prop::SkewY)),
+        Prop::FontSize | Prop::LetterSpacing | Prop::Reveal | Prop::Wave | Prop::Phase => format!("{} {text}", prop.path_name()),
     };
     Some(splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {addition}")))
 }
@@ -166,14 +167,14 @@ pub fn delete_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, 
 }
 
 /// Expands a span to the whole lines it touches, including the final newline.
-fn whole_lines(src: &str, span: Span) -> Span {
+pub(crate) fn whole_lines(src: &str, span: Span) -> Span {
     let start = src[..span.start].rfind('\n').map_or(0, |i| i + 1);
     let end = src[span.end..].find('\n').map_or(src.len(), |i| span.end + i + 1);
     Span::new(start, end)
 }
 
 /// Removes several spans at once; overlapping spans are merged.
-fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
+pub(crate) fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
     spans.sort_by_key(|s| s.start);
     let mut out = String::with_capacity(src.len());
     let mut at = 0;
@@ -188,7 +189,7 @@ fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
 }
 
 /// A fresh id such as `rect3` that no node uses yet.
-fn free_id(scene: &Scene, base: &str) -> String {
+pub(crate) fn free_id(scene: &Scene, base: &str) -> String {
     (1..).map(|i| format!("{base}{i}")).find(|id| scene.doc.node(id).is_none()).expect("ids are unbounded")
 }
 
@@ -201,8 +202,15 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
         ShapeKind::Ellipse => "#ff5a36",
         ShapeKind::Star => "#ffc531",
         ShapeKind::Polygon => "#4fd38c",
+        ShapeKind::Text => "#1b1d24",
         ShapeKind::Group | ShapeKind::Path => "none",
     };
+    if kind == ShapeKind::Text {
+        // A dragged box sets the letter height; a click gives the usual size.
+        let fs = if size.1 >= 8.0 && size.1 != 80.0 { size.1.round() } else { 32.0 };
+        let line = format!("text {id} at {} {} content \"Текст\" font-size {} fill {fill}\n", fmt_num(center.0), fmt_num(center.1), fmt_num(fs));
+        return (insert_declaration(src, scene, &line), id);
+    }
     let size = if (size.0 - size.1).abs() < 1e-9 { fmt_num(size.0) } else { format!("{} {}", fmt_num(size.0), fmt_num(size.1)) };
     let line = format!("{} {id} at {} {} size {size} fill {fill}\n", kind.keyword(), fmt_num(center.0), fmt_num(center.1));
     (insert_declaration(src, scene, &line), id)
@@ -323,6 +331,11 @@ pub fn add_path(src: &str, scene: &Scene, outline: &BezPath) -> (String, String)
 /// Returns the script without `node`, its children, and every key and override that refers to them.
 /// `None` when the node does not exist or comes from a `for` loop (its line makes other nodes too).
 pub fn delete_node(src: &str, scene: &Scene, node: &str) -> Option<String> {
+    Some(remove_spans(src, node_spans(src, scene, node)?))
+}
+
+/// The whole lines declaring `node` and its children, with their animation tracks and overrides.
+pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Span>> {
     let site = scene.sites.get(node)?;
     if site.generated {
         return None;
@@ -347,7 +360,7 @@ pub fn delete_node(src: &str, scene: &Scene, node: &str) -> Option<String> {
         spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
     spans.extend(scene.override_entries.iter().filter(|(n, _)| ids.contains(&n.as_str())).map(|(_, s)| whole_lines(src, *s)));
-    Some(remove_spans(src, spans))
+    Some(spans)
 }
 
 /// Returns the script with a new empty animation at the end, and its name.

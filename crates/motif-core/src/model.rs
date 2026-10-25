@@ -33,6 +33,8 @@ pub enum ShapeKind {
     Polygon,
     /// Free-form outline drawn with the pen: `path id at x y d "M 0 0 C …"`.
     Path,
+    /// Letters as outlines: `text title at x y content "Привет" font-size 32`.
+    Text,
 }
 
 impl ShapeKind {
@@ -44,6 +46,7 @@ impl ShapeKind {
             ShapeKind::Star => "star",
             ShapeKind::Polygon => "polygon",
             ShapeKind::Path => "path",
+            ShapeKind::Text => "text",
         }
     }
 
@@ -55,6 +58,7 @@ impl ShapeKind {
             "star" => ShapeKind::Star,
             "polygon" => ShapeKind::Polygon,
             "path" => ShapeKind::Path,
+            "text" => ShapeKind::Text,
             _ => return None,
         })
     }
@@ -80,10 +84,18 @@ pub enum Prop {
     /// Skew in degrees, like CSS `skewX` / `skewY`.
     SkewX,
     SkewY,
+    /// Text only.
+    FontSize,
+    LetterSpacing,
+    /// 0..1, letters appear one by one.
+    Reveal,
+    /// Height of a wave through the letters, and its position (1 = one cycle).
+    Wave,
+    Phase,
 }
 
 impl Prop {
-    pub const ALL: [Prop; 16] = [
+    pub const ALL: [Prop; 21] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -100,6 +112,11 @@ impl Prop {
         Prop::StrokeWidth,
         Prop::SkewX,
         Prop::SkewY,
+        Prop::FontSize,
+        Prop::LetterSpacing,
+        Prop::Reveal,
+        Prop::Wave,
+        Prop::Phase,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -121,6 +138,11 @@ impl Prop {
             Prop::StrokeWidth => "stroke_w",
             Prop::SkewX => "kx",
             Prop::SkewY => "ky",
+            Prop::FontSize => "font-size",
+            Prop::LetterSpacing => "letter-spacing",
+            Prop::Reveal => "reveal",
+            Prop::Wave => "wave",
+            Prop::Phase => "phase",
         }
     }
 
@@ -212,6 +234,11 @@ pub struct Node {
     pub join: Join,
     pub shadow: Option<Shadow>,
     pub blend: Blend,
+    /// Extra strokes under the shape, widest first: thick dark outside, thin light inside.
+    pub outlines: Vec<(Color, f64)>,
+    /// Text only: the letters read from the font, and how they are laid out.
+    pub text: Option<std::sync::Arc<crate::text::TextShape>>,
+    pub text_style: crate::text::TextStyle,
 }
 
 /// A two-or-more colour gradient spread over the shape's bounds.
@@ -277,6 +304,17 @@ impl Node {
             join: Join::default(),
             shadow: None,
             blend: Blend::default(),
+            outlines: Vec::new(),
+            text: None,
+            text_style: crate::text::TextStyle {
+                size: 32.0,
+                spacing: 0.0,
+                line_height: 1.2,
+                align: crate::text::TextAlign::Center,
+                reveal: 1.0,
+                wave: 0.0,
+                phase: 0.0,
+            },
         }
     }
 
@@ -303,6 +341,11 @@ impl Node {
             Prop::StrokeWidth => Value::Num(self.stroke_width),
             Prop::SkewX => Value::Num(self.skew_x),
             Prop::SkewY => Value::Num(self.skew_y),
+            Prop::FontSize => Value::Num(self.text_style.size),
+            Prop::LetterSpacing => Value::Num(self.text_style.spacing),
+            Prop::Reveal => Value::Num(self.text_style.reveal),
+            Prop::Wave => Value::Num(self.text_style.wave),
+            Prop::Phase => Value::Num(self.text_style.phase),
         }
     }
 
@@ -335,6 +378,11 @@ impl Node {
             Prop::StrokeWidth => self.stroke_width = v,
             Prop::SkewX => self.skew_x = v,
             Prop::SkewY => self.skew_y = v,
+            Prop::FontSize => self.text_style.size = v,
+            Prop::LetterSpacing => self.text_style.spacing = v,
+            Prop::Reveal => self.text_style.reveal = v,
+            Prop::Wave => self.text_style.wave = v,
+            Prop::Phase => self.text_style.phase = v,
             Prop::Fill | Prop::StrokeColor => unreachable!(),
         }
     }
@@ -365,6 +413,7 @@ impl Node {
             ShapeKind::Star => star_path(w, h, self.points.round().max(3.0) as usize, self.inner.clamp(0.05, 1.0)),
             ShapeKind::Polygon => polygon_path(w, h, self.points.round().max(3.0) as usize),
             ShapeKind::Path => self.geometry.clone(),
+            ShapeKind::Text => self.text.as_ref().map(|t| t.layout(&self.text_style)).unwrap_or_default(),
         })
     }
 }
@@ -440,6 +489,10 @@ impl Document {
             }
             let Some(path) = node.path() else { return false };
             let local = self.world_transform(i).inverse() * point;
+            // Text is picked by its whole box, not only the letters.
+            if let Some(t) = &node.text {
+                return t.bounds(&node.text_style).inflate(2.0, 2.0).contains(local);
+            }
             path.contains(local) || (node.stroke.is_some() && near_outline(&path, local, node.stroke_width.max(4.0)))
         })
     }

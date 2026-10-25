@@ -14,15 +14,18 @@ enum Var {
 
 pub struct Evaluator<'a> {
     src: &'a str,
+    /// Folder that font files named in the script are relative to.
+    base: Option<std::path::PathBuf>,
     vars: HashMap<String, Var>,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
 
 impl<'a> Evaluator<'a> {
-    pub fn new(src: &'a str) -> Self {
+    pub fn new(src: &'a str, base: Option<&std::path::Path>) -> Self {
         Evaluator {
             src,
+            base: base.map(|b| b.to_path_buf()),
             vars: HashMap::new(),
             scene: Scene {
                 doc: Document::new(Artboard::default()),
@@ -208,13 +211,15 @@ impl<'a> Evaluator<'a> {
         let record = |scene: &mut Scene, prop: Prop, v: &ValueAst, paired: Option<Prop>| {
             scene.sources.insert((id.clone(), prop), Source { span: v.span, editable: v.is_literal() && !generated, paired, from_override: false });
         };
+        let mut content = String::new();
+        let mut font: Option<String> = None;
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
                 self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
-                "d" => Vec::new(),
+                "d" | "content" | "font" | "align" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
@@ -406,8 +411,59 @@ impl<'a> Evaluator<'a> {
                         Err(e) => self.err(p.values[0].span, format!("не удалось прочитать контур: {e}")),
                     }
                 }
+                "content" | "font" | "align" | "line-height" if n.kind != ShapeKind::Text => {
+                    self.err(p.key_span, format!("«{}» бывает только у text", p.key));
+                }
+                "content" => {
+                    if let ValueKind::Path(s) = &p.values[0].kind {
+                        content = s.replace("\\n", "\n");
+                    }
+                }
+                "font" => {
+                    font = match &p.values[0].kind {
+                        ValueKind::Path(file) => Some(file.clone()),
+                        ValueKind::Ref(w) if w == "bold" || w == "regular" => Some(w.clone()),
+                        _ => {
+                            self.err(p.values[0].span, "шрифт: font \"файл.ttf\", font bold или font regular");
+                            continue;
+                        }
+                    }
+                }
+                "align" => match &p.values[0].kind {
+                    ValueKind::Ref(w) if motif_core::TextAlign::from_keyword(w).is_some() => {
+                        node.text_style.align = motif_core::TextAlign::from_keyword(w).unwrap_or_default();
+                    }
+                    _ => self.err(p.values[0].span, "выравнивание: align left, center или right"),
+                },
+                "line-height" => match num(0) {
+                    Some(v) if v > 0.0 => node.text_style.line_height = v,
+                    _ => bad(self),
+                },
+                "outline" => {
+                    let mut out = Vec::new();
+                    for pair in vals.chunks(2) {
+                        match pair {
+                            [Some(Value::Color(c)), Some(Value::Num(w))] if *w > 0.0 => out.push((*c, *w)),
+                            _ => {
+                                out.clear();
+                                break;
+                            }
+                        }
+                    }
+                    if out.is_empty() {
+                        self.err(p.key_span, "обводки слоями: outline #цвет толщина [#цвет толщина …], например outline #1b1d24 12 #ffffff 6");
+                        continue;
+                    }
+                    out.sort_by(|a, b| b.1.total_cmp(&a.1));
+                    node.outlines = out;
+                }
                 key => {
                     let prop = match key {
+                        "font-size" => Prop::FontSize,
+                        "letter-spacing" => Prop::LetterSpacing,
+                        "reveal" => Prop::Reveal,
+                        "wave" => Prop::Wave,
+                        "phase" => Prop::Phase,
                         "r" => Prop::Radius,
                         "rot" => Prop::Rotation,
                         "opacity" => Prop::Opacity,
@@ -422,6 +478,16 @@ impl<'a> Evaluator<'a> {
                         None => bad(self),
                     }
                 }
+            }
+        }
+        if n.kind == ShapeKind::Text {
+            match crate::fonts::load(font.as_deref(), self.base.as_deref()).and_then(|bytes| motif_core::TextShape::new(&content, &bytes)) {
+                Ok(shape) => {
+                    let b = shape.bounds(&node.text_style);
+                    (node.width, node.height) = (b.width(), b.height());
+                    node.text = Some(std::sync::Arc::new(shape));
+                }
+                Err(e) => self.err(n.id_span, e),
             }
         }
         let index = self.scene.doc.nodes.len();
@@ -474,7 +540,7 @@ impl<'a> Evaluator<'a> {
                 }
             },
             ValueKind::Path(_) => {
-                self.err(v.span, "контур в кавычках пишется только после d");
+                self.err(v.span, "текст в кавычках пишется только после d, content и font");
                 None
             }
             ValueKind::Expr(e) => match crate::expr::eval(e, &|name| self.num_var(name)) {
