@@ -2,6 +2,7 @@
 
 mod color;
 mod ease;
+mod field;
 mod fluid;
 mod ik;
 mod machine;
@@ -21,6 +22,7 @@ mod world;
 
 pub use color::Color;
 pub use ease::{Dir, Ease, Family};
+pub use field::Field;
 pub use fluid::Fluid;
 pub use kurbo;
 pub use machine::{Cond, CondOp, Input, InputKind, Machine, MachinePlayer, State, Transition};

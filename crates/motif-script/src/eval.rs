@@ -528,6 +528,8 @@ impl<'a> Evaluator<'a> {
         let mut on: Option<(String, Span)> = None;
         let mut gravity: Option<f64> = None;
         let mut gravity_span: Option<Span> = None;
+        let mut range: Option<(f64, Span)> = None;
+        let mut cone: Option<(f64, Span)> = None;
         let mut emit: Option<motif_core::Emitter> = None;
         let (mut has_emit, mut emit_only) = (false, None);
         let mut rope: Option<motif_core::Rope> = None;
@@ -932,6 +934,22 @@ impl<'a> Evaluator<'a> {
                         _ => self.err(p.key_span, "«roll» — сцепление с шаром от 0 до 1 (1 — вращается вместе с ним) и затухание от 0 до 1: roll 0.3 0.05"),
                     }
                 }
+                "pull" | "fan" => match num(0) {
+                    Some(v) => {
+                        let f = if p.key == "pull" { &mut node.pull } else { &mut node.fan };
+                        let d = if p.key == "pull" { motif_core::Field::pull() } else { motif_core::Field::fan() };
+                        f.get_or_insert(d).strength = v;
+                    }
+                    None => self.err(p.key_span, format!("«{}» — сила, ускорение в единицах артборда за секунду²: {} 2000", p.key, p.key)),
+                },
+                "range" => match num(0) {
+                    Some(v) if v > 0.0 => range = Some((v, p.key_span)),
+                    _ => self.err(p.key_span, "«range» — докуда достаёт притяжение или вентилятор, больше 0: range 300"),
+                },
+                "cone" => match num(0) {
+                    Some(v) if v > 0.0 && v <= 360.0 => cone = Some((v, p.key_span)),
+                    _ => self.err(p.key_span, "«cone» — ширина струи вентилятора в градусах, до 360: cone 40"),
+                },
                 "weight" => match num(0) {
                     Some(v) => node.weight = Some(v),
                     None => self.err(p.key_span, "«weight» — вес для гравитации сцены: 1 обычный, 0 невесомый, 2 вдвое тяжелее"),
@@ -1119,6 +1137,20 @@ impl<'a> Evaluator<'a> {
         if let Some((r, span)) = links {
             node.links = Some(format!("{}{r}", self.prefix));
             self.rope_refs.push((index, format!("{}{r}", self.prefix), span, true));
+        }
+        if let Some((r, span)) = range {
+            if node.pull.is_none() && node.fan.is_none() {
+                self.err(span, "«range» бывает у притяжения (pull) и вентилятора (fan)");
+            }
+            for f in [&mut node.pull, &mut node.fan].into_iter().flatten() {
+                f.range = r;
+            }
+        }
+        if let Some((c, span)) = cone {
+            match &mut node.fan {
+                Some(f) => f.cone = c,
+                None => self.err(span, "«cone» бывает у вентилятора: fan 600 cone 40"),
+            }
         }
         if let Some(span) = gravity_span.filter(|_| n.kind.is_container() && roll.is_none()) {
             self.err(span, "«gravity» бывает у фигур: мягких тел, верёвок, жидкостей, источников частиц — и у всего, что катится по шару (roll)");

@@ -102,7 +102,9 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         | Prop::Lon
         | Prop::Alt
         | Prop::Yaw
-        | Prop::Pitch => {
+        | Prop::Pitch
+        | Prop::Pull
+        | Prop::Fan => {
             format!("{} {text}", prop.path_name())
         }
         Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => return None,

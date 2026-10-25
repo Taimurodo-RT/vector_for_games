@@ -14,6 +14,8 @@ pub struct Document {
     pub light: f64,
     /// Gravity and wind of the scene (`world`).
     pub world: crate::World,
+    /// Pulls and fans where they are on the frame being simulated.
+    pub(crate) fields: Vec<crate::field::Source>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -123,6 +125,9 @@ pub enum Prop {
     /// Turn of a ball, degrees.
     Yaw,
     Pitch,
+    /// Strength of a pull and of a fan.
+    Pull,
+    Fan,
     /// The scene's gravity and wind (`world.gravity-y`), keyed on the world, not on a node.
     GravityX,
     GravityY,
@@ -132,7 +137,7 @@ pub enum Prop {
 }
 
 impl Prop {
-    pub const ALL: [Prop; 31] = [
+    pub const ALL: [Prop; 33] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -164,6 +169,8 @@ impl Prop {
         Prop::Alt,
         Prop::Yaw,
         Prop::Pitch,
+        Prop::Pull,
+        Prop::Fan,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -200,6 +207,8 @@ impl Prop {
             Prop::Alt => "alt",
             Prop::Yaw => "yaw",
             Prop::Pitch => "pitch",
+            Prop::Pull => "pull",
+            Prop::Fan => "fan",
             Prop::GravityX => "gravity-x",
             Prop::GravityY => "gravity-y",
             Prop::WindX => "wind-x",
@@ -364,6 +373,10 @@ pub struct Node {
     pub weight: Option<f64>,
     /// How much wind it catches (`sail 0.5`): 0 ignores it. Unset, 1.
     pub sail: Option<f64>,
+    /// Pulls everything simulated towards itself, or pushes it away (`pull 2000 range 300`).
+    pub pull: Option<crate::Field>,
+    /// Blows along its own direction (`fan 600 range 300 cone 40`).
+    pub fan: Option<crate::Field>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -516,6 +529,8 @@ impl Node {
             roll: None,
             weight: None,
             sail: None,
+            pull: None,
+            fan: None,
         }
     }
 
@@ -557,6 +572,8 @@ impl Node {
             Prop::Alt => Value::Num(self.alt),
             Prop::Yaw => Value::Num(self.yaw),
             Prop::Pitch => Value::Num(self.pitch),
+            Prop::Pull => Value::Num(self.pull.map_or(0.0, |f| f.strength)),
+            Prop::Fan => Value::Num(self.fan.map_or(0.0, |f| f.strength)),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => Value::None,
         }
     }
@@ -605,6 +622,8 @@ impl Node {
             Prop::Alt => self.alt = v,
             Prop::Yaw => self.yaw = v,
             Prop::Pitch => self.pitch = v,
+            Prop::Pull => self.pull.get_or_insert_with(crate::Field::pull).strength = v,
+            Prop::Fan => self.fan.get_or_insert_with(crate::Field::fan).strength = v,
             Prop::Fill | Prop::StrokeColor => unreachable!(),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => {}
         }
@@ -692,7 +711,7 @@ fn polygon_path(w: f64, h: f64, sides: usize) -> BezPath {
 
 impl Document {
     pub fn new(artboard: Artboard) -> Self {
-        Document { artboard, nodes: Vec::new(), animations: Vec::new(), machines: Vec::new(), light: 90.0, world: crate::World::default() }
+        Document { artboard, nodes: Vec::new(), animations: Vec::new(), machines: Vec::new(), light: 90.0, world: crate::World::default(), fields: Vec::new() }
     }
 
     pub fn index_of(&self, id: &str) -> Option<usize> {

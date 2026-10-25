@@ -1692,6 +1692,7 @@ impl App {
             MUTED,
         );
         self.paint_bones(&painter, rect, view, &doc);
+        self.paint_fields(&painter, rect, view, &doc);
         if let Some(h) = &self.hovered
             && self.selected.as_ref() != Some(h)
             && let Some(i) = doc.index_of(h)

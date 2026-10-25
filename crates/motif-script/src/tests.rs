@@ -995,3 +995,18 @@ fn the_world_is_keyed_and_edited() {
     assert_eq!(out, "artboard 400x300\nworld wind 100 0 gust 0.5\nellipse e\n");
     assert_eq!(scene(&out).doc.world.gust, 0.5);
 }
+
+#[test]
+fn pulls_and_fans_parse_and_key() {
+    use motif_core::Field;
+    let s = scene("ellipse hole pull 3000 range 250\nrect fan1 rot -90 fan 500 cone 30\nellipse both pull -100 fan 50 range 80\n");
+    assert_eq!(s.doc.node("hole").unwrap().pull, Some(Field { strength: 3000.0, range: 250.0, ..Field::pull() }));
+    assert_eq!(s.doc.node("fan1").unwrap().fan, Some(Field { cone: 30.0, ..Field { strength: 500.0, ..Field::fan() } }));
+    let both = s.doc.node("both").unwrap();
+    assert_eq!((both.pull.unwrap().range, both.fan.unwrap().range), (80.0, 80.0));
+    let errs = parse("ellipse a range 100\nellipse b pull 10 cone 30\nellipse c fan 10 cone 400\n").unwrap_err();
+    assert_eq!(errs.len(), 3, "{errs:?}");
+    let s = scene("ellipse hole pull 3000\nanim Pulse 2s {\n  hole.pull 0: 0 | 2: 4000\n}\n");
+    let a = s.doc.animation("Pulse").unwrap();
+    assert_eq!(a.keys_at(&s.doc, 1.0).node("hole").unwrap().pull.unwrap().strength, 2000.0);
+}

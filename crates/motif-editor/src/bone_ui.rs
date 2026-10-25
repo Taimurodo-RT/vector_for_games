@@ -387,7 +387,7 @@ impl App {
         }
     }
 
-    fn selection_ids(&self) -> Vec<&str> {
+    pub(crate) fn selection_ids(&self) -> Vec<&str> {
         self.selected.iter().chain(&self.also).map(|s| s.as_str()).collect()
     }
 

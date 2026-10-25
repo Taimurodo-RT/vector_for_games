@@ -97,7 +97,7 @@ pub(crate) fn step_rollers(rollers: &mut [Roller], pose: &Document, dt: f64, ste
         .map(|(r, t)| {
             let n = &pose.nodes[r.node];
             let g = pose.world.pull(n, r.roll.gravity);
-            let w = pose.world.blow(n, pose.world_transform(r.node) * kurbo::Point::ZERO);
+            let w = pose.push(r.node, pose.world_transform(r.node) * kurbo::Point::ZERO);
             t.apply(V3::new(g.x, g.y, 0.0)).add(V3::new(w.x, w.y, 0.0))
         })
         .collect();

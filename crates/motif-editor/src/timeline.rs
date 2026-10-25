@@ -49,6 +49,8 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::Alt => "Над шаром",
         Prop::Yaw => "Поворот шара",
         Prop::Pitch => "Наклон шара",
+        Prop::Pull => "Притяжение",
+        Prop::Fan => "Вентилятор",
         Prop::GravityX => "Гравитация X",
         Prop::GravityY => "Гравитация Y",
         Prop::WindX => "Ветер X",
