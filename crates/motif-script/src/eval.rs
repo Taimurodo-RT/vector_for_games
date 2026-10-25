@@ -344,7 +344,13 @@ impl<'a> Evaluator<'a> {
                     ab.width = *width;
                     ab.height = *height;
                     for p in props {
-                        match (p.key.as_str(), self.value(&p.values[0])) {
+                        match p.key.as_str() {
+                            "ui" => self.scene.doc.purpose = motif_core::Purpose::Ui,
+                            "game" => self.scene.doc.purpose = motif_core::Purpose::Game,
+                            _ => {}
+                        }
+                        let Some(v) = p.values.first() else { continue };
+                        match (p.key.as_str(), self.value(v)) {
                             ("bg", Some(Value::Color(c))) => self.scene.doc.artboard.background = c,
                             ("light", Some(Value::Num(a))) => self.scene.doc.light = a,
                             ("light", _) => self.err(p.values[0].span, "light: угол в градусах, куда падают тени (90 — вниз)"),

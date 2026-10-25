@@ -2,7 +2,7 @@
 // ui — элемент экспортируется отдельно; slice — поля 9-slice: углы не растягиваются, когда игра
 // меняет размер кнопки или панели. Состояния — анимации Hover, Press, Disabled: каждое — поза в конце.
 // «Экспорт → UI-набор для Godot» (или motif kit) сохраняет PNG и тему .tres для Godot.
-artboard "UI-набор" 560x360 bg #39415a
+artboard "UI-набор" 560x360 bg #39415a ui
 
 let main = #3b6cff
 let light = #6f93ff

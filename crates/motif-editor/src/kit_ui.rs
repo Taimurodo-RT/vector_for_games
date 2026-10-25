@@ -22,11 +22,13 @@ pub fn slice_text(s: [f64; 4]) -> String {
 
 impl App {
     /// Both flags are written through `styles`: `ui` alone makes a fixed-size piece,
-    /// `slice` a stretchable one.
-    pub(crate) fn kit_section(&self, ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<StyleEdit>) {
+    /// `slice` a stretchable one. Returns true when the states button was pressed.
+    pub(crate) fn kit_section(&self, ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<StyleEdit>) -> bool {
         if node.kind == ShapeKind::Bone {
-            return;
+            return false;
         }
+        let mut add_states = false;
+        let missing: Vec<&str> = ["Hover", "Press"].into_iter().filter(|n| self.scene.doc.animation(n).is_none()).collect();
         fold(ui, "Интерфейс", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             let mut on = node.ui || node.slice.is_some();
@@ -68,6 +70,13 @@ impl App {
                     styles.push(("slice", Some(slice_text(out))));
                 }
             }
+            if !missing.is_empty()
+                && theme::button(ui, &format!("Добавить состояния {}", missing.join(" и ")), theme::ButtonKind::Normal)
+                    .on_hover_text("Пустые анимации состояний: в Animate меняйте свойства, последний кадр станет картинкой состояния")
+                    .clicked()
+            {
+                add_states = true;
+            }
             ui.label(
                 RichText::new(
                     "Поля 9-slice не растягиваются: углы остаются как нарисованы, середина тянется. Состояния берутся из анимаций Hover, Press, Disabled, Focus — их последний кадр.",
@@ -76,6 +85,7 @@ impl App {
                 .color(FAINT),
             );
         });
+        add_states
     }
 }
 

@@ -3,7 +3,7 @@ use crate::pathedit::{PenPoint, PointEdit};
 use crate::theme::{self, ACCENT, ACCENT_INK, BG, ButtonKind, DANGER, FAINT, FG, GOOD, Icon, KeyState, LINE, MUTED, PANEL, SEL};
 use egui::{Align2, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, pos2, vec2};
 use motif_core::kurbo::{Affine, Point, Shape};
-use motif_core::{Color, Document, Prop, ShapeKind, Value};
+use motif_core::{Color, Document, Prop, Purpose, ShapeKind, Value};
 use motif_pixel::{FrameExport, PIXATOOL_MAX_COLORS, parse_jasc, quantize, render_frames, scene_palette, to_jasc};
 use motif_render::{CpuOptions, render_cpu};
 use motif_script::{Scene, ScriptError, add_node, delete_key, delete_node, fmt_num, parse, set_key, set_prop};
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 
 const NEW_UI_KIT: &str = include_str!("../../../examples/ui-kit.msc");
-const NEW_SCENE: &str = "artboard \"Сцена\" 320x240 bg #f4f1ff\n\nrect bg at 160 200 size 280 16 r 8 fill #2a2e39\nellipse hero at 160 120 size 64 fill #ff5a36 stroke #1b1d24 3\n\nanim Idle 1s loop {\n  hero.y 0: 120 ease-in-out | 0.5: 100 ease-in-out | 1: 120\n}\n";
+const NEW_SCENE: &str = "artboard \"Сцена\" 320x240 bg #f4f1ff game\n\nrect bg at 160 200 size 280 16 r 8 fill #2a2e39\nellipse hero at 160 120 size 64 fill #ff5a36 stroke #1b1d24 3\n\nanim Idle 1s loop {\n  hero.y 0: 120 ease-in-out | 0.5: 100 ease-in-out | 1: 120\n}\n";
 const EXAMPLE: &str = include_str!("../../../examples/bounce.msc");
 /// Frame length used by `,` and `.` and shown in the timecode.
 pub const FPS: f64 = 60.0;
@@ -392,6 +392,36 @@ impl App {
             self.playing = false;
             self.sel_key = None;
         }
+    }
+
+    /// Marks the scene for interface or game work; the panels follow.
+    fn set_purpose(&mut self, purpose: Purpose) {
+        if purpose == self.scene.doc.purpose || !self.can_edit() {
+            return;
+        }
+        if self.apply("purpose", motif_script::set_purpose(&self.src, purpose)) {
+            self.status = match purpose {
+                Purpose::Ui => "Режим UI: экспорт UI-набора и состояния кнопок на виду, кости, физика и 3D спрятаны".into(),
+                Purpose::Game => "Режим «Игра»: кости, физика, 3D и кисти; раздел «Интерфейс» спрятан".into(),
+                Purpose::Any => "Все инструменты на виду".into(),
+            };
+        }
+    }
+
+    /// Adds the animations a kit takes its states from, and opens the first in Animate.
+    fn add_ui_states(&mut self) {
+        if !self.can_edit() {
+            return;
+        }
+        let (out, added) = motif_script::add_states(&self.src, &self.scene, &["Hover", "Press"], 0.25);
+        self.apply("states", Some(out));
+        self.set_mode_animate(true);
+        self.select_anim("Hover".into());
+        self.status = if added.is_empty() {
+            "Анимации Hover и Press уже есть: правки в Animate ставят в них ключи".into()
+        } else {
+            format!("Добавлены анимации {}: меняйте свойства в Animate, последний кадр станет состоянием", added.join(", "))
+        };
     }
 
     pub(crate) fn select_anim(&mut self, name: String) {
@@ -855,6 +885,12 @@ impl App {
         {
             self.show_script = !self.show_script;
         }
+        rui.add_space(6.0);
+        let purposes = [Purpose::Any, Purpose::Ui, Purpose::Game];
+        let at = purposes.iter().position(|p| *p == self.scene.doc.purpose).unwrap_or(0);
+        if let Some(i) = theme::segmented(&mut rui, &["Всё", "UI", "Игра"], at, false) {
+            self.set_purpose(purposes[i]);
+        }
     }
 
     // ---------- tool rail ----------
@@ -885,7 +921,7 @@ impl App {
                 }
             }
             let tip = "Кость: тяните от сустава к кончику. С выбранной костью новая становится её продолжением";
-            if theme::tool_button(ui, Icon::Bone, self.bone_tool(), "B", tip).clicked() {
+            if self.scene.doc.purpose != Purpose::Ui && theme::tool_button(ui, Icon::Bone, self.bone_tool(), "B", tip).clicked() {
                 self.tool = Tool::Create(ShapeKind::Bone);
             }
             let tip = "Перо: клик — угол, протяжка — плавная точка, клик по первой точке замыкает";
@@ -1137,8 +1173,13 @@ impl App {
             }
             self.mask_ui(ui, &node);
             self.symbol_section(ui, &node);
-            self.bone_section(ui, &node);
-            self.physics_section(ui, &node);
+            // Interface work needs no skeletons or physics; game art needs no kit.
+            let game = self.scene.doc.purpose != Purpose::Ui;
+            let interface = self.scene.doc.purpose != Purpose::Game;
+            if game {
+                self.bone_section(ui, &node);
+                self.physics_section(ui, &node);
+            }
             if !node.kind.is_container() {
                 fold(ui, "Заливка", |ui| {
                     if self.fill_kind_ui(ui, &node) {
@@ -1210,11 +1251,18 @@ impl App {
             }
             changes.extend(fx_changes);
             diamonds.extend(fx_diamonds);
-            self.orbit_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
-            self.body_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
+            if game {
+                self.orbit_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
+                self.body_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
+            }
             self.morph_section(ui, &node, &mut changes, &mut diamonds, &mut styles);
-            self.brush_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
-            self.kit_section(ui, &node, half, &mut styles);
+            if game {
+                self.brush_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
+            }
+            let mut add_states = false;
+            if interface {
+                add_states = self.kit_section(ui, &node, half, &mut styles);
+            }
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();
                 job.wrap.max_width = ui.available_width();
@@ -1255,6 +1303,9 @@ impl App {
                 self.select_only(Some(id.clone()));
                 self.boolean(motif_script::BoolOp::Union);
             }
+            if add_states {
+                self.add_ui_states();
+            }
         });
     }
 
@@ -1273,6 +1324,11 @@ impl App {
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG — подложкой.").size(12.0).color(FAINT));
         });
+        if self.scene.doc.purpose == Purpose::Ui {
+            self.symbols_library(ui);
+            self.backdrop_section(ui);
+            return;
+        }
         let mut light = None;
         fold(ui, "Свет сцены", |ui| {
             let w = ui.available_width();
@@ -1816,6 +1872,11 @@ impl App {
             .default_width(380.0)
             .anchor(Align2::RIGHT_TOP, vec2(-280.0, 56.0))
             .show(ctx, |ui| {
+                // An interface scene is exported as a kit first of all; game art has no kit.
+                let purpose = self.scene.doc.purpose;
+                if purpose == Purpose::Ui {
+                    self.kit_export(ui);
+                }
                 theme::caption(ui, "Кадры PNG для PixaTool");
                 egui::Grid::new("export").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                     ui.label("Кадров в секунду");
@@ -1850,24 +1911,30 @@ impl App {
                 ui.add_space(6.0);
                 theme::rule(ui);
                 ui.add_space(4.0);
-                theme::caption(ui, "UI-набор для Godot");
-                if theme::button(ui, "Сохранить UI-набор…", ButtonKind::Normal)
-                    .on_hover_text("Каждая деталь с ui или slice — отдельные PNG по состояниям и тема .tres со StyleBoxTexture")
-                    .clicked()
-                {
-                    self.export_kit();
+                if purpose == Purpose::Any {
+                    self.kit_export(ui);
                 }
-                ui.label(
-                    RichText::new("Масштаб и сглаживание — те же, что для кадров. Тему подключают в Godot как theme, детали — через Theme Type Variation.")
-                        .size(12.0)
-                        .color(FAINT),
-                );
-                ui.add_space(6.0);
-                theme::rule(ui);
-                ui.add_space(4.0);
                 self.pixatool_section(ui);
             });
         self.show_export = open;
+    }
+
+    fn kit_export(&mut self, ui: &mut egui::Ui) {
+        theme::caption(ui, "UI-набор для Godot");
+        if theme::button(ui, "Сохранить UI-набор…", if self.scene.doc.purpose == Purpose::Ui { ButtonKind::Primary } else { ButtonKind::Normal })
+            .on_hover_text("Каждая деталь с ui или slice — отдельные PNG по состояниям и тема .tres со StyleBoxTexture")
+            .clicked()
+        {
+            self.export_kit();
+        }
+        ui.label(
+            RichText::new("Масштаб и сглаживание — те же, что для кадров. Тему подключают в Godot как theme, детали — через Theme Type Variation.")
+                .size(12.0)
+                .color(FAINT),
+        );
+        ui.add_space(6.0);
+        theme::rule(ui);
+        ui.add_space(4.0);
     }
 
     fn pixatool_section(&mut self, ui: &mut egui::Ui) {

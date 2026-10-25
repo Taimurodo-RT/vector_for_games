@@ -31,7 +31,7 @@ pub use field::Field;
 pub use fluid::Fluid;
 pub use kurbo;
 pub use machine::{Cond, CondOp, Input, InputKind, Machine, MachinePlayer, State, Transition};
-pub use model::{Animation, Artboard, Document, Gradient, Ik, Keyframe, Node, Prop, ShapeKind, Skin, SkinBind, Track, Value};
+pub use model::{Animation, Artboard, Document, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Track, Value};
 pub use morph::Morph;
 pub use particles::Emitter;
 pub use roll::Roll;

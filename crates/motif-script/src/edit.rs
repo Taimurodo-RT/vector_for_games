@@ -421,6 +421,21 @@ pub fn add_anim(src: &str, scene: &Scene) -> (String, String) {
     (out, name)
 }
 
+/// Returns the script with an empty, non-looping animation for each of `names` that is missing,
+/// and the names it added.
+pub fn add_states(src: &str, scene: &Scene, names: &[&str], seconds: f64) -> (String, Vec<String>) {
+    let mut out = src.to_string();
+    let mut added = Vec::new();
+    for name in names.iter().filter(|n| scene.doc.animation(n).is_none()) {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&format!("\nanim {name} {}s {{\n}}\n", fmt_num(seconds)));
+        added.push(name.to_string());
+    }
+    (out, added)
+}
+
 pub fn set_anim_duration(src: &str, scene: &Scene, anim: &str, seconds: f64) -> Option<String> {
     let site = scene.anims.get(anim)?;
     Some(splice(src, site.duration, &format!("{}s", fmt_num(seconds.max(0.01)))))
@@ -630,25 +645,56 @@ pub fn set_world(src: &str, scene: &Scene, world: &motif_core::World) -> String 
 /// Returns the script with the scene light (`light` on the `artboard` line) set to `angle`
 /// degrees; the default 90 removes it. `None` when there is no artboard line.
 pub fn set_light(src: &str, angle: f64) -> Option<String> {
+    let light = fmt_num(angle);
+    edit_artboard_line(src, |words| {
+        if let Some(k) = words.iter().position(|w| w == "light") {
+            words.drain(k..(k + 2).min(words.len()));
+        }
+        if angle != 90.0 {
+            words.extend(["light".to_string(), light.clone()]);
+        }
+    })
+}
+
+/// Returns the script with the artboard marked for interface (`ui`), game art (`game`) or
+/// neither. `None` when the script has no artboard line.
+pub fn set_purpose(src: &str, purpose: motif_core::Purpose) -> Option<String> {
+    edit_artboard_line(src, |words| {
+        words.retain(|w| w != "ui" && w != "game");
+        match purpose {
+            motif_core::Purpose::Ui => words.push("ui".into()),
+            motif_core::Purpose::Game => words.push("game".into()),
+            motif_core::Purpose::Any => {}
+        }
+    })
+}
+
+/// Rewrites the words of the `artboard` line before its comment. The name comes first and may
+/// hold spaces, so it is kept apart from the words.
+fn edit_artboard_line(src: &str, f: impl FnOnce(&mut Vec<String>)) -> Option<String> {
     let start = src.match_indices("artboard").find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n')?.0;
     let end = src[start..].find('\n').map_or(src.len(), |n| start + n);
     let line = &src[start..end];
-    // The line without a comment, and without its old `light N`.
     let code_end = line.find("//").unwrap_or(line.len());
     let (code, comment) = line.split_at(code_end);
-    let mut words: Vec<&str> = code.split(' ').collect();
-    if let Some(k) = words.iter().position(|w| *w == "light") {
-        words.drain(k..(k + 2).min(words.len()));
-    }
-    let mut code = words.join(" ").trim_end().to_string();
-    if angle != 90.0 {
-        code.push_str(&format!(" light {}", fmt_num(angle)));
+    // `artboard "Имя с пробелами"` stays as written; the rest are single words.
+    let head_end = match code.find('"') {
+        Some(open) => code[open + 1..].find('"').map_or(code.len(), |close| open + close + 2),
+        None => "artboard".len(),
+    };
+    let (head, rest) = code.split_at(head_end);
+    let mut words: Vec<String> = rest.split_whitespace().map(str::to_string).collect();
+    f(&mut words);
+    let mut out = head.trim_end().to_string();
+    for w in &words {
+        out.push(' ');
+        out.push_str(w);
     }
     if !comment.is_empty() {
-        code.push(' ');
-        code.push_str(comment);
+        out.push(' ');
+        out.push_str(comment);
     }
-    Some(splice(src, Span::new(start, end), &code))
+    Some(splice(src, Span::new(start, end), &out))
 }
 
 /// Returns the script with the name shown in the layers set to `name` (an empty name removes it).
