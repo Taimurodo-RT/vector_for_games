@@ -125,7 +125,7 @@ pub fn shadow_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) -
         let mut c32 = Color32::from_rgba_unmultiplied(s.color.r, s.color.g, s.color.b, s.color.a);
         ui.painter().rect_filled(sw, 6.0, c32);
         ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
-        egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        theme::color_popup(&resp).show(|ui| {
             if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::OnlyBlend) {
                 let [r, g, b, a] = c32.to_srgba_unmultiplied();
                 edits.push(("shadow", Some(shadow_text(&Shadow { color: Color { r, g, b, a }, ..s }))));
