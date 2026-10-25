@@ -18,6 +18,20 @@ pub struct Document {
     pub(crate) fields: Vec<crate::field::Source>,
     /// Seconds into the animation this pose is from: boiling lines redraw with it.
     pub time: f64,
+    /// What the scene is for (`artboard … ui` or `game`): the editor shows the tools for it.
+    pub purpose: Purpose,
+}
+
+/// What a scene is made for. The editor hides what the other kind of work needs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Purpose {
+    /// Everything at hand.
+    #[default]
+    Any,
+    /// Game interface: kit export and states first; physics, bones and 3D out of the way.
+    Ui,
+    /// Game art and effects: no interface kit.
+    Game,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -795,6 +809,7 @@ impl Document {
             world: crate::World::default(),
             fields: Vec::new(),
             time: 0.0,
+            purpose: Purpose::Any,
         }
     }
 

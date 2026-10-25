@@ -470,11 +470,13 @@ impl<'a> Parser<'a> {
         };
         let mut props = Vec::new();
         while !self.at_line_end() {
-            let (key, key_span) = self.ident("свойство артборда bg или light")?;
-            if key != "bg" && key != "light" {
-                return Err(self.err(key_span, format!("у артборда нет свойства «{key}»")));
-            }
-            props.push(PropAst { key, key_span, values: vec![self.value()?] });
+            let (key, key_span) = self.ident("свойство артборда: bg, light, ui или game")?;
+            let values = match key.as_str() {
+                "bg" | "light" => vec![self.value()?],
+                "ui" | "game" => Vec::new(),
+                _ => return Err(self.err(key_span, format!("у артборда нет свойства «{key}»: bg, light, ui, game"))),
+            };
+            props.push(PropAst { key, key_span, values });
         }
         Ok(Stmt::Artboard { name, width, height, props })
     }

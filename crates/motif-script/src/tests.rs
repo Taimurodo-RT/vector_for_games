@@ -571,6 +571,30 @@ fn blur_elevation_and_light() {
     assert!(parse("artboard \"M\" 9x9 light #fff").is_err());
 }
 
+#[test]
+fn artboard_purpose() {
+    use motif_core::Purpose;
+    let src = "artboard \"Меню игры\" 200x100 bg #fff light 45 // экран\nrect a\n";
+    assert_eq!(scene(src).doc.purpose, Purpose::Any);
+    let out = set_purpose(src, Purpose::Ui).unwrap();
+    assert!(out.starts_with("artboard \"Меню игры\" 200x100 bg #fff light 45 ui // экран\n"), "{out}");
+    assert_eq!(scene(&out).doc.purpose, Purpose::Ui);
+    let out = set_purpose(&out, Purpose::Game).unwrap();
+    assert!(out.starts_with("artboard \"Меню игры\" 200x100 bg #fff light 45 game // экран\n"), "{out}");
+    assert_eq!(scene(&out).doc.purpose, Purpose::Game);
+    assert_eq!(set_purpose(&out, Purpose::Any).unwrap(), src);
+    // The light still finds its place next to the flag.
+    assert!(set_light(&out, 10.0).unwrap().starts_with("artboard \"Меню игры\" 200x100 bg #fff game light 10 // экран\n"));
+    assert!(set_purpose("artboard 9x9\n", Purpose::Ui).unwrap().starts_with("artboard 9x9 ui\n"));
+    assert!(parse("artboard 9x9 ui 3").is_err());
+    // States for a kit: only the missing ones.
+    let src = "artboard 9x9 ui\nrect b ui\nanim Hover 0.2s {\n}\n";
+    let (out, added) = add_states(src, &scene(src), &["Hover", "Press"], 0.25);
+    assert_eq!(added, ["Press"]);
+    assert!(out.ends_with("anim Hover 0.2s {\n}\n\nanim Press 0.25s {\n}\n"), "{out}");
+    assert!(!scene(&out).doc.animation("Press").unwrap().looping);
+}
+
 const SYMBOLS: &str = "artboard 320x160
 let ink = #1b1d24
 symbol Coin size=24 color=#ffd23f {
