@@ -143,6 +143,15 @@ pub enum Icon {
     AlignBottom,
     SpreadX,
     SpreadY,
+    /// Chevron pointing left: collapse a panel.
+    CollapseLeft,
+    /// Chevron pointing right: expand a panel.
+    ExpandRight,
+    Help,
+    /// Circular arrow, also drawn as the pointer while rotating.
+    Rotate,
+    /// A ruler: snapping steps.
+    Step,
 }
 
 /// Line icons drawn as vectors, so they never depend on font coverage.
@@ -256,6 +265,37 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
         Icon::Plus => {
             painter.line_segment([p(-5.0, 0.0), p(5.0, 0.0)], st);
             painter.line_segment([p(0.0, -5.0), p(0.0, 5.0)], st);
+        }
+        Icon::CollapseLeft => {
+            painter.add(Shape::line(vec![p(1.5, -5.0), p(-3.5, 0.0), p(1.5, 5.0)], st));
+            painter.line_segment([p(5.0, -6.0), p(5.0, 6.0)], st);
+        }
+        Icon::ExpandRight => {
+            painter.add(Shape::line(vec![p(-1.5, -5.0), p(3.5, 0.0), p(-1.5, 5.0)], st));
+            painter.line_segment([p(-5.0, -6.0), p(-5.0, 6.0)], st);
+        }
+        Icon::Help => {
+            painter.circle_stroke(c, 6.5 * s, st);
+            painter.add(Shape::line(vec![p(-2.2, -1.8), p(-1.6, -3.4), p(0.0, -4.0), p(1.8, -3.4), p(2.3, -1.8), p(1.4, -0.4), p(0.0, 0.6), p(0.0, 1.8)], st));
+            painter.circle_filled(p(0.0, 4.0), 0.9 * s.max(1.0), color);
+        }
+        Icon::Rotate => {
+            let pts: Vec<Pos2> = (0..=20)
+                .map(|i| {
+                    let a = (-150.0 + i as f32 * 12.0).to_radians();
+                    p(5.5 * a.cos(), 5.5 * a.sin())
+                })
+                .collect();
+            let end = *pts.last().unwrap();
+            painter.add(Shape::line(pts, st));
+            // Arrow head at the end of the arc (pointing down-left, clockwise).
+            painter.add(Shape::line(vec![end + vec2(-3.4 * s, -0.6 * s), end, end + vec2(0.4 * s, -3.4 * s)], st));
+        }
+        Icon::Step => {
+            painter.rect_stroke(Rect::from_center_size(c, vec2(14.0 * s, 6.0 * s)), 1.0, st, StrokeKind::Middle);
+            for x in [-4.0, -1.0, 2.0, 5.0] {
+                painter.line_segment([p(x - 0.5, -3.0), p(x - 0.5, if x == -1.0 { 1.0 } else { -0.5 })], st);
+            }
         }
     }
 }

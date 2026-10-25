@@ -31,18 +31,23 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::Fill => "Заливка",
         Prop::StrokeColor => "Обводка",
         Prop::StrokeWidth => "Толщина обводки",
+        Prop::SkewX => "Наклон X",
+        Prop::SkewY => "Наклон Y",
     }
 }
 
-fn ease_label(e: Ease) -> &'static str {
+fn ease_label(e: Ease) -> String {
     match e {
-        Ease::Linear => "Linear",
-        Ease::EaseIn => "Ease In",
-        Ease::EaseOut => "Ease Out",
-        Ease::EaseInOut => "Ease In-Out",
-        Ease::Hold => "Hold",
-        Ease::Spring => "Spring",
-        Ease::Cubic(_) => "Своя",
+        Ease::Linear => "Linear".into(),
+        Ease::Css => "Ease".into(),
+        Ease::EaseIn => "Ease In".into(),
+        Ease::EaseOut => "Ease Out".into(),
+        Ease::EaseInOut => "Ease In-Out".into(),
+        Ease::Hold => "Hold".into(),
+        Ease::Spring => "Spring".into(),
+        Ease::Cubic(_) => "Своя".into(),
+        Ease::Steps(n) => format!("Steps {n}"),
+        named => named.keyword().to_string(),
     }
 }
 
@@ -198,7 +203,7 @@ impl App {
                 .width(108.0)
                 .selected_text(ease_label(cur.unwrap_or(Ease::EaseInOut)))
                 .show_ui(ui, |ui| {
-                    for e in Ease::ALL {
+                    for e in Ease::BASIC {
                         if ui.selectable_label(cur == Some(e), ease_label(e)).clicked() {
                             pick = Some(e);
                         }
@@ -208,9 +213,19 @@ impl App {
                 .on_disabled_hover_text("Выберите ключ на таймлайне");
             let resp = ease_preview(ui, cur).on_hover_text("Редактор кривой: тяните ручки");
             egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-                if let Some(e) = curve_editor(ui, cur.unwrap_or(Ease::EaseInOut)) {
-                    pick = Some(e);
-                }
+                ui.horizontal_top(|ui| {
+                    ui.vertical(|ui| {
+                        if let Some(e) = curve_editor(ui, cur.unwrap_or(Ease::EaseInOut)) {
+                            pick = Some(e);
+                        }
+                    });
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        if let Some(e) = ease_library(ui, cur.unwrap_or(Ease::EaseInOut)) {
+                            pick = Some(e);
+                        }
+                    });
+                });
             });
             if let (Some(e), Some(k)) = (pick, &sel)
                 && Some(e) != cur
@@ -550,7 +565,7 @@ fn curve_editor(ui: &mut Ui, ease: Ease) -> Option<Ease> {
     }
     let pts: Vec<Pos2> = (0..=64).map(|i| i as f64 / 64.0).map(|u| to(u, ease.apply(u))).collect();
     painter.add(Shape::line(pts, Stroke::new(2.0, ACCENT)));
-    // Presets without handles (Hold, Spring) start from Ease In-Out once a handle is dragged.
+    // Curves without handles (Hold, Spring, elastic, bounce, steps) start from Ease In-Out once a handle is dragged.
     let mut h = ease.handles().unwrap_or([0.65, 0.0, 0.35, 1.0]);
     let ends = [to(0.0, 0.0), to(1.0, 1.0)];
     for k in 0..2 {
@@ -571,13 +586,64 @@ fn curve_editor(ui: &mut Ui, ease: Ease) -> Option<Ease> {
     }
     ui.add_space(4.0);
     ui.label(egui::RichText::new(ease.script()).font(theme::mono(11.5)).color(FAINT));
+    out
+}
+
+/// The curve library: the basic curves, the 30 easings.net functions as a grid of previews, and steps.
+fn ease_library(ui: &mut Ui, ease: Ease) -> Option<Ease> {
+    let mut out = None;
+    ui.label(egui::RichText::new("Библиотека").font(theme::semibold(13.0)).color(FG));
+    let mut cell = |ui: &mut Ui, e: Ease, tip: &str| {
+        let (r, resp) = ui.allocate_exact_size(vec2(44.0, 30.0), Sense::click());
+        let on = e == ease;
+        let p = ui.painter();
+        p.rect(r, 4.0, if resp.hovered() { RAISE } else { theme::BG }, Stroke::new(1.0, if on { ACCENT } else { LINE }), StrokeKind::Inside);
+        let pts: Vec<Pos2> = (0..=28)
+            .map(|i| {
+                let u = i as f64 / 28.0;
+                let v = e.apply(u).clamp(-0.4, 1.4) as f32;
+                pos2(r.left() + 5.0 + u as f32 * 34.0, r.bottom() - 8.0 - v * 14.0)
+            })
+            .collect();
+        p.add(Shape::line(pts, Stroke::new(1.3, if on || resp.hovered() { ACCENT } else { MUTED })));
+        if resp.on_hover_text(tip).clicked() {
+            out = Some(e);
+        }
+    };
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-        for e in Ease::ALL {
-            let kind = if e == ease { ButtonKind::On } else { ButtonKind::Normal };
-            if theme::button(ui, ease_label(e), kind).clicked() {
-                out = Some(e);
+        for e in Ease::BASIC {
+            cell(ui, e, e.keyword());
+        }
+    });
+    ui.add_space(2.0);
+    egui::Grid::new("ease-grid").num_columns(4).spacing([4.0, 4.0]).show(ui, |ui| {
+        ui.label("");
+        for d in ["in", "out", "in-out"] {
+            ui.label(egui::RichText::new(d).font(theme::mono(10.5)).color(FAINT));
+        }
+        ui.end_row();
+        for f in motif_core::Family::ALL {
+            ui.label(egui::RichText::new(f.name()).font(theme::mono(11.0)).color(MUTED));
+            for d in motif_core::Dir::ALL {
+                let e = Ease::Named(f, d);
+                cell(ui, e, e.keyword());
             }
+            ui.end_row();
+        }
+    });
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let mut n = if let Ease::Steps(n) = ease { n } else { 4 };
+        ui.label(egui::RichText::new("Шаги").size(12.0).color(MUTED));
+        let changed = ui.add(egui::DragValue::new(&mut n).range(1..=60)).changed();
+        let on = matches!(ease, Ease::Steps(_));
+        if changed
+            || theme::button(ui, "steps", if on { ButtonKind::On } else { ButtonKind::Normal })
+                .on_hover_text("Скачки равными шагами — как покадровая анимация")
+                .clicked()
+        {
+            out = Some(Ease::Steps(n));
         }
     });
     out

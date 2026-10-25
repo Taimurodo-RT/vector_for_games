@@ -123,8 +123,12 @@ pub enum Stmt {
 pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
     Some(match key {
         "at" => (2, 2),
-        "size" | "scale" | "stroke" => (1, 2),
-        "r" | "rot" | "opacity" | "points" | "inner" | "fill" => (1, 1),
+        "size" | "scale" | "stroke" | "skew" => (1, 2),
+        "rot" | "opacity" | "points" | "inner" | "fill" | "cap" | "join" | "blend" => (1, 1),
+        "r" => (1, 4),
+        "pivot" => (2, 2),
+        "dash" => (1, 8),
+        "shadow" => (3, 4),
         "hidden" | "clip" => (0, 0),
         "d" => (1, 1),
         "gradient" => (2, 10),
@@ -333,7 +337,9 @@ impl<'a> Parser<'a> {
 
     fn node(&mut self, kind: ShapeKind, start: usize) -> Result<Stmt, ScriptError> {
         let (id, id_span) = self.ident("id объекта")?;
-        if prop_arity(&id).is_some() {
+        // A property name is fine as an id (`ellipse shadow "Тень"`) unless values follow it,
+        // which means the id was left out (`rect at 10 20`).
+        if prop_arity(&id).is_some() && (self.is_value_start() || prop_arity(&id) == Some((0, 0))) {
             return Err(self.err(id_span, format!("«{id}» — это свойство; сначала укажите id объекта")));
         }
         let mut name = None;
@@ -468,7 +474,19 @@ impl<'a> Parser<'a> {
                             }
                             motif_core::Ease::Cubic(c)
                         }
-                        None => return Err(self.err(span, format!("неизвестная кривая «{e}»: linear, ease-in, ease-out, ease-in-out, hold, spring, cubic"))),
+                        None if e == "steps" => match self.next() {
+                            Some(Token { tok: Tok::Num(n), span }) if n >= 1.0 && n.fract() == 0.0 && n <= 1000.0 => {
+                                end = span.end;
+                                motif_core::Ease::Steps(n as u32)
+                            }
+                            _ => return Err(self.err(span, "после steps нужно целое число шагов, например steps 4")),
+                        },
+                        None => {
+                            return Err(self.err(
+                                span,
+                                format!("неизвестная кривая «{e}»: linear, ease, ease-in, ease-out, ease-in-out, hold, spring, ease-out-bounce и другие из easings.net, cubic, steps"),
+                            ));
+                        }
                     };
                     ease_span = Some(Span::new(span.start, end));
                     Some(ease)

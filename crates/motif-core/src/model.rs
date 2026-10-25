@@ -1,4 +1,4 @@
-use crate::Color;
+use crate::{Blend, Cap, Color, Ease, Join, Shadow};
 use kurbo::{Affine, BezPath, Ellipse, ParamCurveNearest, Point, RoundedRect, Shape, Vec2};
 
 /// The whole scene: one artboard, its nodes in paint order, and its animations.
@@ -77,10 +77,13 @@ pub enum Prop {
     Fill,
     StrokeColor,
     StrokeWidth,
+    /// Skew in degrees, like CSS `skewX` / `skewY`.
+    SkewX,
+    SkewY,
 }
 
 impl Prop {
-    pub const ALL: [Prop; 14] = [
+    pub const ALL: [Prop; 16] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -95,6 +98,8 @@ impl Prop {
         Prop::Fill,
         Prop::StrokeColor,
         Prop::StrokeWidth,
+        Prop::SkewX,
+        Prop::SkewY,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -114,6 +119,8 @@ impl Prop {
             Prop::Fill => "fill",
             Prop::StrokeColor => "stroke",
             Prop::StrokeWidth => "stroke_w",
+            Prop::SkewX => "kx",
+            Prop::SkewY => "ky",
         }
     }
 
@@ -123,6 +130,8 @@ impl Prop {
             "width" => Some(Prop::Width),
             "height" => Some(Prop::Height),
             "radius" => Some(Prop::Radius),
+            "skew_x" => Some(Prop::SkewX),
+            "skew_y" => Some(Prop::SkewY),
             _ => None,
         })
     }
@@ -188,6 +197,19 @@ pub struct Node {
     pub gradient: Option<Gradient>,
     /// Group only: the first child is a mask that clips the other children and is not drawn.
     pub clip: bool,
+    /// Degrees.
+    pub skew_x: f64,
+    pub skew_y: f64,
+    /// Point in local space that rotation, skew and scale turn around (CSS `transform-origin`).
+    pub pivot: Vec2,
+    /// Rectangle corners clockwise from top left, when they differ (`r 8 8 0 0`).
+    pub radii: Option<[f64; 4]>,
+    /// Dash and gap lengths of the stroke; empty for a solid line.
+    pub dash: Vec<f64>,
+    pub cap: Cap,
+    pub join: Join,
+    pub shadow: Option<Shadow>,
+    pub blend: Blend,
 }
 
 /// A two-or-more colour gradient spread over the shape's bounds.
@@ -243,6 +265,15 @@ impl Node {
             geometry: BezPath::new(),
             gradient: None,
             clip: false,
+            skew_x: 0.0,
+            skew_y: 0.0,
+            pivot: Vec2::ZERO,
+            radii: None,
+            dash: Vec::new(),
+            cap: Cap::default(),
+            join: Join::default(),
+            shadow: None,
+            blend: Blend::default(),
         }
     }
 
@@ -267,6 +298,8 @@ impl Node {
             Prop::Fill => paint(self.fill),
             Prop::StrokeColor => paint(self.stroke),
             Prop::StrokeWidth => Value::Num(self.stroke_width),
+            Prop::SkewX => Value::Num(self.skew_x),
+            Prop::SkewY => Value::Num(self.skew_y),
         }
     }
 
@@ -297,14 +330,21 @@ impl Node {
             Prop::Points => self.points = v,
             Prop::Inner => self.inner = v,
             Prop::StrokeWidth => self.stroke_width = v,
+            Prop::SkewX => self.skew_x = v,
+            Prop::SkewY => self.skew_y = v,
             Prop::Fill | Prop::StrokeColor => unreachable!(),
         }
     }
 
     /// Transform from this node's local space into its parent's space.
-    /// The local origin is the node's center, which is also the pivot for rotation and scale.
+    /// The local origin is the node's center; rotation, skew and scale turn around `pivot`.
     pub fn local_transform(&self) -> Affine {
-        Affine::translate(Vec2::new(self.x, self.y)) * Affine::rotate(self.rotation.to_radians()) * Affine::scale_non_uniform(self.scale_x, self.scale_y)
+        let tan = |deg: f64| deg.clamp(-89.0, 89.0).to_radians().tan();
+        Affine::translate(Vec2::new(self.x, self.y) + self.pivot)
+            * Affine::rotate(self.rotation.to_radians())
+            * Affine::skew(tan(self.skew_x), tan(self.skew_y))
+            * Affine::scale_non_uniform(self.scale_x, self.scale_y)
+            * Affine::translate(-self.pivot)
     }
 
     /// Geometry in local space, centered on the origin. Groups have none.
@@ -314,8 +354,9 @@ impl Node {
         Some(match self.kind {
             ShapeKind::Group => return None,
             ShapeKind::Rect => {
-                let r = self.radius.clamp(0.0, w.min(h) / 2.0);
-                RoundedRect::from_rect(rect, r).to_path(0.1)
+                let max = w.min(h) / 2.0;
+                let radii = self.radii.unwrap_or([self.radius; 4]).map(|r| r.clamp(0.0, max));
+                RoundedRect::from_rect(rect, kurbo::RoundedRectRadii::new(radii[0], radii[1], radii[2], radii[3])).to_path(0.1)
             }
             ShapeKind::Ellipse => Ellipse::from_rect(rect).to_path(0.1),
             ShapeKind::Star => star_path(w, h, self.points.round().max(3.0) as usize, self.inner.clamp(0.05, 1.0)),
@@ -407,99 +448,6 @@ impl Document {
 
 fn near_outline(path: &BezPath, p: Point, width: f64) -> bool {
     path.segments().any(|seg| seg.nearest(p, 0.1).distance_sq <= (width / 2.0).powi(2))
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Ease {
-    Linear,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
-    Hold,
-    Spring,
-    /// A custom curve like CSS `cubic-bezier(x1, y1, x2, y2)`: handles from (0,0) and to (1,1).
-    Cubic([f64; 4]),
-}
-
-impl Ease {
-    pub const ALL: [Ease; 6] = [Ease::Linear, Ease::EaseIn, Ease::EaseOut, Ease::EaseInOut, Ease::Hold, Ease::Spring];
-
-    pub fn keyword(self) -> &'static str {
-        match self {
-            Ease::Linear => "linear",
-            Ease::EaseIn => "ease-in",
-            Ease::EaseOut => "ease-out",
-            Ease::EaseInOut => "ease-in-out",
-            Ease::Hold => "hold",
-            Ease::Spring => "spring",
-            Ease::Cubic(_) => "cubic",
-        }
-    }
-
-    /// How the curve is written after a key: the keyword, plus the four handle numbers of `cubic`.
-    pub fn script(self) -> String {
-        match self {
-            Ease::Cubic(c) => format!("cubic {}", c.map(|v| format!("{}", (v * 100.0).round() / 100.0)).join(" ")),
-            e => e.keyword().to_string(),
-        }
-    }
-
-    /// The handles of the curve as a cubic Bézier, where a preset has one (Hold and Spring do not).
-    pub fn handles(self) -> Option<[f64; 4]> {
-        Some(match self {
-            Ease::Linear => [0.0, 0.0, 1.0, 1.0],
-            Ease::EaseIn => [0.32, 0.0, 0.67, 0.0],
-            Ease::EaseOut => [0.33, 1.0, 0.68, 1.0],
-            Ease::EaseInOut => [0.65, 0.0, 0.35, 1.0],
-            Ease::Cubic(c) => c,
-            Ease::Hold | Ease::Spring => return None,
-        })
-    }
-
-    pub fn from_keyword(s: &str) -> Option<Self> {
-        Ease::ALL.into_iter().find(|e| e.keyword() == s)
-    }
-
-    /// Maps linear progress `u` in 0..=1 to eased progress.
-    pub fn apply(self, u: f64) -> f64 {
-        match self {
-            Ease::Linear => u,
-            Ease::EaseIn => u * u * u,
-            Ease::EaseOut => 1.0 - (1.0 - u).powi(3),
-            Ease::EaseInOut => {
-                if u < 0.5 {
-                    4.0 * u * u * u
-                } else {
-                    1.0 - (-2.0 * u + 2.0).powi(3) / 2.0
-                }
-            }
-            Ease::Hold => {
-                if u >= 1.0 {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-            Ease::Spring => 1.0 - (u * 4.5 * std::f64::consts::PI).cos() * (-6.0 * u).exp(),
-            Ease::Cubic([x1, y1, x2, y2]) => {
-                if u <= 0.0 || u >= 1.0 {
-                    return u.clamp(0.0, 1.0);
-                }
-                let bez = |a: f64, b: f64, t: f64| 3.0 * a * t * (1.0 - t).powi(2) + 3.0 * b * t * t * (1.0 - t) + t * t * t;
-                // x(t) rises from 0 to 1 when x1, x2 are in 0..=1: find t with x(t) = u by bisection.
-                let (mut lo, mut hi) = (0.0, 1.0);
-                for _ in 0..40 {
-                    let mid = (lo + hi) / 2.0;
-                    if bez(x1, x2, mid) < u {
-                        lo = mid;
-                    } else {
-                        hi = mid;
-                    }
-                }
-                bez(y1, y2, (lo + hi) / 2.0)
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

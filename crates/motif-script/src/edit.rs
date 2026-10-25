@@ -38,7 +38,7 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         let repl = match s.paired {
             Some(other) => {
                 let other_text = fmt_value(current.get(other));
-                if matches!(prop, Prop::Width | Prop::ScaleX) { format!("{text} {other_text}") } else { format!("{other_text} {text}") }
+                if matches!(prop, Prop::Width | Prop::ScaleX | Prop::SkewX) { format!("{text} {other_text}") } else { format!("{other_text} {text}") }
             }
             None => text,
         };
@@ -75,6 +75,7 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         Prop::Fill => format!("fill {text}"),
         Prop::StrokeColor => format!("stroke {text} {}", fmt_num(stroke_width)),
         Prop::StrokeWidth => format!("stroke {stroke_color} {text}"),
+        Prop::SkewX | Prop::SkewY => format!("skew {} {}", pick(Prop::SkewX), pick(Prop::SkewY)),
     };
     Some(splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {addition}")))
 }
@@ -273,29 +274,30 @@ pub fn gradient_text(g: &motif_core::Gradient) -> String {
 /// Returns the script with the gradient of `node` set, replaced or removed (`None`: back to the
 /// plain fill). `None` when the node comes from a loop.
 pub fn set_gradient(src: &str, scene: &Scene, node: &str, gradient: Option<&motif_core::Gradient>) -> Option<String> {
-    let site = scene.sites.get(node)?;
-    if site.generated {
-        return None;
-    }
-    let text = gradient.map(gradient_text);
-    Some(match (scene.gradient_sources.get(node), text) {
-        (Some(span), Some(t)) => splice(src, *span, &t),
-        (Some(span), None) => splice(src, with_space_before(src, *span), ""),
-        (None, Some(t)) => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {t}")),
-        (None, None) => src.to_string(),
-    })
+    set_style(src, scene, node, "gradient", gradient.map(gradient_text).as_deref())
 }
 
 /// Returns the script with the `clip` flag of group `node` turned on or off.
 pub fn set_clip(src: &str, scene: &Scene, node: &str, on: bool) -> Option<String> {
-    let site = scene.sites.get(node)?;
-    if site.generated || scene.doc.node(node)?.kind != ShapeKind::Group {
+    if scene.doc.node(node)?.kind != ShapeKind::Group {
         return None;
     }
-    Some(match (scene.clip_sources.get(node), on) {
-        (Some(span), false) => splice(src, with_space_before(src, *span), ""),
-        (None, true) => splice(src, Span::new(site.insert_at, site.insert_at), " clip"),
-        _ => src.to_string(),
+    set_style(src, scene, node, "clip", on.then_some("clip"))
+}
+
+/// Writes a whole property of a node line: `text` is the key with its values (`dash 6 4`) and
+/// replaces what is written for `key`, or is added at the end of the line; `None` removes it.
+/// `None` when the node comes from a loop.
+pub fn set_style(src: &str, scene: &Scene, node: &str, key: &str, text: Option<&str>) -> Option<String> {
+    let site = scene.sites.get(node)?;
+    if site.generated {
+        return None;
+    }
+    Some(match (scene.prop_spans.get(&(node.to_string(), key.to_string())), text) {
+        (Some(span), Some(t)) => splice(src, *span, t),
+        (Some(span), None) => splice(src, with_space_before(src, *span), ""),
+        (None, Some(t)) => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {t}")),
+        (None, None) => src.to_string(),
     })
 }
 

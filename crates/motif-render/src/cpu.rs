@@ -1,6 +1,6 @@
 use crate::{Op, Paint as Fill, display_ops, faded};
 use motif_core::kurbo::{Affine, PathEl};
-use motif_core::{Color, Document};
+use motif_core::{Blend, Cap, Color, Document, Join};
 use tiny_skia::{FillRule, GradientStop, LinearGradient, Mask, Paint, PathBuilder, Pixmap, RadialGradient, SpreadMode, Stroke, Transform};
 
 #[derive(Clone, Copy, Debug)]
@@ -34,7 +34,7 @@ pub fn render_cpu(doc: &Document, opts: CpuOptions) -> Option<Pixmap> {
     for op in display_ops(doc) {
         let item = match op {
             Op::Draw(item) => item,
-            Op::PushClip { path, transform } => {
+            Op::PushClip { path, transform, even_odd } => {
                 let mut mask = match masks.last() {
                     Some(m) => m.clone(),
                     None => {
@@ -44,7 +44,8 @@ pub fn render_cpu(doc: &Document, opts: CpuOptions) -> Option<Pixmap> {
                     }
                 };
                 if let Some(p) = to_skia(&path) {
-                    mask.intersect_path(&p, FillRule::Winding, opts.antialias, to_transform(view * transform));
+                    let rule = if even_odd { FillRule::EvenOdd } else { FillRule::Winding };
+                    mask.intersect_path(&p, rule, opts.antialias, to_transform(view * transform));
                 } else {
                     mask.data_mut().fill(0);
                 }
@@ -59,14 +60,34 @@ pub fn render_cpu(doc: &Document, opts: CpuOptions) -> Option<Pixmap> {
         let Some(path) = to_skia(&item.path) else { continue };
         let ts = to_transform(view * item.transform);
         let mask = masks.last();
+        let mode = blend_mode(item.blend);
         if let Some(fill) = &item.fill
-            && let Some(p) = fill_paint(fill, item.opacity, opts.antialias)
+            && let Some(mut p) = fill_paint(fill, item.opacity, opts.antialias)
         {
+            p.blend_mode = mode;
             pixmap.fill_path(&path, &p, FillRule::Winding, ts, mask);
         }
         if let Some((color, width)) = item.stroke {
-            let stroke = Stroke { width: width as f32, line_join: tiny_skia::LineJoin::Round, ..Stroke::default() };
-            pixmap.stroke_path(&path, &paint(faded(color, item.opacity), opts.antialias), &stroke, ts, mask);
+            let line_join = match item.line.join {
+                Join::Miter => tiny_skia::LineJoin::Miter,
+                Join::Round => tiny_skia::LineJoin::Round,
+                Join::Bevel => tiny_skia::LineJoin::Bevel,
+            };
+            let line_cap = match item.line.cap {
+                Cap::Butt => tiny_skia::LineCap::Butt,
+                Cap::Round => tiny_skia::LineCap::Round,
+                Cap::Square => tiny_skia::LineCap::Square,
+            };
+            // tiny-skia wants an even number of dash lengths, like SVG repeats an odd list.
+            let mut dash: Vec<f32> = item.line.dash.iter().map(|v| *v as f32).collect();
+            if dash.len() % 2 == 1 {
+                dash.extend(dash.clone());
+            }
+            let dash = if dash.is_empty() { None } else { tiny_skia::StrokeDash::new(dash, 0.0) };
+            let stroke = Stroke { width: width as f32, line_join, line_cap, dash, ..Stroke::default() };
+            let mut p = paint(faded(color, item.opacity), opts.antialias);
+            p.blend_mode = mode;
+            pixmap.stroke_path(&path, &p, &stroke, ts, mask);
         }
     }
     Some(pixmap)
@@ -94,6 +115,28 @@ fn fill_paint(fill: &Fill, opacity: f64, antialias: bool) -> Option<Paint<'stati
         LinearGradient::new(a, b, stops, SpreadMode::Pad, Transform::identity())?
     };
     Some(Paint { shader, anti_alias: antialias, ..Paint::default() })
+}
+
+fn blend_mode(b: Blend) -> tiny_skia::BlendMode {
+    use tiny_skia::BlendMode as M;
+    match b {
+        Blend::Normal => M::SourceOver,
+        Blend::Multiply => M::Multiply,
+        Blend::Screen => M::Screen,
+        Blend::Overlay => M::Overlay,
+        Blend::Darken => M::Darken,
+        Blend::Lighten => M::Lighten,
+        Blend::ColorDodge => M::ColorDodge,
+        Blend::ColorBurn => M::ColorBurn,
+        Blend::HardLight => M::HardLight,
+        Blend::SoftLight => M::SoftLight,
+        Blend::Difference => M::Difference,
+        Blend::Exclusion => M::Exclusion,
+        Blend::Hue => M::Hue,
+        Blend::Saturation => M::Saturation,
+        Blend::Color => M::Color,
+        Blend::Luminosity => M::Luminosity,
+    }
 }
 
 fn paint(c: Color, antialias: bool) -> Paint<'static> {

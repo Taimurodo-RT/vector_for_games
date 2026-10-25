@@ -1,0 +1,17 @@
+// Карточка и свойства из веб-вёрстки: углы, тень, пунктир, наложение, наклон, точка вращения.
+artboard "Карточка" 400x300 bg #f4efe6
+
+rect card "Карточка" at 125 100 size 170 110 r 24 4 24 4 fill #ffffff shadow 0 10 16 #00000044
+rect badge "Значок" at 315 95 size 90 64 r 8 fill #ffc531 stroke #1b1d24 3 shadow 6 6 #1b1d24
+path trail "След" at 200 262 d "M -150 0 C -80 -40 80 40 150 0" fill none stroke #3b5bff 6 dash 18 10 cap round
+ellipse red "Красный" at 270 195 size 80 fill #ff5a36 blend multiply
+ellipse blue "Синий" at 315 195 size 80 fill #3b5bff blend multiply
+
+// Флажок качается вокруг древка: pivot — точка у левого края.
+rect flag "Флажок" at 90 200 size 60 36 fill #4fd38c skew 0 8 pivot -30 0
+
+anim Wave 1.6s loop {
+  flag.rot 0: -8 ease-in-out-sine | 0.8: 8 ease-in-out-sine | 1.6: -8
+  flag.ky  0: 8 ease-in-out-sine | 0.8: -8 ease-in-out-sine | 1.6: 8
+  badge.y  0: 95 ease-out-bounce | 0.8: 80 ease-in-quad | 1.6: 95
+}

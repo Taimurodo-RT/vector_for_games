@@ -7,7 +7,10 @@ mod canvas;
 mod highlight;
 mod paint;
 mod pathedit;
+mod scriptui;
 mod selection;
+mod snap;
+mod style_ui;
 mod theme;
 mod timeline;
 

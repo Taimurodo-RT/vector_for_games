@@ -12,7 +12,7 @@ pub use cpu::{CpuOptions, render_cpu};
 pub use gpu::{build_scene, vello};
 
 use motif_core::kurbo::{Affine, BezPath, Shape};
-use motif_core::{Color, Document, Gradient};
+use motif_core::{Blend, Cap, Color, Document, Gradient, Join};
 
 /// One shape ready to paint, in artboard space.
 #[derive(Clone, Debug)]
@@ -22,8 +22,18 @@ pub struct Item {
     pub transform: Affine,
     pub fill: Option<Paint>,
     pub stroke: Option<(Color, f64)>,
+    pub line: Line,
     /// Combined opacity of the node and its parent groups.
     pub opacity: f64,
+    pub blend: Blend,
+}
+
+/// How a stroke is drawn: dashes, ends and corners.
+#[derive(Clone, Debug, Default)]
+pub struct Line {
+    pub dash: Vec<f64>,
+    pub cap: Cap,
+    pub join: Join,
 }
 
 /// How a shape is filled.
@@ -46,6 +56,8 @@ pub enum Op {
     PushClip {
         path: BezPath,
         transform: Affine,
+        /// Even-odd fill, so a frame with a hole clips to the outside of the hole.
+        even_odd: bool,
     },
     Pop,
 }
@@ -86,7 +98,7 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             && let Some(m) = doc.nodes.iter().position(|n| n.parent == Some(i))
             && let Some(path) = doc.nodes[m].path()
         {
-            ops.push(Op::PushClip { path, transform: doc.world_transform(m) });
+            ops.push(Op::PushClip { path, transform: doc.world_transform(m), even_odd: false });
             open.push(i);
             continue;
         }
@@ -102,11 +114,49 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             _ => None,
         };
         if opacity > 0.0 && (fill.is_some() || stroke.is_some()) {
-            ops.push(Op::Draw(Item { node: i, path, transform: doc.world_transform(i), fill, stroke, opacity }));
+            let transform = doc.world_transform(i);
+            let line = Line { dash: node.dash.clone(), cap: node.cap, join: node.join };
+            if let Some(sh) = node.shadow {
+                shadow_items(&mut ops, i, &path, transform, sh, stroke.map_or(0.0, |s| s.1), opacity);
+            }
+            ops.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend }));
         }
     }
     ops.extend(open.iter().map(|_| Op::Pop));
     ops
+}
+
+/// Most rings in a soft shadow: about one per artboard pixel of blur, so the edge has no bands.
+const SHADOW_RINGS: usize = 32;
+
+/// A shadow as plain shapes both renderers can draw: the shape moved by the offset and, for a
+/// blur, rings of widening strokes outside it whose overlapping alpha fades out over the blur radius.
+fn shadow_items(ops: &mut Vec<Op>, node: usize, path: &BezPath, transform: Affine, sh: motif_core::Shadow, stroke_w: f64, opacity: f64) {
+    let moved = Affine::translate((sh.dx, sh.dy)) * transform;
+    let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
+    let item = |fill, stroke| Item { node, path: path.clone(), transform: moved, fill, stroke, line: line.clone(), opacity, blend: Blend::Normal };
+    let body = (stroke_w > 0.0).then_some((sh.color, stroke_w));
+    if sh.blur > 0.0 {
+        // The blur is in artboard pixels; strokes are in the shape's local space.
+        let k = transform.as_coeffs();
+        let local_scale = ((k[0] * k[3] - k[1] * k[2]).abs().sqrt()).max(1e-6);
+        // Rings only count outside the shape: clip to a big frame with the shape cut out.
+        let pad = (stroke_w + 2.0 * sh.blur) / local_scale + 2.0;
+        let mut outside = path.bounding_box().inflate(pad, pad).to_path(0.1);
+        outside.extend(path.iter());
+        ops.push(Op::PushClip { path: outside, transform: moved, even_odd: true });
+        // Where all rings overlap (at the edge) they add up to the shadow colour.
+        let a = sh.color.a as f64 / 255.0;
+        let rings = (sh.blur.ceil() as usize).clamp(4, SHADOW_RINGS);
+        let ring = 1.0 - (1.0 - a).powf(1.0 / rings as f64);
+        let faint = Color { a: (ring * 255.0).round().clamp(1.0, 255.0) as u8, ..sh.color };
+        for r in 1..=rings {
+            let width = (stroke_w + 2.0 * sh.blur * r as f64 / rings as f64) / local_scale;
+            ops.push(Op::Draw(item(None, Some((faint, width)))));
+        }
+        ops.push(Op::Pop);
+    }
+    ops.push(Op::Draw(item(Some(Paint::Solid(sh.color)), body)));
 }
 
 /// The shapes in paint order, without clip layers.

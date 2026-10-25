@@ -1,6 +1,6 @@
 use crate::{Op, Paint, display_ops, faded};
 use motif_core::kurbo::{Affine, Rect};
-use motif_core::{Color, Document};
+use motif_core::{Blend, Cap, Color, Document, Join};
 pub use vello;
 use vello::Scene;
 use vello::peniko::{self, Fill};
@@ -18,8 +18,8 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine) {
     for op in display_ops(doc) {
         let item = match op {
             Op::Draw(item) => item,
-            Op::PushClip { path, transform } => {
-                scene.push_clip_layer(Fill::NonZero, view * transform, &path);
+            Op::PushClip { path, transform, even_odd } => {
+                scene.push_clip_layer(if even_odd { Fill::EvenOdd } else { Fill::NonZero }, view * transform, &path);
                 continue;
             }
             Op::Pop => {
@@ -28,6 +28,13 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine) {
             }
         };
         let t = view * item.transform;
+        // A blend mode needs its own layer, bounded by the shape (with room for the stroke).
+        let blended = item.blend != Blend::Normal;
+        if blended {
+            let pad = item.stroke.map_or(0.0, |s| s.1);
+            let bounds = motif_core::kurbo::Shape::bounding_box(&item.path).inflate(pad, pad);
+            scene.push_layer(Fill::NonZero, peniko::BlendMode::new(mix(item.blend), peniko::Compose::SrcOver), 1.0, t, &bounds);
+        }
         match &item.fill {
             Some(Paint::Solid(c)) => scene.fill(Fill::NonZero, t, color(faded(*c, item.opacity)), None, &item.path),
             Some(Paint::Gradient { gradient, from, to }) => {
@@ -42,9 +49,47 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine) {
             None => {}
         }
         if let Some((c, width)) = item.stroke {
-            let stroke = vello::kurbo::Stroke::new(width).with_join(vello::kurbo::Join::Round);
+            let join = match item.line.join {
+                Join::Miter => vello::kurbo::Join::Miter,
+                Join::Round => vello::kurbo::Join::Round,
+                Join::Bevel => vello::kurbo::Join::Bevel,
+            };
+            let cap = match item.line.cap {
+                Cap::Butt => vello::kurbo::Cap::Butt,
+                Cap::Round => vello::kurbo::Cap::Round,
+                Cap::Square => vello::kurbo::Cap::Square,
+            };
+            let mut stroke = vello::kurbo::Stroke::new(width).with_join(join).with_caps(cap);
+            if !item.line.dash.is_empty() {
+                stroke = stroke.with_dashes(0.0, item.line.dash.iter().copied());
+            }
             scene.stroke(&stroke, t, color(faded(c, item.opacity)), None, &item.path);
+        }
+        if blended {
+            scene.pop_layer();
         }
     }
     scene.pop_layer();
+}
+
+fn mix(b: Blend) -> peniko::Mix {
+    use peniko::Mix;
+    match b {
+        Blend::Normal => Mix::Normal,
+        Blend::Multiply => Mix::Multiply,
+        Blend::Screen => Mix::Screen,
+        Blend::Overlay => Mix::Overlay,
+        Blend::Darken => Mix::Darken,
+        Blend::Lighten => Mix::Lighten,
+        Blend::ColorDodge => Mix::ColorDodge,
+        Blend::ColorBurn => Mix::ColorBurn,
+        Blend::HardLight => Mix::HardLight,
+        Blend::SoftLight => Mix::SoftLight,
+        Blend::Difference => Mix::Difference,
+        Blend::Exclusion => Mix::Exclusion,
+        Blend::Hue => Mix::Hue,
+        Blend::Saturation => Mix::Saturation,
+        Blend::Color => Mix::Color,
+        Blend::Luminosity => Mix::Luminosity,
+    }
 }

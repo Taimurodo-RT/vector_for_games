@@ -33,8 +33,7 @@ impl<'a> Evaluator<'a> {
                 blocks_start: None,
                 override_entries: Vec::new(),
                 path_sources: HashMap::new(),
-                gradient_sources: HashMap::new(),
-                clip_sources: HashMap::new(),
+                prop_spans: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -181,10 +180,16 @@ impl<'a> Evaluator<'a> {
             scene.sources.insert((id.clone(), prop), Source { span: v.span, editable: v.is_literal() && !generated, paired, from_override: false });
         };
         for p in &n.props {
+            if !generated {
+                let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
+                self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
+            }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
                 "d" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
+                // Keywords, not names: `cap round`, `blend multiply`.
+                "cap" | "join" | "blend" => Vec::new(),
                 _ => p.values.iter().map(|v| self.value(v)).collect(),
             };
             let num = |i: usize| vals.get(i).copied().flatten().and_then(Value::as_num);
@@ -199,6 +204,80 @@ impl<'a> Evaluator<'a> {
                     }
                     _ => bad(self),
                 },
+                "r" if p.values.len() > 1 => {
+                    let r: Vec<f64> = (0..p.values.len()).filter_map(num).collect();
+                    if r.len() != p.values.len() {
+                        bad(self);
+                        continue;
+                    }
+                    // CSS border-radius order: top left, top right, bottom right, bottom left.
+                    let radii = match r[..] {
+                        [a, b] => [a, b, a, b],
+                        [a, b, c] => [a, b, c, b],
+                        [a, b, c, d, ..] => [a, b, c, d],
+                        _ => [r[0]; 4],
+                    };
+                    node.radius = radii[0];
+                    node.radii = Some(radii);
+                }
+                "skew" => match (num(0), num(1)) {
+                    (Some(a), b) if p.values.len() == 1 || b.is_some() => {
+                        node.skew_x = a;
+                        node.skew_y = b.unwrap_or(0.0);
+                        if p.values.len() == 2 {
+                            record(&mut self.scene, Prop::SkewX, &p.values[0], None);
+                            record(&mut self.scene, Prop::SkewY, &p.values[1], None);
+                        } else {
+                            // One value is skewX; editing skewY rewrites both.
+                            record(&mut self.scene, Prop::SkewX, &p.values[0], Some(Prop::SkewY));
+                            record(&mut self.scene, Prop::SkewY, &p.values[0], Some(Prop::SkewX));
+                        }
+                    }
+                    _ => bad(self),
+                },
+                "pivot" => match (num(0), num(1)) {
+                    (Some(x), Some(y)) => node.pivot = motif_core::kurbo::Vec2::new(x, y),
+                    _ => bad(self),
+                },
+                "dash" => {
+                    let d: Vec<f64> = (0..p.values.len()).filter_map(num).collect();
+                    if d.len() != p.values.len() || d.iter().any(|v| *v < 0.0) {
+                        bad(self);
+                        continue;
+                    }
+                    // `dash 0` is a solid line.
+                    node.dash = if d.iter().all(|v| *v == 0.0) { Vec::new() } else { d };
+                }
+                "cap" | "join" | "blend" => {
+                    let word = match &p.values[0].kind {
+                        ValueKind::Ref(w) => w.as_str(),
+                        ValueKind::None => "none",
+                        _ => "",
+                    };
+                    let ok = match p.key.as_str() {
+                        "cap" => motif_core::Cap::from_keyword(word).map(|c| node.cap = c).is_some(),
+                        "join" => motif_core::Join::from_keyword(word).map(|j| node.join = j).is_some(),
+                        _ => motif_core::Blend::from_keyword(word).map(|b| node.blend = b).is_some(),
+                    };
+                    if !ok {
+                        let choices = match p.key.as_str() {
+                            "cap" => "butt, round, square".to_string(),
+                            "join" => "miter, round, bevel".to_string(),
+                            _ => motif_core::Blend::ALL.map(|b| b.keyword()).join(", "),
+                        };
+                        self.err(p.values[0].span, format!("«{}»: ожидалось одно из: {choices}", p.key));
+                    }
+                }
+                "shadow" => {
+                    let color = vals.last().copied().flatten().and_then(|v| if let Value::Color(c) = v { Some(c) } else { None });
+                    let nums: Vec<f64> = (0..p.values.len() - 1).filter_map(num).collect();
+                    match (color, nums.len() == p.values.len() - 1) {
+                        (Some(color), true) => {
+                            node.shadow = Some(motif_core::Shadow { dx: nums[0], dy: nums[1], blur: nums.get(2).copied().unwrap_or(0.0).max(0.0), color })
+                        }
+                        _ => self.err(p.key_span, "тень: shadow x y [размытие] #цвет, например shadow 0 4 8 #00000055"),
+                    }
+                }
                 "size" | "scale" => {
                     let (pa, pb) = if p.key == "size" { (Prop::Width, Prop::Height) } else { (Prop::ScaleX, Prop::ScaleY) };
                     match (num(0), num(1)) {
@@ -252,9 +331,6 @@ impl<'a> Evaluator<'a> {
                         continue;
                     }
                     node.clip = true;
-                    if !generated {
-                        self.scene.clip_sources.insert(id.clone(), p.key_span);
-                    }
                 }
                 "gradient" => {
                     let radial = match &p.values[0].kind {
@@ -280,10 +356,6 @@ impl<'a> Evaluator<'a> {
                         continue;
                     }
                     node.gradient = Some(motif_core::Gradient { radial, angle, colors });
-                    if !generated {
-                        let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
-                        self.scene.gradient_sources.insert(id.clone(), Span::new(p.key_span.start, end));
-                    }
                 }
                 "d" => {
                     let ValueKind::Path(data) = &p.values[0].kind else { continue };

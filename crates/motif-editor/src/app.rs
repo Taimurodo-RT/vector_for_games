@@ -119,6 +119,9 @@ pub struct App {
     last_checkpoint: (String, Instant),
     pub(crate) tool: Tool,
     drag: Option<DragOp>,
+    /// Values changed by the drag in progress: shown on the canvas, written to the script on release.
+    live: Vec<(String, Prop, Value)>,
+    pub(crate) snap: crate::snap::Snap,
     /// Points placed by the pen so far.
     pub(crate) pen: Vec<PenPoint>,
     pub(crate) pen_dragging: bool,
@@ -128,9 +131,10 @@ pub struct App {
     pub(crate) sel_key: Option<KeyRef>,
     /// A key being dragged in the timeline and its new time.
     pub(crate) key_drag: Option<(KeyRef, f64)>,
-    show_script: bool,
+    pub(crate) show_script: bool,
     show_export: bool,
     show_help: bool,
+    pub(crate) show_syntax: bool,
     space_used_for_pan: bool,
     hex_edit: Option<(Prop, String)>,
     pixel: PixelPreview,
@@ -175,6 +179,8 @@ impl App {
             last_checkpoint: (String::new(), Instant::now()),
             tool: Tool::Select,
             drag: None,
+            live: Vec::new(),
+            snap: Default::default(),
             pen: Vec::new(),
             pen_dragging: false,
             point_edit: None,
@@ -184,6 +190,7 @@ impl App {
             show_script: true,
             show_export: false,
             show_help: false,
+            show_syntax: false,
             space_used_for_pan: false,
             hex_edit: None,
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
@@ -367,10 +374,43 @@ impl App {
     }
 
     pub(crate) fn display_doc(&self) -> Document {
-        match self.current_anim() {
+        let mut doc = match self.current_anim() {
             Some(a) => a.pose(&self.scene.doc, self.time),
             None => self.scene.doc.clone(),
+        };
+        if let Some(e) = &self.point_edit
+            && let Some(o) = &e.live
+            && let Some(i) = doc.index_of(&e.node)
+        {
+            doc.nodes[i].geometry = o.to_bez();
         }
+        for (node, prop, value) in &self.live {
+            if let Some(i) = doc.index_of(node) {
+                doc.nodes[i].set(*prop, *value);
+            }
+        }
+        doc
+    }
+
+    /// A drag step: shown at once, written to the script when the mouse is released.
+    fn preview(&mut self, node: &str, prop: Prop, value: Value) {
+        match self.live.iter_mut().find(|(n, p, _)| n == node && *p == prop) {
+            Some(slot) => slot.2 = value,
+            None => self.live.push((node.to_string(), prop, value)),
+        }
+    }
+
+    /// Writes the values of a finished drag to the script as one undo step.
+    fn commit_live(&mut self) {
+        let live = std::mem::take(&mut self.live);
+        if live.is_empty() {
+            return;
+        }
+        self.edit_group = Some("drag".into());
+        for (node, prop, value) in live {
+            self.edit(&node, prop, value);
+        }
+        self.edit_group = None;
     }
 
     /// The current pose with onion-skin ghosts behind it, when onion skin is on and the
@@ -691,6 +731,9 @@ impl App {
             if theme::tool_button(ui, Icon::Pen, self.tool == Tool::Pen, "P", tip).clicked() {
                 self.tool = Tool::Pen;
             }
+            let (r, _) = ui.allocate_exact_size(vec2(24.0, 9.0), Sense::hover());
+            ui.painter().line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, LINE));
+            self.snap_button(ui);
         });
     }
 
@@ -770,7 +813,40 @@ impl App {
 
     fn script_panel(&mut self, ui: &mut egui::Ui) {
         let status = if self.errors.is_empty() { ("без ошибок".to_string(), GOOD) } else { (format!("ошибок: {}", self.errors.len()), DANGER) };
-        panel_header_colored(ui, "Скрипт сцены", &status.0, status.1);
+        // Header: title, status, and buttons for the syntax help and collapsing the panel.
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        {
+            let p = ui.painter();
+            p.text(pos2(r.left() + 12.0, r.center().y), Align2::LEFT_CENTER, "СКРИПТ СЦЕНЫ", theme::semibold(11.0), MUTED);
+            p.text(pos2(r.right() - 66.0, r.center().y), Align2::RIGHT_CENTER, &status.0, theme::mono(11.0), status.1);
+            p.line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, LINE));
+        }
+        let small = |ui: &mut egui::Ui, at: f32, icon: Icon, on: bool, tip: &str, salt: &str| {
+            let b = Rect::from_center_size(pos2(r.right() - at, r.center().y), vec2(24.0, 24.0));
+            let resp = ui.interact(b, ui.scope_id().with(salt), Sense::click()).on_hover_text(tip);
+            if resp.hovered() || on {
+                ui.painter().rect_filled(b, 5.0, theme::RAISE);
+            }
+            theme::paint_icon(
+                ui.painter(),
+                b.shrink(4.0),
+                icon,
+                if on {
+                    ACCENT
+                } else if resp.hovered() {
+                    FG
+                } else {
+                    MUTED
+                },
+            );
+            resp.clicked()
+        };
+        if small(ui, 46.0, Icon::Help, self.show_syntax, "Справка по синтаксису (F1)", "syntax") {
+            self.show_syntax = !self.show_syntax;
+        }
+        if small(ui, 18.0, Icon::CollapseLeft, false, "Свернуть скрипт (Ctrl+E)", "collapse") {
+            self.show_script = false;
+        }
         let errors_h = if self.errors.is_empty() { 0.0 } else { 10.0 + 18.0 * self.errors.len().min(4) as f32 };
         let error_lines: Vec<usize> = self.errors.iter().map(|e| e.line).collect();
         let selected_span = self.selected.as_ref().and_then(|id| self.scene.sites.get(id)).filter(|s| !s.generated).map(|s| (s.span.start, s.span.end));
@@ -851,6 +927,7 @@ impl App {
 
             let mut changes: Vec<(Prop, Value)> = Vec::new();
             let mut diamonds: Vec<Prop> = Vec::new();
+            let mut styles: Vec<crate::style_ui::StyleEdit> = Vec::new();
             let half = (ui.available_width() - 24.0 - 6.0) / 2.0;
             let mut field =
                 |app: &App, ui: &mut egui::Ui, label: &str, prop: Prop, speed: f64, range: std::ops::RangeInclusive<f64>, scale: f64, decimals: usize| {
@@ -885,18 +962,33 @@ impl App {
                     field(self, ui, "Масшт. X", Prop::ScaleX, 0.01, -100.0..=100.0, 1.0, 2);
                     field(self, ui, "Масшт. Y", Prop::ScaleY, 0.01, -100.0..=100.0, 1.0, 2);
                 });
+                ui.horizontal(|ui| {
+                    field(self, ui, "Накл. X °", Prop::SkewX, 0.5, -89.0..=89.0, 1.0, 1);
+                    field(self, ui, "Накл. Y °", Prop::SkewY, 0.5, -89.0..=89.0, 1.0, 1);
+                });
+                crate::style_ui::pivot_row(ui, &node, &mut styles);
             });
             if matches!(node.kind, ShapeKind::Rect | ShapeKind::Star | ShapeKind::Polygon) {
                 section(ui, |ui| {
                     theme::caption(ui, "Форма");
-                    ui.horizontal(|ui| match node.kind {
-                        ShapeKind::Rect => field(self, ui, "Скругл.", Prop::Radius, 0.5, 0.0..=10_000.0, 1.0, 1),
-                        ShapeKind::Star => {
-                            field(self, ui, "Лучи", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0);
-                            field(self, ui, "Внутр.", Prop::Inner, 0.01, 0.05..=1.0, 1.0, 2);
-                        }
-                        _ => field(self, ui, "Стороны", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0),
-                    });
+                    let corners = node.kind == ShapeKind::Rect && node.radii.is_some();
+                    if !corners {
+                        ui.horizontal(|ui| match node.kind {
+                            ShapeKind::Rect => {
+                                if !corners {
+                                    field(self, ui, "Скругл.", Prop::Radius, 0.5, 0.0..=10_000.0, 1.0, 1);
+                                }
+                            }
+                            ShapeKind::Star => {
+                                field(self, ui, "Лучи", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0);
+                                field(self, ui, "Внутр.", Prop::Inner, 0.01, 0.05..=1.0, 1.0, 2);
+                            }
+                            _ => field(self, ui, "Стороны", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0),
+                        });
+                    }
+                    if node.kind == ShapeKind::Rect {
+                        crate::style_ui::corners_row(ui, &node, &mut styles);
+                    }
                 });
             }
             if node.kind == ShapeKind::Path {
@@ -938,7 +1030,12 @@ impl App {
                         if out.diamond {
                             diamonds.push(Prop::StrokeWidth);
                         }
+                        crate::style_ui::line_rows(ui, &node, &mut styles);
                     }
+                });
+                section(ui, |ui| {
+                    theme::caption(ui, "Эффекты");
+                    crate::style_ui::effects_rows(ui, &node, &mut styles);
                 });
             }
             section(ui, |ui| {
@@ -969,6 +1066,7 @@ impl App {
             for (prop, value) in changes {
                 self.edit(&id, prop, value);
             }
+            self.apply_styles(&id, styles);
         });
     }
 
@@ -1154,7 +1252,7 @@ impl App {
                 egui::CursorIcon::Crosshair
             } else {
                 match hit_handle(p) {
-                    Some(Handle::Rotate) => egui::CursorIcon::Alias,
+                    Some(Handle::Rotate) => egui::CursorIcon::None,
                     Some(Handle::Corner) => egui::CursorIcon::ResizeNwSe,
                     None if self.hovered.is_some() => egui::CursorIcon::Move,
                     None => egui::CursorIcon::Default,
@@ -1185,7 +1283,7 @@ impl App {
                 match h {
                     Handle::Corner => Some(DragOp::Resize { node: id, to_local: doc.world_transform(i).inverse(), start: (n.width, n.height) }),
                     Handle::Rotate => {
-                        let center = doc.world_transform(i) * Point::ZERO;
+                        let center = doc.world_transform(i) * (Point::ZERO + n.pivot);
                         let a = (dp - center).atan2().to_degrees();
                         Some(DragOp::Rotate { node: id, center, start_angle: a, start_rot: n.rotation })
                     }
@@ -1216,6 +1314,18 @@ impl App {
                 }
             };
         }
+        // Rotation has no system cursor: draw a circular arrow at the pointer instead.
+        let rotating = matches!(self.drag, Some(DragOp::Rotate { .. }));
+        if let Some(p) = pointer
+            && (rotating || (self.drag.is_none() && !pan_gesture && self.tool == Tool::Select && hit_handle(p) == Some(Handle::Rotate)))
+        {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+            let fg = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("rotate-cursor")));
+            let r = Rect::from_center_size(p, vec2(22.0, 22.0));
+            fg.circle_filled(p, 11.0, Color32::from_black_alpha(140));
+            theme::paint_icon(&fg, r, Icon::Rotate, Color32::WHITE);
+        }
+        let snap = self.snap;
         if resp.dragged()
             && let Some(dp) = doc_pt
         {
@@ -1231,52 +1341,49 @@ impl App {
                         .iter()
                         .map(|it| {
                             let target = it.to_parent * (it.origin + (dp - *from));
-                            (it.node.clone(), target.x.round(), target.y.round())
+                            (it.node.clone(), snap.pos(target.x), snap.pos(target.y))
                         })
                         .collect();
-                    if moves.len() > 1 {
-                        self.edit_group = Some("move".into());
-                    }
                     for (node, x, y) in moves {
                         let cur = doc.node(&node).map(|n| (n.x, n.y));
                         if cur.is_some_and(|c| c.0 != x) {
-                            self.edit(&node, Prop::X, Value::Num(x));
+                            self.preview(&node, Prop::X, Value::Num(x));
                         }
                         if cur.is_some_and(|c| c.1 != y) {
-                            self.edit(&node, Prop::Y, Value::Num(y));
+                            self.preview(&node, Prop::Y, Value::Num(y));
                         }
                     }
-                    self.edit_group = None;
                 }
                 Some(DragOp::Resize { node, to_local, start }) => {
                     let local = *to_local * dp;
-                    let (mut w, mut h) = ((local.x.abs() * 2.0).round(), (local.y.abs() * 2.0).round());
+                    let (mut w, mut h) = (snap.size(local.x.abs() * 2.0), snap.size(local.y.abs() * 2.0));
                     if shift && start.0 > 0.0 && start.1 > 0.0 {
                         let k = (w / start.0).max(h / start.1);
-                        (w, h) = ((start.0 * k).round(), (start.1 * k).round());
+                        (w, h) = (snap.size(start.0 * k), snap.size(start.1 * k));
                     }
                     let node = node.clone();
                     let cur = doc.node(&node).map(|n| (n.width, n.height));
                     if cur.is_some_and(|c| c.0 != w) {
-                        self.edit(&node, Prop::Width, Value::Num(w.max(1.0)));
+                        self.preview(&node, Prop::Width, Value::Num(w.max(1.0)));
                     }
                     if cur.is_some_and(|c| c.1 != h) {
-                        self.edit(&node, Prop::Height, Value::Num(h.max(1.0)));
+                        self.preview(&node, Prop::Height, Value::Num(h.max(1.0)));
                     }
                 }
                 Some(DragOp::Rotate { node, center, start_angle, start_rot }) => {
                     let a = (dp - *center).atan2().to_degrees();
                     let mut rot = *start_rot + (a - *start_angle);
-                    rot = if shift { (rot / 15.0).round() * 15.0 } else { rot.round() };
+                    rot = if shift { (rot / 15.0).round() * 15.0 } else { snap.rot(rot) };
                     let node = node.clone();
                     if doc.node(&node).is_some_and(|n| n.rotation != rot) {
-                        self.edit(&node, Prop::Rotation, Value::Num(rot));
+                        self.preview(&node, Prop::Rotation, Value::Num(rot));
                     }
                 }
                 None => {}
             }
         }
         if resp.drag_stopped() {
+            self.commit_live();
             match self.drag.take() {
                 Some(DragOp::Create { kind, from, to }) => self.create_shape(kind, from, to, shift),
                 Some(DragOp::Marquee { from, to, add }) => {
@@ -1498,7 +1605,8 @@ impl App {
                     ("Ctrl+C, Ctrl+V", "Копировать и вставить; Ctrl+D — дублировать, Ctrl+A — всё"),
                     ("F", "Вписать артборд"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
-                    ("Ctrl+E", "Показать или скрыть скрипт"),
+                    ("Ctrl+E", "Свернуть или развернуть скрипт"),
+                    ("F1", "Шпаргалка по синтаксису скрипта"),
                 ];
                 egui::Grid::new("keys").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
                     for (k, what) in rows {
@@ -1534,6 +1642,9 @@ impl App {
         }
         if cmd(Key::E) {
             self.show_script = !self.show_script;
+        }
+        if i.key_pressed(Key::F1) {
+            self.show_syntax = !self.show_syntax;
         }
         if typing {
             return;
@@ -1634,7 +1745,8 @@ impl App {
             }
         }
         if let Some(id) = self.selected.clone() {
-            let step = if i.modifiers.shift { 10.0 } else { 1.0 };
+            let base = if self.snap.free { 1.0 } else { self.snap.moving };
+            let step = if i.modifiers.shift { base * 10.0 } else { base };
             let node = self.display_doc().node(&id).cloned();
             let nudge = [(Key::ArrowLeft, Prop::X, -step), (Key::ArrowRight, Prop::X, step), (Key::ArrowUp, Prop::Y, -step), (Key::ArrowDown, Prop::Y, step)];
             for (key, prop, delta) in nudge {
@@ -1649,6 +1761,7 @@ impl App {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Handle {
     Corner,
     Rotate,
@@ -1800,10 +1913,13 @@ impl eframe::App for App {
         egui::Panel::left("layers").resizable(true).default_size(210.0).size_range(160.0..=360.0).frame(panel).show(ui, |ui| self.layers_panel(ui));
         if self.show_script {
             egui::Panel::left("script").resizable(true).default_size(440.0).size_range(240.0..=900.0).frame(panel).show(ui, |ui| self.script_panel(ui));
+        } else {
+            egui::Panel::left("script-strip").exact_size(30.0).frame(panel).show(ui, |ui| self.script_strip(ui));
         }
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, frame));
         self.export_window(&ctx);
         self.help_window(&ctx);
+        self.syntax_window(&ctx);
     }
 }
 
