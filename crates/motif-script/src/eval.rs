@@ -682,6 +682,18 @@ impl<'a> Evaluator<'a> {
                         ),
                     }
                 }
+                "squash" => {
+                    let d = motif_core::Squash::default();
+                    let at = |i: usize, def: f64| if p.values.len() <= i { Some(def) } else { num(i) };
+                    match (at(0, d.amount), at(1, d.spring.freq), at(2, d.spring.damp)) {
+                        (Some(amount), Some(freq), Some(damp)) if amount >= 0.0 && freq > 0.0 && freq <= motif_core::Spring::MAX_FREQ && damp >= 0.0 => {
+                            node.squash = Some(motif_core::Squash { amount, spring: motif_core::Spring { freq, damp } });
+                        }
+                        _ => {
+                            self.err(p.key_span, "«squash» — сила (0 и больше, 1 — вдвое длиннее на 1000 ед/с), частота (до 30) и затухание: squash 0.5 4 0.3")
+                        }
+                    }
+                }
                 "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,

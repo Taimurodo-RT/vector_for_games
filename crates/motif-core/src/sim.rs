@@ -1,9 +1,11 @@
-//! The simulation behind physical animation: springs, jiggling bones and soft bodies, stepped
-//! together in fixed steps. An animation simulates from its start, so the same time always gives
-//! the same pose and export bakes it into frames; a state machine steps it as it plays.
+//! The simulation behind physical animation: springs, jiggling bones, squash and soft bodies,
+//! stepped together in fixed steps. An animation simulates from its start, so the same time
+//! always gives the same pose and export bakes it into frames; a state machine steps it as it
+//! plays.
 
 use crate::soft::{self, Body};
 use crate::spring::{self, Sprung, Tip};
+use crate::squash::{self, Stretch};
 use crate::{Animation, Document};
 
 /// Simulation frames per second; each frame is split into `SUBSTEPS` steps.
@@ -15,6 +17,7 @@ const SUBSTEPS: usize = 10;
 pub struct SimState {
     values: Vec<Sprung>,
     tips: Vec<Tip>,
+    stretches: Vec<Stretch>,
     bodies: Vec<Body>,
     /// Nodes in the document it was started from: a different count means the scene changed.
     nodes: usize,
@@ -27,8 +30,9 @@ impl SimState {
         let mut pose = keys.clone();
         pose.solve_ik();
         let tips = spring::tips(&pose);
+        let stretches = squash::stretches(&pose);
         pose.skin_all();
-        SimState { values, tips, bodies: soft::bodies(&pose), nodes: keys.nodes.len() }
+        SimState { values, tips, stretches, bodies: soft::bodies(&pose), nodes: keys.nodes.len() }
     }
 
     /// True when the simulation was started from a document shaped like `doc`.
@@ -43,6 +47,7 @@ impl SimState {
         spring::apply_values(&self.values, &mut pose);
         pose.solve_ik();
         spring::step_tips(&mut self.tips, &mut pose, dt, SUBSTEPS);
+        squash::step_stretches(&mut self.stretches, &mut pose, dt, SUBSTEPS);
         pose.skin_all();
         soft::step_bodies(&mut self.bodies, &pose, dt, SUBSTEPS);
     }
@@ -56,13 +61,14 @@ impl SimState {
         }
     }
 
-    /// `keys` posed as the simulation has it: sprung values, bones (IK, then jiggle), skins and
-    /// soft bodies.
+    /// `keys` posed as the simulation has it: sprung values, bones (IK, then jiggle), squash,
+    /// skins and soft bodies.
     pub fn apply(&self, keys: &Document) -> Document {
         let mut out = keys.clone();
         spring::apply_values(&self.values, &mut out);
         out.solve_ik();
         spring::apply_tips(&self.tips, &mut out);
+        squash::apply_stretches(&self.stretches, &mut out);
         out.skin_all();
         soft::apply_bodies(&self.bodies, &mut out);
         out
@@ -82,10 +88,10 @@ impl SimCache {
 }
 
 impl Document {
-    /// True when something is simulated (springs, jiggling bones, soft bodies), so posing
+    /// True when something is simulated (springs, jiggling bones, squash, soft bodies), so posing
     /// needs a simulation.
     pub fn has_sim(&self) -> bool {
-        self.nodes.iter().any(|n| n.soft.is_some() || n.spring.is_some() || n.jiggle.is_some())
+        self.nodes.iter().any(|n| n.soft.is_some() || n.spring.is_some() || n.jiggle.is_some() || n.squash.is_some())
     }
 }
 
@@ -209,5 +215,47 @@ mod tests {
         let end = a.pose_with(&d, 2.0, &mut cache);
         assert!(end.nodes[1].rotation.abs() < 1.0, "comes to rest: {}", end.nodes[1].rotation);
         assert!((tip(&end) - tip(&stiff.1.pose(&stiff.0, 2.0))).hypot() < 1.0);
+    }
+
+    /// A ball keyed to fly right fast and stop dead at t 0.5, with squash on.
+    fn throw() -> (Document, Animation) {
+        let mut d = Document::new(Artboard::default());
+        let mut b = Node::new("b", ShapeKind::Ellipse);
+        (b.width, b.height) = (40.0, 40.0);
+        b.squash = Some(crate::Squash::default());
+        d.nodes.push(b);
+        let k = |time, v| Keyframe { time, value: Value::Num(v), ease: Ease::Linear };
+        let a = Animation {
+            name: "Throw".into(),
+            duration: 2.0,
+            looping: false,
+            tracks: vec![Track { node: "b".into(), prop: Prop::X, keys: vec![k(0.0, 0.0), k(0.5, 400.0)] }],
+        };
+        (d, a)
+    }
+
+    /// Width and height of the ball as drawn on the artboard.
+    fn size(d: &Document) -> (f64, f64) {
+        use kurbo::Shape;
+        let b = (d.world_transform(0) * d.nodes[0].path().unwrap()).bounding_box();
+        (b.width(), b.height())
+    }
+
+    #[test]
+    fn squash_stretches_in_flight_and_squashes_on_a_stop() {
+        let (d, a) = throw();
+        let mut cache = SimCache::default();
+        // Flying at 800 units per second: longer along the motion, thinner across, same area.
+        let (w, h) = size(&a.pose_with(&d, 0.45, &mut cache));
+        assert!(w > 50.0 && h < 32.0, "{w} {h}");
+        assert!((w * h - 1600.0).abs() < 60.0, "keeps the area: {}", w * h);
+        // Right after the stop it swings into a squash: short along the motion, wide across.
+        let squashed = (31..60).map(|f| size(&a.pose_with(&d, f as f64 / 60.0, &mut cache))).any(|(w, h)| w < 36.0 && h > 44.0);
+        assert!(squashed);
+        // And settles back to round, staying where the keys put it.
+        let end = a.pose_with(&d, 2.0, &mut cache);
+        let (w, h) = size(&end);
+        assert!((w - 40.0).abs() < 1.0 && (h - 40.0).abs() < 1.0, "{w} {h}");
+        assert_eq!(end.nodes[0].x, 400.0);
     }
 }

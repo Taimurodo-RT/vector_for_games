@@ -878,3 +878,12 @@ fn springs_and_jiggling_bones_parse() {
     let errs = parse("rect r jiggle\nrect q spring 0\nrect p spring 3 -1\n").unwrap_err();
     assert_eq!(errs.len(), 3, "{errs:?}");
 }
+
+#[test]
+fn squash_parses() {
+    let s = scene("ellipse a squash\nellipse b squash 1 6 0.2\n");
+    assert_eq!(s.doc.node("a").unwrap().squash, Some(motif_core::Squash::default()));
+    assert_eq!(s.doc.node("b").unwrap().squash, Some(motif_core::Squash { amount: 1.0, spring: motif_core::Spring { freq: 6.0, damp: 0.2 } }));
+    let errs = parse("rect r squash -1\nrect q squash 1 0\n").unwrap_err();
+    assert_eq!(errs.len(), 2, "{errs:?}");
+}

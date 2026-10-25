@@ -289,6 +289,10 @@ pub struct Node {
     pub spring: Option<crate::Spring>,
     /// Bone only: the bone lags behind and swings after the motion of the bone it hangs from.
     pub jiggle: Option<crate::Spring>,
+    /// Stretches along the motion and squashes on a stop, keeping the area.
+    pub squash: Option<crate::Squash>,
+    /// Stretch set by the simulation for `squash`, in the parent's space about the pivot.
+    pub warp: Option<Affine>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -420,6 +424,8 @@ impl Node {
             solid: false,
             spring: None,
             jiggle: None,
+            squash: None,
+            warp: None,
         }
     }
 
@@ -507,6 +513,7 @@ impl Node {
     pub fn local_transform(&self) -> Affine {
         let tan = |deg: f64| deg.clamp(-89.0, 89.0).to_radians().tan();
         Affine::translate(Vec2::new(self.x, self.y) + self.pivot)
+            * self.warp.unwrap_or(Affine::IDENTITY)
             * Affine::rotate(self.rotation.to_radians())
             * Affine::skew(tan(self.skew_x), tan(self.skew_y))
             * Affine::scale_non_uniform(self.scale_x, self.scale_y)

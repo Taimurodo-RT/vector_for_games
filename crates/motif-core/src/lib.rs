@@ -9,6 +9,7 @@ mod sim;
 mod skin;
 mod soft;
 mod spring;
+mod squash;
 mod style;
 pub mod text;
 
@@ -20,5 +21,6 @@ pub use model::{Animation, Artboard, Document, Gradient, Ik, Keyframe, Node, Pro
 pub use sim::{SIM_FPS, SimCache, SimState};
 pub use soft::Soft;
 pub use spring::{SPRUNG, Spring};
+pub use squash::Squash;
 pub use style::{Blend, Cap, Join, Shadow};
 pub use text::{TextAlign, TextShape, TextStyle};
