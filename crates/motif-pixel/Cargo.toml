@@ -1,0 +1,12 @@
+[package]
+name = "motif-pixel"
+description = "Подготовка сцены Motif к пикселизации: кадры, палитры JASC .pal для PixaTool, пиксельное превью"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motif-core.workspace = true
+motif-render.workspace = true
+tiny-skia.workspace = true

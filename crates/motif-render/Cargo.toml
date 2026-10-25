@@ -1,0 +1,16 @@
+[package]
+name = "motif-render"
+description = "Рендер сцены Motif: Vello на GPU для редактора и tiny-skia на CPU для экспорта"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["gpu"]
+gpu = ["dep:vello"]
+
+[dependencies]
+motif-core.workspace = true
+tiny-skia.workspace = true
+vello = { workspace = true, optional = true }

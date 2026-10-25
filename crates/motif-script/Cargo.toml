@@ -1,0 +1,10 @@
+[package]
+name = "motif-script"
+description = "Скрипт сцены Motif (.msc): парсер с позициями значений и обратная запись правок из редактора"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motif-core.workspace = true

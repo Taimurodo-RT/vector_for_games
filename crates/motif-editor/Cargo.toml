@@ -1,0 +1,21 @@
+[package]
+name = "motif-editor"
+description = "Редактор Motif: скрипт сцены с живым превью, холст, слои, свойства и таймлайн"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "motif-editor"
+path = "src/main.rs"
+
+[dependencies]
+motif-core.workspace = true
+motif-script.workspace = true
+motif-render = { workspace = true, features = ["gpu"] }
+motif-pixel.workspace = true
+eframe.workspace = true
+egui.workspace = true
+rfd.workspace = true
+tiny-skia.workspace = true
