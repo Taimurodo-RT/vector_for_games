@@ -477,6 +477,198 @@ pub fn set_key_ease(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop
     })
 }
 
+/// A key as written in a track: its time, the value text and the curve text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeyText {
+    pub time: f64,
+    pub value: String,
+    pub ease: Option<String>,
+}
+
+/// A key of one track of an animation: `node.prop` at `time`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeyAt {
+    pub node: String,
+    pub prop: Prop,
+    pub time: f64,
+}
+
+/// A copied key: where it came from and how it is written.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeyCopy {
+    pub node: String,
+    pub prop: Prop,
+    pub key: KeyText,
+}
+
+fn read_keys(src: &str, track: &TrackSite) -> Vec<KeyText> {
+    track
+        .keys
+        .iter()
+        .map(|k| KeyText { time: k.time, value: src[k.value.start..k.value.end].to_string(), ease: k.ease.map(|e| src[e.start..e.end].to_string()) })
+        .collect()
+}
+
+fn keys_line(keys: &[KeyText]) -> String {
+    keys.iter()
+        .map(|k| match &k.ease {
+            Some(e) => format!("{}: {} {e}", fmt_num(key_time(k.time)), k.value),
+            None => format!("{}: {}", fmt_num(key_time(k.time)), k.value),
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// Applies non-overlapping replacements at once.
+fn splice_all(src: &str, mut edits: Vec<(Span, String)>) -> String {
+    edits.sort_by_key(|(s, _)| std::cmp::Reverse(s.start));
+    let mut out = src.to_string();
+    for (span, text) in edits {
+        out.replace_range(span.start..span.end, &text);
+    }
+    out
+}
+
+/// Returns the script with the keys of whole tracks replaced: each entry is the new key list of
+/// `node.prop`, sorted on writing. An empty list removes the track line; a track the animation
+/// does not have yet gets a new line at the end of the block. `None` when the animation does not
+/// exist or a list has two keys at the same time.
+pub fn write_tracks(src: &str, scene: &Scene, anim: &str, tracks: &[(String, Prop, Vec<KeyText>)]) -> Option<String> {
+    let site = scene.anims.get(anim)?;
+    let mut edits = Vec::new();
+    let mut added = String::new();
+    for (node, prop, keys) in tracks {
+        let mut keys = keys.clone();
+        keys.sort_by(|a, b| key_time(a.time).total_cmp(&key_time(b.time)));
+        if keys.windows(2).any(|w| (key_time(w[0].time) - key_time(w[1].time)).abs() < SAME_TIME) {
+            return None;
+        }
+        match find_track(scene, anim, node, *prop) {
+            Some(track) if keys.is_empty() => edits.push((whole_lines(src, track.span), String::new())),
+            Some(track) => {
+                let (first, last) = (track.keys.first()?, track.keys.last()?);
+                edits.push((Span::new(first.span.start, last.span.end), keys_line(&keys)));
+            }
+            None if keys.is_empty() => {}
+            None => added.push_str(&format!("  {node}.{}  {}\n", prop.path_name(), keys_line(&keys))),
+        }
+    }
+    let out = splice_all(src, edits);
+    if added.is_empty() {
+        return Some(out);
+    }
+    // Every edited track line is inside the block, so the closing brace moved by the length change.
+    let close = (site.close + out.len()).checked_sub(src.len())?;
+    Some(insert_before_close(&out, close, &added))
+}
+
+/// The tracks that hold `keys`, read with their keys as written.
+fn tracks_of(src: &str, scene: &Scene, anim: &str, keys: &[KeyAt]) -> Option<Vec<(String, Prop, Vec<KeyText>)>> {
+    let mut out: Vec<(String, Prop, Vec<KeyText>)> = Vec::new();
+    for k in keys {
+        if out.iter().any(|(n, p, _)| n == &k.node && *p == k.prop) {
+            continue;
+        }
+        let track = find_track(scene, anim, &k.node, k.prop)?;
+        out.push((k.node.clone(), k.prop, read_keys(src, track)));
+    }
+    Some(out)
+}
+
+fn is_picked(keys: &[KeyAt], node: &str, prop: Prop, time: f64) -> bool {
+    keys.iter().any(|k| k.node == node && k.prop == prop && (k.time - time).abs() < SAME_TIME)
+}
+
+/// Returns the script with `keys` moved to `map(time)` (snapped to 0.01 s and kept at or after 0),
+/// for moving and stretching several keys at once. `None` when a key does not exist or two keys
+/// of a track would land on the same time.
+pub fn retime_keys(src: &str, scene: &Scene, anim: &str, keys: &[KeyAt], map: impl Fn(f64) -> f64) -> Option<String> {
+    let mut tracks = tracks_of(src, scene, anim, keys)?;
+    for k in keys {
+        let (_, _, list) = tracks.iter().find(|(n, p, _)| n == &k.node && *p == k.prop)?;
+        list.iter().find(|x| (x.time - k.time).abs() < SAME_TIME)?;
+    }
+    for (node, prop, list) in &mut tracks {
+        for key in list.iter_mut() {
+            if is_picked(keys, node, *prop, key.time) {
+                key.time = key_time(map(key.time));
+            }
+        }
+    }
+    write_tracks(src, scene, anim, &tracks)
+}
+
+/// Returns the script without `keys`; tracks left without keys are removed. `None` when one of
+/// them does not exist.
+pub fn delete_keys(src: &str, scene: &Scene, anim: &str, keys: &[KeyAt]) -> Option<String> {
+    let mut tracks = tracks_of(src, scene, anim, keys)?;
+    let before: usize = tracks.iter().map(|t| t.2.len()).sum();
+    for (node, prop, list) in &mut tracks {
+        list.retain(|key| !is_picked(keys, node, *prop, key.time));
+    }
+    let after: usize = tracks.iter().map(|t| t.2.len()).sum();
+    if before - after != keys.len() {
+        return None;
+    }
+    write_tracks(src, scene, anim, &tracks)
+}
+
+/// Returns the script with the curve of every key in `keys` set to `ease`.
+pub fn set_keys_ease(src: &str, scene: &Scene, anim: &str, keys: &[KeyAt], ease: &str) -> Option<String> {
+    let mut edits = Vec::new();
+    for k in keys {
+        let track = find_track(scene, anim, &k.node, k.prop)?;
+        let key = track.keys.iter().find(|x| (x.time - k.time).abs() < SAME_TIME)?;
+        edits.push(match key.ease {
+            Some(span) => (span, ease.to_string()),
+            None => (Span::new(key.value.end, key.value.end), format!(" {ease}")),
+        });
+    }
+    Some(splice_all(src, edits))
+}
+
+/// Copies `keys` as written, in time order.
+pub fn copy_keys(src: &str, scene: &Scene, anim: &str, keys: &[KeyAt]) -> Vec<KeyCopy> {
+    let mut out: Vec<KeyCopy> = keys
+        .iter()
+        .filter_map(|k| {
+            let track = find_track(scene, anim, &k.node, k.prop)?;
+            let i = track.keys.iter().position(|x| (x.time - k.time).abs() < SAME_TIME)?;
+            Some(KeyCopy { node: k.node.clone(), prop: k.prop, key: read_keys(src, track).swap_remove(i) })
+        })
+        .collect();
+    out.sort_by(|a, b| a.key.time.total_cmp(&b.key.time));
+    out
+}
+
+/// Returns the script with copied keys pasted so that the earliest lands at `at`, and the times
+/// they now have. With `onto`, keys copied from a single object go to that object instead. A key
+/// already at a pasted time is replaced. `None` when the animation or an object does not exist.
+pub fn paste_keys(src: &str, scene: &Scene, anim: &str, clip: &[KeyCopy], at: f64, onto: Option<&str>) -> Option<(String, Vec<KeyAt>)> {
+    let start = clip.iter().map(|c| c.key.time).fold(f64::INFINITY, f64::min);
+    if !start.is_finite() {
+        return None;
+    }
+    let mut tracks: Vec<(String, Prop, Vec<KeyText>)> = Vec::new();
+    let mut pasted = Vec::new();
+    for c in clip {
+        let node = onto.unwrap_or(&c.node);
+        if node != "world" && scene.doc.node(node).is_none() {
+            return None;
+        }
+        if !tracks.iter().any(|(n, p, _)| n == node && *p == c.prop) {
+            let list = find_track(scene, anim, node, c.prop).map(|t| read_keys(src, t)).unwrap_or_default();
+            tracks.push((node.to_string(), c.prop, list));
+        }
+        let (_, _, list) = tracks.iter_mut().find(|(n, p, _)| n == node && *p == c.prop)?;
+        let time = key_time(at + c.key.time - start);
+        list.retain(|k| (k.time - time).abs() >= SAME_TIME);
+        list.push(KeyText { time, ..c.key.clone() });
+        pasted.push(KeyAt { node: node.to_string(), prop: c.prop, time });
+    }
+    Some((write_tracks(src, scene, anim, &tracks)?, pasted))
+}
+
 /// Copied declarations: the text of each statement with the places to rewrite on paste.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snippet {

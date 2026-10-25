@@ -38,7 +38,7 @@ impl App {
     pub(crate) fn select_only(&mut self, id: Option<String>) {
         self.selected = id;
         self.also.clear();
-        self.sel_key = None;
+        self.sel_keys.clear();
     }
 
     /// Shift-click: adds an object to the selection or takes it out.
@@ -52,7 +52,7 @@ impl App {
         } else {
             self.also.push(id);
         }
-        self.sel_key = None;
+        self.sel_keys.clear();
     }
 
     /// Drops ids that no longer exist, e.g. after undo.
@@ -71,7 +71,7 @@ impl App {
         let mut ids = self.scene.doc.nodes.iter().filter(|n| n.parent.is_none()).map(|n| n.id.clone());
         self.selected = ids.next();
         self.also = ids.collect();
-        self.sel_key = None;
+        self.sel_keys.clear();
     }
 
     /// Copies the selection: kept for pasting and put on the system clipboard as script text.
@@ -140,7 +140,7 @@ impl App {
         let mut ids = ids.into_iter();
         self.selected = ids.next();
         self.also = ids.collect();
-        self.sel_key = None;
+        self.sel_keys.clear();
     }
 
     /// Deletes every selected object with its keys. Returns how many were removed.

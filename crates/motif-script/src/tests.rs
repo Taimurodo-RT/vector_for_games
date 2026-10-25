@@ -1154,3 +1154,61 @@ fn pulls_and_fans_parse_and_key() {
     let a = s.doc.animation("Pulse").unwrap();
     assert_eq!(a.keys_at(&s.doc, 1.0).node("hole").unwrap().pull.unwrap().strength, 2000.0);
 }
+
+#[test]
+fn several_keys_move_scale_delete_and_paste() {
+    let src = "rect a\nrect b\nanim Go 2s {\n  a.x  0: 0 | 1: 5 ease-in | 1.5: 8\n  b.y  0.5: 1 hold\n}\n";
+    let s = scene(src);
+    let at = |node: &str, prop, time| KeyAt { node: node.into(), prop, time };
+    // Move two keys of different tracks together.
+    let keys = [at("a", Prop::X, 1.0), at("b", Prop::Y, 0.5)];
+    let out = retime_keys(src, &s, "Go", &keys, |t| t + 0.25).unwrap();
+    assert!(out.contains("a.x  0: 0 | 1.25: 5 ease-in | 1.5: 8"), "{out}");
+    assert!(out.contains("b.y  0.75: 1 hold"), "{out}");
+    // Landing on an unpicked key is refused; moving past one reorders.
+    assert!(retime_keys(src, &s, "Go", &[at("a", Prop::X, 1.0)], |t| t + 0.5).is_none());
+    let out = retime_keys(src, &s, "Go", &[at("a", Prop::X, 1.0)], |t| t + 0.75).unwrap();
+    assert!(out.contains("a.x  0: 0 | 1.5: 8 | 1.75: 5 ease-in"), "{out}");
+    // Stretch around 0: every key of the track doubles its time.
+    let all = [at("a", Prop::X, 0.0), at("a", Prop::X, 1.0), at("a", Prop::X, 1.5)];
+    let out = retime_keys(src, &s, "Go", &all, |t| t * 2.0).unwrap();
+    assert!(out.contains("a.x  0: 0 | 2: 5 ease-in | 3: 8"), "{out}");
+    // A missing key fails the whole edit.
+    assert!(retime_keys(src, &s, "Go", &[at("a", Prop::X, 0.7)], |t| t).is_none());
+
+    // Delete: a track left empty disappears with its line.
+    let out = delete_keys(src, &s, "Go", &[at("a", Prop::X, 1.0), at("b", Prop::Y, 0.5)]).unwrap();
+    assert_eq!(out, "rect a\nrect b\nanim Go 2s {\n  a.x  0: 0 | 1.5: 8\n}\n");
+    scene(&out);
+
+    // Curves of several keys.
+    let out = set_keys_ease(src, &s, "Go", &[at("a", Prop::X, 0.0), at("a", Prop::X, 1.0)], "linear").unwrap();
+    assert!(out.contains("a.x  0: 0 linear | 1: 5 linear | 1.5: 8"), "{out}");
+
+    // Copy two keys of a and paste them at 0.5 onto b: a new track.
+    let clip = copy_keys(src, &s, "Go", &[at("a", Prop::X, 1.5), at("a", Prop::X, 1.0)]);
+    assert_eq!(clip.len(), 2);
+    assert_eq!(clip[0].key, KeyText { time: 1.0, value: "5".into(), ease: Some("ease-in".into()) });
+    let (out, pasted) = paste_keys(src, &s, "Go", &clip, 0.5, Some("b")).unwrap();
+    assert!(out.contains("  b.x  0.5: 5 ease-in | 1: 8\n}"), "{out}");
+    assert_eq!(pasted, vec![at("b", Prop::X, 0.5), at("b", Prop::X, 1.0)]);
+    scene(&out);
+    // Pasting onto the same track replaces a key at the same time.
+    let (out, _) = paste_keys(src, &s, "Go", &clip, 0.0, None).unwrap();
+    assert!(out.contains("a.x  0: 5 ease-in | 0.5: 8 | 1: 5 ease-in | 1.5: 8"), "{out}");
+    assert!(paste_keys(src, &s, "Go", &clip, 0.0, Some("nope")).is_none());
+
+    // write_tracks keeps other text and sorts.
+    let out = write_tracks(
+        src,
+        &s,
+        "Go",
+        &[(
+            "b".into(),
+            Prop::Y,
+            vec![KeyText { time: 1.0, value: "3".into(), ease: None }, KeyText { time: 0.2, value: "2".into(), ease: Some("spring".into()) }],
+        )],
+    )
+    .unwrap();
+    assert!(out.contains("b.y  0.2: 2 spring | 1: 3\n"), "{out}");
+}
