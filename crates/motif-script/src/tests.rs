@@ -862,3 +862,19 @@ fn soft_bodies_and_solids_parse() {
     let errs = parse("ellipse b soft 3\ngroup g soft\n").unwrap_err();
     assert_eq!(errs.len(), 2, "{errs:?}");
 }
+
+#[test]
+fn springs_and_jiggling_bones_parse() {
+    let s = scene("group g spring {\n  rect r spring 5 0.8\n}\nbone a len 40 {\n  bone b len 30 jiggle 4\n}\n");
+    let d = motif_core::Spring::default();
+    assert_eq!(s.doc.node("g").unwrap().spring, Some(d));
+    assert_eq!(s.doc.node("r").unwrap().spring, Some(motif_core::Spring { freq: 5.0, damp: 0.8 }));
+    assert_eq!(s.doc.node("b").unwrap().jiggle, Some(motif_core::Spring { freq: 4.0, damp: d.damp }));
+    assert!(s.doc.node("a").unwrap().jiggle.is_none());
+    let src = "rect r spring\n";
+    let s = scene(src);
+    let out = set_style(src, &s, "r", "spring", Some("spring 2 0.5")).unwrap();
+    assert_eq!(out, "rect r spring 2 0.5\n");
+    let errs = parse("rect r jiggle\nrect q spring 0\nrect p spring 3 -1\n").unwrap_err();
+    assert_eq!(errs.len(), 3, "{errs:?}");
+}

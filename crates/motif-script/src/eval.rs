@@ -664,6 +664,24 @@ impl<'a> Evaluator<'a> {
                         self.err(p.key_span, format!("«{}»: {hint}", p.key));
                     }
                 }
+                "jiggle" if n.kind != ShapeKind::Bone => {
+                    self.err(p.key_span, "«jiggle» бывает только у bone: кость покачивается вслед за родительской");
+                }
+                "spring" | "jiggle" => {
+                    let d = motif_core::Spring::default();
+                    let freq = if p.values.is_empty() { Some(d.freq) } else { num(0) };
+                    let damp = if p.values.len() < 2 { Some(d.damp) } else { num(1) };
+                    match (freq, damp) {
+                        (Some(freq), Some(damp)) if freq > 0.0 && freq <= motif_core::Spring::MAX_FREQ && damp >= 0.0 => {
+                            let s = Some(motif_core::Spring { freq, damp });
+                            if p.key == "spring" { node.spring = s } else { node.jiggle = s }
+                        }
+                        _ => self.err(
+                            p.key_span,
+                            format!("«{}» — частота в колебаниях за секунду (больше 0, до 30) и затухание от 0 (1 — без перелёта): {} 3 0.3", p.key, p.key),
+                        ),
+                    }
+                }
                 "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,

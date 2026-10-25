@@ -285,6 +285,10 @@ pub struct Node {
     pub soft: Option<crate::Soft>,
     /// Soft bodies cannot pass through this shape.
     pub solid: bool,
+    /// Keyed position, size and rotation follow on a spring: they overshoot and settle.
+    pub spring: Option<crate::Spring>,
+    /// Bone only: the bone lags behind and swings after the motion of the bone it hangs from.
+    pub jiggle: Option<crate::Spring>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -414,6 +418,8 @@ impl Node {
             deformed: None,
             soft: None,
             solid: false,
+            spring: None,
+            jiggle: None,
         }
     }
 
@@ -625,7 +631,15 @@ impl Document {
                 return false;
             }
             let Some(path) = node.path() else { return false };
-            let local = self.world_transform(i).inverse() * point;
+            // A shape scaled to nothing (a pop-in keyed from scale 0) has no inside to hit.
+            let w = self.world_transform(i);
+            if w.determinant().abs() < 1e-12 {
+                return false;
+            }
+            let local = w.inverse() * point;
+            if !local.is_finite() {
+                return false;
+            }
             // Text is picked by its whole box, not only the letters.
             if let Some(t) = &node.text {
                 return t.bounds(&node.text_style).inflate(2.0, 2.0).contains(local);
