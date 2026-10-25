@@ -244,6 +244,9 @@ cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out
 * `ui` помечает объект или группу как деталь интерфейса, `slice 20` (или `slice 16 12`, `slice 22 46 22 22`) — поля
   9-slice, которые не растягиваются. В редакторе это раздел «Интерфейс», поля видны на холсте розовым пунктиром.
 * Состояния — анимации `Hover`, `Press`, `Disabled`, `Focus`: каждое состояние — последний кадр анимации.
+* Пример точного повтора веб-кнопки по её CSS — [`examples/modern-button.msc`](examples/modern-button.msc): размеры,
+  кривая `cubic-bezier(0.23, 1, 0.32, 1)`, разные длительности свойств, `overflow: hidden` маской, кольцо из
+  `box-shadow`, машина состояний hover/press. Шрифт Inter лежит в `examples/fonts` (лицензия OFL).
 * «Экспорт → Сохранить UI-набор…» (или `motif kit`) пишет PNG по деталям и состояниям и тему `.tres`: деталь с
   состояниями становится вариацией `Button`, без них — `PanelContainer`, со `StyleBoxTexture` и полями 9-slice. Тени и
   обводки за рамкой детали уходят в `expand_margin`, поэтому кнопка в Godot остаётся своего размера. Тема проверена в
