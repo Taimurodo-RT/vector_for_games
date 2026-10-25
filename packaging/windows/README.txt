@@ -100,7 +100,14 @@ PixaTool: «Экспорт → PixaTool». Motif сам находит Pixatool.
 через него кадры анимации — кнопка «Пикселизировать кадры…». PixaTool
 запускается вне экрана и закрывается сам. Пути запоминаются в motif.ini.
 
-motif.exe — командная строка: motif.exe check|render|frames|palette|pixel
+UI-наборы для Godot: «Файл → Новый UI-набор» — заготовка кнопок и панелей.
+Раздел «Интерфейс» у объекта: «Деталь интерфейса» (ui) и «Тянется (9-slice)»
+с полями, которые не растягиваются. Состояния — анимации Hover, Press,
+Disabled, Focus. «Экспорт → Сохранить UI-набор…» пишет PNG и тему .tres:
+назначьте её Theme корневому Control, а детали выберите в Theme Type Variation
+(пример examples\ui-kit.msc).
+
+motif.exe — командная строка: motif.exe check|render|frames|palette|pixel|kit
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 
 В строке состояния внизу видно, чем рисует холст: «Vello на GPU» или запасной CPU-рендер.

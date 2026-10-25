@@ -228,7 +228,22 @@ cargo run --release -p motif-cli -- render examples/bounce.msc -o ball.png --sca
 cargo run --release -p motif-cli -- frames examples/bounce.msc --anim Idle --fps 12 --width 120 --no-aa -o out/idle
 cargo run --release -p motif-cli -- palette examples/bounce.msc -o out/scene.pal
 cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --preset my.preset --no-aa -o out/idle_px
+cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
 ```
+
+## UI-наборы для Godot
+
+Интерфейс игры рисуется в Motif обычными фигурами и уходит в Godot готовой темой. «Файл → Новый UI-набор» открывает
+заготовку ([`examples/ui-kit.msc`](examples/ui-kit.msc)): кнопку в четырёх состояниях, «закрыть», панель, полосу,
+флажок и подсказку.
+
+* `ui` помечает объект или группу как деталь интерфейса, `slice 20` (или `slice 16 12`, `slice 22 46 22 22`) — поля
+  9-slice, которые не растягиваются. В редакторе это раздел «Интерфейс», поля видны на холсте розовым пунктиром.
+* Состояния — анимации `Hover`, `Press`, `Disabled`, `Focus`: каждое состояние — последний кадр анимации.
+* «Экспорт → Сохранить UI-набор…» (или `motif kit`) пишет PNG по деталям и состояниям и тему `.tres`: деталь с
+  состояниями становится вариацией `Button`, без них — `PanelContainer`, со `StyleBoxTexture` и полями 9-slice. Тени и
+  обводки за рамкой детали уходят в `expand_margin`, поэтому кнопка в Godot остаётся своего размера. Тема проверена в
+  Godot 4.3. Подробнее — [docs/export.html#ui-kit](docs/export.html#ui-kit).
 
 ## Пикселизация: PixaTool
 

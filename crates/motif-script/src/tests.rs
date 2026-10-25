@@ -983,6 +983,24 @@ fn bodies_parse_key_and_edit() {
 }
 
 #[test]
+fn ui_pieces_parse_and_edit() {
+    let src = "group btn ui slice 12 {\n  rect base size 80 30\n}\nrect bar size 80 10 slice 4 2\nrect tip size 40 20 slice 1 2 3 4\nrect icon size 10 10 ui\n";
+    let s = scene(src);
+    let n = |id: &str| s.doc.node(id).unwrap().clone();
+    assert!(n("btn").ui && n("icon").ui && !n("bar").ui);
+    assert_eq!(n("btn").slice, Some([12.0; 4]));
+    assert_eq!(n("bar").slice, Some([4.0, 2.0, 4.0, 2.0]));
+    assert_eq!(n("tip").slice, Some([1.0, 2.0, 3.0, 4.0]));
+    assert_eq!(n("icon").slice, None);
+    let out = set_style(src, &s, "bar", "slice", Some("slice 6")).unwrap();
+    assert!(out.contains("size 80 10 slice 6\n"), "{out}");
+    let out = set_style(src, &s, "icon", "ui", None).unwrap();
+    assert!(out.contains("rect icon size 10 10\n"), "{out}");
+    let errs = parse("rect a slice -1\nrect b slice 1 2 3\nrect c slice\n").unwrap_err();
+    assert_eq!(errs.len(), 3, "{errs:?}");
+}
+
+#[test]
 fn fluids_parse() {
     let s = scene("rect pool size 60 120 fluid\nrect tap size 10 10 fluid 0.4 flow 80 gravity 600\n");
     assert_eq!(s.doc.node("pool").unwrap().fluid, Some(motif_core::Fluid::default()));
