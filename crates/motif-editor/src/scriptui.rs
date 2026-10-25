@@ -66,6 +66,8 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("}", ""),
             ("x y w h rot sx sy opacity fill stroke stroke_w", "что можно анимировать"),
             ("blur elevation shadow-x shadow-y shadow-blur", "и эффекты тоже"),
+            ("ellipse blob … morph star heart", "перетекает в контуры целей"),
+            ("blob.morph 0: 0 | 1: 1 | 2: 2", "0 — сама, 1 — первая цель, 2 — вторая"),
             ("override { coin2.y = 12 }", "правки поверх формул и циклов"),
         ],
     ),

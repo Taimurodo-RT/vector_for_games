@@ -62,7 +62,32 @@
   <tr><td>Заливка, цвет и толщина обводки</td><td><code>fill stroke stroke_w</code></td></tr>
   <tr><td>Текст: размер, интервал, появление, волна</td><td><code>font-size letter-spacing reveal wave phase</code></td></tr>
   <tr><td>Эффекты: размытие, высота, тень</td><td><code>blur elevation shadow-x shadow-y shadow-blur</code></td></tr>
+  <tr><td>Морфинг: сколько фигура перетекла в цели</td><td><code>morph</code></td></tr>
 </table></div>
+
+<h2 id="morph">Морфинг</h2>
+<p>Фигура может перетекать в контуры других фигур: шар в звезду, звезда в сердце, «play» в «pause», меню в крестик. Цели — обычные фигуры сцены, их перечисляют по порядку, а ключ <code>morph</code> ведёт превращение: 0 — фигура как нарисована, 1 — первая цель, 2 — вторая, дробные значения — между ними.</p>
+<pre><code><span class="k">star</span> star_shape size <span class="n">150 150</span> points <span class="n">5</span> fill <span class="n">#ffd23f</span> hidden
+<span class="k">path</span> heart_shape d <span class="s">"M 0 60 C -40 30 …"</span> fill <span class="n">#ff5c8a</span> hidden
+<span class="k">ellipse</span> blob at <span class="n">150 170</span> size <span class="n">120 120</span> fill <span class="n">#5ee0a0</span> morph star_shape heart_shape
+
+<span class="k">anim</span> Flow <span class="n">4s</span> <span class="k">loop</span> {
+  blob.morph <span class="n">0</span>: <span class="n">0</span> <span class="p">ease-in-out</span> | <span class="n">1</span>: <span class="n">1</span> | <span class="n">2.6</span>: <span class="n">2</span> | <span class="n">4</span>: <span class="n">0</span>
+}</code></pre>
+<ul>
+  <li><b>Точки сопоставляются сами.</b> Контуры обходятся в одну сторону и с самого подходящего начала, поэтому точки не перекрещиваются и форма не выворачивается. Острые углы остаются острыми: звезда в конце — точно звезда.</li>
+  <li><b>Цвет и обводка смешиваются</b>: заливка, цвет и толщина обводки идут от фигуры к цели. Если у одной стороны заливки нет, цвет плавно появляется или гаснет.</li>
+  <li><b>Части без пары</b> отделяются от ближайшей части другой фигуры или сливаются с ней: треугольник «play» делится на две полоски паузы, три линии меню сходятся в две линии крестика. Работают и замкнутые фигуры, и открытые линии.</li>
+  <li><b>Важен только контур цели</b>, а не её место: фигура морфится там, где стоит сама. Цели обычно прячут (<code>hidden</code>). В цель годится любая фигура: прямоугольник, эллипс, звезда, многоугольник, путь, текст.</li>
+  <li><b>Работает со всем остальным</b>: кости гнут уже перетёкшую фигуру, мягкое тело и верёвка берут её форму, экспорт запекает каждый кадр.</li>
+</ul>
+<figure><img src="img/morph-render.png" alt="Четыре кадра: шар становится звездой, затем сердцем; play делится на две полоски паузы; меню из трёх линий сходится в крестик"><figcaption>Пример <code>morph.msc</code> в кадрах 0.5, 0.85, 1.45 и 2.1 с: шар на полпути к звезде, «play» делится на полоски паузы, меню сходится в крестик, звезда перетекает в сердце.</figcaption></figure>
+<div class="side">
+  <figure><img src="img/morph-panel.png" alt="Раздел «Морфинг» в панели свойств"></figure>
+  <div>
+    <p>В редакторе это раздел <b>«Морфинг»</b> в панели свойств фигуры. «Добавить цель» выбирает фигуру из сцены, крестик на цели убирает её. Поле «Сколько» с ромбом ставит ключи в Animate, как любое другое свойство, а на таймлайне появляется дорожка «Морфинг».</p>
+  </div>
+</div>
 
 <h2 id="script">Как анимация выглядит в скрипте</h2>
 <pre><code><span class="k">anim</span> Hover <span class="n">1.4s</span> <span class="k">loop</span> {

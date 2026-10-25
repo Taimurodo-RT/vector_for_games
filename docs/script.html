@@ -64,6 +64,7 @@
   <tr><td>Группа</td><td><code>group g at 40 40 { … }</code></td><td>Вложенные объекты двигаются вместе с группой.</td></tr>
   <tr><td>Символ и копия</td><td><code>symbol Coin size=16 { … }</code>, <code>use Coin c1 at 40 40 size=24</code></td><td>Рисуется один раз, вставляется много раз. См. <a href="#symbols">«Символы»</a>.</td></tr>
   <tr><td>Кость</td><td><code>bone arm at 100 80 len 60 { bone hand at 60 0 len 40 ik target }</code>, <code>rect sleeve … skin arm hand</code></td><td>Скелет, IK и фигуры, которые гнутся костями. См. <a href="bones.html#script">«Кости и IK»</a>.</td></tr>
+  <tr><td>Морфинг</td><td><code>ellipse blob … morph star heart</code>, ключи <code>blob.morph 0: 0 | 1: 1 | 2: 2</code></td><td>Фигура перетекает в контуры других фигур: 0 — она сама, 1 — первая цель. См. <a href="animation.html#morph">«Анимация»</a>.</td></tr>
   <tr><td>Пружина</td><td><code>spring 3 0.3</code></td><td>Ключи положения, размера и поворота догоняются с перелётом. См. <a href="physics.html#springs">«Физика»</a>.</td></tr>
   <tr><td>Покачивание кости</td><td><code>bone tail … jiggle 2.5 0.4</code></td><td>Кость отстаёт от родительской и раскачивается.</td></tr>
   <tr><td>Сжатие и растяжение</td><td><code>squash 0.6 6 0.3</code></td><td>Тянется на скорости, сплющивается при ударе. См. <a href="physics.html#squash">«Физика»</a>.</td></tr>

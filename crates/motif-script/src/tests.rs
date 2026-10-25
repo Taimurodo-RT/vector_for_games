@@ -82,6 +82,11 @@ fn every_prop_round_trips_through_edit() {
     for prop in Prop::ALL {
         let s = scene(src);
         let value = if prop.is_color() { Value::Color(Color::rgb(1, 2, 3)) } else { Value::Num(7.0) };
+        // How far a morph goes means nothing without shapes to flow into.
+        if prop == Prop::Morph {
+            assert_eq!(set_prop(src, &s, "p", prop, value), None);
+            continue;
+        }
         let out = set_prop(src, &s, "p", prop, value).unwrap();
         let got = scene(&out).doc.node("p").unwrap().get(prop);
         assert_eq!(got, value, "{prop:?}: {out}");
@@ -942,6 +947,24 @@ fn ropes_and_cloth_parse() {
     )
     .unwrap_err();
     assert_eq!(errs.len(), 8, "{errs:?}");
+}
+
+#[test]
+fn morphs_parse_key_and_edit() {
+    let src = "star s hidden\npath h d \"M 0 0 L 10 0 L 5 8 Z\" hidden\nellipse b morph s h\nanim A 2s {\n  b.morph 0: 0 | 2: 2\n}\n";
+    let s = scene(src);
+    let m = s.doc.node("b").unwrap().morph.clone().unwrap();
+    assert_eq!((m.targets, m.amount), (vec!["s".to_string(), "h".to_string()], 0.0));
+    assert_eq!(s.doc.animation("A").unwrap().keys_at(&s.doc, 1.0).node("b").unwrap().get(Prop::Morph), Value::Num(1.0));
+    // A written amount is edited in place; a missing one goes after the targets.
+    let out = set_prop(src, &s, "b", Prop::Morph, Value::Num(0.5)).unwrap();
+    assert!(out.contains("ellipse b morph s h 0.5\n"), "{out}");
+    let out = set_prop(&out, &scene(&out), "b", Prop::Morph, Value::Num(1.5)).unwrap();
+    assert!(out.contains("ellipse b morph s h 1.5\n"), "{out}");
+    assert_eq!(scene(&out).doc.node("b").unwrap().get(Prop::Morph), Value::Num(1.5));
+    let errs =
+        parse("ellipse a morph nothing\nellipse b morph b\ngroup g\nellipse c morph g\ngroup h morph a\nellipse d morph a -1\nellipse e morph\n").unwrap_err();
+    assert_eq!(errs.len(), 6, "{errs:?}");
 }
 
 #[test]

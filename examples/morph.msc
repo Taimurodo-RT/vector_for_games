@@ -1,0 +1,29 @@
+// Морфинг: фигура перетекает в контуры других фигур. morph star heart — цели по порядку,
+// ключ blob.morph ведёт её: 0 — сама фигура, 1 — первая цель, 2 — вторая.
+// Точки контуров сопоставляются сами, острые углы остаются острыми; заливка и обводка смешиваются.
+artboard "Морфинг" 480x360 bg #1d2233
+
+let ink = #10131d
+
+// Цели — обычные фигуры. Важен только их контур, а не место; hidden прячет их со сцены.
+star star_shape size 150 150 points 5 inner 0.45 fill #ffd23f stroke ink 5 hidden
+path heart_shape d "M 0 60 C -40 30 -75 5 -75 -25 C -75 -55 -40 -70 0 -40 C 40 -70 75 -55 75 -25 C 75 5 40 30 0 60 Z" fill #ff5c8a stroke ink 5 hidden
+
+ellipse blob "Капля" at 150 170 size 120 120 fill #5ee0a0 stroke ink 5 morph star_shape heart_shape
+
+// Иконка интерфейса: «play» перетекает в «pause». У паузы две полоски: первая берёт треугольник,
+// вторая вырастает из своего центра.
+path pause_shape d "M -26 -32 L -6 -32 L -6 32 L -26 32 Z M 6 -32 L 26 -32 L 26 32 L 6 32 Z" fill #f4f1ea hidden
+rect button "Кнопка" at 370 120 size 110 110 r 30 fill #3b6cff stroke ink 5
+path play "Play" at 374 120 d "M -24 -34 L 34 0 L -24 34 Z" fill #f4f1ea morph pause_shape
+
+// Меню-«гамбургер» в крестик: открытые линии тоже перетекают, лишняя стягивается в точку.
+path cross_shape d "M -26 -26 L 26 26 M -26 26 L 26 -26" stroke #f4f1ea 8 cap round hidden
+rect plate at 370 270 size 110 90 r 24 fill #283049 stroke ink 5
+path menu "Меню" at 370 270 d "M -30 -22 L 30 -22 M -30 0 L 30 0 M -30 22 L 30 22" stroke #f4f1ea 8 cap round morph cross_shape
+
+anim Flow 4s loop {
+  blob.morph 0: 0 ease-in-out | 1: 1 ease-in-out | 1.6: 1 ease-in-out | 2.6: 2 ease-in-out | 3.2: 2 ease-in-out | 4: 0
+  play.morph 0: 0 | 0.8: 0 ease-out-back | 1.3: 1 | 2.8: 1 ease-out-back | 3.3: 0
+  menu.morph 0: 0 | 1.2: 0 ease-in-out | 1.7: 1 | 3: 1 ease-in-out | 3.5: 0
+}
