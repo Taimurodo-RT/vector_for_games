@@ -76,6 +76,7 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
     let stroke_width = if current.stroke_width > 0.0 { current.stroke_width } else { 2.0 };
     let addition = match prop {
         Prop::X | Prop::Y => format!("at {} {}", pick(Prop::X), pick(Prop::Y)),
+        Prop::Width | Prop::Height if current.kind == ShapeKind::Bone => format!("len {}", pick(Prop::Width)),
         Prop::Width | Prop::Height => format!("size {} {}", pick(Prop::Width), pick(Prop::Height)),
         Prop::ScaleX | Prop::ScaleY => format!("scale {} {}", pick(Prop::ScaleX), pick(Prop::ScaleY)),
         Prop::Rotation => format!("rot {text}"),
@@ -220,7 +221,7 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
         ShapeKind::Star => "#ffc531",
         ShapeKind::Polygon => "#4fd38c",
         ShapeKind::Text => "#1b1d24",
-        ShapeKind::Group | ShapeKind::Path => "none",
+        ShapeKind::Group | ShapeKind::Path | ShapeKind::Bone => "none",
     };
     if kind == ShapeKind::Text {
         // A dragged box sets the letter height; a click gives the usual size.

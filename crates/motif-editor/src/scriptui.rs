@@ -70,6 +70,17 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
+        "Кости",
+        &[
+            ("bone arm at 100 80 len 60 rot 30 {", "кость: сустав, длина, угол"),
+            ("  bone hand at 60 0 len 40 ik target flip", "дочерняя на кончике; IK к target"),
+            ("  ellipse fist at 40 0 size 20", "объект внутри едет с костью"),
+            ("}", "chain N — сколько костей гнёт IK"),
+            ("rect sleeve … skin arm hand", "фигура гнётся костями"),
+            ("skin-sharp 2", "мягкий изгиб; 4 — сустав"),
+        ],
+    ),
+    (
         "Машина состояний",
         &[
             ("machine Player {", "состояния, переходы, входы"),

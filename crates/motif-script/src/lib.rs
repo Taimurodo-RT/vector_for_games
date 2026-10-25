@@ -21,6 +21,7 @@
 //! [`parse`] builds the document and remembers the source span of every value, so that
 //! [`set_prop`] can write a visual edit back into the text without reformatting it.
 
+mod bone;
 mod boolean;
 mod edit;
 mod eval;
@@ -32,6 +33,7 @@ mod parser;
 mod svg;
 mod symbol;
 
+pub use bone::{add_bone, add_ik_target, attach_to_bone, set_ik, set_skin};
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
     Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,

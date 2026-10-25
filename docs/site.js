@@ -8,6 +8,7 @@
     ["properties.html", "Панель свойств"],
     ["animation.html", "Анимация"],
     ["machine.html", "Машина состояний"],
+    ["bones.html", "Кости и IK"],
     ["script.html", "Скрипт сцены"],
     ["export.html", "Экспорт и программы"],
   ];

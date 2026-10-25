@@ -84,7 +84,7 @@ pub fn boolean(src: &str, scene: &Scene, ids: &[String], op: BoolOp) -> Result<(
     }
     for &i in &nodes {
         let n = &doc.nodes[i];
-        if n.kind == ShapeKind::Group {
+        if n.kind.is_container() {
             return Err(format!("«{}» — группа: выделите фигуры внутри неё", n.id));
         }
         if scene.sites.get(&n.id).is_none_or(|s| s.generated) {

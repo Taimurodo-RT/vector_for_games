@@ -23,6 +23,8 @@ pub struct Evaluator<'a> {
     prefix: String,
     /// How many symbols are being copied one inside another (to stop a symbol using itself).
     depth: usize,
+    /// Ids named by `ik` and `skin`, checked once every object exists: node, id, where it is written.
+    rig_refs: Vec<(usize, String, Span)>,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
@@ -36,6 +38,7 @@ impl<'a> Evaluator<'a> {
             symbols: HashMap::new(),
             prefix: String::new(),
             depth: 0,
+            rig_refs: Vec::new(),
             scene: Scene {
                 doc: Document::new(Artboard::default()),
                 sources: HashMap::new(),
@@ -101,6 +104,10 @@ impl<'a> Evaluator<'a> {
                 }
             }
         }
+        self.check_rig();
+        // The setup pose is the one skinned shapes were drawn in.
+        self.scene.doc.bind_skins();
+        self.scene.doc.rig();
         for s in stmts {
             if let Stmt::Anim { name, duration, looping, tracks, span, close, duration_span, loop_span } = s {
                 self.note_block(span.start);
@@ -144,6 +151,44 @@ impl<'a> Evaluator<'a> {
                 }
                 self.machine(name, lines, *span, *close);
             }
+        }
+    }
+
+    /// IK targets and skin bones must exist; a target must not hang from the chain it moves.
+    fn check_rig(&mut self) {
+        let refs = std::mem::take(&mut self.rig_refs);
+        let doc = &self.scene.doc;
+        let mut errors = Vec::new();
+        for (i, id, span) in refs {
+            let Some(t) = doc.index_of(&id) else {
+                errors.push((span, format!("нет объекта «{id}»")));
+                continue;
+            };
+            let node = &doc.nodes[i];
+            match &node.ik {
+                Some(ik) if ik.target == id => {
+                    let mut root = i;
+                    for _ in 1..ik.chain.max(1) {
+                        match doc.nodes[root].parent {
+                            Some(p) if doc.nodes[p].kind == ShapeKind::Bone => root = p,
+                            _ => break,
+                        }
+                    }
+                    let mut up = Some(t);
+                    while let Some(k) = up {
+                        if k == root {
+                            errors.push((span, format!("цель «{id}» внутри цепочки костей, которую она двигает: вынесите её из костей")));
+                            break;
+                        }
+                        up = doc.nodes[k].parent;
+                    }
+                }
+                _ if doc.nodes[t].kind != ShapeKind::Bone => errors.push((span, format!("«{id}» — не кость: skin перечисляет кости"))),
+                _ => {}
+            }
+        }
+        for (span, msg) in errors {
+            self.err(span, msg);
         }
     }
 
@@ -409,13 +454,17 @@ impl<'a> Evaluator<'a> {
         };
         let mut content = String::new();
         let mut font: Option<String> = None;
+        let mut ik: Option<(String, Span)> = None;
+        let (mut chain, mut flip) = (2, false);
+        let mut skin: Option<Vec<(String, Span)>> = None;
+        let mut sharp = motif_core::Skin::SHARP;
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
                 self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
-                "d" | "content" | "font" | "align" => Vec::new(),
+                "d" | "content" | "font" | "align" | "ik" | "skin" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
@@ -559,6 +608,36 @@ impl<'a> Evaluator<'a> {
                     }
                     _ => bad(self),
                 },
+                "len" | "ik" | "chain" | "flip" if n.kind != ShapeKind::Bone => {
+                    self.err(p.key_span, format!("«{}» бывает только у bone", p.key));
+                }
+                "len" => match num(0) {
+                    Some(v) => {
+                        node.width = v;
+                        record(&mut self.scene, Prop::Width, &p.values[0], None);
+                    }
+                    None => bad(self),
+                },
+                "ik" => {
+                    if let ValueKind::Path(t) = &p.values[0].kind {
+                        ik = Some((t.clone(), p.values[0].span));
+                    }
+                }
+                "chain" => match num(0) {
+                    Some(v) if v >= 1.0 && v.fract() == 0.0 => chain = v as usize,
+                    _ => self.err(p.key_span, "chain — сколько костей гнёт IK, целое от 1: chain 2"),
+                },
+                "flip" => flip = true,
+                "skin" | "skin-sharp" if n.kind.is_container() => {
+                    self.err(p.key_span, "кости гнут фигуры: skin бывает у rect, ellipse, path и других фигур, но не у group и bone");
+                }
+                "skin" => {
+                    skin = Some(p.values.iter().filter_map(|v| if let ValueKind::Path(b) = &v.kind { Some((b.clone(), v.span)) } else { None }).collect())
+                }
+                "skin-sharp" => match num(0) {
+                    Some(v) if v > 0.0 => sharp = v,
+                    _ => bad(self),
+                },
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
                 "clip" => {
@@ -694,6 +773,15 @@ impl<'a> Evaluator<'a> {
             }
         }
         let index = self.scene.doc.nodes.len();
+        if let Some((target, span)) = ik {
+            node.ik = Some(motif_core::Ik { target: format!("{}{target}", self.prefix), chain, flip });
+            self.rig_refs.push((index, format!("{}{target}", self.prefix), span));
+        }
+        if let Some(bones) = skin {
+            let ids = bones.iter().map(|(b, _)| format!("{}{b}", self.prefix)).collect();
+            node.skin = Some(motif_core::Skin { sharp, ..motif_core::Skin::new(ids) });
+            self.rig_refs.extend(bones.into_iter().map(|(b, span)| (index, format!("{}{b}", self.prefix), span)));
+        }
         self.scene.doc.nodes.push(node);
         self.scene
             .sites
