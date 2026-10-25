@@ -14,6 +14,7 @@ mod scriptui;
 mod selection;
 mod snap;
 mod style_ui;
+mod symbol_ui;
 mod text_ui;
 mod theme;
 mod timeline;

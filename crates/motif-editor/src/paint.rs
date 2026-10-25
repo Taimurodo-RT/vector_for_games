@@ -96,6 +96,11 @@ impl App {
         if node.kind != ShapeKind::Group {
             return;
         }
+        // The mask of a copy is set on its `symbol` line, for every copy at once.
+        let symbol_clip = self.scene.instances.get(&node.id).is_some_and(|i| self.scene.symbols.iter().any(|s| s.name == i.symbol && s.clip));
+        if symbol_clip {
+            return;
+        }
         let mut on = node.clip;
         crate::app::section(ui, |ui| {
             theme::caption(ui, "Маска");

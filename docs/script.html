@@ -62,7 +62,32 @@
   <tr><td>Выражение</td><td><code>{i * gap + 4}</code></td><td>Считается в фигурных скобках в значениях и в id.</td></tr>
   <tr><td>Цикл</td><td><code>for i in 0..5 { … }</code></td><td>Повторяет строки внутри, <code>i</code> от 0 до 4.</td></tr>
   <tr><td>Группа</td><td><code>group g at 40 40 { … }</code></td><td>Вложенные объекты двигаются вместе с группой.</td></tr>
+  <tr><td>Символ и копия</td><td><code>symbol Coin size=16 { … }</code>, <code>use Coin c1 at 40 40 size=24</code></td><td>Рисуется один раз, вставляется много раз. См. <a href="#symbols">«Символы»</a>.</td></tr>
 </table></div>
+
+<h2 id="symbols">Символы</h2>
+<p>Символ — это кусок сцены, который рисуют один раз, а вставляют много раз: монета, кристалл, кнопка, мяч. Поменяли символ — поменялись все копии. У каждой копии свои место, поворот, масштаб и <b>параметры</b>.</p>
+<pre><code><span class="k">symbol</span> Coin <span class="p">size</span>=<span class="n">28</span> <span class="p">color</span>=<span class="n">#ffd23f</span> {
+  <span class="k">ellipse</span> rim  <span class="p">size</span> {size} <span class="p">fill</span> <span class="n">#d99a1e</span> <span class="p">stroke</span> ink <span class="n">3</span>
+  <span class="k">ellipse</span> face <span class="p">size</span> {size * 0.72} <span class="p">fill</span> color
+}
+
+<span class="k">use</span> Coin c1 <span class="p">at</span> <span class="n">60 44</span>
+<span class="k">use</span> Coin c2 <span class="s">"Большая"</span> <span class="p">at</span> <span class="n">140 44</span> <span class="p">size</span>=<span class="n">44</span> <span class="p">color</span>=<span class="n">#c9d1e0</span> <span class="p">rot</span> <span class="n">15</span>
+
+<span class="k">anim</span> Idle <span class="n">1s</span> <span class="k">loop</span> {
+  c2.rot      <span class="n">0</span>: <span class="n">0</span> <span class="p">linear</span> | <span class="n">1</span>: <span class="n">360</span>
+  c1-face.sx  <span class="n">0</span>: <span class="n">1</span> | <span class="n">0.5</span>: <span class="n">0.2</span> | <span class="n">1</span>: <span class="n">1</span>
+}</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Что</th><th>Запись</th><th>Пояснение</th></tr>
+  <tr><td>Символ</td><td><code>symbol Имя имя=значение … { … }</code></td><td>Пишется на верхнем уровне. Сам по себе не рисуется. Параметры — числа или цвета со значением по умолчанию, внутри символа это обычные переменные: <code>size {size}</code>, <code>fill color</code>.</td></tr>
+  <tr><td>Маска</td><td><code>symbol Ball clip size=64 { … }</code></td><td>Первый объект каждой копии обрезает остальные: рисунок на мяче виден только внутри мяча и сжимается вместе с ним.</td></tr>
+  <tr><td>Копия</td><td><code>use Имя id ["имя"] свойства параметры</code></td><td>Копия — это группа: <code>at</code>, <code>rot</code>, <code>scale</code>, <code>opacity</code>, <code>blur</code> и другие свойства группы, плюс <code>имя=значение</code> для параметров. Незаписанные параметры берутся по умолчанию.</td></tr>
+  <tr><td>Объекты копии</td><td><code>c1-face</code></td><td>id копии, дефис, id внутри символа. По нему анимируют и правят одну копию.</td></tr>
+  <tr><td>В цикле</td><td><code>for i in 0..6 { use Coin coin{i} at {i * 40} 0 }</code></td><td>Копии можно ставить циклом и в группы.</td></tr>
+</table></div>
+<p>Правка мышью объекта внутри копии (например, сдвиг <code>c1-face</code>) записывается в <code>override</code> и меняет только эту копию. Чтобы поменять все копии сразу, правьте блок <code>symbol</code>. Подробнее о работе с символами в редакторе — на странице <a href="properties.html#symbols">«Панель свойств»</a>.</p>
 
 <h2 id="props">Свойства объектов</h2>
 <div class="table-wrap"><table>

@@ -818,9 +818,12 @@ impl App {
                     if sel { FG } else { FG.gamma_multiply(dim) },
                 );
                 let is_mask = n.parent.is_some_and(|p| doc.nodes[p].clip && doc.nodes.iter().position(|c| c.parent == Some(p)) == Some(i));
-                let tag = match (is_mask, self.scene.sites.get(&n.id).is_some_and(|s| s.generated)) {
-                    (true, _) => Some(("маска", ACCENT)),
-                    (false, true) => Some(("for", FAINT)),
+                let symbol = self.symbol_of(&n.id);
+                let tag = match (is_mask, self.scene.instances.get(&n.id), symbol, self.scene.sites.get(&n.id).is_some_and(|s| s.generated)) {
+                    (true, ..) => Some(("маска", ACCENT)),
+                    (false, Some(inst), ..) => Some((inst.symbol.as_str(), ACCENT)),
+                    (false, None, Some(sym), _) => Some((sym, FAINT)),
+                    (false, None, None, true) => Some(("for", FAINT)),
                     _ => None,
                 };
                 if let Some((tag, color)) = tag {
@@ -1084,6 +1087,7 @@ impl App {
                 });
             }
             self.mask_ui(ui, &node);
+            self.symbol_section(ui, &node);
             if node.kind != ShapeKind::Group {
                 section(ui, |ui| {
                     theme::caption(ui, "Заливка");
@@ -1167,6 +1171,10 @@ impl App {
                         job.append(&format!("{} с", fmt_num(t)), 0.0, fmt(ACCENT));
                         job.append(". Ромб рядом со свойством ставит или снимает ключ.", 0.0, fmt(MUTED));
                     }
+                    None if generated && !self.scene.instances.contains_key(&id) && self.symbol_of(&id).is_some() => {
+                        job.append("Часть символа", 0.0, fmt(FG));
+                        job.append(": правки попадут в блок override { } и изменят только эту копию. Все копии меняются в блоке symbol.", 0.0, fmt(MUTED));
+                    }
                     None if generated => {
                         job.append("Создан циклом", 0.0, fmt(FG));
                         job.append(": правки попадут в блок override { } в конце скрипта, сам цикл не меняется.", 0.0, fmt(MUTED));
@@ -1226,6 +1234,7 @@ impl App {
             let out = motif_script::set_light(&self.src, a);
             self.apply("light", out);
         }
+        self.symbols_library(ui);
         self.backdrop_section(ui);
     }
 
