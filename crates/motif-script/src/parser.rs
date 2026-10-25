@@ -143,6 +143,11 @@ pub enum Stmt {
         props: Vec<PropAst>,
         span: Span,
     },
+    /// `world gravity 0 900 wind 200 0 gust 0.4`: the scene's gravity and wind.
+    World {
+        props: Vec<PropAst>,
+        span: Span,
+    },
     Node(NodeAst),
     /// `symbol Coin size=16 color=#ffd23f { … }`: a reusable piece, drawn only through `use`.
     Symbol {
@@ -227,6 +232,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "fluid" => (0, 1),
         "flow" => (1, 1),
         "roll" => (0, 2),
+        "weight" | "sail" => (1, 1),
         _ => return None,
     })
 }
@@ -360,10 +366,11 @@ impl<'a> Parser<'a> {
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
         let (word, span) =
-            self.ident("команда: artboard, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine или override")?;
+            self.ident("команда: artboard, world, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine или override")?;
         match word.as_str() {
             "artboard" => self.artboard(),
             "backdrop" => self.backdrop(span.start),
+            "world" => self.world(span.start),
             "let" => {
                 let (name, _) = self.ident("имя переменной")?;
                 self.vars.insert(name.clone());
@@ -485,6 +492,26 @@ impl<'a> Parser<'a> {
             props.push(PropAst { key, key_span, values });
         }
         Ok(Stmt::Backdrop { file, props, span: Span::new(start, end) })
+    }
+
+    fn world(&mut self, start: usize) -> Result<Stmt, ScriptError> {
+        let mut end = self.toks[self.pos - 1].span.end;
+        let mut props = Vec::new();
+        while !self.at_line_end() {
+            let (key, key_span) = self.ident("свойство мира: gravity, wind или gust")?;
+            let n = match key.as_str() {
+                "gravity" | "wind" => 2,
+                "gust" => 1,
+                _ => return Err(self.err(key_span, format!("у мира нет свойства «{key}»: gravity X Y, wind X Y, gust 0–1"))),
+            };
+            let mut values = Vec::new();
+            for _ in 0..n {
+                values.push(self.value()?);
+            }
+            end = values.last().map_or(key_span.end, |v| v.span.end);
+            props.push(PropAst { key, key_span, values });
+        }
+        Ok(Stmt::World { props, span: Span::new(start, end) })
     }
 
     /// `name=value`, with a value of its own: number, colour, name or `{expression}`.

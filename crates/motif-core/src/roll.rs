@@ -14,7 +14,8 @@ pub struct Roll {
     pub friction: f64,
     /// How fast rolling dies out, 0..1 per frame.
     pub damp: f64,
-    /// Acceleration towards the ball's bottom pole, artboard units per second squared.
+    /// Acceleration towards the ball's bottom pole, artboard units per second squared, when the
+    /// object sets no `weight`.
     pub gravity: f64,
 }
 
@@ -88,8 +89,18 @@ pub(crate) fn step_rollers(rollers: &mut [Roller], pose: &Document, dt: f64, ste
     let h = dt / steps as f64;
     let frames = h * SIM_FPS;
     let turns: Vec<Turn> = rollers.iter().map(|r| Ball::of(pose, r.ball).turn).collect();
-    // Gravity pulls towards the ball's own bottom: tip the ball and things roll the other way.
-    let down: Vec<V3> = turns.iter().map(|t| t.apply(V3::new(0.0, 1.0, 0.0))).collect();
+    // Gravity pulls the way the scene's gravity points as the ball sits untipped, so it turns
+    // with the ball: tip the ball and things roll the other way. Wind blows as seen.
+    let down: Vec<V3> = rollers
+        .iter()
+        .zip(&turns)
+        .map(|(r, t)| {
+            let n = &pose.nodes[r.node];
+            let g = pose.world.pull(n, r.roll.gravity);
+            let w = pose.world.blow(n, pose.world_transform(r.node) * kurbo::Point::ZERO);
+            t.apply(V3::new(g.x, g.y, 0.0)).add(V3::new(w.x, w.y, 0.0))
+        })
+        .collect();
     let size: Vec<(f64, f64)> = rollers.iter().map(|r| sizes(pose, r.node, r.ball)).collect();
     // How the surface under each one moves this frame, as the ball turns.
     let surface: Vec<V3> = rollers.iter().zip(&turns).map(|(r, t)| t.apply(r.turn.undo(r.q)).sub(r.q).mul(1.0 / dt)).collect();
@@ -99,7 +110,7 @@ pub(crate) fn step_rollers(rollers: &mut [Roller], pose: &Document, dt: f64, ste
             // Its own speed is rolling over the surface; a turning ball also carries it along
             // as much as it grips.
             let carried = surface[k].mul(r.roll.friction.clamp(0.0, 1.0));
-            r.v = r.v.add(down[k].mul(r.roll.gravity / big * h));
+            r.v = r.v.add(down[k].mul(h / big));
             r.v = r.v.sub(r.q.mul(r.v.dot(r.q))).mul((1.0 - r.roll.damp.clamp(0.0, 1.0)).powf(frames));
             // Rolling over the surface turns it; seen from the front only the turn about the
             // view axis shows.

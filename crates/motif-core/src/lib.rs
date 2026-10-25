@@ -17,6 +17,7 @@ mod spring;
 mod squash;
 mod style;
 pub mod text;
+mod world;
 
 pub use color::Color;
 pub use ease::{Dir, Ease, Family};
@@ -33,3 +34,4 @@ pub use spring::{SPRUNG, Spring};
 pub use squash::Squash;
 pub use style::{Blend, Cap, Join, Shadow};
 pub use text::{TextAlign, TextShape, TextStyle};
+pub use world::{GRAVITY, World, own_gravity, sail, weight};

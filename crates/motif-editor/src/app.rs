@@ -320,6 +320,11 @@ impl App {
                 self.status = format!("Ключ {node}.{} на {} с в «{anim}»", prop.path_name(), fmt_num(t));
                 set_key(&self.src, &self.scene, &anim, node, prop, t, value)
             }
+            None if prop.is_world() => {
+                let mut w = self.scene.doc.world;
+                w.set(prop, value);
+                Some(motif_script::set_world(&self.src, &self.scene, &w))
+            }
             None => set_prop(&self.src, &self.scene, node, prop, value),
         };
         let kind = self.edit_group.clone().unwrap_or_else(|| format!("{node}.{}", prop.path_name()));
@@ -327,12 +332,15 @@ impl App {
     }
 
     /// The diamond next to a property: removes the key at the current time, or keys the current value.
-    fn toggle_key(&mut self, node: &str, prop: Prop) {
+    pub(crate) fn toggle_key(&mut self, node: &str, prop: Prop) {
         let Some((anim, t)) = self.key_time() else { return };
         if self.key_state(node, prop) == KeyState::Key {
             let out = delete_key(&self.src, &self.scene, &anim, node, prop, t);
             self.apply("key", out);
             self.status = format!("Ключ {node}.{} на {} с удалён", prop.path_name(), fmt_num(t));
+        } else if prop.is_world() {
+            let value = self.display_doc().world.get(prop);
+            self.edit(node, prop, value);
         } else if let Some(n) = self.display_doc().node(node) {
             let value = n.get(prop);
             self.edit(node, prop, value);
@@ -1287,6 +1295,7 @@ impl App {
             let out = motif_script::set_light(&self.src, a);
             self.apply("light", out);
         }
+        self.world_section(ui);
         self.symbols_library(ui);
         self.backdrop_section(ui);
     }

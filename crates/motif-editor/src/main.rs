@@ -23,6 +23,7 @@ mod symbol_ui;
 mod text_ui;
 mod theme;
 mod timeline;
+mod world_ui;
 
 fn main() -> eframe::Result {
     let path = std::env::args().nth(1).map(std::path::PathBuf::from);

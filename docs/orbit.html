@@ -48,20 +48,20 @@
 </ul>
 
 <h2 id="roll">Физика на шаре</h2>
-<p>Отметьте «Катится по шару» (<code>roll</code>) у объекта на шаре, и он сам покатится по нему к нижнему полюсу шара, крутясь на ходу. Наклоните шар ключами <code>pitch</code>, и всё на нём покатится в другую сторону. Широта и долгота задают, откуда объект стартует. Объекты на одном шаре толкают друг друга, группы катятся целиком.</p>
+<p>Отметьте «Катится по шару» (<code>roll</code>) у объекта на шаре, и он сам покатится по нему туда, куда тянет гравитация сцены, крутясь на ходу. Гравитация поворачивается вместе с шаром: низ шара — там, где низ сцены, пока шар не наклонён. Наклоните шар ключами <code>pitch</code>, и всё на нём покатится в другую сторону. Широта и долгота задают, откуда объект стартует. Объекты на одном шаре толкают друг друга, группы катятся целиком.</p>
 <figure><img src="img/rolling-render.png" alt="Кадры примера rolling.msc: глобус наклоняется, шарики перекатываются; планета крутится, ровер уезжает с ней, мяч остаётся спереди"><figcaption>Пример <code>rolling.msc</code> в кадрах 0.6, 1.8, 3.2 и 5.0 с.</figcaption></figure>
 <div class="pair">
-<figure><img src="img/rolling-panel.png" alt="Раздел «Орбита» с галочкой «Катится по шару» и полями сцепления, затухания и гравитации"><figcaption>Шарик из примера: сцепление 0.2, затухание 0.03.</figcaption></figure>
+<figure><img src="img/rolling-panel.png" alt="Раздел «Орбита» с галочкой «Катится по шару» и полями сцепления и затухания"><figcaption>Шарик из примера: сцепление 0.2, затухание 0.03. Вес и парусность — в разделе «Физика».</figcaption></figure>
 <div class="table-wrap"><table>
   <tr><th>Поле</th><th>В скрипте</th><th>Что делает</th></tr>
   <tr><td>Катится по шару</td><td><code>roll</code></td><td>Объект катится по своему шару (нужен <code>on</code>).</td></tr>
   <tr><td>Сцепление</td><td><code>roll 0.3</code></td><td>Насколько вращающийся шар увлекает объект за собой: 1 — едет с шаром, 0 — шар скользит под ним.</td></tr>
   <tr><td>Затухание</td><td><code>roll 0.3 0.05</code></td><td>Как быстро гаснет качение, доля за кадр.</td></tr>
-  <tr><td>Гравитация</td><td><code>gravity 900</code></td><td>Тяга к нижнему полюсу шара. 0 — без тяжести.</td></tr>
+  <tr><td>Вес</td><td><code>weight 1</code></td><td>В разделе «Физика»: доля <a href="physics.html#world">гравитации сцены</a>. 0 — без тяжести.</td></tr>
 </table></div>
 </div>
 <pre><code><span class="k">group</span> m1 <span class="p">on</span> globe <span class="p">lat</span> <span class="n">40</span> <span class="p">lon</span> <span class="n">-40</span> <span class="p">alt</span> <span class="n">12</span> <span class="p">roll</span> <span class="n">0.2 0.03</span> { … }
-<span class="k">group</span> rover <span class="p">on</span> planet <span class="p">roll</span> <span class="n">1</span> <span class="p">gravity</span> <span class="n">0</span> { … }</code></pre>
+<span class="k">group</span> rover <span class="p">on</span> planet <span class="p">roll</span> <span class="n">1</span> <span class="p">weight</span> <span class="n">0</span> { … }</code></pre>
 
 <h2 id="script">В скрипте</h2>
 <pre><code><span class="k">ellipse</span> head <span class="p">at</span> <span class="n">420 170</span> <span class="p">size</span> <span class="n">150 170</span>

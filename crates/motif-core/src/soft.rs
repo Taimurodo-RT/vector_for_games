@@ -209,8 +209,10 @@ impl Body {
         let per_step = |k: f64| 1.0 - (1.0 - k.clamp(0.0, 1.0)).powf(dt * SIM_FPS);
         let damp = 1.0 - per_step(s.damp);
         let old = self.p.clone();
+        let node = &pose.nodes[self.node];
+        let pull = pose.world.pull(node, s.gravity);
         for i in 0..n {
-            self.v[i].y += s.gravity * dt;
+            self.v[i] += (pull + pose.world.blow(node, self.p[i])) * dt;
             self.p[i] += self.v[i] * dt;
         }
         // Keep the drawn shape: best-fitting rotation of the rest pose around the centroid.

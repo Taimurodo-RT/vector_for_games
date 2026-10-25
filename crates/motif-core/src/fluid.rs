@@ -184,13 +184,15 @@ impl Pool {
         }
     }
 
-    fn step(&mut self, basins: &[Basin], dt: f64, bottom: f64) {
+    fn step(&mut self, pose: &Document, basins: &[Basin], dt: f64, bottom: f64) {
         let f = self.fluid;
-        let g = Vec2::new(0.0, f.gravity / self.unit);
+        let node = &pose.nodes[self.node];
+        let g = pose.world.pull(node, f.gravity) / self.unit;
+        let unit = self.unit;
         let old = self.p.clone();
         let cap = 400.0;
         for (q, v) in self.p.iter_mut().zip(&mut self.v) {
-            *v += g * dt;
+            *v += (g + pose.world.blow(node, (q.to_vec2() * unit).to_point()) / unit) * dt;
             if v.hypot() > cap {
                 *v = v.normalize() * cap;
             }
@@ -396,7 +398,7 @@ pub(crate) fn step_pools(pools: &mut [Pool], pose: &Document, dt: f64) {
             if pool.fluid.flow > 0.0 {
                 pool.pour(pose, h);
             }
-            pool.step(&basins, h, bottom);
+            pool.step(pose, &basins, h, bottom);
         }
     }
 }

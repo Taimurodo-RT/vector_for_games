@@ -101,8 +101,10 @@ impl Spray {
     fn step(&mut self, doc: &Document, dt: f64) {
         let e = self.emitter;
         let keep = (1.0 - e.drag.clamp(0.0, 1.0)).powf(dt);
+        let node = &doc.nodes[self.node];
+        let pull = doc.world.pull(node, e.gravity);
         for q in &mut self.parts {
-            q.v.y += e.gravity * dt;
+            q.v += (pull + doc.world.blow(node, q.p)) * dt;
             q.v *= keep;
             q.p += q.v * dt;
             q.age += dt;

@@ -117,14 +117,8 @@ fn roll_editor(ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<Style
             styles.push(("roll", Some(head(r.friction, round(v)))));
         }
     });
-    ui.horizontal(|ui| {
-        if let Some(v) = theme::num_field(ui, half, "Гравитация", r.gravity, 5.0, -5000.0..=5000.0, 0, KeyState::Hidden).changed {
-            let v = v.round();
-            styles.push(("gravity", (v != d.gravity).then(|| format!("gravity {}", fmt_num(v)))));
-        }
-    });
     ui.label(
-        RichText::new("Объект сам катится по шару вниз и крутится на ходу; широта и долгота задают, откуда он стартует. Сцепление 1 — вращается вместе с шаром, 0 — шар скользит под ним. Объекты на одном шаре толкаются.")
+        RichText::new("Объект сам катится по шару вниз и крутится на ходу; широта и долгота задают, откуда он стартует. Сцепление 1 — вращается вместе с шаром, 0 — шар скользит под ним. Объекты на одном шаре толкаются. Вес и парусность — в разделе «Физика».")
             .size(11.5)
             .color(FAINT),
     );

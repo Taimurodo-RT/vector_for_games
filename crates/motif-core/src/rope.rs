@@ -412,6 +412,8 @@ impl Strand {
         let t = self.time;
         // Gusts: the wind swells and dies down, and runs along the rope or the cloth in waves.
         let gust = r.wind * (0.7 + 0.3 * (t * 1.3).sin() * (t * 0.47 + 1.0).sin());
+        let node = &pose.nodes[self.node];
+        let pull = pose.world.pull(node, r.gravity);
         for i in 0..self.p.len() {
             match &self.anchors[i] {
                 Some(a) => {
@@ -425,7 +427,7 @@ impl Strand {
                 }
                 None => {
                     let ph = self.phase[i];
-                    let acc = Vec2::new(gust * (1.0 + 0.5 * (t * 5.0 - ph).sin()), r.gravity + gust * (t * 4.0 - ph * 1.3).sin());
+                    let acc = Vec2::new(gust * (1.0 + 0.5 * (t * 5.0 - ph).sin()), gust * (t * 4.0 - ph * 1.3).sin()) + pull + pose.world.blow(node, self.p[i]);
                     let v = (self.p[i] - self.old[i]) * keep;
                     self.old[i] = self.p[i];
                     self.p[i] += v + acc * dt * dt;

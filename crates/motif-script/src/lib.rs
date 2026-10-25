@@ -37,7 +37,8 @@ pub use bone::{add_bone, add_ik_target, attach_to_bone, set_ik, set_skin};
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
     Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,
-    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_light, set_path, set_prop, set_style,
+    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_light, set_path, set_prop, set_style, set_world,
+    world_text,
 };
 pub use machine::{MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_machine, fmt_transition, free_name, make_entry};
 use motif_core::{Document, Prop};
@@ -140,6 +141,8 @@ pub struct Scene {
     pub instances: HashMap<String, Instance>,
     /// Where each `machine` block and its lines are written, by machine name.
     pub machines: HashMap<String, MachineSite>,
+    /// Where the `world` line is written, when there is one.
+    pub world: Option<Span>,
 }
 
 /// Where a `machine` block is written. The line lists match the machine's inputs, states and
