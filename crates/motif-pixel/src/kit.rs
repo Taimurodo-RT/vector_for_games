@@ -57,9 +57,25 @@ pub fn state_poses(doc: &Document) -> Vec<(&'static str, Document)> {
 
 /// The box of node `i` and everything inside it, on the artboard: what the game lays out.
 pub fn piece_box(doc: &Document, i: usize) -> Option<Rect> {
+    // Inside a masking group only the mask counts: the rest is cut to it.
+    let masked = |k: usize| {
+        let mut cur = doc.nodes[k].parent;
+        let mut child = k;
+        while let Some(g) = cur {
+            if doc.nodes[g].clip && doc.nodes.iter().position(|n| n.parent == Some(g)) != Some(child) {
+                return true;
+            }
+            if g == i {
+                break;
+            }
+            child = g;
+            cur = doc.nodes[g].parent;
+        }
+        false
+    };
     (0..doc.nodes.len())
         .filter(|&k| k == i || doc.is_inside(k, i))
-        .filter(|&k| doc.nodes[k].kind != ShapeKind::Bone)
+        .filter(|&k| doc.nodes[k].kind != ShapeKind::Bone && !masked(k))
         .filter_map(|k| doc.nodes[k].path().map(|p| doc.world_transform(k).transform_rect_bbox(p.bounding_box())))
         .reduce(|a, b| a.union(b))
 }
