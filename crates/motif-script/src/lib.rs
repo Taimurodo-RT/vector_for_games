@@ -23,7 +23,7 @@ mod expr;
 mod lexer;
 mod parser;
 
-pub use edit::{delete_key, fmt_value, set_key, set_prop};
+pub use edit::{add_anim, add_node, delete_key, delete_node, fmt_value, move_key, set_anim_duration, set_anim_loop, set_key, set_key_ease, set_prop};
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
 use std::fmt;
@@ -89,6 +89,8 @@ pub struct NodeSite {
     pub generated: bool,
     /// 1-based line of the declaration.
     pub line: usize,
+    /// The whole declaration, including a group's children.
+    pub span: Span,
 }
 
 /// A parsed scene: the document plus everything needed to edit the script it came from.
@@ -101,6 +103,10 @@ pub struct Scene {
     pub override_close: Option<usize>,
     /// Where each animation and its tracks are written, by animation name.
     pub anims: HashMap<String, AnimSite>,
+    /// Offset of the first top-level `anim` or `override`: new objects are inserted before it.
+    pub blocks_start: Option<usize>,
+    /// Every `override` entry: the node it changes and the span of the whole entry.
+    pub override_entries: Vec<(String, Span)>,
 }
 
 /// Where an `anim` block is written in the script.
@@ -108,6 +114,10 @@ pub struct Scene {
 pub struct AnimSite {
     /// Offset of the block's closing brace.
     pub close: usize,
+    /// The duration after the name, `1.2s`.
+    pub duration: Span,
+    /// The `loop` word, when present.
+    pub loop_word: Option<Span>,
     pub tracks: Vec<TrackSite>,
 }
 
@@ -116,6 +126,8 @@ pub struct AnimSite {
 pub struct TrackSite {
     pub node: String,
     pub prop: Prop,
+    /// From the path to the end of the last key.
+    pub span: Span,
     pub keys: Vec<KeySite>,
 }
 
@@ -127,6 +139,10 @@ pub struct KeySite {
     pub span: Span,
     /// Just the value.
     pub value: Span,
+    /// Just the time, `0.6`.
+    pub time_span: Span,
+    /// The curve name, when written.
+    pub ease: Option<Span>,
 }
 
 /// Parses and evaluates a scene script. Returns every error found, not only the first.
@@ -149,6 +165,13 @@ pub fn parse(src: &str) -> Result<Scene, Vec<ScriptError>> {
 
 pub(crate) fn line_of(src: &str, offset: usize) -> usize {
     src[..offset.min(src.len())].bytes().filter(|&b| b == b'\n').count() + 1
+}
+
+/// Formats a number with at most `decimals` decimals and no trailing zeros.
+pub fn fmt_num_with(v: f64, decimals: usize) -> String {
+    let s = format!("{v:.decimals$}");
+    let s = if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.') } else { &s };
+    if s == "-0" { "0".into() } else { s.to_string() }
 }
 
 /// Formats a number the way a person would type it: no trailing zeros, at most two decimals.

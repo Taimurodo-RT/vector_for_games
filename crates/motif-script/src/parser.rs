@@ -46,6 +46,8 @@ pub struct NodeAst {
     /// Byte offset where a new property can be appended on the node's line.
     pub insert_at: usize,
     pub children: Vec<Stmt>,
+    /// The whole statement, from the shape keyword to the end of the line or the group's `}`.
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +57,8 @@ pub struct KeyAst {
     pub ease: Option<String>,
     /// From the time to the end of the value or curve: the whole `0.6: 278 ease-out`.
     pub span: Span,
+    pub time_span: Span,
+    pub ease_span: Option<Span>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -100,11 +104,16 @@ pub enum Stmt {
         span: Span,
         /// Offset of the block's closing brace (where new tracks are inserted).
         close: usize,
+        duration_span: Span,
+        /// The `loop` word, when present.
+        loop_span: Option<Span>,
     },
     /// `close` is the offset of the block's closing brace (where new entries are inserted).
     Override {
         entries: Vec<OverrideAst>,
         close: usize,
+        /// Offset of the `override` keyword.
+        start: usize,
     },
 }
 
@@ -285,10 +294,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let close = self.close_block()?;
-                Ok(Stmt::Override { entries, close })
+                Ok(Stmt::Override { entries, close, start: span.start })
             }
             kw => match ShapeKind::from_keyword(kw) {
-                Some(kind) => self.node(kind),
+                Some(kind) => self.node(kind, span.start),
                 None => Err(self.err(span, format!("неизвестная команда «{kw}»"))),
             },
         }
@@ -318,7 +327,7 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Artboard { name, width, height, props })
     }
 
-    fn node(&mut self, kind: ShapeKind) -> Result<Stmt, ScriptError> {
+    fn node(&mut self, kind: ShapeKind, start: usize) -> Result<Stmt, ScriptError> {
         let (id, id_span) = self.ident("id объекта")?;
         if prop_arity(&id).is_some() {
             return Err(self.err(id_span, format!("«{id}» — это свойство; сначала укажите id объекта")));
@@ -349,15 +358,16 @@ impl<'a> Parser<'a> {
             props.push(PropAst { key, key_span, values });
         }
         let mut children = Vec::new();
+        let mut end = insert_at;
         if self.peek() == Some(&Tok::BlockOpen) {
             if kind != ShapeKind::Group {
                 return Err(self.err(self.peek_span(), "вложенные объекты бывают только у group"));
             }
             self.pos += 1;
             children = self.block(true);
-            self.close_block()?;
+            end = self.close_block()? + 1;
         }
-        Ok(Stmt::Node(NodeAst { kind, id, id_span, name, props, insert_at, children }))
+        Ok(Stmt::Node(NodeAst { kind, id, id_span, name, props, insert_at, children, span: Span::new(start, end) }))
     }
 
     fn path(&mut self) -> Result<(String, String, Span), ScriptError> {
@@ -376,16 +386,19 @@ impl<'a> Parser<'a> {
 
     fn anim(&mut self, span: Span) -> Result<Stmt, ScriptError> {
         let (name, _) = self.ident("имя анимации")?;
+        let duration_span = self.peek_span();
         let duration = match self.next() {
             Some(Token { tok: Tok::Seconds(v) | Tok::Num(v), .. }) => v,
             Some(t) => return Err(self.err(t.span, "ожидалась длительность, например 1.2s")),
             None => return Err(self.err(self.peek_span(), "ожидалась длительность, например 1.2s")),
         };
         let mut looping = false;
+        let mut loop_span = None;
         if let Some(Tok::Ident(s)) = self.peek()
             && s == "loop"
         {
             looping = true;
+            loop_span = Some(self.peek_span());
             self.pos += 1;
         }
         self.expect(Tok::BlockOpen, "«{» в конце строки")?;
@@ -404,7 +417,7 @@ impl<'a> Parser<'a> {
             }
         }
         let close = self.close_block()?;
-        Ok(Stmt::Anim { name, duration, looping, tracks, span, close })
+        Ok(Stmt::Anim { name, duration, looping, tracks, span, close, duration_span, loop_span })
     }
 
     fn track(&mut self) -> Result<TrackAst, ScriptError> {
@@ -418,17 +431,20 @@ impl<'a> Parser<'a> {
                 None => return Err(self.err(self.peek_span(), "ожидалось время ключа")),
             };
             self.expect(Tok::Colon, "«:» после времени ключа")?;
+            let time_span = Span::new(start, self.toks[self.pos - 2].span.end);
             let value = self.value()?;
             let mut end = value.span.end;
+            let mut ease_span = None;
             let ease = match self.peek() {
                 Some(Tok::Ident(_)) => {
                     let (e, span) = self.ident("кривая")?;
                     end = span.end;
+                    ease_span = Some(span);
                     Some(e)
                 }
                 _ => None,
             };
-            keys.push(KeyAst { time, value, ease, span: Span::new(start, end) });
+            keys.push(KeyAst { time, value, ease, span: Span::new(start, end), time_span, ease_span });
             if self.peek() == Some(&Tok::Pipe) {
                 self.pos += 1;
             } else {

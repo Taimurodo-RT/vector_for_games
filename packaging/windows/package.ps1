@@ -1,0 +1,11 @@
+# Collects the Windows build into a folder and a zip: what update.ps1 downloads.
+# Usage: package.ps1 -Out Motif -Version 2026.10.25-abc1234
+param([string]$Out = 'Motif', [string]$Version = 'local')
+$ErrorActionPreference = 'Stop'
+$root = Resolve-Path "$PSScriptRoot/../.."
+New-Item -ItemType Directory -Force "$Out/examples" | Out-Null
+Copy-Item "$root/target/release/motif-editor.exe", "$root/target/release/motif.exe" $Out
+Copy-Item "$root/examples/*.msc" "$Out/examples/"
+Copy-Item "$PSScriptRoot/README.txt", "$PSScriptRoot/update.bat", "$PSScriptRoot/update.ps1" $Out
+Set-Content -Path "$Out/version.txt" -Value $Version -NoNewline -Encoding ascii
+Compress-Archive -Path "$Out/*" -DestinationPath 'Motif-windows-x64.zip' -Force

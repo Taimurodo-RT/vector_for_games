@@ -1,7 +1,7 @@
 //! Writes visual edits back into the script text, touching as little of it as possible.
 
 use crate::{Scene, Span, TrackSite, fmt_num};
-use motif_core::{Color, Prop, Value};
+use motif_core::{Color, Prop, ShapeKind, Value};
 
 pub fn fmt_value(v: Value) -> String {
     match v {
@@ -161,4 +161,143 @@ pub fn delete_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, 
         Span::new(track.keys[i - 1].span.end, k.span.end)
     };
     Some(splice(src, span, ""))
+}
+
+/// Expands a span to the whole lines it touches, including the final newline.
+fn whole_lines(src: &str, span: Span) -> Span {
+    let start = src[..span.start].rfind('\n').map_or(0, |i| i + 1);
+    let end = src[span.end..].find('\n').map_or(src.len(), |i| span.end + i + 1);
+    Span::new(start, end)
+}
+
+/// Removes several spans at once; overlapping spans are merged.
+fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
+    spans.sort_by_key(|s| s.start);
+    let mut out = String::with_capacity(src.len());
+    let mut at = 0;
+    for s in spans {
+        if s.start > at {
+            out.push_str(&src[at..s.start]);
+        }
+        at = at.max(s.end);
+    }
+    out.push_str(&src[at.min(src.len())..]);
+    out
+}
+
+/// A fresh id such as `rect3` that no node uses yet.
+fn free_id(scene: &Scene, base: &str) -> String {
+    (1..).map(|i| format!("{base}{i}")).find(|id| scene.doc.node(id).is_none()).expect("ids are unbounded")
+}
+
+/// Returns the script with a new shape added on top of the others, and the new shape's id.
+/// The line goes before the first `anim`/`override` block, so declarations stay together.
+pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), size: (f64, f64)) -> (String, String) {
+    let id = free_id(scene, kind.keyword());
+    let fill = match kind {
+        ShapeKind::Rect => "#3b5bff",
+        ShapeKind::Ellipse => "#ff5a36",
+        ShapeKind::Star => "#ffc531",
+        ShapeKind::Polygon => "#4fd38c",
+        ShapeKind::Group => "none",
+    };
+    let size = if (size.0 - size.1).abs() < 1e-9 { fmt_num(size.0) } else { format!("{} {}", fmt_num(size.0), fmt_num(size.1)) };
+    let line = format!("{} {id} at {} {} size {size} fill {fill}\n", kind.keyword(), fmt_num(center.0), fmt_num(center.1));
+    let out = match scene.blocks_start {
+        Some(at) => {
+            let at = src[..at].rfind('\n').map_or(0, |i| i + 1);
+            splice(src, Span::new(at, at), &format!("{line}\n"))
+        }
+        None => {
+            let mut out = src.to_string();
+            if !out.is_empty() && !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&line);
+            out
+        }
+    };
+    (out, id)
+}
+
+/// Returns the script without `node`, its children, and every key and override that refers to them.
+/// `None` when the node does not exist or comes from a `for` loop (its line makes other nodes too).
+pub fn delete_node(src: &str, scene: &Scene, node: &str) -> Option<String> {
+    let site = scene.sites.get(node)?;
+    if site.generated {
+        return None;
+    }
+    let doc = &scene.doc;
+    let root = doc.index_of(node)?;
+    let ids: Vec<&str> = (0..doc.nodes.len())
+        .filter(|&i| {
+            let mut cur = Some(i);
+            while let Some(c) = cur {
+                if c == root {
+                    return true;
+                }
+                cur = doc.nodes[c].parent;
+            }
+            false
+        })
+        .map(|i| doc.nodes[i].id.as_str())
+        .collect();
+    let mut spans = vec![whole_lines(src, site.span)];
+    for anim in scene.anims.values() {
+        spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
+    }
+    spans.extend(scene.override_entries.iter().filter(|(n, _)| ids.contains(&n.as_str())).map(|(_, s)| whole_lines(src, *s)));
+    Some(remove_spans(src, spans))
+}
+
+/// Returns the script with a new empty animation at the end, and its name.
+pub fn add_anim(src: &str, scene: &Scene) -> (String, String) {
+    let name = (1..).map(|i| format!("Anim{i}")).find(|n| scene.doc.animation(n).is_none()).expect("names are unbounded");
+    let mut out = src.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&format!("\nanim {name} 1s loop {{\n}}\n"));
+    (out, name)
+}
+
+pub fn set_anim_duration(src: &str, scene: &Scene, anim: &str, seconds: f64) -> Option<String> {
+    let site = scene.anims.get(anim)?;
+    Some(splice(src, site.duration, &format!("{}s", fmt_num(seconds.max(0.01)))))
+}
+
+pub fn set_anim_loop(src: &str, scene: &Scene, anim: &str, looping: bool) -> Option<String> {
+    let site = scene.anims.get(anim)?;
+    match (looping, site.loop_word) {
+        (true, None) => Some(splice(src, Span::new(site.duration.end, site.duration.end), " loop")),
+        (false, Some(word)) => Some(splice(src, Span::new(site.duration.end, word.end), "")),
+        _ => Some(src.to_string()),
+    }
+}
+
+/// Returns the script with the key of `node.prop` at `from` moved to `to`. `None` when there is no
+/// such key or another key of the track already sits at `to`.
+pub fn move_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, from: f64, to: f64) -> Option<String> {
+    let track = find_track(scene, anim, node, prop)?;
+    let (from, to) = (key_time(from), key_time(to));
+    let key = track.keys.iter().find(|k| (k.time - from).abs() < SAME_TIME)?;
+    if (from - to).abs() < SAME_TIME {
+        return Some(src.to_string());
+    }
+    if track.keys.iter().any(|k| (k.time - to).abs() < SAME_TIME) {
+        return None;
+    }
+    Some(splice(src, key.time_span, &fmt_num(to)))
+}
+
+/// Returns the script with the curve of the key of `node.prop` at `time` set to `ease`
+/// (`linear`, `ease-in`, `ease-out`, `ease-in-out`, `hold` or `spring`).
+pub fn set_key_ease(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, time: f64, ease: &str) -> Option<String> {
+    let track = find_track(scene, anim, node, prop)?;
+    let time = key_time(time);
+    let key = track.keys.iter().find(|k| (k.time - time).abs() < SAME_TIME)?;
+    Some(match key.ease {
+        Some(span) => splice(src, span, ease),
+        None => splice(src, Span::new(key.value.end, key.value.end), &format!(" {ease}")),
+    })
 }

@@ -22,20 +22,38 @@ jobs:
       - run: cargo test --workspace
       - run: cargo run -p motif-cli -- check examples/bounce.msc
 
+  # Windows build. On main it is also published as the release that update.bat downloads.
   windows-build:
     runs-on: windows-latest
+    needs: test
+    permissions:
+      contents: write
+    concurrency:
+      group: windows-build-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Version
+        shell: pwsh
+        run: |
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          "MOTIF_BUILD=$(Get-Date -Format yyyy.MM.dd)-$sha" >> $env:GITHUB_ENV
       - run: cargo build --release -p motif-editor -p motif-cli
       - name: Collect the build
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force Motif/examples | Out-Null
-          Copy-Item target/release/motif-editor.exe, target/release/motif.exe Motif/
-          Copy-Item examples/*.msc Motif/examples/
+        run: packaging/windows/package.ps1 -Out Motif -Version $env:MOTIF_BUILD
       - uses: actions/upload-artifact@v4
         with:
           name: Motif-windows-x64
           path: Motif
+      - name: Publish the release for update.bat
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete motif-build --cleanup-tag --yes 2>$null
+          $notes = "Сборка $env:MOTIF_BUILD из ${{ github.sha }}. Обновление на ПК: update.bat в папке Motif."
+          gh release create motif-build Motif-windows-x64.zip Motif/version.txt --target ${{ github.sha }} --title "Motif $env:MOTIF_BUILD" --notes $notes --latest

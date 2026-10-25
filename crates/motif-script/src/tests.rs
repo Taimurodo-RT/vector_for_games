@@ -173,3 +173,48 @@ fn delete_key_keeps_the_line_tidy() {
         scene(&out);
     }
 }
+
+#[test]
+fn add_node_goes_before_blocks_with_a_fresh_id() {
+    let src = "rect rect1 at 0 0\n\nanim Go 1s {\n  rect1.x  0: 0\n}\n";
+    let (out, id) = add_node(src, &scene(src), ShapeKind::Rect, (40.0, 30.0), (20.0, 10.0));
+    assert_eq!(id, "rect2");
+    assert_eq!(out, "rect rect1 at 0 0\n\nrect rect2 at 40 30 size 20 10 fill #3b5bff\n\nanim Go 1s {\n  rect1.x  0: 0\n}\n");
+    let (out, id) = add_node("artboard 10x10", &scene("artboard 10x10"), ShapeKind::Star, (5.0, 5.0), (8.0, 8.0));
+    assert_eq!((out.as_str(), id.as_str()), ("artboard 10x10\nstar star1 at 5 5 size 8 fill #ffc531\n", "star1"));
+}
+
+#[test]
+fn delete_node_takes_children_keys_and_overrides() {
+    let src = "rect keep\ngroup g at 1 1 {\n  rect a\n  rect b\n}\nanim Go 1s {\n  keep.x  0: 0\n  a.y  0: 1 | 1: 2\n  g.rot  0: 0\n}\noverride {\n  b.x = 3\n  keep.y = 4\n}\n";
+    let out = delete_node(src, &scene(src), "g").unwrap();
+    assert_eq!(out, "rect keep\nanim Go 1s {\n  keep.x  0: 0\n}\noverride {\n  keep.y = 4\n}\n");
+    scene(&out);
+    let out = delete_node(src, &scene(src), "a").unwrap();
+    assert!(!out.contains("rect a") && !out.contains("a.y"), "{out}");
+    scene(&out);
+    // Nodes made by a loop share their line with siblings.
+    assert!(delete_node(EXAMPLE, &scene(EXAMPLE), "coin2").is_none());
+}
+
+#[test]
+fn anim_header_edits() {
+    let src = "rect a\nanim Go 1.2s loop {\n  a.x  0: 0 | 1: 5 linear\n}\n";
+    let s = scene(src);
+    assert!(set_anim_duration(src, &s, "Go", 2.5).unwrap().contains("anim Go 2.5s loop {"));
+    let once = set_anim_loop(src, &s, "Go", false).unwrap();
+    assert!(once.contains("anim Go 1.2s {"), "{once}");
+    assert!(!scene(&once).doc.animations[0].looping);
+    assert!(set_anim_loop(&once, &scene(&once), "Go", true).unwrap().contains("anim Go 1.2s loop {"));
+    let (out, name) = add_anim(src, &s);
+    assert_eq!(name, "Anim1");
+    assert!(scene(&out).doc.animation("Anim1").is_some());
+    // Keys: retime and curve.
+    let moved = move_key(src, &s, "Go", "a", Prop::X, 1.0, 0.75).unwrap();
+    assert!(moved.contains("a.x  0: 0 | 0.75: 5 linear"), "{moved}");
+    assert!(move_key(src, &s, "Go", "a", Prop::X, 1.0, 0.0).is_none());
+    let eased = set_key_ease(src, &s, "Go", "a", Prop::X, 0.0, "hold").unwrap();
+    assert!(eased.contains("a.x  0: 0 hold | 1: 5 linear"), "{eased}");
+    let eased = set_key_ease(src, &s, "Go", "a", Prop::X, 1.0, "spring").unwrap();
+    assert!(eased.contains("| 1: 5 spring"), "{eased}");
+}
