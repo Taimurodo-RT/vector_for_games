@@ -215,6 +215,8 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "squash" => (0, 3),
         "on" | "lat" | "lon" | "alt" | "yaw" | "pitch" => (1, 1),
         "wrap" => (0, 0),
+        "emit" => (0, 1),
+        "burst" | "life" | "speed" | "angle" | "spread" | "drag" | "fade" | "grow" | "spin" => (1, 1),
         "pressure" | "friction" | "damp" | "gravity" | "drive" => (1, 1),
         "skin" => (1, 16),
         _ => return None,

@@ -210,11 +210,12 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         let transform = doc.world_transform(i);
         let line = Line { dash: node.dash.clone(), cap: node.cap, join: node.join };
         let widest = node.outlines.first().map_or(0.0, |o| o.1);
-        if let Some(sh) = Shadow::cast(node.shadow, node.elevation, doc.light) {
+        let plain = node.particles.is_none();
+        if plain && let Some(sh) = Shadow::cast(node.shadow, node.elevation, doc.light) {
             shadow_ops(&mut own, i, &path, transform, sh, stroke.map_or(0.0, |s| s.1).max(widest), opacity);
         }
         // Layered outlines under the shape, widest first, with round corners like a sticker.
-        for &(c, w) in &node.outlines {
+        for &(c, w) in node.outlines.iter().filter(|_| plain) {
             let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
             own.push(Op::Draw(Item {
                 node: i,
@@ -228,7 +229,23 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
                 even_odd: false,
             }));
         }
-        own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd }));
+        match &node.particles {
+            // An emitter draws its particles instead of itself.
+            Some(parts) => own.extend(parts.iter().filter(|(_, o)| *o > 0.0).map(|(at, o)| {
+                Op::Draw(Item {
+                    node: i,
+                    path: path.clone(),
+                    transform: *at,
+                    fill: fill.clone(),
+                    stroke,
+                    line: line.clone(),
+                    opacity: opacity * o.clamp(0.0, 1.0),
+                    blend: node.blend,
+                    even_odd: node.even_odd,
+                })
+            })),
+            None => own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd })),
+        }
         if let Some(clip) = ball_clip(doc, i) {
             own.insert(0, clip);
             own.push(Op::Pop);

@@ -1,8 +1,9 @@
-//! The simulation behind physical animation: springs, jiggling bones, squash and soft bodies,
-//! stepped together in fixed steps. An animation simulates from its start, so the same time
-//! always gives the same pose and export bakes it into frames; a state machine steps it as it
-//! plays.
+//! The simulation behind physical animation: springs, jiggling bones, squash, particles and
+//! soft bodies, stepped together in fixed steps. An animation simulates from its start, so the
+//! same time always gives the same pose and export bakes it into frames; a state machine steps
+//! it as it plays.
 
+use crate::particles::{self, Spray};
 use crate::soft::{self, Body};
 use crate::spring::{self, Sprung, Tip};
 use crate::squash::{self, Stretch};
@@ -18,6 +19,7 @@ pub struct SimState {
     values: Vec<Sprung>,
     tips: Vec<Tip>,
     stretches: Vec<Stretch>,
+    sprays: Vec<Spray>,
     bodies: Vec<Body>,
     /// Nodes in the document it was started from: a different count means the scene changed.
     nodes: usize,
@@ -33,7 +35,7 @@ impl SimState {
         let tips = spring::tips(&pose);
         let stretches = squash::stretches(&pose);
         pose.skin_all();
-        SimState { values, tips, stretches, bodies: soft::bodies(&pose), nodes: keys.nodes.len() }
+        SimState { values, tips, stretches, sprays: particles::sprays(&pose), bodies: soft::bodies(&pose), nodes: keys.nodes.len() }
     }
 
     /// True when the simulation was started from a document shaped like `doc`.
@@ -51,6 +53,7 @@ impl SimState {
         spring::step_tips(&mut self.tips, &mut pose, dt, SUBSTEPS);
         squash::step_stretches(&mut self.stretches, &mut pose, dt, SUBSTEPS);
         pose.skin_all();
+        particles::step_sprays(&mut self.sprays, &pose, dt);
         soft::step_bodies(&mut self.bodies, &pose, dt, SUBSTEPS);
     }
 
@@ -73,6 +76,7 @@ impl SimState {
         spring::apply_tips(&self.tips, &mut out);
         squash::apply_stretches(&self.stretches, &mut out);
         out.skin_all();
+        particles::apply_sprays(&self.sprays, &mut out);
         soft::apply_bodies(&self.bodies, &mut out);
         out
     }
@@ -91,10 +95,11 @@ impl SimCache {
 }
 
 impl Document {
-    /// True when something is simulated (springs, jiggling bones, squash, soft bodies), so posing
+    /// True when something is simulated (springs, jiggling bones, squash, particles, soft
+    /// bodies), so posing
     /// needs a simulation.
     pub fn has_sim(&self) -> bool {
-        self.nodes.iter().any(|n| n.soft.is_some() || n.spring.is_some() || n.jiggle.is_some() || n.squash.is_some())
+        self.nodes.iter().any(|n| n.soft.is_some() || n.spring.is_some() || n.jiggle.is_some() || n.squash.is_some() || n.emit.is_some())
     }
 }
 
