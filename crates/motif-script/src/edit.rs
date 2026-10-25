@@ -1,6 +1,7 @@
 //! Writes visual edits back into the script text, touching as little of it as possible.
 
 use crate::{Scene, Span, TrackSite, fmt_num};
+use motif_core::kurbo::{Affine, BezPath, PathEl, Point, Shape};
 use motif_core::{Color, Prop, ShapeKind, Value};
 
 pub fn fmt_value(v: Value) -> String {
@@ -199,11 +200,16 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
         ShapeKind::Ellipse => "#ff5a36",
         ShapeKind::Star => "#ffc531",
         ShapeKind::Polygon => "#4fd38c",
-        ShapeKind::Group => "none",
+        ShapeKind::Group | ShapeKind::Path => "none",
     };
     let size = if (size.0 - size.1).abs() < 1e-9 { fmt_num(size.0) } else { format!("{} {}", fmt_num(size.0), fmt_num(size.1)) };
     let line = format!("{} {id} at {} {} size {size} fill {fill}\n", kind.keyword(), fmt_num(center.0), fmt_num(center.1));
-    let out = match scene.blocks_start {
+    (insert_declaration(src, scene, &line), id)
+}
+
+/// Inserts a top-level declaration line before the first `anim`/`override` block.
+fn insert_declaration(src: &str, scene: &Scene, line: &str) -> String {
+    match scene.blocks_start {
         Some(at) => {
             let at = src[..at].rfind('\n').map_or(0, |i| i + 1);
             splice(src, Span::new(at, at), &format!("{line}\n"))
@@ -213,11 +219,55 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
             if !out.is_empty() && !out.ends_with('\n') {
                 out.push('\n');
             }
-            out.push_str(&line);
+            out.push_str(line);
             out
         }
-    };
-    (out, id)
+    }
+}
+
+/// SVG path data with short numbers: `M 0 -40 C 20 -40 30 -20 30 0 L 0 40 Z`.
+pub fn path_to_d(path: &BezPath) -> String {
+    let pt = |p: Point| format!("{} {}", fmt_num(p.x), fmt_num(p.y));
+    let parts: Vec<String> = path
+        .elements()
+        .iter()
+        .map(|el| match *el {
+            PathEl::MoveTo(p) => format!("M {}", pt(p)),
+            PathEl::LineTo(p) => format!("L {}", pt(p)),
+            PathEl::QuadTo(a, p) => format!("Q {} {}", pt(a), pt(p)),
+            PathEl::CurveTo(a, b, p) => format!("C {} {} {}", pt(a), pt(b), pt(p)),
+            PathEl::ClosePath => "Z".into(),
+        })
+        .collect();
+    parts.join(" ")
+}
+
+/// Returns the script with the outline of path `node` replaced. `None` when the node is not a path
+/// written in the script by hand (paths made by loops are edited in the text).
+pub fn set_path(src: &str, scene: &Scene, node: &str, path: &BezPath) -> Option<String> {
+    let n = scene.doc.node(node)?;
+    let site = scene.sites.get(node)?;
+    if n.kind != ShapeKind::Path || site.generated {
+        return None;
+    }
+    let d = format!("\"{}\"", path_to_d(path));
+    Some(match scene.path_sources.get(node) {
+        Some(span) => splice(src, *span, &d),
+        None => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" d {d}")),
+    })
+}
+
+/// Returns the script with a new path whose outline is given in artboard space, and its id.
+/// The node is placed at the outline's centre; closed outlines get a fill, open ones a stroke.
+pub fn add_path(src: &str, scene: &Scene, outline: &BezPath) -> (String, String) {
+    let id = free_id(scene, "path");
+    let c = outline.bounding_box().center();
+    let c = Point::new(c.x.round(), c.y.round());
+    let local = Affine::translate(-c.to_vec2()) * outline.clone();
+    let closed = outline.elements().last() == Some(&PathEl::ClosePath);
+    let paint = if closed { "fill #4fd38c" } else { "fill none stroke #1b1d24 3" };
+    let line = format!("path {id} at {} {} d \"{}\" {paint}\n", fmt_num(c.x), fmt_num(c.y), path_to_d(&local));
+    (insert_declaration(src, scene, &line), id)
 }
 
 /// Returns the script without `node`, its children, and every key and override that refers to them.

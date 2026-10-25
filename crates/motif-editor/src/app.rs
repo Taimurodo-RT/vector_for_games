@@ -1,4 +1,5 @@
 use crate::canvas::{Canvas, View, artboard_rect};
+use crate::pathedit::{PenPoint, PointEdit};
 use crate::theme::{self, ACCENT, ACCENT_INK, BG, ButtonKind, DANGER, FAINT, FG, GOOD, Icon, KeyState, LINE, MUTED, PANEL, SEL};
 use egui::{Align2, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, pos2, vec2};
 use motif_core::kurbo::{Affine, Point, Shape};
@@ -24,6 +25,7 @@ pub enum Tool {
     Select,
     Hand,
     Create(ShapeKind),
+    Pen,
 }
 
 pub enum DragOp {
@@ -96,8 +98,12 @@ pub struct App {
     pub(crate) undo: Vec<String>,
     redo: Vec<String>,
     last_checkpoint: (String, Instant),
-    tool: Tool,
+    pub(crate) tool: Tool,
     drag: Option<DragOp>,
+    /// Points placed by the pen so far.
+    pub(crate) pen: Vec<PenPoint>,
+    pub(crate) pen_dragging: bool,
+    pub(crate) point_edit: Option<PointEdit>,
     pub(crate) sel_key: Option<KeyRef>,
     /// A key being dragged in the timeline and its new time.
     pub(crate) key_drag: Option<(KeyRef, f64)>,
@@ -145,6 +151,9 @@ impl App {
             last_checkpoint: (String::new(), Instant::now()),
             tool: Tool::Select,
             drag: None,
+            pen: Vec::new(),
+            pen_dragging: false,
+            point_edit: None,
             sel_key: None,
             key_drag: None,
             show_script: true,
@@ -222,7 +231,7 @@ impl App {
         }
     }
 
-    fn can_edit(&mut self) -> bool {
+    pub(crate) fn can_edit(&mut self) -> bool {
         if self.errors.is_empty() {
             return true;
         }
@@ -602,13 +611,17 @@ impl App {
                 (ShapeKind::Rect, "R", "Прямоугольник: тяните по холсту"),
                 (ShapeKind::Ellipse, "O", "Эллипс: тяните по холсту"),
                 (ShapeKind::Star, "S", "Звезда: тяните по холсту"),
-                (ShapeKind::Polygon, "P", "Многоугольник: тяните по холсту"),
+                (ShapeKind::Polygon, "N", "Многоугольник: тяните по холсту"),
             ];
             for (kind, key, tip) in shapes {
                 let tool = Tool::Create(kind);
                 if theme::tool_button(ui, theme::shape_icon(kind), self.tool == tool, key, tip).clicked() {
                     self.tool = tool;
                 }
+            }
+            let tip = "Перо: клик — угол, протяжка — плавная точка, клик по первой точке замыкает";
+            if theme::tool_button(ui, Icon::Pen, self.tool == Tool::Pen, "P", tip).clicked() {
+                self.tool = Tool::Pen;
             }
         });
     }
@@ -777,7 +790,7 @@ impl App {
                     field(self, ui, "X", Prop::X, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                     field(self, ui, "Y", Prop::Y, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                 });
-                if node.kind != ShapeKind::Group {
+                if !matches!(node.kind, ShapeKind::Group | ShapeKind::Path) {
                     ui.horizontal(|ui| {
                         field(self, ui, "W", Prop::Width, 1.0, 0.0..=100_000.0, 1.0, 1);
                         field(self, ui, "H", Prop::Height, 1.0, 0.0..=100_000.0, 1.0, 1);
@@ -803,6 +816,24 @@ impl App {
                         }
                         _ => field(self, ui, "Стороны", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0),
                     });
+                });
+            }
+            if node.kind == ShapeKind::Path {
+                let info = crate::pathedit::Outline::from_bez(&node.geometry)
+                    .map(|o| format!("{} точ. · {}", o.verts.len(), if o.closed { "замкнут" } else { "открыт" }));
+                section(ui, |ui| {
+                    theme::caption(ui, "Контур");
+                    ui.label(RichText::new(info.clone().unwrap_or_else(|| "несколько частей: правка в скрипте".into())).size(12.0).color(MUTED));
+                    let editing = self.point_edit.as_ref().is_some_and(|e| e.node == id);
+                    let kind = if editing { ButtonKind::On } else { ButtonKind::Normal };
+                    if info.is_some() && theme::button(ui, if editing { "Готово (Enter)" } else { "Редактировать точки (Enter)" }, kind).clicked()
+                    {
+                        if editing {
+                            self.point_edit = None;
+                        } else {
+                            self.begin_point_edit();
+                        }
+                    }
                 });
             }
             if node.kind != ShapeKind::Group {
@@ -868,7 +899,7 @@ impl App {
         });
         section(ui, |ui| {
             ui.label(RichText::new("Выберите объект на холсте, в слоях или кликом по его строке в скрипте.").size(12.0).color(FAINT));
-            ui.label(RichText::new("Новые фигуры: инструменты R, O, S, P слева — тяните по холсту.").size(12.0).color(FAINT));
+            ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
         });
     }
 
@@ -958,6 +989,14 @@ impl App {
     // ---------- canvas ----------
 
     fn canvas_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        if self.tool != Tool::Pen && !self.pen.is_empty() {
+            self.finish_pen(false);
+        }
+        if let Some(e) = &self.point_edit
+            && (self.selected.as_deref() != Some(e.node.as_str()) || self.tool != Tool::Select)
+        {
+            self.point_edit = None;
+        }
         let rect = ui.available_rect_before_wrap();
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let view = *self.view.get_or_insert_with(|| View::fit(rect, &self.scene.doc));
@@ -1004,8 +1043,20 @@ impl App {
         };
 
         let (space, middle, alt, shift) = ui.input(|i| (i.key_down(Key::Space), i.pointer.middle_down(), i.modifiers.alt, i.modifiers.shift));
-        let pan_gesture = space || middle || alt || self.tool == Tool::Hand;
-        if let Some(p) = pointer
+        let pan_gesture = space || middle || (alt && self.point_edit.is_none()) || self.tool == Tool::Hand;
+        // The pen and point editing take the pointer themselves.
+        let special = !pan_gesture
+            && self.drag.is_none()
+            && if self.tool == Tool::Pen {
+                self.pen_input(ui, &resp, rect, view);
+                true
+            } else if self.point_edit.is_some() {
+                self.point_edit_input(ui, &resp, rect, view, &doc)
+            } else {
+                false
+            };
+        if !special
+            && let Some(p) = pointer
             && resp.hovered()
             && self.drag.is_none()
         {
@@ -1024,7 +1075,8 @@ impl App {
             ui.ctx().set_cursor_icon(cursor);
         }
 
-        if resp.drag_started()
+        if !special
+            && resp.drag_started()
             && let (Some(p), Some(dp)) = (pointer, doc_pt)
         {
             self.drag = if pan_gesture {
@@ -1116,7 +1168,9 @@ impl App {
             }
             self.drag = None;
         }
-        if resp.clicked() && !pan_gesture {
+        if !special && resp.double_clicked() && self.selected.as_ref().and_then(|s| doc.node(s)).is_some_and(|n| n.kind == ShapeKind::Path) {
+            self.begin_point_edit();
+        } else if !special && resp.clicked() && !pan_gesture {
             if let Tool::Create(kind) = self.tool
                 && let Some(p) = doc_pt
             {
@@ -1144,8 +1198,12 @@ impl App {
         if let Some(s) = &self.selected
             && let Some(i) = doc.index_of(s)
         {
-            outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
-            if let Some(h) = &handles {
+            if self.point_edit.is_none() {
+                outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            }
+            if let Some(h) = &handles
+                && self.point_edit.is_none()
+            {
                 let top_mid = h.corners[0].lerp(h.corners[1], 0.5);
                 painter.line_segment([top_mid, h.rotate], Stroke::new(1.0, SEL));
                 painter.circle(h.rotate, 4.0, Color32::WHITE, Stroke::new(1.0, SEL));
@@ -1281,7 +1339,9 @@ impl App {
             |ui| {
                 let rows = [
                     ("V H", "Выделение, рука"),
-                    ("R O S P", "Прямоугольник, эллипс, звезда, многоугольник"),
+                    ("R O S N", "Прямоугольник, эллипс, звезда, многоугольник"),
+                    ("P", "Перо; Enter — закончить, клик по первой точке — замкнуть"),
+                    ("Enter", "Редактировать точки контура (или двойной клик)"),
                     ("Tab", "Переключить Design / Animate"),
                     ("Пробел", "Play / Pause; удерживать + тянуть — панорама"),
                     ("K", "Ключ на позицию, поворот и масштаб выделенного"),
@@ -1352,7 +1412,8 @@ impl App {
             (Key::R, Tool::Create(ShapeKind::Rect)),
             (Key::O, Tool::Create(ShapeKind::Ellipse)),
             (Key::S, Tool::Create(ShapeKind::Star)),
-            (Key::P, Tool::Create(ShapeKind::Polygon)),
+            (Key::N, Tool::Create(ShapeKind::Polygon)),
+            (Key::P, Tool::Pen),
         ] {
             if plain(k) {
                 self.tool = tool;
@@ -1365,12 +1426,27 @@ impl App {
         if plain(Key::F) || (i.modifiers.shift && i.key_pressed(Key::Num1)) {
             self.view = None;
         }
-        if plain(Key::Escape) {
-            self.selected = None;
-            self.sel_key = None;
-            self.tool = Tool::Select;
+        if plain(Key::Enter) {
+            if !self.pen.is_empty() {
+                self.finish_pen(false);
+            } else if self.point_edit.is_some() {
+                self.point_edit = None;
+            } else {
+                self.begin_point_edit();
+            }
         }
-        if plain(Key::Delete) || plain(Key::Backspace) {
+        if plain(Key::Escape) {
+            if !self.pen.is_empty() {
+                self.pen.clear();
+            } else if self.point_edit.is_some() {
+                self.point_edit = None;
+            } else {
+                self.selected = None;
+                self.sel_key = None;
+                self.tool = Tool::Select;
+            }
+        }
+        if (plain(Key::Delete) || plain(Key::Backspace)) && !self.delete_point() {
             self.delete_selection();
         }
         if let Some(anim) = self.current_anim().cloned() {
@@ -1429,7 +1505,7 @@ fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) -> Option<Han
     let center = corners[0].lerp(corners[2], 0.5);
     let up = (top_mid - center).normalized();
     let up = if up.is_finite() { up } else { vec2(0.0, -1.0) };
-    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: node.kind != ShapeKind::Group })
+    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path) })
 }
 
 fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo::Rect> {
@@ -1510,6 +1586,7 @@ fn kind_name(kind: ShapeKind) -> &'static str {
         ShapeKind::Ellipse => "Эллипс",
         ShapeKind::Star => "Звезда",
         ShapeKind::Polygon => "Многоугольник",
+        ShapeKind::Path => "Контур",
     }
 }
 

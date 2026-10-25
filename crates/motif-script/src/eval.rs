@@ -2,7 +2,8 @@
 
 use crate::parser::{NodeAst, Stmt, ValueAst, ValueKind};
 use crate::{AnimSite, KeySite, NodeSite, Scene, ScriptError, Source, Span, TrackSite};
-use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, Track, Value};
+use motif_core::kurbo::Shape;
+use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, ShapeKind, Track, Value};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug)]
@@ -31,6 +32,7 @@ impl<'a> Evaluator<'a> {
                 anims: HashMap::new(),
                 blocks_start: None,
                 override_entries: Vec::new(),
+                path_sources: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -186,7 +188,7 @@ impl<'a> Evaluator<'a> {
             scene.sources.insert((id.clone(), prop), Source { span: v.span, editable: v.is_literal() && !generated, paired, from_override: false });
         };
         for p in &n.props {
-            let vals: Vec<Option<Value>> = p.values.iter().map(|v| self.value(v)).collect();
+            let vals: Vec<Option<Value>> = if p.key == "d" { Vec::new() } else { p.values.iter().map(|v| self.value(v)).collect() };
             let num = |i: usize| vals.get(i).copied().flatten().and_then(Value::as_num);
             let bad = |ev: &mut Self| ev.err(p.key_span, format!("неверное значение для «{}»", p.key));
             match p.key.as_str() {
@@ -246,6 +248,25 @@ impl<'a> Evaluator<'a> {
                     _ => bad(self),
                 },
                 "hidden" => node.visible = false,
+                "d" => {
+                    let ValueKind::Path(data) = &p.values[0].kind else { continue };
+                    if n.kind != ShapeKind::Path {
+                        self.err(p.key_span, "контур d бывает только у path");
+                        continue;
+                    }
+                    match motif_core::kurbo::BezPath::from_svg(data) {
+                        Ok(path) => {
+                            let bb = path.bounding_box();
+                            node.width = bb.width();
+                            node.height = bb.height();
+                            node.geometry = path;
+                            if !generated {
+                                self.scene.path_sources.insert(id.clone(), p.values[0].span);
+                            }
+                        }
+                        Err(e) => self.err(p.values[0].span, format!("не удалось прочитать контур: {e}")),
+                    }
+                }
                 key => {
                     let prop = match key {
                         "r" => Prop::Radius,
@@ -311,6 +332,10 @@ impl<'a> Evaluator<'a> {
                     None
                 }
             },
+            ValueKind::Path(_) => {
+                self.err(v.span, "контур в кавычках пишется только после d");
+                None
+            }
             ValueKind::Expr(e) => match crate::expr::eval(e, &|name| self.num_var(name)) {
                 Ok(n) => Some(Value::Num(n)),
                 Err(msg) => {

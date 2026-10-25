@@ -218,3 +218,39 @@ fn anim_header_edits() {
     let eased = set_key_ease(src, &s, "Go", "a", Prop::X, 1.0, "spring").unwrap();
     assert!(eased.contains("| 1: 5 spring"), "{eased}");
 }
+
+#[test]
+fn paths_parse_edit_and_add() {
+    use motif_core::kurbo::{BezPath, Point, Shape};
+    let src = "path leaf \"Лист\" at 100 80 d \"M 0 -20 C 15 -20 20 0 0 20 L -10 0 Z\" fill #4fd38c\nanim Go 1s {\n}\n";
+    let s = scene(src);
+    let leaf = s.doc.node("leaf").unwrap();
+    assert_eq!(leaf.kind, ShapeKind::Path);
+    assert_eq!(leaf.geometry.elements().len(), 4);
+    assert_eq!(leaf.height, 40.0);
+    assert!(s.doc.hit_test(Point::new(100.0, 80.0)).is_some());
+
+    let mut tri = BezPath::new();
+    tri.move_to((0.0, 0.0));
+    tri.line_to((10.5, 0.0));
+    tri.line_to((5.0, 8.25));
+    tri.close_path();
+    let out = set_path(src, &s, "leaf", &tri).unwrap();
+    assert!(out.contains("d \"M 0 0 L 10.5 0 L 5 8.25 Z\" fill"), "{out}");
+    assert_eq!(scene(&out).doc.node("leaf").unwrap().geometry, tri);
+
+    // New outlines are centred on their node and go before the blocks.
+    let mut open = BezPath::new();
+    open.move_to((10.0, 10.0));
+    open.line_to((30.0, 50.0));
+    let (out, id) = add_path(src, &s, &open);
+    assert_eq!(id, "path1");
+    assert!(out.contains("path path1 at 20 30 d \"M -10 -20 L 10 20\" fill none stroke #1b1d24 3\n\nanim Go"), "{out}");
+    let p = scene(&out).doc.node("path1").unwrap().clone();
+    assert_eq!(p.geometry.bounding_box().center(), Point::ORIGIN);
+
+    // Mistakes are reported, not ignored.
+    assert!(parse("rect a d \"M 0 0\"").is_err());
+    assert!(parse("path a d \"M 0 0 Q\"").is_err());
+    assert!(parse("path a d 5").is_err());
+}

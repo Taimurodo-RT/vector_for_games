@@ -31,6 +31,8 @@ pub enum ShapeKind {
     Ellipse,
     Star,
     Polygon,
+    /// Free-form outline drawn with the pen: `path id at x y d "M 0 0 C …"`.
+    Path,
 }
 
 impl ShapeKind {
@@ -41,6 +43,7 @@ impl ShapeKind {
             ShapeKind::Ellipse => "ellipse",
             ShapeKind::Star => "star",
             ShapeKind::Polygon => "polygon",
+            ShapeKind::Path => "path",
         }
     }
 
@@ -51,6 +54,7 @@ impl ShapeKind {
             "ellipse" => ShapeKind::Ellipse,
             "star" => ShapeKind::Star,
             "polygon" => ShapeKind::Polygon,
+            "path" => ShapeKind::Path,
             _ => return None,
         })
     }
@@ -178,6 +182,8 @@ pub struct Node {
     pub fill: Option<Color>,
     pub stroke: Option<Color>,
     pub stroke_width: f64,
+    /// Outline of a `Path` node in local space (empty for other kinds).
+    pub geometry: BezPath,
 }
 
 impl Node {
@@ -203,6 +209,7 @@ impl Node {
             fill: if kind == ShapeKind::Group { None } else { Some(Color::rgb(0xcc, 0xcc, 0xcc)) },
             stroke: None,
             stroke_width: 0.0,
+            geometry: BezPath::new(),
         }
     }
 
@@ -280,6 +287,7 @@ impl Node {
             ShapeKind::Ellipse => Ellipse::from_rect(rect).to_path(0.1),
             ShapeKind::Star => star_path(w, h, self.points.round().max(3.0) as usize, self.inner.clamp(0.05, 1.0)),
             ShapeKind::Polygon => polygon_path(w, h, self.points.round().max(3.0) as usize),
+            ShapeKind::Path => self.geometry.clone(),
         })
     }
 }

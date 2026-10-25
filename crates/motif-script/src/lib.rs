@@ -23,7 +23,10 @@ mod expr;
 mod lexer;
 mod parser;
 
-pub use edit::{add_anim, add_node, delete_key, delete_node, fmt_value, move_key, set_anim_duration, set_anim_loop, set_key, set_key_ease, set_prop};
+pub use edit::{
+    add_anim, add_node, add_path, delete_key, delete_node, fmt_value, move_key, path_to_d, set_anim_duration, set_anim_loop, set_key, set_key_ease, set_path,
+    set_prop,
+};
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
 use std::fmt;
@@ -107,6 +110,8 @@ pub struct Scene {
     pub blocks_start: Option<usize>,
     /// Every `override` entry: the node it changes and the span of the whole entry.
     pub override_entries: Vec<(String, Span)>,
+    /// The quoted `d "…"` outline of each path node (not for nodes made by loops).
+    pub path_sources: HashMap<String, Span>,
 }
 
 /// Where an `anim` block is written in the script.

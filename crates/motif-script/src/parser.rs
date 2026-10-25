@@ -14,6 +14,8 @@ pub enum ValueKind {
     Ref(String),
     /// Inline expression `{...}`.
     Expr(String),
+    /// SVG path data of `d "M 0 0 L 10 0 Z"`.
+    Path(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,6 +126,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "size" | "scale" | "stroke" => (1, 2),
         "r" | "rot" | "opacity" | "points" | "inner" | "fill" => (1, 1),
         "hidden" => (0, 0),
+        "d" => (1, 1),
         _ => return None,
     })
 }
@@ -253,7 +256,7 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
-        let (word, span) = self.ident("команда: artboard, let, rect, ellipse, star, polygon, group, for, anim или override")?;
+        let (word, span) = self.ident("команда: artboard, let, rect, ellipse, star, polygon, path, group, for, anim или override")?;
         match word.as_str() {
             "artboard" => self.artboard(),
             "let" => {
@@ -348,6 +351,12 @@ impl<'a> Parser<'a> {
                 return Err(self.err(key_span, format!("неизвестное свойство «{key}»")));
             };
             let mut values = Vec::new();
+            if key == "d" {
+                match self.next() {
+                    Some(Token { tok: Tok::Str(s), span }) => values.push(ValueAst { kind: ValueKind::Path(s), span }),
+                    _ => return Err(self.err(key_span, "после d нужен контур в кавычках, например d \"M 0 0 L 40 0 L 20 30 Z\"")),
+                }
+            }
             while values.len() < max && self.is_value_start() {
                 values.push(self.value()?);
             }
