@@ -1747,6 +1747,7 @@ impl App {
                 let rows = [
                     ("V H", "Выделение, рука"),
                     ("R O S N", "Прямоугольник, эллипс, звезда, многоугольник"),
+                    ("T", "Текст: клик по холсту"),
                     ("P", "Перо; Enter — закончить, клик по первой точке — замкнуть"),
                     ("Enter", "Редактировать точки контура (или двойной клик)"),
                     ("Tab", "Переключить Design / Animate"),
@@ -1776,6 +1777,16 @@ impl App {
                         ui.end_row();
                     }
                 });
+                ui.add_space(8.0);
+                if theme::button(ui, "Открыть документацию", ButtonKind::Primary)
+                    .on_hover_text("Страницы с картинками о всех инструментах, синтаксисе и экспорте")
+                    .clicked()
+                {
+                    match docs_index() {
+                        Some(path) => ctx.open_url(egui::OpenUrl::new_tab(file_url(&path))),
+                        None => self.status = "Документация не найдена: папка docs должна лежать рядом с программой".into(),
+                    }
+                }
                 ui.add_space(6.0);
                 ui.label(RichText::new(format!("Motif {VERSION}")).font(theme::mono(11.0)).color(FAINT));
             },
@@ -2090,4 +2101,29 @@ impl eframe::App for App {
 
 fn mix_u8(a: u8, b: u8) -> u8 {
     ((a as u16 + b as u16) / 2) as u8
+}
+
+/// The documentation start page: `docs` next to the program, or in the source tree when run with cargo.
+fn docs_index() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let near = exe.parent()?.join("docs").join("index.html");
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/index.html");
+    [near, source].into_iter().find(|p| p.is_file())
+}
+
+/// `file:///C:/…` with non-ASCII letters and spaces percent-encoded, so any browser opens it.
+fn file_url(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let mut out = String::from("file://");
+    if !text.starts_with('/') {
+        out.push('/');
+    }
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || b"/:._-~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Экспорт и внешние программы — Motif</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<main><div class="content">
+
+<h1>Экспорт и внешние программы</h1>
+<p class="lead">Как сцена из Motif попадает в игру: кадры PNG, палитры, пикселизация в PixaTool и командная строка для сборки игры.</p>
+
+<div class="pipeline">
+  <div class="stage"><b>Motif</b>рисуем «математикой»</div><span class="arrow">→</span>
+  <div class="stage"><b>Кадры PNG</b>+ палитра .pal</div><span class="arrow">→</span>
+  <div class="stage"><b>PixaTool</b>пикселизация</div><span class="arrow">→</span>
+  <div class="stage"><b>Игра</b>спрайты, Godot</div>
+</div>
+
+<h2 id="export">Экспорт кадров</h2>
+<div class="side">
+  <figure><img src="img/export.png" alt="Окно Экспорт"></figure>
+  <div>
+    <p>Кнопка «Экспорт» вверху справа открывает это окно:</p>
+    <ul>
+      <li><b>Кадров в секунду</b> — сколько кадров снять с анимации. Для пиксель-арта обычно 8–12.</li>
+      <li><b>Масштаб</b> — пикселей на единицу артборда: 1 даёт размер артборда, 2 — вдвое больше.</li>
+      <li><b>Сглаживание краёв.</b> Перед пикселизацией его лучше выключить: края станут жёсткими, и пикселизатор не будет придумывать промежуточные оттенки.</li>
+      <li><b>Прозрачный фон</b> — без цвета артборда, для спрайтов.</li>
+      <li><b>«Сохранить кадры…»</b> снимает выбранную анимацию в папку: <code>ИМЯ_0000.png</code>, <code>ИМЯ_0001.png</code> и так далее.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="palette">Палитра и пиксельное превью</h2>
+<ul>
+  <li><b>«Палитра сцены в .pal»</b> сохраняет все цвета сцены в формате JASC <code>.pal</code>, не больше 192 цветов (это предел PixaTool). Если загрузить её в PixaTool, пикселизация останется в цветах вашей сцены.</li>
+  <li><b>«Загрузить .pal для превью…»</b> — показать сцену в чужой палитре, например в палитре всей игры.</li>
+  <li><b>Кнопка «Пиксели»</b> вверху показывает сцену без сглаживания в маленьком разрешении (поле рядом задаёт ширину в пикселях) и в выбранной палитре. Так видно, как картинка переживёт пикселизацию: не слишком ли тонкие линии и не сливаются ли детали.</li>
+</ul>
+<figure><img src="img/pixel-preview.png" alt="Пиксельное превью сцены" style="max-width:480px"><figcaption>Превью в ширину 96 px в палитре сцены.</figcaption></figure>
+
+<h2 id="pixatool">PixaTool</h2>
+<p><a href="https://kronbits.itch.io/pixatool">PixaTool</a> превращает обычную картинку в пиксель-арт: уменьшает её, приводит к палитре, добавляет дизеринг и контуры. У него нет командной строки, поэтому сейчас кадры передаются через папку.</p>
+<figure><img src="img/pixatool.png" alt="Окно PixaTool с кадром из Motif"><figcaption>PixaTool 1.58 с кадром, снятым из Motif.</figcaption></figure>
+<h3>Сейчас: через пакетную обработку</h3>
+<ol class="steps">
+  <li>В Motif: «Экспорт», выключите «Сглаживание краёв», включите «Прозрачный фон» и нажмите «Сохранить кадры…». Там же сохраните «Палитру сцены в .pal».</li>
+  <li>В PixaTool: настройте эффект на одном кадре («Import»), загрузите палитру в разделе «Palette» и сохраните настройки кнопкой «Save Preset».</li>
+  <li>Раздел «Batch Images»: «Load Images» — выберите все кадры, затем папку для результата. PixaTool запишет рядом <code>ИМЯ_0000_processed.png</code> и так далее.</li>
+</ol>
+
+<h3>Скоро: мост Motif → PixaTool</h3>
+<p>Мост уже проверен на вашей версии PixaTool и будет следующим обновлением Motif. Вы один раз настраиваете эффект в PixaTool и сохраняете пресет. Дальше Motif сам запускает PixaTool, загружает пресет, прогоняет через него все кадры анимации и забирает результат, без единого диалога. Это будет кнопка в окне экспорта и команда <code>motif pixel</code>.</p>
+<div class="pair pixel">
+  <figure><img src="img/bridge-in.png" alt="Кадр из Motif"><figcaption>Кадр из Motif, 480×270.</figcaption></figure>
+  <figure><img src="img/bridge-out.png" alt="Результат PixaTool"><figcaption>Он же после PixaTool (пиксель 4, увеличено), получен через мост без участия человека.</figcaption></figure>
+</div>
+<div class="note">
+  <p>Мост управляет PixaTool снаружи и не меняет его файлы. Он рассчитан на PixaTool 1.58. Если PixaTool обновится и мост перестанет работать, ручной способ через пакетную обработку останется.</p>
+</div>
+
+<h2 id="fx">Pixel FX Designer</h2>
+<p>Pixel FX Designer (частицы и эффекты от того же автора) читает те же JASC <code>.pal</code>. Сохраните палитру сцены из Motif и загрузите её в Pixel FX Designer: взрывы и искры будут в тех же цветах, что и персонаж.</p>
+
+<h2 id="cli">Командная строка motif.exe</h2>
+<p>Всё, что делает окно экспорта, умеет и <code>motif.exe</code>. Это удобно в скриптах сборки игры: поменяли сцену — пересобрали кадры одной командой.</p>
+<pre><code>motif.exe check   сцена.msc
+motif.exe render  сцена.msc -o кадр.png --scale 2
+motif.exe render  сцена.msc --anim Idle --time 0.5 -o кадр.png
+motif.exe frames  сцена.msc --anim Idle --fps 12 --width 120 --no-aa -o out\idle
+motif.exe palette сцена.msc -o out\scene.pal</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Команда / ключ</th><th>Что делает</th></tr>
+  <tr><td><code>check</code></td><td>Проверяет сцену и печатает объекты и анимации; при ошибке пишет строку и причину.</td></tr>
+  <tr><td><code>render</code></td><td>Один кадр PNG; с <code>--anim</code> и <code>--time</code> — кадр анимации в заданный момент.</td></tr>
+  <tr><td><code>frames</code></td><td>Все кадры анимации в папку, как кнопка «Сохранить кадры…».</td></tr>
+  <tr><td><code>palette</code></td><td>Палитра сцены в JASC <code>.pal</code>.</td></tr>
+  <tr><td><code>--scale N</code> / <code>--width W</code></td><td>Пикселей на единицу артборда, или итоговая ширина в пикселях.</td></tr>
+  <tr><td><code>--no-aa</code></td><td>Без сглаживания краёв.</td></tr>
+  <tr><td><code>--transparent</code></td><td>Без фона артборда.</td></tr>
+  <tr><td><code>--fps N</code></td><td>Кадров в секунду для <code>frames</code> (по умолчанию 12).</td></tr>
+</table></div>
+
+<h2 id="godot">Godot</h2>
+<p>Пока сцены попадают в Godot как кадры PNG: их можно собрать в <code>SpriteFrames</code> для <code>AnimatedSprite2D</code>. В плане развития Motif есть сборка спрайт-листа и готового <code>SpriteFrames</code> прямо из редактора, а позже рантайм для Godot 4 (.NET), который будет проигрывать анимации и состояния Motif прямо в игре, без запекания в кадры.</p>
+
+</div></main>
+</div>
+<script src="site.js"></script>
+</body>
+</html>
