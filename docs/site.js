@@ -9,6 +9,7 @@
     ["animation.html", "Анимация"],
     ["machine.html", "Машина состояний"],
     ["bones.html", "Кости и IK"],
+    ["physics.html", "Физика"],
     ["script.html", "Скрипт сцены"],
     ["export.html", "Экспорт и программы"],
   ];

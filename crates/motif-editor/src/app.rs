@@ -168,6 +168,8 @@ pub struct App {
     last_poll: Instant,
     pointer_doc: Option<Point>,
     frame_ms: f32,
+    /// Soft-body frames already simulated, for the script and animation they were simulated for.
+    sim: std::cell::RefCell<(u64, motif_core::SimCache)>,
 }
 
 impl App {
@@ -232,6 +234,7 @@ impl App {
             last_poll: Instant::now(),
             pointer_doc: None,
             frame_ms: 16.0,
+            sim: Default::default(),
         };
         app.reparse();
         app
@@ -410,7 +413,7 @@ impl App {
     pub(crate) fn display_doc(&self) -> Document {
         let mut doc = match (self.running(), self.current_anim()) {
             (Some((m, player)), _) => player.pose(m, &self.scene.doc),
-            (None, Some(a)) => a.pose(&self.scene.doc, self.time),
+            (None, Some(a)) => self.pose_anim(a, self.time),
             (None, None) => self.scene.doc.clone(),
         };
         if let Some(e) = &self.point_edit
@@ -426,6 +429,19 @@ impl App {
         }
         doc.rig();
         doc
+    }
+
+    /// `anim` posed at `t`, reusing the soft-body frames simulated for the same script.
+    pub(crate) fn pose_anim(&self, anim: &motif_core::Animation, t: f64) -> Document {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (&self.src, &anim.name).hash(&mut h);
+        let key = h.finish();
+        let mut sim = self.sim.borrow_mut();
+        if sim.0 != key {
+            *sim = (key, motif_core::SimCache::default());
+        }
+        anim.pose_with(&self.scene.doc, t, &mut sim.1)
     }
 
     /// A drag step: shown at once, written to the script when the mouse is released.
@@ -465,7 +481,7 @@ impl App {
             let tint = if frames < 0.0 { Color::rgb(0xff, 0x5a, 0x5a) } else { Color::rgb(0x4f, 0xd3, 0x8c) };
             let alpha = if frames.abs() > 1.5 { 0.12 } else { 0.24 };
             let base = out.nodes.len();
-            for mut n in anim.pose(&self.scene.doc, t).nodes {
+            for mut n in self.pose_anim(anim, t).nodes {
                 n.id = format!("~onion{k}~{}", n.id);
                 n.parent = n.parent.map(|p| p + base);
                 n.opacity *= alpha;
@@ -1121,6 +1137,7 @@ impl App {
             self.mask_ui(ui, &node);
             self.symbol_section(ui, &node);
             self.bone_section(ui, &node);
+            self.physics_section(ui, &node);
             if !node.kind.is_container() {
                 section(ui, |ui| {
                     theme::caption(ui, "Заливка");
