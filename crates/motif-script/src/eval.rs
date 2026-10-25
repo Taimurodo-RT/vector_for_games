@@ -564,6 +564,8 @@ impl<'a> Evaluator<'a> {
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
                 "cap" | "join" | "blend" => Vec::new(),
+                // `cross` is a keyword of the hatching.
+                "hatch" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(t) if t == "cross") { None } else { self.value(v) }).collect(),
                 _ => p.values.iter().map(|v| self.value(v)).collect(),
             };
             let num = |i: usize| vals.get(i).copied().flatten().and_then(Value::as_num);
@@ -1002,6 +1004,51 @@ impl<'a> Evaluator<'a> {
                 },
                 "solid" => node.solid = true,
                 "ui" => node.ui = true,
+                "rough" | "boil" | "hatch" | "grain" | "bands" | "seed" if n.kind.is_container() => {
+                    self.err(p.key_span, format!("«{}» бывает у фигур: кисть рисует контур", p.key))
+                }
+                "rough" => match (num(0), if p.values.len() > 1 { num(1) } else { Some(0.0) }) {
+                    (Some(a), Some(w)) if a >= 0.0 && w >= 0.0 => {
+                        node.brush.rough = a;
+                        node.brush.wave = w;
+                        record(&mut self.scene, Prop::Rough, &p.values[0], None);
+                    }
+                    _ => self.err(p.key_span, "rough — насколько контур гуляет от руки, и длина одной волны: rough 3, rough 3 40"),
+                },
+                "boil" => match num(0) {
+                    Some(f) if f >= 0.0 => node.brush.boil = f,
+                    _ => self.err(p.key_span, "boil — сколько раз в секунду линия перерисовывается заново: boil 8"),
+                },
+                "seed" => match num(0) {
+                    Some(s) if s >= 0.0 && s.fract() == 0.0 => node.brush.seed = Some(s as u32),
+                    _ => self.err(p.key_span, "seed — целое число от 0: другой seed — другой рисунок той же кисти"),
+                },
+                "bands" => match num(0) {
+                    Some(b) if (1.0..=64.0).contains(&b) && b.fract() == 0.0 => node.brush.bands = b as u32,
+                    _ => self.err(p.key_span, "bands — сколько ступеней у света и градиентов, от 1 до 64: bands 3"),
+                },
+                "hatch" => {
+                    let cross = p.values.iter().any(|v| matches!(&v.kind, ValueKind::Ref(t) if t == "cross"));
+                    let color = vals.iter().flatten().find_map(|v| if let Value::Color(c) = v { Some(*c) } else { None });
+                    let nums: Vec<f64> = vals.iter().flatten().filter_map(|v| v.as_num()).collect();
+                    let rest = p.values.len() - usize::from(cross) - usize::from(color.is_some());
+                    match nums[..] {
+                        [angle, gap, ..] if rest == nums.len() && nums.len() <= 3 && gap > 0.0 && nums.get(2).is_none_or(|w| *w > 0.0) => {
+                            node.brush.hatch = Some(motif_core::Hatch { angle, gap, width: nums.get(2).copied().unwrap_or(1.0), color, cross });
+                        }
+                        _ => self.err(p.key_span, "hatch — штриховка: угол, шаг, толщина, цвет и cross для второго слоя: hatch 45 6, hatch 30 5 1.5 #2a2e39 cross"),
+                    }
+                }
+                "grain" => {
+                    let color = vals.iter().flatten().find_map(|v| if let Value::Color(c) = v { Some(*c) } else { None });
+                    let nums: Vec<f64> = vals.iter().flatten().filter_map(|v| v.as_num()).collect();
+                    match nums[..] {
+                        [d, ..] if nums.len() + usize::from(color.is_some()) == p.values.len() && nums.len() <= 2 && d > 0.0 && d <= 1.0 && nums.get(1).is_none_or(|s| *s > 0.0) => {
+                            node.brush.grain = Some(motif_core::Grain { density: d, size: nums.get(1).copied().unwrap_or(2.0), color });
+                        }
+                        _ => self.err(p.key_span, "grain — зерно: доля точек от 0 до 1, размер точки, цвет: grain 0.2, grain 0.3 3 #2a2e39"),
+                    }
+                }
                 "slice" => match (p.values.len(), num(0), num(1), num(2), num(3)) {
                     (1, Some(a), ..) if a >= 0.0 => node.slice = Some([a; 4]),
                     (2, Some(x), Some(y), ..) if x >= 0.0 && y >= 0.0 => node.slice = Some([x, y, x, y]),

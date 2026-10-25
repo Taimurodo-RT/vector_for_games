@@ -1244,6 +1244,7 @@ impl App {
             self.orbit_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             self.body_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             self.morph_section(ui, &node, &mut changes, &mut diamonds, &mut styles);
+            self.brush_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             self.kit_section(ui, &node, half, &mut styles);
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();

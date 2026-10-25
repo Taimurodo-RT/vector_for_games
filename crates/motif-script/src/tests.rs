@@ -1001,6 +1001,27 @@ fn ui_pieces_parse_and_edit() {
 }
 
 #[test]
+fn brushes_parse_key_and_edit() {
+    let src = "rect rock size 80 60 fill #888888 rough 3 40 boil 8 seed 4 hatch 45 6 1.5 #222222 cross grain 0.2 3 bands 3\nellipse sun rough 2\nanim A 1s {\n  sun.rough 0: 2 | 1: 6\n}\n";
+    let s = scene(src);
+    let b = &s.doc.node("rock").unwrap().brush;
+    assert_eq!((b.rough, b.wave, b.boil, b.seed, b.bands), (3.0, 40.0, 8.0, Some(4), 3));
+    assert_eq!(b.hatch, Some(motif_core::Hatch { angle: 45.0, gap: 6.0, width: 1.5, color: Some(Color::rgb(0x22, 0x22, 0x22)), cross: true }));
+    assert_eq!(b.grain, Some(motif_core::Grain { density: 0.2, size: 3.0, color: None }));
+    let posed = s.doc.animation("A").unwrap().keys_at(&s.doc, 0.5);
+    assert_eq!(posed.node("sun").unwrap().get(Prop::Rough), Value::Num(4.0));
+    assert_eq!(posed.time, 0.5);
+    let out = set_prop(src, &s, "rock", Prop::Rough, Value::Num(5.0)).unwrap();
+    assert!(out.contains("rough 5 40 boil"), "{out}");
+    let src2 = "rect plain size 10 10\n";
+    let out = set_prop(src2, &scene(src2), "plain", Prop::Rough, Value::Num(2.0)).unwrap();
+    assert!(out.contains("rough 2"), "{out}");
+    let errs =
+        parse("rect a rough -1\nrect b hatch 45 0\nrect c grain 2\nrect d bands 0\ngroup g rough 2\nrect e seed 1.5\nrect f hatch 45 6 nope\n").unwrap_err();
+    assert_eq!(errs.len(), 8, "{errs:?}");
+}
+
+#[test]
 fn fluids_parse() {
     let s = scene("rect pool size 60 120 fluid\nrect tap size 10 10 fluid 0.4 flow 80 gravity 600\n");
     assert_eq!(s.doc.node("pool").unwrap().fluid, Some(motif_core::Fluid::default()));
