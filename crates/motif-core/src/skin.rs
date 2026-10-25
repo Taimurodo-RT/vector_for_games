@@ -15,6 +15,7 @@ impl Document {
     /// with their bones and wrapped shapes over their balls.
     /// Animations call it after posing, the editor before drawing.
     pub fn rig(&mut self) {
+        self.morph_all();
         self.place_orbits();
         self.solve_ik();
         self.skin_all();

@@ -229,6 +229,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "wind" => (1, 1),
         "tie" | "hang" => (1, 2),
         "links" => (1, 1),
+        "morph" => (1, 9),
         "fluid" => (0, 1),
         "flow" => (1, 1),
         "roll" => (0, 2),
@@ -567,9 +568,13 @@ impl<'a> Parser<'a> {
                 }
             }
             // Ids of objects: the IK target, the bones of a skin, the ball something sits on.
-            if matches!(key.as_str(), "ik" | "skin" | "on" | "tie" | "hang" | "links") {
-                // `hang` takes one id, then where along the rope.
-                let ids = if key == "hang" { 1 } else { max };
+            if matches!(key.as_str(), "ik" | "skin" | "on" | "tie" | "hang" | "links" | "morph") {
+                // `hang` takes one id, then where along the rope; `morph` up to eight, then how far.
+                let ids = match key.as_str() {
+                    "hang" => 1,
+                    "morph" => 8,
+                    _ => max,
+                };
                 while values.len() < ids
                     && let Some(Tok::Ident(s)) = self.peek()
                     && (values.is_empty() || prop_arity(s).is_none())
@@ -586,6 +591,8 @@ impl<'a> Parser<'a> {
                         "после on нужен id шара, например on planet"
                     } else if key == "tie" {
                         "после tie нужен id объекта, который держит конец верёвки, например tie hand"
+                    } else if key == "morph" {
+                        "после morph нужны id фигур, в которые перетекает эта, например morph star heart"
                     } else if key == "hang" || key == "links" {
                         "нужен id верёвки, например hang rope или links rope"
                     } else {

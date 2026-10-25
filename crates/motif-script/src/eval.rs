@@ -29,6 +29,7 @@ pub struct Evaluator<'a> {
     ball_refs: Vec<(usize, String, Span)>,
     /// Objects named by `tie` (any object) and ropes named by `hang` and `links` (`true`).
     rope_refs: Vec<(usize, String, Span, bool)>,
+    morph_refs: Vec<(usize, String, Span)>,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
@@ -45,6 +46,7 @@ impl<'a> Evaluator<'a> {
             rig_refs: Vec::new(),
             ball_refs: Vec::new(),
             rope_refs: Vec::new(),
+            morph_refs: Vec::new(),
             scene: Scene {
                 doc: Document::new(Artboard::default()),
                 sources: HashMap::new(),
@@ -220,6 +222,16 @@ impl<'a> Evaluator<'a> {
                 Some(r) if r == i => errors.push((span, "объект не может держаться сам за себя".to_string())),
                 Some(r) if rope && doc.nodes[r].rope.as_ref().is_none_or(|r| r.cloth) => {
                     errors.push((span, format!("«{id}» — не верёвка: сделайте её верёвкой, rope")))
+                }
+                Some(_) => {}
+            }
+        }
+        for (i, id, span) in std::mem::take(&mut self.morph_refs) {
+            match doc.index_of(&id) {
+                None => errors.push((span, format!("нет объекта «{id}»"))),
+                Some(t) if t == i => errors.push((span, "фигура не может перетекать сама в себя".to_string())),
+                Some(t) if matches!(doc.nodes[t].kind, ShapeKind::Group | ShapeKind::Bone) => {
+                    errors.push((span, format!("«{id}» — не фигура: морфинг перетекает в контур другой фигуры")))
                 }
                 Some(_) => {}
             }
@@ -537,6 +549,7 @@ impl<'a> Evaluator<'a> {
         let mut ties: Vec<(String, Span)> = Vec::new();
         let mut hang: Option<(String, f64, Span)> = None;
         let mut links: Option<(String, Span)> = None;
+        let mut morph: Option<Vec<(String, Span)>> = None;
         let mut fluid: Option<motif_core::Fluid> = None;
         let mut flow: Option<(f64, Span)> = None;
         let mut roll: Option<(motif_core::Roll, Span)> = None;
@@ -546,7 +559,7 @@ impl<'a> Evaluator<'a> {
                 self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
-                "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" => Vec::new(),
+                "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
@@ -909,6 +922,24 @@ impl<'a> Evaluator<'a> {
                         links = Some((t.clone(), p.values[0].span));
                     }
                 }
+                "morph" if n.kind.is_container() => self.err(p.key_span, "«morph» бывает у фигур: перетекает контур"),
+                "morph" => {
+                    let ids: Vec<_> = p.values.iter().filter_map(|v| if let ValueKind::Path(t) = &v.kind { Some((t.clone(), v.span)) } else { None }).collect();
+                    let amount = p.values.get(ids.len());
+                    match amount.map(|v| self.value(v).and_then(|v| v.as_num())) {
+                        Some(None) => self.err(p.key_span, "morph — в какие фигуры перетекает и насколько: morph star heart 0.5"),
+                        Some(Some(a)) if a < 0.0 => self.err(p.key_span, "«morph»: насколько перетекла фигура, от 0 — morph star 0.5"),
+                        a => {
+                            let mut m = motif_core::Morph::new(Vec::new());
+                            m.amount = a.flatten().unwrap_or(0.0);
+                            node.morph = Some(m);
+                            if let Some(v) = amount {
+                                record(&mut self.scene, Prop::Morph, v, None);
+                            }
+                            morph = Some(ids);
+                        }
+                    }
+                }
                 "fluid" | "flow" if n.kind.is_container() => self.err(p.key_span, format!("«{}» бывает у фигур: жидкость заполняет контур", p.key)),
                 "fluid" => {
                     let mut f = motif_core::Fluid::default();
@@ -1183,6 +1214,12 @@ impl<'a> Evaluator<'a> {
                 self.err(span, "roll катит объект по шару: нужен ещё on шар");
             }
             node.roll = Some(r);
+        }
+        if let Some(ids) = morph
+            && let Some(m) = &mut node.morph
+        {
+            m.targets = ids.iter().map(|(t, _)| format!("{}{t}", self.prefix)).collect();
+            self.morph_refs.extend(ids.into_iter().map(|(t, span)| (index, format!("{}{t}", self.prefix), span)));
         }
         if let Some((ball, span)) = on {
             node.on = Some(format!("{}{ball}", self.prefix));

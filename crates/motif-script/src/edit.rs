@@ -108,6 +108,11 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
             format!("{} {text}", prop.path_name())
         }
         Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => return None,
+        // How far goes after the targets: without them there is nothing to flow into.
+        Prop::Morph => {
+            let span = scene.prop_spans.get(&(node.to_string(), "morph".to_string()))?;
+            return Some(splice(src, Span::new(span.end, span.end), &format!(" {text}")));
+        }
         Prop::ShadowX | Prop::ShadowY | Prop::ShadowBlur => {
             let color = current.shadow.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
             format!("shadow {} {} {} {color}", pick(Prop::ShadowX), pick(Prop::ShadowY), pick(Prop::ShadowBlur))

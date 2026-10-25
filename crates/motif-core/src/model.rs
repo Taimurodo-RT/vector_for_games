@@ -128,6 +128,8 @@ pub enum Prop {
     /// Strength of a pull and of a fan.
     Pull,
     Fan,
+    /// How far a morph has gone: 0 is the shape itself, 1 its first target, 2 the second.
+    Morph,
     /// The scene's gravity and wind (`world.gravity-y`), keyed on the world, not on a node.
     GravityX,
     GravityY,
@@ -137,7 +139,7 @@ pub enum Prop {
 }
 
 impl Prop {
-    pub const ALL: [Prop; 33] = [
+    pub const ALL: [Prop; 34] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -171,6 +173,7 @@ impl Prop {
         Prop::Pitch,
         Prop::Pull,
         Prop::Fan,
+        Prop::Morph,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -209,6 +212,7 @@ impl Prop {
             Prop::Pitch => "pitch",
             Prop::Pull => "pull",
             Prop::Fan => "fan",
+            Prop::Morph => "morph",
             Prop::GravityX => "gravity-x",
             Prop::GravityY => "gravity-y",
             Prop::WindX => "wind-x",
@@ -377,6 +381,8 @@ pub struct Node {
     pub pull: Option<crate::Field>,
     /// Blows along its own direction (`fan 600 range 300 cone 40`).
     pub fan: Option<crate::Field>,
+    /// Flows into the shapes of other objects (`morph star heart`) as `morph` goes 0 → 1 → 2.
+    pub morph: Option<crate::Morph>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -531,6 +537,7 @@ impl Node {
             sail: None,
             pull: None,
             fan: None,
+            morph: None,
         }
     }
 
@@ -574,6 +581,7 @@ impl Node {
             Prop::Pitch => Value::Num(self.pitch),
             Prop::Pull => Value::Num(self.pull.map_or(0.0, |f| f.strength)),
             Prop::Fan => Value::Num(self.fan.map_or(0.0, |f| f.strength)),
+            Prop::Morph => Value::Num(self.morph.as_ref().map_or(0.0, |m| m.amount)),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => Value::None,
         }
     }
@@ -587,7 +595,12 @@ impl Node {
         };
         if prop.is_color() {
             if let Some(p) = paint {
-                if prop == Prop::Fill { self.fill = p } else { self.stroke = p }
+                if prop == Prop::Fill {
+                    self.fill = p
+                } else {
+                    self.stroke = p
+                }
+                self.forget_morph_paint();
             }
             return;
         }
@@ -604,7 +617,10 @@ impl Node {
             Prop::Radius => self.radius = v,
             Prop::Points => self.points = v,
             Prop::Inner => self.inner = v,
-            Prop::StrokeWidth => self.stroke_width = v,
+            Prop::StrokeWidth => {
+                self.stroke_width = v;
+                self.forget_morph_paint();
+            }
             Prop::SkewX => self.skew_x = v,
             Prop::SkewY => self.skew_y = v,
             Prop::FontSize => self.text_style.size = v,
@@ -624,6 +640,11 @@ impl Node {
             Prop::Pitch => self.pitch = v,
             Prop::Pull => self.pull.get_or_insert_with(crate::Field::pull).strength = v,
             Prop::Fan => self.fan.get_or_insert_with(crate::Field::fan).strength = v,
+            Prop::Morph => {
+                if let Some(m) = &mut self.morph {
+                    m.amount = v.max(0.0);
+                }
+            }
             Prop::Fill | Prop::StrokeColor => unreachable!(),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => {}
         }
@@ -649,8 +670,23 @@ impl Node {
         }
     }
 
-    /// Geometry as drawn, before bones bend it.
+    /// Geometry as drawn, before bones bend it: the morphed shape while a morph is under way.
     pub fn base_path(&self) -> Option<BezPath> {
+        match self.morph.as_ref().and_then(|m| m.path.clone()) {
+            Some(p) => Some(p),
+            None => self.shape_path(),
+        }
+    }
+
+    /// A new colour or stroke becomes the morph's starting paint.
+    fn forget_morph_paint(&mut self) {
+        if let Some(m) = &mut self.morph {
+            m.base = None;
+        }
+    }
+
+    /// The node's own shape, before morphing and bones.
+    pub fn shape_path(&self) -> Option<BezPath> {
         let (w, h) = (self.width.abs(), self.height.abs());
         let rect = kurbo::Rect::new(-w / 2.0, -h / 2.0, w / 2.0, h / 2.0);
         Some(match self.kind {
