@@ -77,7 +77,7 @@ pub fn outline_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) 
                 ui.painter().rect_filled(sw, 6.0, c32);
                 ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
                 let mut pick = c32;
-                egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                theme::color_popup(&resp).show(|ui| {
                     if egui::color_picker::color_picker_color32(ui, &mut pick, egui::color_picker::Alpha::OnlyBlend) {
                         let [r, g, b, a] = pick.to_srgba_unmultiplied();
                         *c = Color { r, g, b, a };

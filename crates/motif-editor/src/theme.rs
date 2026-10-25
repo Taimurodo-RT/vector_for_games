@@ -476,3 +476,14 @@ pub fn num_field(
     }
     out
 }
+
+/// The popup of a colour swatch in the properties panel. It opens to the left of the swatch, over
+/// the canvas, and always there: with egui's default alternatives it could jump between below and
+/// above the swatch on every frame when it fits neither well.
+pub fn color_popup(resp: &Response) -> egui::Popup<'_> {
+    egui::Popup::from_toggle_button_response(resp)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::LEFT_START)
+        .align_alternatives(&[])
+        .gap(8.0)
+}

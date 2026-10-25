@@ -1244,7 +1244,7 @@ impl App {
             }
             ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
             let mut c32 = paint.map_or(Color32::BLACK, |c| Color32::from_rgb(c.r, c.g, c.b));
-            egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            theme::color_popup(&resp).show(|ui| {
                 if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::Opaque) {
                     changes.push((prop, Value::Color(Color { r: c32.r(), g: c32.g(), b: c32.b(), a: paint.map_or(255, |p| p.a) })));
                 }
