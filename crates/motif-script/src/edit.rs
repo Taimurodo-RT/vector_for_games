@@ -59,6 +59,17 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         });
     }
 
+    // A shadow written without a blur gets one after its offset.
+    if prop == Prop::ShadowBlur
+        && let Some(y) = scene.sources.get(&(node.to_string(), Prop::ShadowY))
+    {
+        return Some(if y.editable && !y.from_override {
+            splice(src, Span::new(y.span.end, y.span.end), &format!(" {text}"))
+        } else {
+            write_override(src, scene, node, prop, &text)
+        });
+    }
+
     let num = |p: Prop| fmt_value(current.get(p));
     let pick = |p: Prop| if p == prop { text.clone() } else { num(p) };
     let stroke_color = current.stroke.unwrap_or(Color::BLACK).to_hex();
@@ -76,7 +87,13 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         Prop::StrokeColor => format!("stroke {text} {}", fmt_num(stroke_width)),
         Prop::StrokeWidth => format!("stroke {stroke_color} {text}"),
         Prop::SkewX | Prop::SkewY => format!("skew {} {}", pick(Prop::SkewX), pick(Prop::SkewY)),
-        Prop::FontSize | Prop::LetterSpacing | Prop::Reveal | Prop::Wave | Prop::Phase => format!("{} {text}", prop.path_name()),
+        Prop::FontSize | Prop::LetterSpacing | Prop::Reveal | Prop::Wave | Prop::Phase | Prop::Blur | Prop::Elevation => {
+            format!("{} {text}", prop.path_name())
+        }
+        Prop::ShadowX | Prop::ShadowY | Prop::ShadowBlur => {
+            let color = current.shadow.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
+            format!("shadow {} {} {} {color}", pick(Prop::ShadowX), pick(Prop::ShadowY), pick(Prop::ShadowBlur))
+        }
     };
     Some(splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {addition}")))
 }
@@ -550,4 +567,28 @@ pub fn set_backdrop(src: &str, scene: &Scene, backdrop: Option<&crate::Backdrop>
         }
         (None, None) => src.to_string(),
     }
+}
+
+/// Returns the script with the scene light (`light` on the `artboard` line) set to `angle`
+/// degrees; the default 90 removes it. `None` when there is no artboard line.
+pub fn set_light(src: &str, angle: f64) -> Option<String> {
+    let start = src.match_indices("artboard").find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n')?.0;
+    let end = src[start..].find('\n').map_or(src.len(), |n| start + n);
+    let line = &src[start..end];
+    // The line without a comment, and without its old `light N`.
+    let code_end = line.find("//").unwrap_or(line.len());
+    let (code, comment) = line.split_at(code_end);
+    let mut words: Vec<&str> = code.split(' ').collect();
+    if let Some(k) = words.iter().position(|w| *w == "light") {
+        words.drain(k..(k + 2).min(words.len()));
+    }
+    let mut code = words.join(" ").trim_end().to_string();
+    if angle != 90.0 {
+        code.push_str(&format!(" light {}", fmt_num(angle)));
+    }
+    if !comment.is_empty() {
+        code.push(' ');
+        code.push_str(comment);
+    }
+    Some(splice(src, Span::new(start, end), &code))
 }

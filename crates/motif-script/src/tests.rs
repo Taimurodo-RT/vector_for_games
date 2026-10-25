@@ -491,3 +491,34 @@ fn text_and_outlines() {
     let title = include_str!("../../../examples/title.msc");
     assert!(scene(title).doc.node("title").unwrap().text.is_some());
 }
+
+#[test]
+fn blur_elevation_and_light() {
+    let src = "artboard \"M\" 200x200 bg #fff light 120 // свет\nrect a at 50 50 blur 4 elevation 10\nrect b at 0 0 shadow 2 3 #000000\nrect c at 9 9\n";
+    let s = scene(src);
+    assert_eq!(s.doc.light, 120.0);
+    let a = s.doc.node("a").unwrap();
+    assert_eq!((a.blur, a.elevation), (4.0, 10.0));
+    // Shadow parts edit their own numbers; a missing blur goes after the offset.
+    let out = set_prop(src, &s, "b", Prop::ShadowY, Value::Num(7.0)).unwrap();
+    assert!(out.contains("shadow 2 7 #000000"), "{out}");
+    let out = set_prop(src, &s, "b", Prop::ShadowBlur, Value::Num(5.0)).unwrap();
+    assert!(out.contains("shadow 2 3 5 #000000"), "{out}");
+    let out = set_prop(src, &s, "c", Prop::ShadowX, Value::Num(4.0)).unwrap();
+    assert!(out.contains("rect c at 9 9 shadow 4 0 0 #00000055"), "{out}");
+    let out = set_prop(src, &s, "a", Prop::Blur, Value::Num(2.5)).unwrap();
+    assert!(out.contains("blur 2.5 elevation 10"), "{out}");
+    // Effects animate by their path names.
+    let anim = format!("{src}anim A 1s {{\n  b.shadow-blur 0: 0 | 1: 20\n  a.elevation 0: 0 | 1: 30\n}}\n");
+    let s2 = scene(&anim);
+    let posed = s2.doc.animations[0].pose(&s2.doc, 0.5);
+    assert_eq!(posed.node("b").unwrap().shadow.unwrap().blur, 10.0);
+    assert_eq!(posed.node("a").unwrap().elevation, 15.0);
+    // The light is written on the artboard line, before its comment; 90 removes it.
+    let out = set_light(src, 45.0).unwrap();
+    assert!(out.starts_with("artboard \"M\" 200x200 bg #fff light 45 // свет\n"), "{out}");
+    assert_eq!(scene(&out).doc.light, 45.0);
+    let out = set_light(&out, 90.0).unwrap();
+    assert!(out.starts_with("artboard \"M\" 200x200 bg #fff // свет\n"), "{out}");
+    assert!(parse("artboard \"M\" 9x9 light #fff").is_err());
+}

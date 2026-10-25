@@ -138,6 +138,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "hidden" | "clip" | "evenodd" => (0, 0),
         "d" | "content" => (1, 1),
         "font" | "font-size" | "letter-spacing" | "line-height" | "align" | "reveal" | "wave" | "phase" => (1, 1),
+        "blur" | "elevation" => (1, 1),
         "outline" => (2, 8),
         "gradient" => (2, 10),
         _ => return None,
@@ -335,8 +336,8 @@ impl<'a> Parser<'a> {
         };
         let mut props = Vec::new();
         while !self.at_line_end() {
-            let (key, key_span) = self.ident("свойство артборда bg")?;
-            if key != "bg" {
+            let (key, key_span) = self.ident("свойство артборда bg или light")?;
+            if key != "bg" && key != "light" {
                 return Err(self.err(key_span, format!("у артборда нет свойства «{key}»")));
             }
             props.push(PropAst { key, key_span, values: vec![self.value()?] });

@@ -1,6 +1,9 @@
 use crate::{BackdropView, Op, Paint, display_ops, faded};
 use motif_core::kurbo::{Affine, Rect};
 use motif_core::{Blend, Cap, Color, Document, Join};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 pub use vello;
 use vello::Scene;
 use vello::peniko::{self, Fill};
@@ -22,15 +25,30 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine, backdrop: Op
         let brush = peniko::ImageBrush::new(b.image.image.clone()).with_alpha(b.opacity as f32);
         scene.draw_image(&brush, view * b.transform);
     }
-    for op in display_ops(doc) {
+    CACHE.with_borrow_mut(|c| c.frame += 1);
+    draw_ops(scene, &display_ops(doc), view);
+    CACHE.with_borrow_mut(|c| {
+        let frame = c.frame;
+        // Keep layers seen in the last few frames, so toggling between two states stays cheap.
+        c.layers.retain(|_, (_, seen)| frame - *seen < 3);
+    });
+    scene.pop_layer();
+}
+
+fn draw_ops(scene: &mut Scene, ops: &[Op], view: Affine) {
+    for op in ops {
         let item = match op {
             Op::Draw(item) => item,
             Op::PushClip { path, transform, even_odd } => {
-                scene.push_clip_layer(if even_odd { Fill::EvenOdd } else { Fill::NonZero }, view * transform, &path);
+                scene.push_clip_layer(if *even_odd { Fill::EvenOdd } else { Fill::NonZero }, view * *transform, path);
                 continue;
             }
             Op::Pop => {
                 scene.pop_layer();
+                continue;
+            }
+            Op::Blur { ops, radius } => {
+                draw_blur(scene, ops, *radius, view);
                 continue;
             }
         };
@@ -77,7 +95,52 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine, backdrop: Op
             scene.pop_layer();
         }
     }
-    scene.pop_layer();
+}
+
+/// Blurred layers drawn on the CPU and uploaded as images, kept between frames.
+#[derive(Default)]
+struct LayerCache {
+    frame: u64,
+    /// By content: the image, where it goes before panning, and the frame it was last drawn.
+    layers: HashMap<u64, ((peniko::ImageData, Affine), u64)>,
+}
+
+thread_local! {
+    static CACHE: RefCell<LayerCache> = RefCell::default();
+}
+
+/// A blurred layer. It is drawn without the view's translation, so panning reuses the same image
+/// (and Vello does not upload it again).
+fn draw_blur(scene: &mut Scene, ops: &[Op], radius: f64, view: Affine) {
+    let [a, b, c, d, e, f] = view.as_coeffs();
+    let linear = Affine::new([a, b, c, d, 0.0, 0.0]);
+    let mut h = DefaultHasher::new();
+    format!("{ops:?}").hash(&mut h);
+    for v in [radius, a, b, c, d] {
+        v.to_bits().hash(&mut h);
+    }
+    let key = h.finish();
+    let image = CACHE.with_borrow_mut(|cache| {
+        let frame = cache.frame;
+        if let Some((img, seen)) = cache.layers.get_mut(&key) {
+            *seen = frame;
+            return Some(img.clone());
+        }
+        let layer = crate::blur::render(ops, radius, linear, true, None)?;
+        let data = peniko::ImageData {
+            data: peniko::Blob::from(layer.pixmap.data().to_vec()),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::AlphaPremultiplied,
+            width: layer.pixmap.width(),
+            height: layer.pixmap.height(),
+        };
+        cache.layers.insert(key, ((data.clone(), layer.transform), frame));
+        Some((data, layer.transform))
+    });
+    if let Some((data, transform)) = image {
+        let brush = peniko::ImageBrush::new(data).with_quality(peniko::ImageQuality::Medium);
+        scene.draw_image(&brush, Affine::translate((e, f)) * transform);
+    }
 }
 
 fn mix(b: Blend) -> peniko::Mix {

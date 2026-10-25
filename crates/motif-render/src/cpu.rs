@@ -38,23 +38,31 @@ pub fn render_cpu_with(doc: &Document, opts: CpuOptions, backdrop: Option<Backdr
         let paint = tiny_skia::PixmapPaint { opacity: b.opacity.clamp(0.0, 1.0) as f32, quality: tiny_skia::FilterQuality::Bilinear, ..Default::default() };
         pixmap.draw_pixmap(0, 0, b.image.pixmap.as_ref().as_ref(), &paint, to_transform(view * b.transform), None);
     }
+    draw_ops(&mut pixmap, &display_ops(doc), view, opts.antialias, None);
+    Some(pixmap)
+}
+
+/// Paints ops into `pixmap` under `view`, inside `outer` when given.
+pub(crate) fn draw_ops(pixmap: &mut Pixmap, ops: &[Op], view: Affine, antialias: bool, outer: Option<&Mask>) {
+    let (w, h) = (pixmap.width(), pixmap.height());
+    let canvas = motif_core::kurbo::Rect::new(0.0, 0.0, w as f64, h as f64);
     // Nested clip layers: each mask already includes the ones around it.
     let mut masks: Vec<Mask> = Vec::new();
-    for op in display_ops(doc) {
+    for op in ops {
         let item = match op {
             Op::Draw(item) => item,
             Op::PushClip { path, transform, even_odd } => {
-                let mut mask = match masks.last() {
+                let mut mask = match masks.last().or(outer) {
                     Some(m) => m.clone(),
                     None => {
-                        let mut m = Mask::new(w, h)?;
+                        let Some(mut m) = Mask::new(w, h) else { return };
                         m.data_mut().fill(255);
                         m
                     }
                 };
-                if let Some(p) = to_skia(&path) {
-                    let rule = if even_odd { FillRule::EvenOdd } else { FillRule::Winding };
-                    mask.intersect_path(&p, rule, opts.antialias, to_transform(view * transform));
+                if let Some(p) = to_skia(path) {
+                    let rule = if *even_odd { FillRule::EvenOdd } else { FillRule::Winding };
+                    mask.intersect_path(&p, rule, antialias, to_transform(view * *transform));
                 } else {
                     mask.data_mut().fill(0);
                 }
@@ -65,13 +73,20 @@ pub fn render_cpu_with(doc: &Document, opts: CpuOptions, backdrop: Option<Backdr
                 masks.pop();
                 continue;
             }
+            Op::Blur { ops, radius } => {
+                if let Some(layer) = crate::blur::render(ops, *radius, view, antialias, Some(canvas)) {
+                    let paint = tiny_skia::PixmapPaint { quality: tiny_skia::FilterQuality::Bilinear, ..Default::default() };
+                    pixmap.draw_pixmap(0, 0, layer.pixmap.as_ref(), &paint, to_transform(layer.transform), masks.last().or(outer));
+                }
+                continue;
+            }
         };
         let Some(path) = to_skia(&item.path) else { continue };
         let ts = to_transform(view * item.transform);
-        let mask = masks.last();
+        let mask = masks.last().or(outer);
         let mode = blend_mode(item.blend);
         if let Some(fill) = &item.fill
-            && let Some(mut p) = fill_paint(fill, item.opacity, opts.antialias)
+            && let Some(mut p) = fill_paint(fill, item.opacity, antialias)
         {
             p.blend_mode = mode;
             pixmap.fill_path(&path, &p, if item.even_odd { FillRule::EvenOdd } else { FillRule::Winding }, ts, mask);
@@ -94,12 +109,11 @@ pub fn render_cpu_with(doc: &Document, opts: CpuOptions, backdrop: Option<Backdr
             }
             let dash = if dash.is_empty() { None } else { tiny_skia::StrokeDash::new(dash, 0.0) };
             let stroke = Stroke { width: width as f32, line_join, line_cap, dash, ..Stroke::default() };
-            let mut p = paint(faded(color, item.opacity), opts.antialias);
+            let mut p = paint(faded(color, item.opacity), antialias);
             p.blend_mode = mode;
             pixmap.stroke_path(&path, &p, &stroke, ts, mask);
         }
     }
-    Some(pixmap)
 }
 
 fn fill_paint(fill: &Fill, opacity: f64, antialias: bool) -> Option<Paint<'static>> {
@@ -240,5 +254,71 @@ mod tests {
         assert_eq!((at(15, 5).red(), at(15, 5).blue()), (0, 255));
         // Exports never pass one.
         assert_eq!(render_cpu(&doc, CpuOptions::default()).unwrap().pixel(4, 5).unwrap().demultiply().green(), 255);
+    }
+
+    fn square(doc: &mut Document, x: f64, y: f64, size: f64) -> &mut Node {
+        let mut n = Node::new(format!("n{}", doc.nodes.len()), ShapeKind::Rect);
+        (n.x, n.y, n.width, n.height) = (x, y, size, size);
+        n.fill = Some(Color::rgb(0, 0, 0));
+        doc.nodes.push(n);
+        doc.nodes.last_mut().unwrap()
+    }
+
+    #[test]
+    fn blur_softens_edges_evenly() {
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 100.0, height: 100.0, background: Color::WHITE });
+        square(&mut doc, 50.0, 50.0, 40.0).blur = 10.0;
+        let px = render_cpu(&doc, CpuOptions::default()).unwrap();
+        let red = |x, y| px.pixel(x, y).unwrap().demultiply().red();
+        // Solid in the middle, half way at the edge, fading out over the radius, symmetric.
+        assert!(red(50, 50) < 10);
+        assert!((100..=155).contains(&red(30, 50)), "{}", red(30, 50));
+        assert!(red(22, 50) > red(30, 50) && red(22, 50) < 250);
+        assert!(red(12, 50) > 250);
+        assert!((red(30, 50) as i32 - red(69, 50) as i32).abs() <= 2);
+        // Scaling the output scales the blur with it.
+        let big = render_cpu(&doc, CpuOptions { scale: 2.0, ..CpuOptions::default() }).unwrap();
+        assert!((big.pixel(44, 100).unwrap().demultiply().red() as i32 - red(22, 50) as i32).abs() <= 6);
+    }
+
+    #[test]
+    fn soft_shadow_and_elevation() {
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 100.0, height: 100.0, background: Color::WHITE });
+        let n = square(&mut doc, 50.0, 50.0, 20.0);
+        n.fill = Some(Color::rgb(255, 0, 0));
+        n.shadow = Some(motif_core::Shadow { dx: 0.0, dy: 20.0, blur: 6.0, color: Color::rgb(0, 0, 255) });
+        let px = render_cpu(&doc, CpuOptions::default()).unwrap();
+        let at = |x, y| px.pixel(x, y).unwrap().demultiply();
+        // The shadow is below the shape and soft; the shape stays on top.
+        assert_eq!((at(50, 50).red(), at(50, 50).blue()), (255, 0));
+        assert!(at(50, 70).red() < 30 && at(50, 70).blue() > 200);
+        let edge = at(50, 80).red();
+        assert!((60..=200).contains(&edge), "{edge}");
+        // Height alone casts a shadow away from the light: light 0 sends it to the right.
+        doc.nodes[0].shadow = None;
+        doc.nodes[0].elevation = 15.0;
+        doc.light = 0.0;
+        let px = render_cpu(&doc, CpuOptions::default()).unwrap();
+        let at = |x, y| px.pixel(x, y).unwrap().demultiply();
+        assert!(at(68, 50).red() < 240, "{:?}", at(68, 50));
+        assert_eq!(at(32, 50).red(), 255);
+    }
+
+    #[test]
+    fn group_blurs_children_together() {
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 100.0, height: 40.0, background: Color::WHITE });
+        let mut g = Node::new("g", ShapeKind::Group);
+        g.blur = 8.0;
+        doc.nodes.push(g);
+        square(&mut doc, 30.0, 20.0, 20.0).parent = Some(0);
+        square(&mut doc, 70.0, 20.0, 20.0).parent = Some(0);
+        square(&mut doc, 50.0, 20.0, 4.0);
+        let px = render_cpu(&doc, CpuOptions { antialias: false, ..CpuOptions::default() }).unwrap();
+        let red = |x, y| px.pixel(x, y).unwrap().demultiply().red();
+        assert!(red(19, 20) > 30 && red(19, 20) < 220);
+        assert!(red(81, 20) > 30 && red(81, 20) < 220);
+        // The square outside the group stays sharp.
+        assert_eq!(red(50, 20), 0);
+        assert!(red(5, 20) > 250);
     }
 }

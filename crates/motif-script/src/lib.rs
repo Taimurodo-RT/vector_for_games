@@ -29,7 +29,7 @@ mod svg;
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
     Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,
-    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_path, set_prop, set_style,
+    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_light, set_path, set_prop, set_style,
 };
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
