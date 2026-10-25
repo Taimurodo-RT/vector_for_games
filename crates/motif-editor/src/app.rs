@@ -144,6 +144,7 @@ pub struct App {
     hex_edit: Option<(Prop, String)>,
     pixel: PixelPreview,
     export: ExportSettings,
+    pixa: crate::pixabridge::Bridge,
     canvas: Canvas,
     pub(crate) backdrop_img: crate::importer::BackdropCache,
     pub(crate) status: String,
@@ -201,6 +202,7 @@ impl App {
             hex_edit: None,
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
             export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true },
+            pixa: crate::pixabridge::Bridge::load(),
             canvas: Canvas::new(),
             guides: Vec::new(),
             backdrop_img: Default::default(),
@@ -216,7 +218,7 @@ impl App {
     // ---------- script state ----------
 
     pub(crate) fn reparse(&mut self) {
-        match parse(&self.src) {
+        match motif_script::parse_in(&self.src, self.path.as_ref().and_then(|p| p.parent())) {
             Ok(scene) => {
                 self.scene = scene;
                 self.errors.clear();
@@ -577,14 +579,19 @@ impl App {
         }
     }
 
-    fn export_frames(&mut self) {
-        let Some(dir) = rfd::FileDialog::new().set_title("Папка для PNG-кадров").pick_folder() else { return };
+    /// The frames the export window would save: the current animation, or the scene as one frame.
+    fn export_render(&self) -> (String, Result<Vec<tiny_skia::Pixmap>, String>) {
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !self.export.transparent };
         let doc = &self.scene.doc;
-        let (name, frames) = match &self.anim {
+        match &self.anim {
             Some(a) => (a.clone(), render_frames(doc, a, &FrameExport { fps: self.export.fps, render })),
             None => ("scene".to_string(), render_cpu(doc, render).map(|p| vec![p]).ok_or_else(|| "не удалось создать изображение".to_string())),
-        };
+        }
+    }
+
+    fn export_frames(&mut self) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Папка для PNG-кадров").pick_folder() else { return };
+        let (name, frames) = self.export_render();
         let result = frames.and_then(|frames| {
             for (i, px) in frames.iter().enumerate() {
                 let path = dir.join(format!("{name}_{i:04}.png"));
@@ -595,6 +602,15 @@ impl App {
         self.status = match result {
             Ok(n) => format!("Сохранено кадров: {n} в {}", dir.display()),
             Err(e) => format!("Экспорт не удался: {e}"),
+        };
+    }
+
+    fn pixelize_frames(&mut self, ctx: &egui::Context) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Папка для кадров после PixaTool").pick_folder() else { return };
+        let (name, frames) = self.export_render();
+        self.status = match frames.and_then(|f| self.pixa.start(&f, &name, &dir, ctx).map(|()| f.len())) {
+            Ok(n) => format!("PixaTool: обрабатываю {n} кадров…"),
+            Err(e) => format!("Пикселизация не удалась: {e}"),
         };
     }
 
@@ -737,6 +753,7 @@ impl App {
                 (ShapeKind::Ellipse, "O", "Эллипс: тяните по холсту"),
                 (ShapeKind::Star, "S", "Звезда: тяните по холсту"),
                 (ShapeKind::Polygon, "N", "Многоугольник: тяните по холсту"),
+                (ShapeKind::Text, "T", "Текст: клик по холсту (протяжка задаёт высоту букв)"),
             ];
             for (kind, key, tip) in shapes {
                 let tool = Tool::Create(kind);
@@ -801,9 +818,12 @@ impl App {
                     if sel { FG } else { FG.gamma_multiply(dim) },
                 );
                 let is_mask = n.parent.is_some_and(|p| doc.nodes[p].clip && doc.nodes.iter().position(|c| c.parent == Some(p)) == Some(i));
-                let tag = match (is_mask, self.scene.sites.get(&n.id).is_some_and(|s| s.generated)) {
-                    (true, _) => Some(("маска", ACCENT)),
-                    (false, true) => Some(("for", FAINT)),
+                let symbol = self.symbol_of(&n.id);
+                let tag = match (is_mask, self.scene.instances.get(&n.id), symbol, self.scene.sites.get(&n.id).is_some_and(|s| s.generated)) {
+                    (true, ..) => Some(("маска", ACCENT)),
+                    (false, Some(inst), ..) => Some((inst.symbol.as_str(), ACCENT)),
+                    (false, None, Some(sym), _) => Some((sym, FAINT)),
+                    (false, None, None, true) => Some(("for", FAINT)),
                     _ => None,
                 };
                 if let Some((tag, color)) = tag {
@@ -965,7 +985,7 @@ impl App {
                     field(self, ui, "X", Prop::X, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                     field(self, ui, "Y", Prop::Y, 1.0, f64::MIN..=f64::MAX, 1.0, 1);
                 });
-                if !matches!(node.kind, ShapeKind::Group | ShapeKind::Path) {
+                if !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) {
                     ui.horizontal(|ui| {
                         field(self, ui, "W", Prop::Width, 1.0, 0.0..=100_000.0, 1.0, 1);
                         field(self, ui, "H", Prop::Height, 1.0, 0.0..=100_000.0, 1.0, 1);
@@ -985,6 +1005,46 @@ impl App {
                 });
                 crate::style_ui::pivot_row(ui, &node, &mut styles);
             });
+            let mut pick_font = false;
+            let mut outline_text = false;
+            if node.kind == ShapeKind::Text {
+                let font = self.scene.prop_spans.get(&(id.clone(), "font".to_string())).map(|s| {
+                    let t = self.src[s.start..s.end].trim_start_matches("font").trim();
+                    t.trim_matches('"').to_string()
+                });
+                section(ui, |ui| {
+                    theme::caption(ui, "Текст");
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    crate::text_ui::content_row(ui, &node, &mut styles);
+                    ui.horizontal(|ui| {
+                        field(self, ui, "Размер", Prop::FontSize, 0.5, 1.0..=2000.0, 1.0, 1);
+                        field(self, ui, "Интервал", Prop::LetterSpacing, 0.1, -500.0..=500.0, 1.0, 1);
+                    });
+                    pick_font = crate::text_ui::layout_rows(ui, &node, font.as_deref(), &mut styles);
+                    if theme::button(ui, "В кривые", ButtonKind::Normal)
+                        .on_hover_text("Заменить текст контуром: буквы можно править по точкам, шрифт больше не нужен")
+                        .clicked()
+                    {
+                        outline_text = true;
+                    }
+                });
+                section(ui, |ui| {
+                    theme::caption(ui, "Анимация букв");
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    ui.horizontal(|ui| {
+                        field(self, ui, "Появл. %", Prop::Reveal, 0.01, 0.0..=1.0, 100.0, 0);
+                        field(self, ui, "Волна", Prop::Wave, 0.2, -500.0..=500.0, 1.0, 1);
+                    });
+                    ui.horizontal(|ui| {
+                        field(self, ui, "Фаза", Prop::Phase, 0.01, -1000.0..=1000.0, 1.0, 2);
+                    });
+                    ui.label(
+                        RichText::new("Ставьте ключи в Animate: «Появление» 0 → 100% — буквы выпрыгивают по одной; «Фаза» 0 → 1 — волна пробегает по тексту.")
+                            .size(11.5)
+                            .color(FAINT),
+                    );
+                });
+            }
             if matches!(node.kind, ShapeKind::Rect | ShapeKind::Star | ShapeKind::Polygon) {
                 section(ui, |ui| {
                     theme::caption(ui, "Форма");
@@ -1027,6 +1087,7 @@ impl App {
                 });
             }
             self.mask_ui(ui, &node);
+            self.symbol_section(ui, &node);
             if node.kind != ShapeKind::Group {
                 section(ui, |ui| {
                     theme::caption(ui, "Заливка");
@@ -1049,12 +1110,56 @@ impl App {
                         }
                         crate::style_ui::line_rows(ui, &node, &mut styles);
                     }
-                });
-                section(ui, |ui| {
-                    theme::caption(ui, "Эффекты");
-                    crate::style_ui::effects_rows(ui, &node, &mut styles);
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Слои обводки под фигурой").size(12.0).color(MUTED));
+                    crate::text_ui::outline_rows(ui, &node, &mut styles);
                 });
             }
+            // Blur, height and shadow: keyable, so they animate like position or colour.
+            let mut fx_changes = Vec::new();
+            let mut fx_diamonds = Vec::new();
+            section(ui, |ui| {
+                theme::caption(ui, "Эффекты");
+                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
+                    let v = node.get(prop).as_num().unwrap_or(0.0);
+                    let range = if matches!(prop, Prop::ShadowX | Prop::ShadowY) { -1000.0..=1000.0 } else { 0.0..=500.0 };
+                    let out = theme::num_field(ui, half, label, v, 0.2, range, 1, self.key_state(&id, prop));
+                    if let Some(nv) = out.changed {
+                        fx_changes.push((prop, Value::Num((nv * 10.0).round() / 10.0)));
+                    }
+                    if out.diamond {
+                        fx_diamonds.push(prop);
+                    }
+                };
+                ui.horizontal(|ui| {
+                    fx(ui, "Размытие", Prop::Blur);
+                    if node.kind != ShapeKind::Group {
+                        fx(ui, "Высота", Prop::Elevation);
+                    }
+                });
+                if node.kind == ShapeKind::Group {
+                    ui.label(RichText::new("Группа размывается целиком, вместе со всеми детьми.").size(11.5).color(FAINT));
+                    return;
+                }
+                if crate::style_ui::shadow_rows(ui, &node, &mut styles) {
+                    ui.horizontal(|ui| {
+                        fx(ui, "Тень X", Prop::ShadowX);
+                        fx(ui, "Тень Y", Prop::ShadowY);
+                    });
+                    ui.horizontal(|ui| fx(ui, "Мягкость", Prop::ShadowBlur));
+                }
+                ui.label(
+                    RichText::new(
+                        "«Высота» поднимает объект над артбордом: тень уходит от света сцены, длиннее и мягче. Размытие 0 — жёсткая тень для пиксель-арта.",
+                    )
+                    .size(11.5)
+                    .color(FAINT),
+                );
+                crate::style_ui::blend_row(ui, &node, &mut styles);
+            });
+            changes.extend(fx_changes);
+            diamonds.extend(fx_diamonds);
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();
                 job.wrap.max_width = ui.available_width();
@@ -1065,6 +1170,10 @@ impl App {
                         job.append(": изменения ставят ключи в ", 0.0, fmt(MUTED));
                         job.append(&format!("{} с", fmt_num(t)), 0.0, fmt(ACCENT));
                         job.append(". Ромб рядом со свойством ставит или снимает ключ.", 0.0, fmt(MUTED));
+                    }
+                    None if generated && !self.scene.instances.contains_key(&id) && self.symbol_of(&id).is_some() => {
+                        job.append("Часть символа", 0.0, fmt(FG));
+                        job.append(": правки попадут в блок override { } и изменят только эту копию. Все копии меняются в блоке symbol.", 0.0, fmt(MUTED));
                     }
                     None if generated => {
                         job.append("Создан циклом", 0.0, fmt(FG));
@@ -1084,6 +1193,13 @@ impl App {
                 self.edit(&id, prop, value);
             }
             self.apply_styles(&id, styles);
+            if pick_font {
+                self.pick_font(&id);
+            }
+            if outline_text {
+                self.select_only(Some(id.clone()));
+                self.boolean(motif_script::BoolOp::Union);
+            }
         });
     }
 
@@ -1102,6 +1218,23 @@ impl App {
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG — подложкой.").size(12.0).color(FAINT));
         });
+        let mut light = None;
+        section(ui, |ui| {
+            theme::caption(ui, "Свет сцены");
+            let w = ui.available_width();
+            if let Some(v) = theme::num_field(ui, w, "Тени падают в сторону °", self.scene.doc.light, 1.0, -360.0..=360.0, 0, KeyState::Hidden).changed
+            {
+                light = Some(v.round());
+            }
+            ui.label(RichText::new("90 — вниз, 0 — вправо. Действует на объекты с «Высотой».").size(11.5).color(FAINT));
+        });
+        if let Some(a) = light
+            && self.can_edit()
+        {
+            let out = motif_script::set_light(&self.src, a);
+            self.apply("light", out);
+        }
+        self.symbols_library(ui);
         self.backdrop_section(ui);
     }
 
@@ -1120,7 +1253,7 @@ impl App {
             }
             ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
             let mut c32 = paint.map_or(Color32::BLACK, |c| Color32::from_rgb(c.r, c.g, c.b));
-            egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            theme::color_popup(&resp).show(|ui| {
                 if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::Opaque) {
                     changes.push((prop, Value::Color(Color { r: c32.r(), g: c32.g(), b: c32.b(), a: paint.map_or(255, |p| p.a) })));
                 }
@@ -1627,8 +1760,63 @@ impl App {
                     }
                 });
                 ui.label(RichText::new("Кадры называются ИМЯ_0000.png: PixaTool берёт их пакетом.").size(12.0).color(FAINT));
+                ui.add_space(6.0);
+                theme::rule(ui);
+                ui.add_space(4.0);
+                self.pixatool_section(ui);
             });
         self.show_export = open;
+    }
+
+    fn pixatool_section(&mut self, ui: &mut egui::Ui) {
+        use crate::pixabridge::short;
+        theme::caption(ui, "PixaTool");
+        let mut changed = false;
+        egui::Grid::new("pixatool").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+            ui.label("Программа");
+            let exe = self.pixa.exe.as_deref().map_or("не найдена".to_string(), short);
+            let r = theme::button(ui, &exe, ButtonKind::Normal)
+                .on_hover_text(self.pixa.exe.as_ref().map_or("Укажите Pixatool.exe".into(), |p| p.display().to_string()));
+            if r.clicked()
+                && let Some(p) = rfd::FileDialog::new().set_title("Pixatool.exe").pick_file()
+            {
+                self.pixa.exe = Some(p);
+                changed = true;
+            }
+            ui.end_row();
+            ui.label("Пресет");
+            ui.horizontal(|ui| {
+                let preset = self.pixa.preset.as_deref().map_or("настройки PixaTool".to_string(), short);
+                let r = theme::button(ui, &preset, ButtonKind::Normal)
+                    .on_hover_text(self.pixa.preset.as_ref().map_or("Файл из «Save Preset» в PixaTool".into(), |p| p.display().to_string()));
+                if r.clicked()
+                    && let Some(p) = rfd::FileDialog::new().set_title("Пресет PixaTool").add_filter("Пресет PixaTool", &["preset"]).pick_file()
+                {
+                    self.pixa.preset = Some(p);
+                    changed = true;
+                }
+                if self.pixa.preset.is_some() && theme::button(ui, "×", ButtonKind::Normal).on_hover_text("Без пресета").clicked() {
+                    self.pixa.preset = None;
+                    changed = true;
+                }
+            });
+            ui.end_row();
+        });
+        if changed {
+            self.pixa.save();
+        }
+        if let Some(job) = &self.pixa.job {
+            ui.add(egui::ProgressBar::new(job.done as f32 / job.total.max(1) as f32).text(format!("кадр {} из {}", job.done, job.total)));
+        } else if ui
+            .add_enabled_ui(self.pixa.exe.is_some(), |ui| theme::button(ui, "Пикселизировать кадры…", ButtonKind::Primary))
+            .inner
+            .on_hover_text("Снять кадры и прогнать их через PixaTool с пресетом. PixaTool откроется сам, вне экрана.")
+            .clicked()
+        {
+            let ctx = ui.ctx().clone();
+            self.pixelize_frames(&ctx);
+        }
+        ui.label(RichText::new("Пресет сохраняется в PixaTool кнопкой «Save Preset».").size(12.0).color(FAINT));
     }
 
     fn help_window(&mut self, ctx: &egui::Context) {
@@ -1639,6 +1827,7 @@ impl App {
                 let rows = [
                     ("V H", "Выделение, рука"),
                     ("R O S N", "Прямоугольник, эллипс, звезда, многоугольник"),
+                    ("T", "Текст: клик по холсту"),
                     ("P", "Перо; Enter — закончить, клик по первой точке — замкнуть"),
                     ("Enter", "Редактировать точки контура (или двойной клик)"),
                     ("Tab", "Переключить Design / Animate"),
@@ -1668,6 +1857,16 @@ impl App {
                         ui.end_row();
                     }
                 });
+                ui.add_space(8.0);
+                if theme::button(ui, "Открыть документацию", ButtonKind::Primary)
+                    .on_hover_text("Страницы с картинками о всех инструментах, синтаксисе и экспорте")
+                    .clicked()
+                {
+                    match docs_index() {
+                        Some(path) => ctx.open_url(egui::OpenUrl::new_tab(file_url(&path))),
+                        None => self.status = "Документация не найдена: папка docs должна лежать рядом с программой".into(),
+                    }
+                }
                 ui.add_space(6.0);
                 ui.label(RichText::new(format!("Motif {VERSION}")).font(theme::mono(11.0)).color(FAINT));
             },
@@ -1740,6 +1939,7 @@ impl App {
             (Key::O, Tool::Create(ShapeKind::Ellipse)),
             (Key::S, Tool::Create(ShapeKind::Star)),
             (Key::N, Tool::Create(ShapeKind::Polygon)),
+            (Key::T, Tool::Create(ShapeKind::Text)),
             (Key::P, Tool::Pen),
         ] {
             if plain(k) {
@@ -1836,7 +2036,7 @@ fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) -> Option<Han
     let center = corners[0].lerp(corners[2], 0.5);
     let up = (top_mid - center).normalized();
     let up = if up.is_finite() { up } else { vec2(0.0, -1.0) };
-    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path) })
+    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) })
 }
 
 pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo::Rect> {
@@ -1918,6 +2118,7 @@ fn kind_name(kind: ShapeKind) -> &'static str {
         ShapeKind::Star => "Звезда",
         ShapeKind::Polygon => "Многоугольник",
         ShapeKind::Path => "Контур",
+        ShapeKind::Text => "Текст",
     }
 }
 
@@ -1948,6 +2149,9 @@ impl eframe::App for App {
         self.poll_disk();
         self.dropped_files(&ctx);
         self.refresh_backdrop();
+        if let Some(status) = self.pixa.poll() {
+            self.status = status;
+        }
         self.shortcuts(&ctx);
         if self.playing {
             self.time += dt.min(0.1) as f64;
@@ -1980,4 +2184,29 @@ impl eframe::App for App {
 
 fn mix_u8(a: u8, b: u8) -> u8 {
     ((a as u16 + b as u16) / 2) as u8
+}
+
+/// The documentation start page: `docs` next to the program, or in the source tree when run with cargo.
+fn docs_index() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let near = exe.parent()?.join("docs").join("index.html");
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/index.html");
+    [near, source].into_iter().find(|p| p.is_file())
+}
+
+/// `file:///C:/…` with non-ASCII letters and spaces percent-encoded, so any browser opens it.
+fn file_url(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let mut out = String::from("file://");
+    if !text.starts_with('/') {
+        out.push('/');
+    }
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || b"/:._-~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }

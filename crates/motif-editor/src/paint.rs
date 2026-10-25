@@ -44,7 +44,7 @@ impl App {
                     ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, theme::LINE), StrokeKind::Inside);
                     let resp = resp.on_hover_text(format!("{} · клик — изменить", c.to_hex()));
                     let mut c32 = Color32::from_rgb(c.r, c.g, c.b);
-                    egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                    theme::color_popup(&resp).show(|ui| {
                         if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::Opaque) {
                             g2.colors[i] = Color { r: c32.r(), g: c32.g(), b: c32.b(), a: c.a };
                             changed = true;
@@ -94,6 +94,11 @@ impl App {
     /// The mask switch of a group: its first child clips the others.
     pub(crate) fn mask_ui(&mut self, ui: &mut egui::Ui, node: &Node) {
         if node.kind != ShapeKind::Group {
+            return;
+        }
+        // The mask of a copy is set on its `symbol` line, for every copy at once.
+        let symbol_clip = self.scene.instances.get(&node.id).is_some_and(|i| self.scene.symbols.iter().any(|s| s.name == i.symbol && s.clip));
+        if symbol_clip {
             return;
         }
         let mut on = node.clip;

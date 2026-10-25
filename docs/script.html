@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Скрипт сцены — Motif</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<main><div class="content">
+
+<h1>Скрипт сцены (.msc)</h1>
+<p class="lead">Сцена Motif — это короткий текст. Одна строка описывает один объект: тип, имя и свойства. Текст можно писать вручную, а можно рисовать мышью и смотреть, как он пишется сам.</p>
+
+<div class="side">
+  <figure><img src="img/script.png" alt="Панель скрипта с подсветкой синтаксиса"></figure>
+  <div>
+    <p>Панель скрипта находится рядом с холстом:</p>
+    <ul>
+      <li>каждое изменение текста сразу перерисовывает сцену;</li>
+      <li>клик по строке выбирает объект, а строки выбранного объекта подсвечены;</li>
+      <li>пока в тексте есть ошибка, на холсте остаётся последняя рабочая версия, а строка с ошибкой подсвечена красным и объяснена по-русски;</li>
+      <li><kbd>F1</kbd> или «?» в заголовке панели открывает шпаргалку, <kbd>Ctrl</kbd>+<kbd>E</kbd> сворачивает панель.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 id="shape">Как устроена строка</h2>
+<pre><code><span class="k">ellipse</span> ball <span class="s">"Мяч"</span>  <span class="p">at</span> <span class="n">150 150</span>  <span class="p">size</span> <span class="n">72</span>  <span class="p">fill</span> <span class="n">#ff5a36</span>  <span class="p">stroke</span> <span class="n">#1b1d24 4</span>
+<span class="c">│        │    │       └─ свойства: слово и значения, в любом порядке</span>
+<span class="c">│        │    └─ имя для панели слоёв (можно не писать)</span>
+<span class="c">│        └─ id: по нему объект находят анимации и игра</span>
+<span class="c">└─ тип объекта</span></code></pre>
+<p>Типы объектов: <code>rect</code>, <code>ellipse</code>, <code>star</code>, <code>polygon</code>, <code>path</code>, <code>text</code>, <code>group</code>. Комментарии начинаются с <code>//</code> или с <code>#</code> в начале строки.</p>
+
+<h2 id="full">Полный пример</h2>
+<pre><code><span class="k">artboard</span> <span class="s">"Главный"</span> <span class="n">480x360</span> <span class="p">bg</span> <span class="n">#fff4e4</span>
+
+<span class="k">let</span> ink = <span class="n">#1b1d24</span>
+
+<span class="k">ellipse</span> ball <span class="s">"Мяч"</span>  <span class="p">at</span> <span class="n">150 150</span>  <span class="p">size</span> <span class="n">72</span>  <span class="p">fill</span> <span class="n">#ff5a36</span>  <span class="p">stroke</span> ink <span class="n">4</span>
+<span class="k">star</span>    star        <span class="p">at</span> <span class="n">340 150</span>  <span class="p">size</span> <span class="n">130</span> <span class="p">points</span> <span class="n">5</span>  <span class="p">fill</span> <span class="n">#ffc531</span>
+
+<span class="k">group</span> coins <span class="p">at</span> <span class="n">36 40</span> {
+  <span class="k">for</span> i <span class="k">in</span> <span class="n">0..5</span> {
+    <span class="k">ellipse</span> coin{i} <span class="p">at</span> {i * <span class="n">28</span>} <span class="n">0</span> <span class="p">size</span> <span class="n">16</span> <span class="p">fill</span> <span class="n">#ffd23f</span>
+  }
+}
+
+<span class="k">anim</span> Idle <span class="n">1.2s</span> <span class="k">loop</span> {
+  ball.y   <span class="n">0</span>: <span class="n">120</span> <span class="p">ease-in</span> | <span class="n">0.6</span>: <span class="n">278</span> <span class="p">ease-out</span> | <span class="n">1.2</span>: <span class="n">120</span>
+  star.rot <span class="n">0</span>: <span class="n">0</span> <span class="p">linear</span> | <span class="n">1.2</span>: <span class="n">72</span>
+}</code></pre>
+
+<h2 id="artboard">Артборд, подложка, переменные</h2>
+<div class="table-wrap"><table>
+  <tr><th>Что</th><th>Запись</th><th>Пояснение</th></tr>
+  <tr><td>Артборд</td><td><code>artboard "Имя" 480x360 bg #fff light 120</code></td><td>Размер кадра, фон и куда падают тени от «высоты» (90 — вниз, по умолчанию).</td></tr>
+  <tr><td>Подложка</td><td><code>backdrop "эскиз.png" at 0 0 scale 0.5 opacity 0.4</code></td><td>Картинка-референс, только в редакторе. Файл ищется рядом со сценой. Можно добавить <code>hidden</code>.</td></tr>
+  <tr><td>Переменная</td><td><code>let gap = 28</code>, <code>let ink = #1b1d24</code></td><td>Число или цвет, используется дальше по имени.</td></tr>
+  <tr><td>Выражение</td><td><code>{i * gap + 4}</code></td><td>Считается в фигурных скобках в значениях и в id.</td></tr>
+  <tr><td>Цикл</td><td><code>for i in 0..5 { … }</code></td><td>Повторяет строки внутри, <code>i</code> от 0 до 4.</td></tr>
+  <tr><td>Группа</td><td><code>group g at 40 40 { … }</code></td><td>Вложенные объекты двигаются вместе с группой.</td></tr>
+  <tr><td>Символ и копия</td><td><code>symbol Coin size=16 { … }</code>, <code>use Coin c1 at 40 40 size=24</code></td><td>Рисуется один раз, вставляется много раз. См. <a href="#symbols">«Символы»</a>.</td></tr>
+</table></div>
+
+<h2 id="symbols">Символы</h2>
+<p>Символ — это кусок сцены, который рисуют один раз, а вставляют много раз: монета, кристалл, кнопка, мяч. Поменяли символ — поменялись все копии. У каждой копии свои место, поворот, масштаб и <b>параметры</b>.</p>
+<pre><code><span class="k">symbol</span> Coin <span class="p">size</span>=<span class="n">28</span> <span class="p">color</span>=<span class="n">#ffd23f</span> {
+  <span class="k">ellipse</span> rim  <span class="p">size</span> {size} <span class="p">fill</span> <span class="n">#d99a1e</span> <span class="p">stroke</span> ink <span class="n">3</span>
+  <span class="k">ellipse</span> face <span class="p">size</span> {size * 0.72} <span class="p">fill</span> color
+}
+
+<span class="k">use</span> Coin c1 <span class="p">at</span> <span class="n">60 44</span>
+<span class="k">use</span> Coin c2 <span class="s">"Большая"</span> <span class="p">at</span> <span class="n">140 44</span> <span class="p">size</span>=<span class="n">44</span> <span class="p">color</span>=<span class="n">#c9d1e0</span> <span class="p">rot</span> <span class="n">15</span>
+
+<span class="k">anim</span> Idle <span class="n">1s</span> <span class="k">loop</span> {
+  c2.rot      <span class="n">0</span>: <span class="n">0</span> <span class="p">linear</span> | <span class="n">1</span>: <span class="n">360</span>
+  c1-face.sx  <span class="n">0</span>: <span class="n">1</span> | <span class="n">0.5</span>: <span class="n">0.2</span> | <span class="n">1</span>: <span class="n">1</span>
+}</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Что</th><th>Запись</th><th>Пояснение</th></tr>
+  <tr><td>Символ</td><td><code>symbol Имя имя=значение … { … }</code></td><td>Пишется на верхнем уровне. Сам по себе не рисуется. Параметры — числа или цвета со значением по умолчанию, внутри символа это обычные переменные: <code>size {size}</code>, <code>fill color</code>.</td></tr>
+  <tr><td>Маска</td><td><code>symbol Ball clip size=64 { … }</code></td><td>Первый объект каждой копии обрезает остальные: рисунок на мяче виден только внутри мяча и сжимается вместе с ним.</td></tr>
+  <tr><td>Копия</td><td><code>use Имя id ["имя"] свойства параметры</code></td><td>Копия — это группа: <code>at</code>, <code>rot</code>, <code>scale</code>, <code>opacity</code>, <code>blur</code> и другие свойства группы, плюс <code>имя=значение</code> для параметров. Незаписанные параметры берутся по умолчанию.</td></tr>
+  <tr><td>Объекты копии</td><td><code>c1-face</code></td><td>id копии, дефис, id внутри символа. По нему анимируют и правят одну копию.</td></tr>
+  <tr><td>В цикле</td><td><code>for i in 0..6 { use Coin coin{i} at {i * 40} 0 }</code></td><td>Копии можно ставить циклом и в группы.</td></tr>
+</table></div>
+<p>Правка мышью объекта внутри копии (например, сдвиг <code>c1-face</code>) записывается в <code>override</code> и меняет только эту копию. Чтобы поменять все копии сразу, правьте блок <code>symbol</code>. Подробнее о работе с символами в редакторе — на странице <a href="properties.html#symbols">«Панель свойств»</a>.</p>
+
+<h2 id="props">Свойства объектов</h2>
+<div class="table-wrap"><table>
+  <tr><th>Что</th><th>Запись</th></tr>
+  <tr><td>Позиция центра</td><td><code>at x y</code></td></tr>
+  <tr><td>Размер</td><td><code>size w [h]</code></td></tr>
+  <tr><td>Скругление (одно или по углам)</td><td><code>r 8</code>, <code>r 8 8 0 0</code></td></tr>
+  <tr><td>Лучи и внутренний радиус звезды</td><td><code>points 5</code>, <code>inner 0.5</code></td></tr>
+  <tr><td>Контур (SVG path data, вокруг <code>at</code>)</td><td><code>d "M 0 -20 C 15 -20 20 0 0 20 L -10 0 Z"</code></td></tr>
+  <tr><td>Поворот, масштаб, наклон</td><td><code>rot 15</code>, <code>scale 1.2 [0.8]</code>, <code>skew 10 [0]</code></td></tr>
+  <tr><td>Точка вращения</td><td><code>pivot -30 0</code></td></tr>
+  <tr><td>Прозрачность, скрыть</td><td><code>opacity 0.5</code>, <code>hidden</code></td></tr>
+  <tr><td>Заливка</td><td><code>fill #ff5a36</code>, <code>fill none</code></td></tr>
+  <tr><td>Градиент вместо заливки</td><td><code>gradient linear 90 #ffe7a3 #ff9d5c</code>, <code>gradient radial #fff #3b5bff #000</code></td></tr>
+  <tr><td>Дырки по правилу even-odd</td><td><code>evenodd</code></td></tr>
+  <tr><td>Обводка</td><td><code>stroke #000 2</code></td></tr>
+  <tr><td>Пунктир, концы, углы</td><td><code>dash 6 4</code>, <code>cap butt|round|square</code>, <code>join miter|round|bevel</code></td></tr>
+  <tr><td>Слои обводки под фигурой</td><td><code>outline #1b1d24 18 #ffffff 10</code></td></tr>
+  <tr><td>Тень (размытие можно опустить)</td><td><code>shadow 0 4 8 #00000055</code>, <code>shadow 4 4 #000</code></td></tr>
+  <tr><td>Размытие объекта или группы</td><td><code>blur 6</code></td></tr>
+  <tr><td>Высота над артбордом</td><td><code>elevation 12</code></td></tr>
+  <tr><td>Наложение</td><td><code>blend multiply</code>: screen, overlay, darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, exclusion, hue, saturation, color, luminosity</td></tr>
+  <tr><td>Маска у группы</td><td><code>group окно clip { ellipse форма … остальное … }</code></td></tr>
+</table></div>
+<p>Цвета пишутся как <code>#rgb</code>, <code>#rrggbb</code> или с прозрачностью <code>#rrggbbaa</code> (<code>#00000055</code> — чёрный на треть).</p>
+
+<h2 id="text">Текст</h2>
+<pre><code><span class="k">text</span> title <span class="s">"Заголовок"</span> <span class="p">at</span> <span class="n">240 112</span> <span class="p">content</span> <span class="s">"МОТИФ"</span> <span class="p">font</span> bold <span class="p">font-size</span> <span class="n">84</span> <span class="p">letter-spacing</span> <span class="n">6</span>
+<span class="k">text</span> hint <span class="p">at</span> <span class="n">240 200</span> <span class="p">content</span> <span class="s">"Первая строка\nвторая"</span> <span class="p">align</span> left <span class="p">line-height</span> <span class="n">1.4</span></code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Что</th><th>Запись</th></tr>
+  <tr><td>Слова (<code>\n</code> — новая строка)</td><td><code>content "Привет\nмир"</code></td></tr>
+  <tr><td>Шрифт</td><td><code>font bold</code>, <code>font regular</code>, <code>font "мой.ttf"</code></td></tr>
+  <tr><td>Размер, интервалы, выравнивание</td><td><code>font-size 48</code>, <code>letter-spacing 2</code>, <code>line-height 1.2</code>, <code>align left|center|right</code></td></tr>
+  <tr><td>Анимация букв</td><td><code>reveal 0.5</code> (доля появившихся букв), <code>wave 6</code> (высота волны), <code>phase 0.25</code> (положение волны)</td></tr>
+</table></div>
+
+<h2 id="anim">Анимации</h2>
+<pre><code><span class="k">anim</span> Имя <span class="n">1.2s</span> [<span class="k">loop</span>] {
+  объект.свойство  время: значение [кривая] | время: значение [кривая] | …
+}</code></pre>
+<p>Время — в секундах от начала анимации. Кривая после значения действует до следующего ключа, по умолчанию это <code>ease-in-out</code>. Имена свойств в анимации:</p>
+<p><code>x y w h rot sx sy kx ky opacity r points inner fill stroke stroke_w</code>, у текста ещё <code>font-size letter-spacing reveal wave phase</code>, для эффектов <code>blur elevation shadow-x shadow-y shadow-blur</code>.</p>
+<div class="table-wrap"><table>
+  <tr><th>Кривые</th><th>Запись</th></tr>
+  <tr><td>Базовые</td><td><code>linear</code>, <code>ease</code>, <code>ease-in</code>, <code>ease-out</code>, <code>ease-in-out</code>, <code>hold</code>, <code>spring</code></td></tr>
+  <tr><td>Покадрово</td><td><code>steps 4</code></td></tr>
+  <tr><td>Своя кривая Безье</td><td><code>cubic 0.3 0 0.6 1.2</code></td></tr>
+  <tr><td>easings.net</td><td><code>ease-in-sine</code> … <code>ease-in-out-bounce</code>: sine, quad, cubic, quart, quint, expo, circ, back, elastic, bounce</td></tr>
+</table></div>
+
+<h2 id="override">Формулы и override</h2>
+<p>Если значение задано формулой или циклом (например, <code>at {i * 28} 0</code>), редактор не трогает формулу при правке мышью. Вместо этого он дописывает правку в блок <code>override</code> в конце файла:</p>
+<pre><code><span class="k">override</span> {
+  coin2.y = <span class="n">12</span>
+}</code></pre>
+<p>Так формулы остаются формулами, а ручные правки видны отдельно. Строку из <code>override</code> можно удалить, и объект вернётся к значению по формуле.</p>
+
+<div class="note info">
+  <p><b>Сцена — обычный текст.</b> Файлы <code>.msc</code> удобно хранить в git рядом с игрой: в истории видно, какое число поменялось. Их можно генерировать скриптами и проверять командой <code>motif check</code>.</p>
+</div>
+
+<figure><img src="img/syntax-sheet.png" alt="Шпаргалка по синтаксису в редакторе"><figcaption>Та же шпаргалка в самом редакторе: <kbd>F1</kbd>.</figcaption></figure>
+
+</div></main>
+</div>
+<script src="site.js"></script>
+</body>
+</html>

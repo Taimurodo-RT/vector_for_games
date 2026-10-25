@@ -23,6 +23,9 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/bounce.msc
       - run: cargo run -p motif-cli -- check examples/gem.msc
       - run: cargo run -p motif-cli -- check examples/card.msc
+      - run: cargo run -p motif-cli -- check examples/title.msc
+      - run: cargo run -p motif-cli -- check examples/depth.msc
+      - run: cargo run -p motif-cli -- check examples/symbols.msc
 
   # Windows build. On main it is also published as the release that update.bat downloads.
   windows-build:

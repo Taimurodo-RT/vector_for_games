@@ -39,6 +39,11 @@ try {
         $src = Join-Path "$tmp\new" $name
         if (Test-Path $src) { Copy-Item $src (Join-Path $dir $name) -Force }
     }
+    # Документация заменяется целиком.
+    if (Test-Path "$tmp\new\docs") {
+        Remove-Item (Join-Path $dir 'docs') -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item "$tmp\new\docs" (Join-Path $dir 'docs') -Recurse
+    }
     # update.bat сейчас выполняется, поэтому его заменяем, только если его нет.
     if (-not (Test-Path (Join-Path $dir 'update.bat'))) { Copy-Item "$tmp\new\update.bat" $dir }
     # Примеры: новые добавляются, изменённые вами остаются как есть.

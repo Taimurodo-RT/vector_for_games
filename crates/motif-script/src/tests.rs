@@ -423,3 +423,197 @@ fn svg_import() {
     assert!(crate::import_svg(src, &s, b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>", "x").is_err());
     assert!(crate::import_svg(src, &s, b"not svg", "x").is_err());
 }
+
+#[test]
+fn boolean_ops() {
+    use motif_core::kurbo::Shape;
+    let src = "artboard \"M\" 200x200\nrect a \"Низ\" at 50 50 size 40 fill #ff0000 stroke #000 2\ngroup g at 10 0 {\n  ellipse b at 60 50 size 40 fill #00ff00\n}\nanim A 1s {\n  b.x 0: 60 | 1: 80\n}\n";
+    let s = scene(src);
+    let ids = vec!["a".to_string(), "b".to_string()];
+    // Union: one path in place of the bottom rect, with its name and style; b and its keys are gone.
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Union).unwrap();
+    let u = scene(&out);
+    assert!(u.doc.node("a").is_none() && u.doc.node("b").is_none() && !out.contains("b.x"), "{out}");
+    let p = u.doc.node(&id).unwrap();
+    assert!(out.contains(&format!("\npath {id} \"Низ\" at ")) && p.even_odd && p.stroke_width == 2.0, "{out}");
+    let bb = p.path().unwrap().bounding_box();
+    assert!((bb.width() - 60.0).abs() < 0.5 && (bb.height() - 40.0).abs() < 0.5, "{bb:?}");
+    // Subtract: the rect minus the circle reaching into it from the right (circle centre x = 70, rect 30..70).
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Subtract).unwrap();
+    let d = scene(&out).doc.node(&id).unwrap().path().unwrap().bounding_box();
+    assert!((d.width() - 40.0).abs() < 0.5, "{d:?}");
+    // Intersect: only the overlap, x from 50 to 70 (the circle spans 50..90).
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Intersect).unwrap();
+    let i = scene(&out).doc.node(&id).unwrap().path().unwrap().bounding_box();
+    assert!((i.width() - 20.0).abs() < 0.5, "{i:?}");
+    // Exclude keeps the outer extent.
+    let (out, id) = crate::boolean(src, &s, &ids, crate::BoolOp::Exclude).unwrap();
+    assert!((scene(&out).doc.node(&id).unwrap().path().unwrap().bounding_box().width() - 60.0).abs() < 0.5);
+    assert!(crate::boolean(src, &s, &["a".into()], crate::BoolOp::Union).is_err());
+    assert!(crate::boolean(src, &s, &["a".into(), "g".into()], crate::BoolOp::Union).is_err());
+}
+
+#[test]
+fn text_and_outlines() {
+    use motif_core::kurbo::Shape;
+    let src = "artboard \"M\" 400x200\ntext t at 200 100 content \"Hi\\nyou\" font bold font-size 40 letter-spacing 4 line-height 1.5 align left outline #000 10 #fff 16 fill #f00\n";
+    let s = scene(src);
+    let t = s.doc.node("t").unwrap();
+    let shape = t.text.as_ref().unwrap();
+    assert_eq!(shape.lines.len(), 2);
+    assert_eq!((t.text_style.size, t.text_style.spacing, t.text_style.line_height, t.text_style.align), (40.0, 4.0, 1.5, motif_core::TextAlign::Left));
+    // Widest outline first.
+    assert_eq!(t.outlines.iter().map(|o| o.1).collect::<Vec<_>>(), vec![16.0, 10.0]);
+    // Left aligned: letters start at the origin; two lines of 60 units.
+    let bb = t.path().unwrap().bounding_box();
+    assert!(bb.x0 >= 0.0 && bb.x0 < 6.0 && bb.height() > 60.0 && bb.height() < 120.0, "{bb:?}");
+    // Font size animates; reveal 0 hides every letter.
+    let anim = format!("{src}anim A 1s {{\n  t.font-size 0: 40 | 1: 80\n  t.reveal 0: 0 | 1: 1\n}}\n");
+    let s2 = scene(&anim);
+    let a = &s2.doc.animations[0];
+    let start = a.pose(&s2.doc, 0.0);
+    assert!(start.node("t").unwrap().path().unwrap().elements().is_empty());
+    let end = a.pose(&s2.doc, 1.0);
+    assert!(end.node("t").unwrap().path().unwrap().bounding_box().width() > bb.width() * 1.8);
+    // Editing writes the CSS-like names.
+    let out = set_prop(src, &s, "t", Prop::FontSize, Value::Num(50.0)).unwrap();
+    assert!(out.contains("font-size 50"), "{out}");
+    let out = set_style(src, &s, "t", "content", Some("content \"Yo\"")).unwrap();
+    assert_eq!(scene(&out).doc.node("t").unwrap().text.as_ref().unwrap().content, "Yo");
+    for bad in ["rect r content \"x\"", "text t font \"nope.ttf\"", "text t align middle", "rect r outline #000"] {
+        assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
+    }
+    // A text alone turns into outlines.
+    let (out, id) = crate::boolean(src, &s, &["t".into()], crate::BoolOp::Union).unwrap();
+    let p = scene(&out).doc.node(&id).unwrap().path().unwrap();
+    assert!(!out.contains("content") && (p.bounding_box().width() - bb.width()).abs() < 1.0, "{out}");
+    // The title example parses.
+    let title = include_str!("../../../examples/title.msc");
+    assert!(scene(title).doc.node("title").unwrap().text.is_some());
+}
+
+#[test]
+fn blur_elevation_and_light() {
+    let src = "artboard \"M\" 200x200 bg #fff light 120 // свет\nrect a at 50 50 blur 4 elevation 10\nrect b at 0 0 shadow 2 3 #000000\nrect c at 9 9\n";
+    let s = scene(src);
+    assert_eq!(s.doc.light, 120.0);
+    let a = s.doc.node("a").unwrap();
+    assert_eq!((a.blur, a.elevation), (4.0, 10.0));
+    // Shadow parts edit their own numbers; a missing blur goes after the offset.
+    let out = set_prop(src, &s, "b", Prop::ShadowY, Value::Num(7.0)).unwrap();
+    assert!(out.contains("shadow 2 7 #000000"), "{out}");
+    let out = set_prop(src, &s, "b", Prop::ShadowBlur, Value::Num(5.0)).unwrap();
+    assert!(out.contains("shadow 2 3 5 #000000"), "{out}");
+    let out = set_prop(src, &s, "c", Prop::ShadowX, Value::Num(4.0)).unwrap();
+    assert!(out.contains("rect c at 9 9 shadow 4 0 0 #00000055"), "{out}");
+    let out = set_prop(src, &s, "a", Prop::Blur, Value::Num(2.5)).unwrap();
+    assert!(out.contains("blur 2.5 elevation 10"), "{out}");
+    // Effects animate by their path names.
+    let anim = format!("{src}anim A 1s {{\n  b.shadow-blur 0: 0 | 1: 20\n  a.elevation 0: 0 | 1: 30\n}}\n");
+    let s2 = scene(&anim);
+    let posed = s2.doc.animations[0].pose(&s2.doc, 0.5);
+    assert_eq!(posed.node("b").unwrap().shadow.unwrap().blur, 10.0);
+    assert_eq!(posed.node("a").unwrap().elevation, 15.0);
+    // The light is written on the artboard line, before its comment; 90 removes it.
+    let out = set_light(src, 45.0).unwrap();
+    assert!(out.starts_with("artboard \"M\" 200x200 bg #fff light 45 // свет\n"), "{out}");
+    assert_eq!(scene(&out).doc.light, 45.0);
+    let out = set_light(&out, 90.0).unwrap();
+    assert!(out.starts_with("artboard \"M\" 200x200 bg #fff // свет\n"), "{out}");
+    assert!(parse("artboard \"M\" 9x9 light #fff").is_err());
+}
+
+const SYMBOLS: &str = "artboard 320x160
+let ink = #1b1d24
+symbol Coin size=24 color=#ffd23f {
+  ellipse body size {size} fill color stroke ink 2
+  ellipse shine at {-size * 0.2} 0 size 4 fill #fff
+}
+use Coin c1 at 60 80
+use Coin c2 \"Большая\" at 140 80 size=48 color=#ff5a36
+group row at 200 80 {
+  for i in 0..2 {
+    use Coin r{i} at {i * 36} 0 size=20
+  }
+}
+anim Spin 1s loop {
+  c1-body.sx 0: 1 | 1: 0.5
+}
+";
+
+#[test]
+fn symbols_make_copies_with_parameters() {
+    let s = scene(SYMBOLS);
+    let doc = &s.doc;
+    let c1 = doc.node("c1").unwrap();
+    assert_eq!(c1.kind, ShapeKind::Group);
+    let body = doc.node("c1-body").unwrap();
+    assert_eq!(doc.nodes[body.parent.unwrap()].id, "c1");
+    assert_eq!((body.width, body.fill), (24.0, Color::from_hex("#ffd23f")));
+    let big = doc.node("c2-body").unwrap();
+    assert_eq!((big.width, big.fill), (48.0, Color::from_hex("#ff5a36")));
+    assert!((doc.node("c2-shine").unwrap().x + 9.6).abs() < 1e-9);
+    assert_eq!(doc.node("r1-body").unwrap().width, 20.0);
+    assert_eq!(doc.nodes[doc.node("r1").unwrap().parent.unwrap()].id, "row");
+    assert_eq!(doc.animation("Spin").unwrap().tracks[0].node, "c1-body");
+    // The objects of a copy are not written on their own line: edits go to `override`.
+    assert!(!s.sources[&("c1-body".to_string(), Prop::Width)].editable);
+    assert!(s.sources[&("c1".to_string(), Prop::X)].editable);
+    assert_eq!(s.symbols[0].name, "Coin");
+    let inst = &s.instances["c2"];
+    assert_eq!(inst.params[0].value, Value::Num(48.0));
+    assert!(inst.params[0].editable);
+    assert!(s.instances["c1"].params[0].span.is_none());
+}
+
+#[test]
+fn symbol_errors() {
+    let errs = parse("use Gem g at 0 0\nsymbol A x=1 {\n  rect a size {x}\n}\nuse A a1 y=2\nsymbol B {\n  use B b\n}\nuse B b1\n").unwrap_err();
+    let text = errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n");
+    assert!(text.contains("нет символа «Gem»"), "{text}");
+    assert!(text.contains("нет параметра «y»"), "{text}");
+    assert!(text.contains("сам в себя"), "{text}");
+}
+
+#[test]
+fn edits_symbol_parameters() {
+    let s = scene(SYMBOLS);
+    let out = set_param(SYMBOLS, &s, "c2", "size", Value::Num(30.0)).unwrap();
+    assert!(out.contains("use Coin c2 \"Большая\" at 140 80 size=30 color=#ff5a36"), "{out}");
+    let out = set_param(SYMBOLS, &s, "c1", "color", Value::Color(Color::from_hex("#3b5bff").unwrap())).unwrap();
+    assert!(out.contains("use Coin c1 at 60 80 color=#3b5bff\n"), "{out}");
+    assert_eq!(scene(&out).doc.node("c1-body").unwrap().fill, Color::from_hex("#3b5bff"));
+    // A copy made by a loop shares its line with the others.
+    assert!(set_param(SYMBOLS, &s, "r0", "size", Value::Num(5.0)).is_none());
+    let (out, id) = add_use(SYMBOLS, &s, "Coin", (10.0, 20.0));
+    assert_eq!(id, "coin1");
+    assert!(scene(&out).doc.node("coin1-body").is_some());
+}
+
+#[test]
+fn turns_a_group_into_a_symbol() {
+    let src = "artboard 200x200\ngroup ball \"Мяч\" at 100 100 clip {\n  ellipse shape size 72\n  ellipse body size 72 fill #ff5a36\n}\nanim Hit 1s {\n  body.sx 0: 1 | 1: 2\n  ball.y 0: 100 | 1: 50\n}\n";
+    let s = scene(src);
+    assert_eq!(free_symbol_name(&s, "ball"), "Ball");
+    let out = make_symbol(src, &s, "ball", "Ball").unwrap();
+    assert_eq!(
+        out,
+        "artboard 200x200\nsymbol Ball {\n  ellipse shape size 72\n  ellipse body size 72 fill #ff5a36\n}\n\nuse Ball ball \"Мяч\" at 100 100 clip\nanim Hit 1s {\n  ball-body.sx 0: 1 | 1: 2\n  ball.y 0: 100 | 1: 50\n}\n"
+    );
+    let after = scene(&out);
+    assert_eq!(after.doc.node("ball-body").unwrap().fill, Color::from_hex("#ff5a36"));
+    assert!(after.doc.node("ball").unwrap().clip);
+    // The same pictures before and after.
+    let a = motif_core::Document::clone(&s.doc);
+    assert_eq!(a.nodes.len(), after.doc.nodes.len());
+    assert!(make_symbol(&out, &after, "ball", "Ball2").is_none());
+}
+
+#[test]
+fn symbol_clip_and_example() {
+    let s = scene("symbol Ball clip size=10 {\n  ellipse mask size {size}\n  rect band size 20 4\n}\nuse Ball b at 0 0\n");
+    assert!(s.doc.node("b").unwrap().clip);
+    let ex = scene(include_str!("../../../examples/symbols.msc"));
+    assert_eq!(ex.symbols.len(), 3);
+    assert!(ex.doc.node("coin5-face").is_some());
+}

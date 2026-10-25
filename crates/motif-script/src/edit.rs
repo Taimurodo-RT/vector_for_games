@@ -12,7 +12,7 @@ pub fn fmt_value(v: Value) -> String {
     }
 }
 
-fn splice(src: &str, span: Span, text: &str) -> String {
+pub(crate) fn splice(src: &str, span: Span, text: &str) -> String {
     let mut out = String::with_capacity(src.len() + text.len());
     out.push_str(&src[..span.start]);
     out.push_str(text);
@@ -59,6 +59,17 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         });
     }
 
+    // A shadow written without a blur gets one after its offset.
+    if prop == Prop::ShadowBlur
+        && let Some(y) = scene.sources.get(&(node.to_string(), Prop::ShadowY))
+    {
+        return Some(if y.editable && !y.from_override {
+            splice(src, Span::new(y.span.end, y.span.end), &format!(" {text}"))
+        } else {
+            write_override(src, scene, node, prop, &text)
+        });
+    }
+
     let num = |p: Prop| fmt_value(current.get(p));
     let pick = |p: Prop| if p == prop { text.clone() } else { num(p) };
     let stroke_color = current.stroke.unwrap_or(Color::BLACK).to_hex();
@@ -76,6 +87,13 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         Prop::StrokeColor => format!("stroke {text} {}", fmt_num(stroke_width)),
         Prop::StrokeWidth => format!("stroke {stroke_color} {text}"),
         Prop::SkewX | Prop::SkewY => format!("skew {} {}", pick(Prop::SkewX), pick(Prop::SkewY)),
+        Prop::FontSize | Prop::LetterSpacing | Prop::Reveal | Prop::Wave | Prop::Phase | Prop::Blur | Prop::Elevation => {
+            format!("{} {text}", prop.path_name())
+        }
+        Prop::ShadowX | Prop::ShadowY | Prop::ShadowBlur => {
+            let color = current.shadow.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
+            format!("shadow {} {} {} {color}", pick(Prop::ShadowX), pick(Prop::ShadowY), pick(Prop::ShadowBlur))
+        }
     };
     Some(splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {addition}")))
 }
@@ -166,14 +184,14 @@ pub fn delete_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, 
 }
 
 /// Expands a span to the whole lines it touches, including the final newline.
-fn whole_lines(src: &str, span: Span) -> Span {
+pub(crate) fn whole_lines(src: &str, span: Span) -> Span {
     let start = src[..span.start].rfind('\n').map_or(0, |i| i + 1);
     let end = src[span.end..].find('\n').map_or(src.len(), |i| span.end + i + 1);
     Span::new(start, end)
 }
 
 /// Removes several spans at once; overlapping spans are merged.
-fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
+pub(crate) fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
     spans.sort_by_key(|s| s.start);
     let mut out = String::with_capacity(src.len());
     let mut at = 0;
@@ -188,7 +206,7 @@ fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
 }
 
 /// A fresh id such as `rect3` that no node uses yet.
-fn free_id(scene: &Scene, base: &str) -> String {
+pub(crate) fn free_id(scene: &Scene, base: &str) -> String {
     (1..).map(|i| format!("{base}{i}")).find(|id| scene.doc.node(id).is_none()).expect("ids are unbounded")
 }
 
@@ -201,8 +219,15 @@ pub fn add_node(src: &str, scene: &Scene, kind: ShapeKind, center: (f64, f64), s
         ShapeKind::Ellipse => "#ff5a36",
         ShapeKind::Star => "#ffc531",
         ShapeKind::Polygon => "#4fd38c",
+        ShapeKind::Text => "#1b1d24",
         ShapeKind::Group | ShapeKind::Path => "none",
     };
+    if kind == ShapeKind::Text {
+        // A dragged box sets the letter height; a click gives the usual size.
+        let fs = if size.1 >= 8.0 && size.1 != 80.0 { size.1.round() } else { 32.0 };
+        let line = format!("text {id} at {} {} content \"Текст\" font-size {} fill {fill}\n", fmt_num(center.0), fmt_num(center.1), fmt_num(fs));
+        return (insert_declaration(src, scene, &line), id);
+    }
     let size = if (size.0 - size.1).abs() < 1e-9 { fmt_num(size.0) } else { format!("{} {}", fmt_num(size.0), fmt_num(size.1)) };
     let line = format!("{} {id} at {} {} size {size} fill {fill}\n", kind.keyword(), fmt_num(center.0), fmt_num(center.1));
     (insert_declaration(src, scene, &line), id)
@@ -323,6 +348,11 @@ pub fn add_path(src: &str, scene: &Scene, outline: &BezPath) -> (String, String)
 /// Returns the script without `node`, its children, and every key and override that refers to them.
 /// `None` when the node does not exist or comes from a `for` loop (its line makes other nodes too).
 pub fn delete_node(src: &str, scene: &Scene, node: &str) -> Option<String> {
+    Some(remove_spans(src, node_spans(src, scene, node)?))
+}
+
+/// The whole lines declaring `node` and its children, with their animation tracks and overrides.
+pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Span>> {
     let site = scene.sites.get(node)?;
     if site.generated {
         return None;
@@ -347,7 +377,7 @@ pub fn delete_node(src: &str, scene: &Scene, node: &str) -> Option<String> {
         spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
     spans.extend(scene.override_entries.iter().filter(|(n, _)| ids.contains(&n.as_str())).map(|(_, s)| whole_lines(src, *s)));
-    Some(remove_spans(src, spans))
+    Some(spans)
 }
 
 /// Returns the script with a new empty animation at the end, and its name.
@@ -537,4 +567,28 @@ pub fn set_backdrop(src: &str, scene: &Scene, backdrop: Option<&crate::Backdrop>
         }
         (None, None) => src.to_string(),
     }
+}
+
+/// Returns the script with the scene light (`light` on the `artboard` line) set to `angle`
+/// degrees; the default 90 removes it. `None` when there is no artboard line.
+pub fn set_light(src: &str, angle: f64) -> Option<String> {
+    let start = src.match_indices("artboard").find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n')?.0;
+    let end = src[start..].find('\n').map_or(src.len(), |n| start + n);
+    let line = &src[start..end];
+    // The line without a comment, and without its old `light N`.
+    let code_end = line.find("//").unwrap_or(line.len());
+    let (code, comment) = line.split_at(code_end);
+    let mut words: Vec<&str> = code.split(' ').collect();
+    if let Some(k) = words.iter().position(|w| *w == "light") {
+        words.drain(k..(k + 2).min(words.len()));
+    }
+    let mut code = words.join(" ").trim_end().to_string();
+    if angle != 90.0 {
+        code.push_str(&format!(" light {}", fmt_num(angle)));
+    }
+    if !comment.is_empty() {
+        code.push(' ');
+        code.push_str(comment);
+    }
+    Some(splice(src, Span::new(start, end), &code))
 }

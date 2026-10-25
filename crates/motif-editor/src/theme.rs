@@ -152,6 +152,8 @@ pub enum Icon {
     Rotate,
     /// A ruler: snapping steps.
     Step,
+    /// A capital T: text.
+    Text,
 }
 
 /// Line icons drawn as vectors, so they never depend on font coverage.
@@ -213,6 +215,11 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
         Icon::First => {
             painter.rect_filled(Rect::from_center_size(p(-4.5, 0.0), vec2(1.8 * s, 9.0 * s)), 0.0, color);
             painter.add(Shape::convex_polygon(vec![p(4.5, -4.5), p(4.5, 4.5), p(-2.5, 0.0)], color, Stroke::NONE));
+        }
+        Icon::Text => {
+            painter.line_segment([p(-6.0, -6.0), p(6.0, -6.0)], st);
+            painter.line_segment([p(0.0, -6.0), p(0.0, 6.5)], st);
+            painter.line_segment([p(-2.5, 6.5), p(2.5, 6.5)], st);
         }
         Icon::Pen => {
             painter.add(Shape::closed_line(vec![p(-6.0, 6.5), p(-5.0, 2.0), p(2.5, -5.5), p(5.5, -2.5), p(-2.0, 5.0)], st));
@@ -309,6 +316,7 @@ pub fn shape_icon(kind: motif_core::ShapeKind) -> Icon {
         Star => Icon::Star,
         Polygon => Icon::Polygon,
         Path => Icon::Pen,
+        Text => Icon::Text,
     }
 }
 
@@ -467,4 +475,15 @@ pub fn num_field(
         out.diamond = dresp.on_hover_text(tip).clicked();
     }
     out
+}
+
+/// The popup of a colour swatch in the properties panel. It opens to the left of the swatch, over
+/// the canvas, and always there: with egui's default alternatives it could jump between below and
+/// above the swatch on every frame when it fits neither well.
+pub fn color_popup(resp: &Response) -> egui::Popup<'_> {
+    egui::Popup::from_toggle_button_response(resp)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::LEFT_START)
+        .align_alternatives(&[])
+        .gap(8.0)
 }

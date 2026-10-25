@@ -109,7 +109,7 @@ impl App {
         let Some(text) = text else { return };
         // Text from elsewhere: try it as declarations; keep the script unchanged if it does not parse.
         let candidate = format!("{}\n{}\n", self.src.trim_end(), text.trim_end());
-        match motif_script::parse(&candidate) {
+        match motif_script::parse_in(&candidate, self.path.as_ref().and_then(|p| p.parent())) {
             Ok(_) => {
                 self.apply("paste", Some(candidate));
                 self.status = "Текст из буфера добавлен в конец скрипта".into();
@@ -261,6 +261,25 @@ impl App {
                 });
             });
         });
+        let mut bool_op = None;
+        crate::app::section(ui, |ui| {
+            theme::caption(ui, "Булевы операции");
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for op in motif_script::BoolOp::ALL {
+                    let tip = match op {
+                        motif_script::BoolOp::Union => "Объединить: всё, что покрывает любая фигура",
+                        motif_script::BoolOp::Subtract => "Вычесть: нижняя фигура минус те, что выше",
+                        motif_script::BoolOp::Intersect => "Пересечь: только общая часть",
+                        motif_script::BoolOp::Exclude => "Исключить: общие части становятся дырками",
+                    };
+                    if bool_button(ui, op, tip).clicked() {
+                        bool_op = Some(op);
+                    }
+                }
+            });
+            ui.label(egui::RichText::new("Фигуры заменяются одним контуром со стилем нижней.").size(11.5).color(theme::FAINT));
+        });
         crate::app::section(ui, |ui| {
             let hint = "Shift+клик или рамка — добавить к выделению. Ctrl+C / Ctrl+V — копировать и вставить, Ctrl+D — дублировать, Delete — удалить.";
             ui.label(egui::RichText::new(hint).size(12.0).color(theme::MUTED));
@@ -268,5 +287,62 @@ impl App {
         if let Some(how) = pick {
             self.align(how);
         }
+        if let Some(op) = bool_op {
+            self.boolean(op);
+        }
     }
+
+    /// Replaces the selected shapes by the result of a boolean operation.
+    pub(crate) fn boolean(&mut self, op: motif_script::BoolOp) {
+        if !self.can_edit() {
+            return;
+        }
+        match motif_script::boolean(&self.src, &self.scene, &self.selection(), op) {
+            Ok((out, id)) => {
+                self.apply("boolean", Some(out));
+                self.select_only(Some(id));
+                self.status = format!("{}: готово, получился один контур", op.name());
+            }
+            Err(e) => self.status = format!("{}: {e}", op.name()),
+        }
+    }
+}
+
+/// A button whose icon shows the operation on two overlapping squares.
+fn bool_button(ui: &mut egui::Ui, op: motif_script::BoolOp, tip: &str) -> egui::Response {
+    use egui::{Rect, Stroke, StrokeKind, vec2};
+    use motif_script::BoolOp;
+    let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 28.0), egui::Sense::click());
+    let bg = if resp.hovered() { theme::RAISE } else { theme::PANEL_2 };
+    let p = ui.painter();
+    p.rect(rect, 6.0, bg, Stroke::new(1.0, theme::LINE), StrokeKind::Inside);
+    let c = rect.center();
+    let a = Rect::from_min_size(c + vec2(-8.0, -8.0), vec2(11.0, 11.0));
+    let b = Rect::from_min_size(c + vec2(-3.0, -3.0), vec2(11.0, 11.0));
+    let both = a.intersect(b);
+    let fg = theme::FG;
+    let line = Stroke::new(1.0, fg);
+    match op {
+        BoolOp::Union => {
+            p.rect_filled(a, 0.0, fg);
+            p.rect_filled(b, 0.0, fg);
+        }
+        BoolOp::Subtract => {
+            p.rect_filled(a, 0.0, fg);
+            p.rect_filled(both, 0.0, bg);
+            p.rect_stroke(b, 0.0, Stroke::new(1.0, theme::MUTED), StrokeKind::Inside);
+        }
+        BoolOp::Intersect => {
+            p.rect_stroke(a, 0.0, Stroke::new(1.0, theme::MUTED), StrokeKind::Inside);
+            p.rect_stroke(b, 0.0, Stroke::new(1.0, theme::MUTED), StrokeKind::Inside);
+            p.rect_filled(both, 0.0, fg);
+        }
+        BoolOp::Exclude => {
+            p.rect_filled(a, 0.0, fg);
+            p.rect_filled(b, 0.0, fg);
+            p.rect_filled(both, 0.0, bg);
+            p.rect_stroke(both, 0.0, line, StrokeKind::Inside);
+        }
+    }
+    resp.on_hover_text(tip)
 }

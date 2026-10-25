@@ -9,6 +9,10 @@
 //!     ellipse coin{i} at {i * 24} 0 size 16 fill #ffd23f
 //!   }
 //! }
+//! symbol Gem size=16 color=#3b5bff {
+//!   star body size {size} points 4 fill color
+//! }
+//! use Gem gem1 at 400 60 size=24
 //! anim Idle 1.2s loop {
 //!   ball.y 0: 120 ease-in | 0.6: 278 ease-out | 1.2: 120
 //! }
@@ -17,21 +21,26 @@
 //! [`parse`] builds the document and remembers the source span of every value, so that
 //! [`set_prop`] can write a visual edit back into the text without reformatting it.
 
+mod boolean;
 mod edit;
 mod eval;
 mod expr;
+mod fonts;
 mod lexer;
 mod parser;
 mod svg;
+mod symbol;
 
+pub use boolean::{BoolOp, boolean};
 pub use edit::{
     Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,
-    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_path, set_prop, set_style,
+    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_light, set_path, set_prop, set_style,
 };
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
 use std::fmt;
 pub use svg::import_svg;
+pub use symbol::{add_use, free_symbol_name, make_symbol, set_param};
 
 /// Byte range in the script text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -121,6 +130,41 @@ pub struct Scene {
     pub prop_spans: HashMap<(String, String), Span>,
     /// The reference picture under the artboard, when the script has a `backdrop` line.
     pub backdrop: Option<Backdrop>,
+    /// Every `symbol` block, in the order written.
+    pub symbols: Vec<SymbolSite>,
+    /// Every copy of a symbol (`use` line), by the id of its group.
+    pub instances: HashMap<String, Instance>,
+}
+
+/// A `symbol` block: a reusable piece with parameters.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SymbolSite {
+    pub name: String,
+    /// `clip` on the `symbol` line: every copy is masked by its first object.
+    pub clip: bool,
+    /// Parameters with their default values, in the order written.
+    pub params: Vec<(String, motif_core::Value)>,
+    /// From `symbol` to the closing brace.
+    pub span: Span,
+}
+
+/// A `use` line: one copy of a symbol, drawn as a group with the symbol's objects inside.
+/// Objects of the copy get ids `copy-object` (`coin1-body`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Instance {
+    pub symbol: String,
+    /// Every parameter of the symbol with the value this copy uses.
+    pub params: Vec<ParamSite>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamSite {
+    pub name: String,
+    pub value: motif_core::Value,
+    /// The value on the `use` line, when it is written there (otherwise the default applies).
+    pub span: Option<Span>,
+    /// The written value is a plain literal of this copy only and can be rewritten in place.
+    pub editable: bool,
 }
 
 /// A reference picture drawn under the shapes in the editor only: never exported.
@@ -176,10 +220,15 @@ pub struct KeySite {
 
 /// Parses and evaluates a scene script. Returns every error found, not only the first.
 pub fn parse(src: &str) -> Result<Scene, Vec<ScriptError>> {
+    parse_in(src, None)
+}
+
+/// [`parse`] for a script saved in `base`: font files are looked up there.
+pub fn parse_in(src: &str, base: Option<&std::path::Path>) -> Result<Scene, Vec<ScriptError>> {
     let toks = lexer::lex(src).map_err(|e| vec![e])?;
     let mut parser = parser::Parser::new(src, toks);
     let stmts = parser.block(false);
-    let mut ev = eval::Evaluator::new(src);
+    let mut ev = eval::Evaluator::new(src, base);
     ev.run(&stmts);
     let mut errors = parser.errors;
     errors.extend(ev.errors);

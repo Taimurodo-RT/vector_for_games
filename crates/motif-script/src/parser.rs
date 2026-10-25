@@ -79,6 +79,24 @@ pub struct OverrideAst {
     pub value: ValueAst,
 }
 
+/// `name=value` on a `symbol` or `use` line.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamAst {
+    pub name: String,
+    pub name_span: Span,
+    pub value: ValueAst,
+}
+
+/// `use Coin coin1 "Монета" at 40 40 size=20`: one copy of a symbol. `node` is the group that
+/// holds the copy (its id, name and own properties); its children come from the symbol.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UseAst {
+    pub symbol: String,
+    pub symbol_span: Span,
+    pub node: NodeAst,
+    pub params: Vec<ParamAst>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     Artboard {
@@ -98,6 +116,18 @@ pub enum Stmt {
         span: Span,
     },
     Node(NodeAst),
+    /// `symbol Coin size=16 color=#ffd23f { … }`: a reusable piece, drawn only through `use`.
+    Symbol {
+        name: String,
+        name_span: Span,
+        /// `clip`: the first object of every copy is a mask for the others.
+        clip: bool,
+        params: Vec<ParamAst>,
+        body: Vec<Stmt>,
+        /// From `symbol` to the closing brace.
+        span: Span,
+    },
+    Use(UseAst),
     For {
         var: String,
         from: ValueAst,
@@ -136,7 +166,10 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "dash" => (1, 8),
         "shadow" => (3, 4),
         "hidden" | "clip" | "evenodd" => (0, 0),
-        "d" => (1, 1),
+        "d" | "content" => (1, 1),
+        "font" | "font-size" | "letter-spacing" | "line-height" | "align" | "reveal" | "wave" | "phase" => (1, 1),
+        "blur" | "elevation" => (1, 1),
+        "outline" => (2, 8),
         "gradient" => (2, 10),
         _ => return None,
     })
@@ -267,7 +300,7 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
-        let (word, span) = self.ident("команда: artboard, backdrop, let, rect, ellipse, star, polygon, path, group, for, anim или override")?;
+        let (word, span) = self.ident("команда: artboard, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim или override")?;
         match word.as_str() {
             "artboard" => self.artboard(),
             "backdrop" => self.backdrop(span.start),
@@ -292,6 +325,29 @@ impl<'a> Parser<'a> {
                 Ok(Stmt::For { var, from, to, body })
             }
             "anim" => self.anim(span),
+            "symbol" => {
+                let (name, name_span) = self.ident("имя символа")?;
+                let mut params = Vec::new();
+                let mut clip = false;
+                while !self.at_line_end() && self.peek() != Some(&Tok::BlockOpen) {
+                    if matches!(self.peek(), Some(Tok::Ident(w)) if w == "clip") && !matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq)) {
+                        self.pos += 1;
+                        clip = true;
+                        continue;
+                    }
+                    params.push(self.param()?);
+                }
+                self.expect(Tok::BlockOpen, "«{» в конце строки")?;
+                let body = self.block(true);
+                let close = self.close_block()?;
+                Ok(Stmt::Symbol { name, name_span, clip, params, body, span: Span::new(span.start, close + 1) })
+            }
+            "use" => {
+                let (symbol, symbol_span) = self.ident("имя символа после use")?;
+                let mut params = Vec::new();
+                let node = self.node_line(ShapeKind::Group, span.start, Some(&mut params))?;
+                Ok(Stmt::Use(UseAst { symbol, symbol_span, node, params }))
+            }
             "override" => {
                 self.expect(Tok::BlockOpen, "«{» в конце строки")?;
                 let mut entries = Vec::new();
@@ -333,8 +389,8 @@ impl<'a> Parser<'a> {
         };
         let mut props = Vec::new();
         while !self.at_line_end() {
-            let (key, key_span) = self.ident("свойство артборда bg")?;
-            if key != "bg" {
+            let (key, key_span) = self.ident("свойство артборда bg или light")?;
+            if key != "bg" && key != "light" {
                 return Err(self.err(key_span, format!("у артборда нет свойства «{key}»")));
             }
             props.push(PropAst { key, key_span, values: vec![self.value()?] });
@@ -368,7 +424,20 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Backdrop { file, props, span: Span::new(start, end) })
     }
 
+    /// `name=value`, with a value of its own: number, colour, name or `{expression}`.
+    fn param(&mut self) -> Result<ParamAst, ScriptError> {
+        let (name, name_span) = self.ident("параметр вида имя=значение")?;
+        self.expect(Tok::Eq, &format!("«=» после «{name}»: параметр пишется как {name}=значение"))?;
+        Ok(ParamAst { name, name_span, value: self.value()? })
+    }
+
     fn node(&mut self, kind: ShapeKind, start: usize) -> Result<Stmt, ScriptError> {
+        Ok(Stmt::Node(self.node_line(kind, start, None)?))
+    }
+
+    /// A node line and, for a group, its block. A `use` line passes `params` and may have
+    /// `name=value` parameters among its properties, but no block.
+    fn node_line(&mut self, kind: ShapeKind, start: usize, mut params: Option<&mut Vec<ParamAst>>) -> Result<NodeAst, ScriptError> {
         let (id, id_span) = self.ident("id объекта")?;
         // A property name is fine as an id (`ellipse shadow "Тень"`) unless values follow it,
         // which means the id was left out (`rect at 10 20`).
@@ -386,16 +455,32 @@ impl<'a> Parser<'a> {
         }
         let mut props = Vec::new();
         while !self.at_line_end() && self.peek() != Some(&Tok::BlockOpen) {
+            if let Some(params) = params.as_deref_mut()
+                && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq))
+            {
+                let p = self.param()?;
+                insert_at = p.value.span.end;
+                params.push(p);
+                continue;
+            }
             let (key, key_span) = self.ident("свойство")?;
             let Some((min, max)) = prop_arity(&key) else {
                 return Err(self.err(key_span, format!("неизвестное свойство «{key}»")));
             };
             let mut values = Vec::new();
-            if key == "d" {
+            if key == "d" || key == "content" {
                 match self.next() {
                     Some(Token { tok: Tok::Str(s), span }) => values.push(ValueAst { kind: ValueKind::Path(s), span }),
+                    _ if key == "content" => return Err(self.err(key_span, "после content нужен текст в кавычках, например content \"Привет\"")),
                     _ => return Err(self.err(key_span, "после d нужен контур в кавычках, например d \"M 0 0 L 40 0 L 20 30 Z\"")),
                 }
+            }
+            // A font file in quotes, or `font bold`.
+            if key == "font"
+                && let Some(Tok::Str(_)) = self.peek()
+                && let Some(Token { tok: Tok::Str(s), span }) = self.next()
+            {
+                values.push(ValueAst { kind: ValueKind::Path(s), span });
             }
             while values.len() < max && self.is_value_start() {
                 values.push(self.value()?);
@@ -409,6 +494,9 @@ impl<'a> Parser<'a> {
         let mut children = Vec::new();
         let mut end = insert_at;
         if self.peek() == Some(&Tok::BlockOpen) {
+            if params.is_some() {
+                return Err(self.err(self.peek_span(), "у use нет своего блока: содержимое берётся из символа"));
+            }
             if kind != ShapeKind::Group {
                 return Err(self.err(self.peek_span(), "вложенные объекты бывают только у group"));
             }
@@ -416,7 +504,7 @@ impl<'a> Parser<'a> {
             children = self.block(true);
             end = self.close_block()? + 1;
         }
-        Ok(Stmt::Node(NodeAst { kind, id, id_span, name, props, insert_at, children, span: Span::new(start, end) }))
+        Ok(NodeAst { kind, id, id_span, name, props, insert_at, children, span: Span::new(start, end) })
     }
 
     fn path(&mut self) -> Result<(String, String, Span), ScriptError> {

@@ -3,6 +3,7 @@
 //! Both backends draw the same [`display_list`], so the editor preview (Vello on the GPU)
 //! and exported frames (tiny-skia on the CPU) match.
 
+mod blur;
 mod cpu;
 #[cfg(feature = "gpu")]
 mod gpu;
@@ -12,7 +13,7 @@ pub use cpu::{CpuOptions, render_cpu, render_cpu_with};
 pub use gpu::{build_scene, vello};
 
 use motif_core::kurbo::{Affine, BezPath, Shape};
-use motif_core::{Blend, Cap, Color, Document, Gradient, Join};
+use motif_core::{Blend, Cap, Color, Document, Gradient, Join, Shadow};
 
 /// A reference picture drawn over the artboard background and under the shapes. Only the editor
 /// passes one: exports never include it.
@@ -92,7 +93,7 @@ pub enum Paint {
     },
 }
 
-/// A drawing step: shapes, and clip layers opened by masking groups.
+/// A drawing step: shapes, clip layers opened by masking groups, and blurred layers.
 #[derive(Clone, Debug)]
 pub enum Op {
     Draw(Item),
@@ -104,14 +105,50 @@ pub enum Op {
         even_odd: bool,
     },
     Pop,
+    /// `ops` drawn on their own layer, then softened by a Gaussian blur that reaches `radius`
+    /// artboard units past the edges (σ = radius / 2, like CSS `box-shadow` blur).
+    Blur {
+        ops: Vec<Op>,
+        radius: f64,
+    },
+}
+
+/// A group whose children are still being collected: it may clip them, blur them, or both.
+struct Open {
+    group: usize,
+    clip: bool,
+    /// Blur radius and the ops gathered so far, when the group is blurred.
+    blur: Option<(f64, Vec<Op>)>,
+}
+
+/// Where new ops go: the innermost blurred group, or the top level.
+fn target<'a>(ops: &'a mut Vec<Op>, open: &'a mut [Open]) -> &'a mut Vec<Op> {
+    match open.iter_mut().rev().find_map(|o| o.blur.as_mut()) {
+        Some((_, inner)) => inner,
+        None => ops,
+    }
+}
+
+fn close(ops: &mut Vec<Op>, open: &mut Vec<Open>) {
+    let Some(o) = open.pop() else { return };
+    match o.blur {
+        Some((radius, mut inner)) => {
+            if o.clip {
+                inner.push(Op::Pop);
+            }
+            target(ops, open).push(Op::Blur { ops: inner, radius });
+        }
+        None if o.clip => target(ops, open).push(Op::Pop),
+        None => {}
+    }
 }
 
 /// Flattens the node tree into paint order, skipping hidden nodes; masking groups become clip
-/// layers around their children, and their first child (the mask) is not drawn.
+/// layers around their children, and their first child (the mask) is not drawn. Blurred objects
+/// and groups become blur layers.
 pub fn display_ops(doc: &Document) -> Vec<Op> {
     let mut ops = Vec::new();
-    // Clip layers still open: the group index they belong to.
-    let mut open: Vec<usize> = Vec::new();
+    let mut open: Vec<Open> = Vec::new();
     let inside = |i: usize, group: usize| {
         let mut cur = doc.nodes[i].parent;
         while let Some(p) = cur {
@@ -123,9 +160,8 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         false
     };
     for i in 0..doc.nodes.len() {
-        while open.last().is_some_and(|&g| !inside(i, g)) {
-            open.pop();
-            ops.push(Op::Pop);
+        while open.last().is_some_and(|o| !inside(i, o.group)) {
+            close(&mut ops, &mut open);
         }
         if !doc.is_visible(i) {
             continue;
@@ -138,12 +174,14 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         {
             continue;
         }
-        if node.clip
-            && let Some(m) = doc.nodes.iter().position(|n| n.parent == Some(i))
-            && let Some(path) = doc.nodes[m].path()
-        {
-            ops.push(Op::PushClip { path, transform: doc.world_transform(m), even_odd: false });
-            open.push(i);
+        if node.kind == motif_core::ShapeKind::Group {
+            let mask = node.clip.then(|| doc.nodes.iter().position(|n| n.parent == Some(i))).flatten().and_then(|m| Some((m, doc.nodes[m].path()?)));
+            if mask.is_some() || node.blur > 0.0 {
+                open.push(Open { group: i, clip: mask.is_some(), blur: (node.blur > 0.0).then(|| (node.blur, Vec::new())) });
+                if let Some((m, path)) = mask {
+                    target(&mut ops, &mut open).push(Op::PushClip { path, transform: doc.world_transform(m), even_odd: false });
+                }
+            }
             continue;
         }
         let Some(path) = node.path() else { continue };
@@ -157,62 +195,83 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             (_, Some(c)) => Some(Paint::Solid(c)),
             _ => None,
         };
-        if opacity > 0.0 && (fill.is_some() || stroke.is_some()) {
-            let transform = doc.world_transform(i);
-            let line = Line { dash: node.dash.clone(), cap: node.cap, join: node.join };
-            if let Some(sh) = node.shadow {
-                shadow_items(&mut ops, i, &path, transform, sh, stroke.map_or(0.0, |s| s.1), opacity);
-            }
-            ops.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd }));
+        if opacity <= 0.0 || (fill.is_none() && stroke.is_none() && node.outlines.is_empty()) {
+            continue;
+        }
+        let mut own = Vec::new();
+        let transform = doc.world_transform(i);
+        let line = Line { dash: node.dash.clone(), cap: node.cap, join: node.join };
+        let widest = node.outlines.first().map_or(0.0, |o| o.1);
+        if let Some(sh) = Shadow::cast(node.shadow, node.elevation, doc.light) {
+            shadow_ops(&mut own, i, &path, transform, sh, stroke.map_or(0.0, |s| s.1).max(widest), opacity);
+        }
+        // Layered outlines under the shape, widest first, with round corners like a sticker.
+        for &(c, w) in &node.outlines {
+            let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
+            own.push(Op::Draw(Item {
+                node: i,
+                path: path.clone(),
+                transform,
+                fill: None,
+                stroke: Some((c, w)),
+                line,
+                opacity,
+                blend: node.blend,
+                even_odd: false,
+            }));
+        }
+        own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd }));
+        let out = target(&mut ops, &mut open);
+        if node.blur > 0.0 {
+            out.push(Op::Blur { ops: own, radius: node.blur });
+        } else {
+            out.extend(own);
         }
     }
-    ops.extend(open.iter().map(|_| Op::Pop));
+    while !open.is_empty() {
+        close(&mut ops, &mut open);
+    }
     ops
 }
 
-/// Most rings in a soft shadow: about one per artboard pixel of blur, so the edge has no bands.
-const SHADOW_RINGS: usize = 32;
-
-/// A shadow as plain shapes both renderers can draw: the shape moved by the offset and, for a
-/// blur, rings of widening strokes outside it whose overlapping alpha fades out over the blur radius.
-fn shadow_items(ops: &mut Vec<Op>, node: usize, path: &BezPath, transform: Affine, sh: motif_core::Shadow, stroke_w: f64, opacity: f64) {
+/// A shadow: the shape (and its stroke body) moved by the offset in the shadow colour, blurred
+/// on its own layer when it has a blur.
+fn shadow_ops(ops: &mut Vec<Op>, node: usize, path: &BezPath, transform: Affine, sh: Shadow, stroke_w: f64, opacity: f64) {
     let moved = Affine::translate((sh.dx, sh.dy)) * transform;
     let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
-    let item =
-        |fill, stroke| Item { node, path: path.clone(), transform: moved, fill, stroke, line: line.clone(), opacity, blend: Blend::Normal, even_odd: false };
     let body = (stroke_w > 0.0).then_some((sh.color, stroke_w));
+    let item = Item {
+        node,
+        path: path.clone(),
+        transform: moved,
+        fill: Some(Paint::Solid(sh.color)),
+        stroke: body,
+        line,
+        opacity,
+        blend: Blend::Normal,
+        even_odd: false,
+    };
     if sh.blur > 0.0 {
-        // The blur is in artboard pixels; strokes are in the shape's local space.
-        let k = transform.as_coeffs();
-        let local_scale = ((k[0] * k[3] - k[1] * k[2]).abs().sqrt()).max(1e-6);
-        // Rings only count outside the shape: clip to a big frame with the shape cut out.
-        let pad = (stroke_w + 2.0 * sh.blur) / local_scale + 2.0;
-        let mut outside = path.bounding_box().inflate(pad, pad).to_path(0.1);
-        outside.extend(path.iter());
-        ops.push(Op::PushClip { path: outside, transform: moved, even_odd: true });
-        // Where all rings overlap (at the edge) they add up to the shadow colour.
-        let a = sh.color.a as f64 / 255.0;
-        let rings = (sh.blur.ceil() as usize).clamp(4, SHADOW_RINGS);
-        let ring = 1.0 - (1.0 - a).powf(1.0 / rings as f64);
-        let faint = Color { a: (ring * 255.0).round().clamp(1.0, 255.0) as u8, ..sh.color };
-        for r in 1..=rings {
-            let width = (stroke_w + 2.0 * sh.blur * r as f64 / rings as f64) / local_scale;
-            ops.push(Op::Draw(item(None, Some((faint, width)))));
-        }
-        ops.push(Op::Pop);
+        ops.push(Op::Blur { ops: vec![Op::Draw(item)], radius: sh.blur });
+    } else {
+        ops.push(Op::Draw(item));
     }
-    ops.push(Op::Draw(item(Some(Paint::Solid(sh.color)), body)));
 }
 
-/// The shapes in paint order, without clip layers.
+/// The shapes in paint order, without clip or blur layers.
 pub fn display_list(doc: &Document) -> Vec<Item> {
-    display_ops(doc)
-        .into_iter()
-        .filter_map(|op| match op {
-            Op::Draw(item) => Some(item),
-            _ => None,
-        })
-        .collect()
+    fn walk(ops: Vec<Op>, out: &mut Vec<Item>) {
+        for op in ops {
+            match op {
+                Op::Draw(item) => out.push(item),
+                Op::Blur { ops, .. } => walk(ops, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(display_ops(doc), &mut out);
+    out
 }
 
 /// Applies opacity to a color's alpha.

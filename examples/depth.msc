@@ -1,0 +1,23 @@
+// Глубина: настоящее размытие, тени от «высоты» и общий свет сцены.
+// light — куда падают тени (90 — вниз); elevation — насколько объект поднят над фоном.
+artboard "Глубина" 480x300 bg #e9e4f5 light 115
+
+// Размытый фон: целая группа размывается вместе.
+group back "Фон" blur 14 {
+  ellipse b1 at 90 70 size 140 fill #b9a7ff
+  ellipse b2 at 400 240 size 180 fill #ffb7d5
+}
+
+rect panel "Панель" at 240 150 size 300 170 r 22 fill #ffffff elevation 10
+rect button "Кнопка" at 240 205 size 150 44 r 22 fill #5b3bff elevation 4
+text label "Подпись" at 240 205 content "Играть" font bold font-size 20 fill #ffffff
+text title "Заголовок" at 240 120 content "Пауза" font bold font-size 40 fill #1b1d24 shadow 0 3 0 #5b3bff55
+star coin "Монета" at 400 60 size 50 points 6 inner 0.6 fill #ffc531 elevation 18
+
+anim Hover 1.4s loop {
+  button.elevation 0: 4 ease-in-out-sine | 0.7: 14 ease-in-out-sine | 1.4: 4
+  button.y 0: 205 ease-in-out-sine | 0.7: 199 ease-in-out-sine | 1.4: 205
+  label.y 0: 205 ease-in-out-sine | 0.7: 199 ease-in-out-sine | 1.4: 205
+  coin.elevation 0: 18 ease-in-out-sine | 0.7: 34 ease-in-out-sine | 1.4: 18
+  back.blur 0: 14 | 0.7: 22 | 1.4: 14
+}

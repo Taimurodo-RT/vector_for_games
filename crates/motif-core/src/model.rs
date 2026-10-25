@@ -8,6 +8,8 @@ pub struct Document {
     /// Nodes in paint order (parents always come before their children).
     pub nodes: Vec<Node>,
     pub animations: Vec<Animation>,
+    /// Direction shadows fall from raised objects (`elevation`), in degrees: 90 is straight down.
+    pub light: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +35,8 @@ pub enum ShapeKind {
     Polygon,
     /// Free-form outline drawn with the pen: `path id at x y d "M 0 0 C …"`.
     Path,
+    /// Letters as outlines: `text title at x y content "Привет" font-size 32`.
+    Text,
 }
 
 impl ShapeKind {
@@ -44,6 +48,7 @@ impl ShapeKind {
             ShapeKind::Star => "star",
             ShapeKind::Polygon => "polygon",
             ShapeKind::Path => "path",
+            ShapeKind::Text => "text",
         }
     }
 
@@ -55,6 +60,7 @@ impl ShapeKind {
             "star" => ShapeKind::Star,
             "polygon" => ShapeKind::Polygon,
             "path" => ShapeKind::Path,
+            "text" => ShapeKind::Text,
             _ => return None,
         })
     }
@@ -80,10 +86,26 @@ pub enum Prop {
     /// Skew in degrees, like CSS `skewX` / `skewY`.
     SkewX,
     SkewY,
+    /// Text only.
+    FontSize,
+    LetterSpacing,
+    /// 0..1, letters appear one by one.
+    Reveal,
+    /// Height of a wave through the letters, and its position (1 = one cycle).
+    Wave,
+    Phase,
+    /// Gaussian blur of the whole object, in artboard units.
+    Blur,
+    /// Shadow offset and softness.
+    ShadowX,
+    ShadowY,
+    ShadowBlur,
+    /// Height above the artboard: casts a shadow away from the scene light, longer and softer when higher.
+    Elevation,
 }
 
 impl Prop {
-    pub const ALL: [Prop; 16] = [
+    pub const ALL: [Prop; 26] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -100,6 +122,16 @@ impl Prop {
         Prop::StrokeWidth,
         Prop::SkewX,
         Prop::SkewY,
+        Prop::FontSize,
+        Prop::LetterSpacing,
+        Prop::Reveal,
+        Prop::Wave,
+        Prop::Phase,
+        Prop::Blur,
+        Prop::ShadowX,
+        Prop::ShadowY,
+        Prop::ShadowBlur,
+        Prop::Elevation,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -121,6 +153,16 @@ impl Prop {
             Prop::StrokeWidth => "stroke_w",
             Prop::SkewX => "kx",
             Prop::SkewY => "ky",
+            Prop::FontSize => "font-size",
+            Prop::LetterSpacing => "letter-spacing",
+            Prop::Reveal => "reveal",
+            Prop::Wave => "wave",
+            Prop::Phase => "phase",
+            Prop::Blur => "blur",
+            Prop::ShadowX => "shadow-x",
+            Prop::ShadowY => "shadow-y",
+            Prop::ShadowBlur => "shadow-blur",
+            Prop::Elevation => "elevation",
         }
     }
 
@@ -212,6 +254,15 @@ pub struct Node {
     pub join: Join,
     pub shadow: Option<Shadow>,
     pub blend: Blend,
+    /// Extra strokes under the shape, widest first: thick dark outside, thin light inside.
+    pub outlines: Vec<(Color, f64)>,
+    /// Text only: the letters read from the font, and how they are laid out.
+    pub text: Option<std::sync::Arc<crate::text::TextShape>>,
+    pub text_style: crate::text::TextStyle,
+    /// Gaussian blur of the whole object (a group blurs its children together), in artboard units.
+    pub blur: f64,
+    /// Height above the artboard for the procedural shadow; 0 casts none.
+    pub elevation: f64,
 }
 
 /// A two-or-more colour gradient spread over the shape's bounds.
@@ -277,6 +328,19 @@ impl Node {
             join: Join::default(),
             shadow: None,
             blend: Blend::default(),
+            outlines: Vec::new(),
+            text: None,
+            text_style: crate::text::TextStyle {
+                size: 32.0,
+                spacing: 0.0,
+                line_height: 1.2,
+                align: crate::text::TextAlign::Center,
+                reveal: 1.0,
+                wave: 0.0,
+                phase: 0.0,
+            },
+            blur: 0.0,
+            elevation: 0.0,
         }
     }
 
@@ -303,6 +367,16 @@ impl Node {
             Prop::StrokeWidth => Value::Num(self.stroke_width),
             Prop::SkewX => Value::Num(self.skew_x),
             Prop::SkewY => Value::Num(self.skew_y),
+            Prop::FontSize => Value::Num(self.text_style.size),
+            Prop::LetterSpacing => Value::Num(self.text_style.spacing),
+            Prop::Reveal => Value::Num(self.text_style.reveal),
+            Prop::Wave => Value::Num(self.text_style.wave),
+            Prop::Phase => Value::Num(self.text_style.phase),
+            Prop::Blur => Value::Num(self.blur),
+            Prop::ShadowX => Value::Num(self.shadow.map_or(0.0, |s| s.dx)),
+            Prop::ShadowY => Value::Num(self.shadow.map_or(0.0, |s| s.dy)),
+            Prop::ShadowBlur => Value::Num(self.shadow.map_or(0.0, |s| s.blur)),
+            Prop::Elevation => Value::Num(self.elevation),
         }
     }
 
@@ -335,6 +409,16 @@ impl Node {
             Prop::StrokeWidth => self.stroke_width = v,
             Prop::SkewX => self.skew_x = v,
             Prop::SkewY => self.skew_y = v,
+            Prop::FontSize => self.text_style.size = v,
+            Prop::LetterSpacing => self.text_style.spacing = v,
+            Prop::Reveal => self.text_style.reveal = v,
+            Prop::Wave => self.text_style.wave = v,
+            Prop::Phase => self.text_style.phase = v,
+            Prop::Blur => self.blur = v.max(0.0),
+            Prop::ShadowX => self.shadow.get_or_insert(Shadow::DEFAULT).dx = v,
+            Prop::ShadowY => self.shadow.get_or_insert(Shadow::DEFAULT).dy = v,
+            Prop::ShadowBlur => self.shadow.get_or_insert(Shadow::DEFAULT).blur = v.max(0.0),
+            Prop::Elevation => self.elevation = v.max(0.0),
             Prop::Fill | Prop::StrokeColor => unreachable!(),
         }
     }
@@ -365,6 +449,7 @@ impl Node {
             ShapeKind::Star => star_path(w, h, self.points.round().max(3.0) as usize, self.inner.clamp(0.05, 1.0)),
             ShapeKind::Polygon => polygon_path(w, h, self.points.round().max(3.0) as usize),
             ShapeKind::Path => self.geometry.clone(),
+            ShapeKind::Text => self.text.as_ref().map(|t| t.layout(&self.text_style)).unwrap_or_default(),
         })
     }
 }
@@ -394,7 +479,7 @@ fn polygon_path(w: f64, h: f64, sides: usize) -> BezPath {
 
 impl Document {
     pub fn new(artboard: Artboard) -> Self {
-        Document { artboard, nodes: Vec::new(), animations: Vec::new() }
+        Document { artboard, nodes: Vec::new(), animations: Vec::new(), light: 90.0 }
     }
 
     pub fn index_of(&self, id: &str) -> Option<usize> {
@@ -440,6 +525,10 @@ impl Document {
             }
             let Some(path) = node.path() else { return false };
             let local = self.world_transform(i).inverse() * point;
+            // Text is picked by its whole box, not only the letters.
+            if let Some(t) = &node.text {
+                return t.bounds(&node.text_style).inflate(2.0, 2.0).contains(local);
+            }
             path.contains(local) || (node.stroke.is_some() && near_outline(&path, local, node.stroke_width.max(4.0)))
         })
     }
