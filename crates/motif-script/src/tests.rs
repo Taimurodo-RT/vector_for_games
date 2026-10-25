@@ -310,3 +310,23 @@ fn gradients_and_masks() {
     assert!(parse("rect a gradient spiral #ff0000 #00ff00").is_err());
     assert!(parse("rect a clip").is_err());
 }
+
+#[test]
+fn cubic_ease() {
+    let src = "artboard \"M\" 100x100\nrect a at 0 0 size 10\nanim A 1s {\n  a.x 0: 0 cubic 0.2 0 0.2 1.4 | 1: 100\n}\n";
+    let s = scene(src);
+    let k = &s.doc.animations[0].tracks[0].keys[0];
+    assert_eq!(k.ease, motif_core::Ease::Cubic([0.2, 0.0, 0.2, 1.4]));
+    // Overshoots past the end value before settling.
+    assert!(k.ease.apply(0.8) > 1.0);
+    assert!((k.ease.apply(1.0) - 1.0).abs() < 1e-9);
+    // Writing a curve back keeps the script parseable.
+    let e = motif_core::Ease::Cubic([0.25, 0.1, 0.25, 1.0]);
+    let out = set_key_ease(src, &s, "A", "a", Prop::X, 0.0, &e.script()).unwrap();
+    assert!(out.contains("a.x 0: 0 cubic 0.25 0.1 0.25 1 | 1: 100"), "{out}");
+    assert_eq!(scene(&out).doc.animations[0].tracks[0].keys[0].ease, e);
+    let out = set_key_ease(&out, &scene(&out), "A", "a", Prop::X, 0.0, "linear").unwrap();
+    assert!(out.contains("a.x 0: 0 linear | 1: 100"), "{out}");
+    assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 cubic 0.2 0 | 1: 5\n}").is_err());
+    assert!(parse("artboard \"M\" 9x9\nrect a\nanim A 1s {\n  a.x 0: 0 cubic 2 0 0.2 1 | 1: 5\n}").is_err());
+}

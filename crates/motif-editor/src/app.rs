@@ -14,6 +14,8 @@ const NEW_SCENE: &str = "artboard \"Сцена\" 320x240 bg #f4f1ff\n\nrect bg a
 const EXAMPLE: &str = include_str!("../../../examples/bounce.msc");
 /// Frame length used by `,` and `.` and shown in the timecode.
 pub const FPS: f64 = 60.0;
+/// Frames between onion-skin ghosts.
+const ONION_STEP: f64 = 6.0;
 /// Version shown in the help window; CI sets `MOTIF_BUILD` to the date and commit.
 pub const VERSION: &str = match option_env!("MOTIF_BUILD") {
     Some(b) => b,
@@ -121,6 +123,8 @@ pub struct App {
     pub(crate) pen: Vec<PenPoint>,
     pub(crate) pen_dragging: bool,
     pub(crate) point_edit: Option<PointEdit>,
+    /// Onion skin: faint poses before (red) and after (green) the current time while paused.
+    pub(crate) onion: bool,
     pub(crate) sel_key: Option<KeyRef>,
     /// A key being dragged in the timeline and its new time.
     pub(crate) key_drag: Option<(KeyRef, f64)>,
@@ -174,6 +178,7 @@ impl App {
             pen: Vec::new(),
             pen_dragging: false,
             point_edit: None,
+            onion: false,
             sel_key: None,
             key_drag: None,
             show_script: true,
@@ -366,6 +371,43 @@ impl App {
             Some(a) => a.pose(&self.scene.doc, self.time),
             None => self.scene.doc.clone(),
         }
+    }
+
+    /// The current pose with onion-skin ghosts behind it, when onion skin is on and the
+    /// animation is paused.
+    fn onion_doc(&self) -> Option<Document> {
+        let anim = self.current_anim().filter(|_| self.onion && !self.playing)?;
+        let now = anim.local_time(self.time);
+        let mut out = self.display_doc();
+        let current = std::mem::take(&mut out.nodes);
+        // Farthest first, so nearer ghosts sit on top.
+        for (k, frames) in [-2.0, 2.0, -1.0, 1.0].into_iter().enumerate() {
+            let t = now + frames * ONION_STEP / FPS;
+            if !anim.looping && !(0.0..=anim.duration).contains(&t) {
+                continue;
+            }
+            let tint = if frames < 0.0 { Color::rgb(0xff, 0x5a, 0x5a) } else { Color::rgb(0x4f, 0xd3, 0x8c) };
+            let alpha = if frames.abs() > 1.5 { 0.12 } else { 0.24 };
+            let base = out.nodes.len();
+            for mut n in anim.pose(&self.scene.doc, t).nodes {
+                n.id = format!("~onion{k}~{}", n.id);
+                n.parent = n.parent.map(|p| p + base);
+                n.opacity *= alpha;
+                let mix = |c: Color| Color { r: mix_u8(c.r, tint.r), g: mix_u8(c.g, tint.g), b: mix_u8(c.b, tint.b), a: c.a };
+                if let Some(g) = n.gradient.take() {
+                    n.fill = g.colors.first().copied();
+                }
+                n.fill = n.fill.map(mix);
+                n.stroke = n.stroke.map(mix);
+                out.nodes.push(n);
+            }
+        }
+        let base = out.nodes.len();
+        out.nodes.extend(current.into_iter().map(|mut n| {
+            n.parent = n.parent.map(|p| p + base);
+            n
+        }));
+        Some(out)
     }
 
     fn delete_selection(&mut self) {
@@ -1044,7 +1086,10 @@ impl App {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let view = *self.view.get_or_insert_with(|| View::fit(rect, &self.scene.doc));
         let doc = self.display_doc();
-        self.canvas.paint(ui, frame, rect, view, &doc);
+        match self.onion_doc() {
+            Some(with_ghosts) => self.canvas.paint(ui, frame, rect, view, &with_ghosts),
+            None => self.canvas.paint(ui, frame, rect, view, &doc),
+        }
         if self.pixel.on {
             self.paint_pixel_preview(ui, rect, view, &doc);
         }
@@ -1760,4 +1805,8 @@ impl eframe::App for App {
         self.export_window(&ctx);
         self.help_window(&ctx);
     }
+}
+
+fn mix_u8(a: u8, b: u8) -> u8 {
+    ((a as u16 + b as u16) / 2) as u8
 }

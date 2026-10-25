@@ -389,7 +389,7 @@ pub fn move_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, fr
 }
 
 /// Returns the script with the curve of the key of `node.prop` at `time` set to `ease`
-/// (`linear`, `ease-in`, `ease-out`, `ease-in-out`, `hold` or `spring`).
+/// as written in the script (`ease-out`, `cubic 0.4 0 0.2 1`, see `Ease::script`).
 pub fn set_key_ease(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, time: f64, ease: &str) -> Option<String> {
     let track = find_track(scene, anim, node, prop)?;
     let time = key_time(time);

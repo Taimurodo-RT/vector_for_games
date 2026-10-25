@@ -83,16 +83,7 @@ impl<'a> Evaluator<'a> {
                     let Some(prop) = self.prop_path(&t.prop, t.span) else { continue };
                     let mut keys = Vec::new();
                     for k in &t.keys {
-                        let ease = match &k.ease {
-                            None => Ease::EaseInOut,
-                            Some(e) => match Ease::from_keyword(e) {
-                                Some(e) => e,
-                                None => {
-                                    self.err(k.value.span, format!("неизвестная кривая «{e}»: linear, ease-in, ease-out, ease-in-out, hold, spring"));
-                                    Ease::Linear
-                                }
-                            },
-                        };
+                        let ease = k.ease.unwrap_or(Ease::EaseInOut);
                         if let Some(value) = self.value(&k.value) {
                             keys.push(Keyframe { time: k.time, value, ease });
                         }
