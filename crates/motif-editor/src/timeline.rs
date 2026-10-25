@@ -368,12 +368,17 @@ impl App {
         }
     }
 
-    /// Nodes with tracks (and the selected node), topmost first, each followed by its animated properties.
+    /// The selected objects (and what is inside selected groups), topmost first, each followed by
+    /// its animated properties. With nothing selected, every animated object and the world.
     fn timeline_rows(&self, anim: &Animation) -> Vec<Row> {
         let mut rows = Vec::new();
-        for n in self.scene.doc.nodes.iter().rev() {
+        let doc = &self.scene.doc;
+        let picked: Vec<usize> = self.selection().iter().filter_map(|id| doc.index_of(id)).collect();
+        for (i, n) in doc.nodes.iter().enumerate().rev() {
             let tracks: Vec<_> = Prop::ALL.iter().filter_map(|p| anim.tracks.iter().find(|t| t.node == n.id && t.prop == *p)).collect();
-            if tracks.is_empty() && self.selected.as_deref() != Some(n.id.as_str()) {
+            let chosen = picked.contains(&i);
+            let shown = if picked.is_empty() { !tracks.is_empty() } else { chosen || !tracks.is_empty() && picked.iter().any(|&g| doc.is_inside(i, g)) };
+            if !shown {
                 continue;
             }
             let mut times: Vec<f64> = tracks.iter().flat_map(|t| t.keys.iter().map(|k| k.time)).collect();
@@ -389,7 +394,7 @@ impl App {
         }
         // The scene's gravity and wind, when they are keyed.
         let world: Vec<_> = motif_core::World::PROPS.iter().filter_map(|p| anim.tracks.iter().find(|t| t.node == "world" && t.prop == *p)).collect();
-        if !world.is_empty() {
+        if !world.is_empty() && picked.is_empty() {
             let mut times: Vec<f64> = world.iter().flat_map(|t| t.keys.iter().map(|k| k.time)).collect();
             times.sort_by(f64::total_cmp);
             times.dedup_by(|a, b| (*a - *b).abs() < 0.005);
