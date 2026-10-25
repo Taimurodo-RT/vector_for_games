@@ -3,7 +3,7 @@
 //! the shape. The motion is simulated from the start of the animation in fixed steps, so the same
 //! time always gives the same pose, and export bakes it into frames like any other animation.
 
-use crate::{Animation, Document};
+use crate::{Document, SIM_FPS};
 use kurbo::{Affine, BezPath, ParamCurveArclen, PathEl, PathSeg, Point, Vec2};
 
 /// Physical settings of a soft body (`soft 0.5 pressure 1 friction 0.3 …`).
@@ -29,14 +29,11 @@ impl Default for Soft {
     }
 }
 
-/// Simulation frames per second; each frame is split into `SUBSTEPS` steps.
-pub const SIM_FPS: f64 = 60.0;
-const SUBSTEPS: usize = 10;
 /// Distance between particles along the outline, in artboard units.
 const SPACING: f64 = 5.0;
 
 #[derive(Clone, Debug, PartialEq)]
-struct Body {
+pub(crate) struct Body {
     node: usize,
     soft: Soft,
     p: Vec<Point>,
@@ -50,26 +47,6 @@ struct Body {
     local_center: Point,
     /// Rotation of the shape when the simulation started, radians.
     start_angle: f64,
-}
-
-/// Every soft body at one moment of a simulation.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct SimState {
-    bodies: Vec<Body>,
-    /// Simulation frames done.
-    frame: usize,
-}
-
-/// Simulated states of one animation, one per frame, so scrubbing does not start over.
-#[derive(Clone, Debug, Default)]
-pub struct SimCache {
-    states: Vec<SimState>,
-}
-
-impl SimCache {
-    pub fn clear(&mut self) {
-        self.states.clear();
-    }
 }
 
 fn angle(a: Affine) -> f64 {
@@ -316,72 +293,33 @@ impl Body {
     }
 }
 
-impl Document {
-    /// True when some shape is a soft body, so posing needs a simulation.
-    pub fn has_soft(&self) -> bool {
-        self.nodes.iter().any(|n| n.soft.is_some())
-    }
+/// Soft bodies of `pose`, at rest in the shapes they are drawn as.
+pub(crate) fn bodies(pose: &Document) -> Vec<Body> {
+    (0..pose.nodes.len()).filter_map(|i| Body::new(pose, i, pose.nodes[i].soft?)).collect()
+}
 
-    fn sim_start(&self) -> SimState {
-        let bodies = (0..self.nodes.len()).filter_map(|i| Body::new(self, i, self.nodes[i].soft?)).collect();
-        SimState { bodies, frame: 0 }
+/// Moves `bodies` on by `dt` seconds towards `pose`, in `steps` equal steps.
+pub(crate) fn step_bodies(bodies: &mut [Body], pose: &Document, dt: f64, steps: usize) {
+    if bodies.is_empty() {
+        return;
     }
-
-    /// Bends soft bodies to `state`, read in the space of the posed document.
-    fn apply_sim(&mut self, state: &SimState) {
-        for b in &state.bodies {
-            let to_local = self.world_transform(b.node).inverse();
-            let local: Vec<Point> = b.p.iter().map(|q| to_local * *q).collect();
-            self.nodes[b.node].deformed = Some(smooth(&local));
+    let walls = solids(pose);
+    for _ in 0..steps {
+        for b in bodies.iter_mut() {
+            b.step(pose, &walls, dt / steps as f64);
         }
     }
 }
 
-impl Animation {
-    /// The document at `t` seconds with soft bodies simulated from the start of the animation.
-    /// `cache` keeps the states of frames already simulated; clear it when the scene changes.
-    pub fn pose_with(&self, doc: &Document, t: f64, cache: &mut SimCache) -> Document {
-        let mut out = self.keys_at(doc, t);
-        out.rig();
-        if !doc.has_soft() {
-            return out;
+/// Bends soft bodies of `doc` to `bodies`, read in the space of the posed document.
+pub(crate) fn apply_bodies(bodies: &[Body], doc: &mut Document) {
+    for b in bodies {
+        if b.node >= doc.nodes.len() {
+            continue;
         }
-        let t = self.local_time(t);
-        let frame = (t * SIM_FPS).floor() as usize;
-        if cache.states.is_empty() {
-            let mut start = self.keys_at(doc, 0.0);
-            start.rig();
-            cache.states.push(start.sim_start());
-        }
-        while cache.states.len() <= frame {
-            let mut s = cache.states.last().unwrap().clone();
-            self.sim_frame(doc, &mut s, 1.0 / SIM_FPS);
-            cache.states.push(s);
-        }
-        let mut s = cache.states[frame].clone();
-        let rest = t - frame as f64 / SIM_FPS;
-        if rest > 1e-9 {
-            self.sim_frame(doc, &mut s, rest);
-        }
-        out.apply_sim(&s);
-        out
-    }
-
-    /// Advances `s` by `dt` (at most one frame) with the keys of the frame it ends on.
-    fn sim_frame(&self, doc: &Document, s: &mut SimState, dt: f64) {
-        let t = s.frame as f64 / SIM_FPS + dt;
-        let mut pose = self.keys_at(doc, t);
-        pose.rig();
-        let walls = solids(&pose);
-        let step = dt / SUBSTEPS as f64;
-        for _ in 0..SUBSTEPS {
-            for b in &mut s.bodies {
-                b.step(&pose, &walls, step);
-            }
-        }
-        if (dt * SIM_FPS - 1.0).abs() < 1e-9 {
-            s.frame += 1;
-        }
+        let to_local = doc.world_transform(b.node).inverse();
+        let local: Vec<Point> = b.p.iter().map(|q| to_local * *q).collect();
+        doc.nodes[b.node].deformed = Some(smooth(&local));
     }
 }
 
@@ -396,7 +334,7 @@ fn bounds(doc: &Document, node: &str) -> kurbo::Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Artboard, Keyframe, Node, Prop, ShapeKind, Track, Value};
+    use crate::{Animation, Artboard, Keyframe, Node, Prop, ShapeKind, SimCache, Track, Value};
 
     /// A ball of diameter 60 pulled from x 60 to x 340 through a tunnel 36 high at x 160..240.
     fn tunnel() -> (Document, Animation) {

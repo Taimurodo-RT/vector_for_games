@@ -15,6 +15,11 @@ impl Document {
     /// Animations call it after posing, the editor before drawing.
     pub fn rig(&mut self) {
         self.solve_ik();
+        self.skin_all();
+    }
+
+    /// Bends skinned shapes with their bones as they are posed now.
+    pub fn skin_all(&mut self) {
         for i in 0..self.nodes.len() {
             // Soft bodies get their outline from the simulation.
             if self.nodes[i].soft.is_none() {

@@ -1,10 +1,11 @@
-//! The «Физика» section: a shape becomes a soft body, or a solid that soft bodies bump into.
+//! The «Физика» section: springs on keyed values, jiggling bones, soft bodies and the solids
+//! soft bodies bump into.
 
 use crate::app::{App, section};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
-use motif_core::{Node, Soft};
+use motif_core::{Node, ShapeKind, Soft, Spring};
 use motif_script::fmt_num;
 
 /// Script keys of a soft body, each with its label, value, range and drag speed.
@@ -12,13 +13,31 @@ const SOFT_KEYS: [&str; 6] = ["soft", "pressure", "friction", "damp", "drive", "
 
 impl App {
     pub(crate) fn physics_section(&mut self, ui: &mut egui::Ui, node: &Node) {
-        if node.kind.is_container() {
-            return;
-        }
         let mut edits: Vec<StyleEdit> = Vec::new();
         section(ui, |ui| {
             theme::caption(ui, "Физика");
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            spring_editor(
+                ui,
+                &mut edits,
+                "spring",
+                "Пружина",
+                node.spring,
+                "Ключи положения, размера и поворота догоняются с перелётом и успокаиваются. Частота — колебаний в секунду, затухание 1 — без перелёта.",
+            );
+            if node.kind == ShapeKind::Bone {
+                spring_editor(
+                    ui,
+                    &mut edits,
+                    "jiggle",
+                    "Покачивание",
+                    node.jiggle,
+                    "Кость отстаёт от родительской и раскачивается после остановки: хвосты, уши, волосы, антенны.",
+                );
+            }
+            if node.kind.is_container() {
+                return;
+            }
             let mut on = node.soft.is_some();
             if ui.checkbox(&mut on, RichText::new("Мягкое тело").size(12.5).color(FG)).changed() {
                 if on {
@@ -69,4 +88,27 @@ impl App {
             self.apply_styles(&node.id, edits);
         }
     }
+}
+
+/// A checkbox that turns a spring property on, and its frequency and damping fields.
+fn spring_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, key: &'static str, label: &str, value: Option<Spring>, hint: &str) {
+    let d = Spring::default();
+    let text = |s: Spring| {
+        if s == d { key.to_string() } else { format!("{key} {} {}", fmt_num(s.freq), fmt_num(s.damp)) }
+    };
+    let mut on = value.is_some();
+    if ui.checkbox(&mut on, RichText::new(label).size(12.5).color(FG)).changed() {
+        edits.push((key, on.then(|| key.to_string())));
+    }
+    let Some(s) = value else { return };
+    let half = (ui.available_width() - 6.0) / 2.0;
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Частота", s.freq, 0.02, 0.1..=Spring::MAX_FREQ, 2, KeyState::Hidden).changed {
+            edits.push((key, Some(text(Spring { freq: (v * 100.0).round() / 100.0, ..s }))));
+        }
+        if let Some(v) = theme::num_field(ui, half, "Затухание", s.damp, 0.005, 0.0..=2.0, 2, KeyState::Hidden).changed {
+            edits.push((key, Some(text(Spring { damp: (v * 100.0).round() / 100.0, ..s }))));
+        }
+    });
+    ui.label(RichText::new(hint).size(11.5).color(FAINT));
 }

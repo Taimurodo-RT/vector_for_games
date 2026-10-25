@@ -116,11 +116,13 @@ pub struct MachinePlayer {
     pub blend_time: f64,
     pub blend: f64,
     pub values: Vec<f64>,
+    /// Springs, jiggling bones and soft bodies, stepped as the machine plays.
+    pub sim: Option<crate::SimState>,
 }
 
 impl MachinePlayer {
     pub fn new(m: &Machine) -> Self {
-        MachinePlayer { state: 0, time: 0.0, prev: None, blend_time: 0.0, blend: 0.0, values: m.inputs.iter().map(|i| i.default).collect() }
+        MachinePlayer { state: 0, time: 0.0, prev: None, blend_time: 0.0, blend: 0.0, values: m.inputs.iter().map(|i| i.default).collect(), sim: None }
     }
 
     pub fn set(&mut self, m: &Machine, input: &str, value: f64) {
@@ -194,6 +196,15 @@ impl MachinePlayer {
                 *v = 0.0;
             }
         }
+        if doc.has_sim() {
+            let keys = self.keys(m, doc);
+            match &mut self.sim {
+                Some(s) if s.fits(doc) => s.advance(&keys, dt),
+                sim => *sim = Some(crate::SimState::new(&keys)),
+            }
+        } else {
+            self.sim = None;
+        }
         taken
     }
 
@@ -202,8 +213,22 @@ impl MachinePlayer {
         if self.prev.is_some() && self.blend > 0.0 { (self.blend_time / self.blend).clamp(0.0, 1.0) } else { 1.0 }
     }
 
-    /// The document posed by the current state, mixed with the previous one during a blend.
+    /// The document posed by the current state, mixed with the previous one during a blend,
+    /// with bones solved, shapes bent and the simulation applied.
     pub fn pose(&self, m: &Machine, doc: &Document) -> Document {
+        let keys = self.keys(m, doc);
+        match &self.sim {
+            Some(s) if s.fits(doc) => s.apply(&keys),
+            _ => {
+                let mut out = keys;
+                out.rig();
+                out
+            }
+        }
+    }
+
+    /// The keys of the current state, mixed with the previous one during a blend, before `rig`.
+    fn keys(&self, m: &Machine, doc: &Document) -> Document {
         let pose_of = |state: usize, t: f64| match m.states.get(state).and_then(|s| doc.animation(&s.anim)) {
             Some(a) => a.keys_at(doc, t),
             None => doc.clone(),
@@ -211,7 +236,6 @@ impl MachinePlayer {
         let mut out = pose_of(self.state, self.time);
         let w = self.blend_amount();
         let Some((prev, prev_t)) = self.prev.filter(|_| w < 1.0) else {
-            out.rig();
             return out;
         };
         let old = pose_of(prev, prev_t);
@@ -229,7 +253,6 @@ impl MachinePlayer {
                 out.nodes[i].set(prop, v);
             }
         }
-        out.rig();
         out
     }
 }
@@ -303,5 +326,23 @@ mod tests {
         p.fire(&m, "jump");
         p.advance(&m, &d, 0.1);
         assert_eq!((p.state, p.time > 0.05), (2, true));
+    }
+
+    #[test]
+    fn springs_smooth_a_switch_while_the_machine_plays() {
+        let (mut d, m) = (doc(), machine());
+        d.nodes[0].spring = Some(crate::Spring { freq: 2.0, damp: 0.3 });
+        let mut p = MachinePlayer::new(&m);
+        p.advance(&m, &d, 0.0);
+        p.set(&m, "speed", 1.0);
+        p.advance(&m, &d, 0.0);
+        // Run snaps x to 100 after its blend, but the spring follows over time.
+        let mut xs = Vec::new();
+        for _ in 0..120 {
+            p.advance(&m, &d, 1.0 / 60.0);
+            xs.push(p.pose(&m, &d).nodes[0].x);
+        }
+        assert!(xs[5] < 20.0, "{}", xs[5]);
+        assert!(xs.iter().cloned().fold(f64::MIN, f64::max) > 101.0, "overshoots");
     }
 }
