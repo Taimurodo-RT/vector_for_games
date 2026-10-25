@@ -97,6 +97,34 @@ pub struct UseAst {
     pub params: Vec<ParamAst>,
 }
 
+/// `speed > 0.5`, `hover`, `not hover` in a transition.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CondAst {
+    pub input: String,
+    pub span: Span,
+    pub op: motif_core::CondOp,
+    pub value: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum MachineLine {
+    /// `input speed 0`, `input hover false`, `input jump trigger`.
+    Input { name: String, name_span: Span, kind: motif_core::InputKind, default: f64 },
+    /// `any at 40 12`: where the `any` box sits in the editor graph.
+    AnyAt(f64, f64),
+    /// `state Run anim Running at 220 40`.
+    State { name: String, name_span: Span, anim: Option<(String, Span)>, at: Option<(f64, f64)> },
+    /// `Idle -> Run when speed > 0.5 at end blend 0.2s`; `from` is `None` for `any`.
+    Transition { from: Option<String>, from_span: Span, to: String, to_span: Span, conds: Vec<CondAst>, at_end: bool, blend: f64 },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MachineLineAst {
+    pub line: MachineLine,
+    /// The whole line, without its line break.
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     Artboard {
@@ -145,6 +173,15 @@ pub enum Stmt {
         duration_span: Span,
         /// The `loop` word, when present.
         loop_span: Option<Span>,
+    },
+    /// `machine Player { … }`: states, the transitions between them and the inputs they read.
+    Machine {
+        name: String,
+        name_span: Span,
+        lines: Vec<MachineLineAst>,
+        span: Span,
+        /// Offset of the block's closing brace.
+        close: usize,
     },
     /// `close` is the offset of the block's closing brace (where new entries are inserted).
     Override {
@@ -300,7 +337,8 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
-        let (word, span) = self.ident("команда: artboard, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim или override")?;
+        let (word, span) =
+            self.ident("команда: artboard, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine или override")?;
         match word.as_str() {
             "artboard" => self.artboard(),
             "backdrop" => self.backdrop(span.start),
@@ -325,6 +363,7 @@ impl<'a> Parser<'a> {
                 Ok(Stmt::For { var, from, to, body })
             }
             "anim" => self.anim(span),
+            "machine" => self.machine(span),
             "symbol" => {
                 let (name, name_span) = self.ident("имя символа")?;
                 let mut params = Vec::new();
@@ -555,6 +594,143 @@ impl<'a> Parser<'a> {
         }
         let close = self.close_block()?;
         Ok(Stmt::Anim { name, duration, looping, tracks, span, close, duration_span, loop_span })
+    }
+
+    fn machine(&mut self, span: Span) -> Result<Stmt, ScriptError> {
+        let (name, name_span) = self.ident("имя машины состояний")?;
+        self.expect(Tok::BlockOpen, "«{» в конце строки")?;
+        let mut lines = Vec::new();
+        loop {
+            match self.peek() {
+                Some(Tok::Newline) => self.pos += 1,
+                Some(Tok::BlockClose) | None => break,
+                Some(_) => match self.machine_line() {
+                    Ok(l) => lines.push(l),
+                    Err(e) => {
+                        self.errors.push(e);
+                        self.skip_line();
+                    }
+                },
+            }
+        }
+        let close = self.close_block()?;
+        Ok(Stmt::Machine { name, name_span, lines, span: Span::new(span.start, close + 1), close })
+    }
+
+    fn num(&mut self, what: &str) -> Result<(f64, Span), ScriptError> {
+        match self.next() {
+            Some(Token { tok: Tok::Num(v) | Tok::Seconds(v), span }) => Ok((v, span)),
+            Some(t) => Err(self.err(t.span, format!("ожидалось {what}"))),
+            None => Err(self.err(self.peek_span(), format!("ожидалось {what}"))),
+        }
+    }
+
+    fn word_is(&self, word: &str) -> bool {
+        matches!(self.peek(), Some(Tok::Ident(w)) if w == word)
+    }
+
+    fn machine_line(&mut self) -> Result<MachineLineAst, ScriptError> {
+        use motif_core::{CondOp, InputKind};
+        let start = self.peek_span().start;
+        let (word, word_span) = self.ident("строка машины: input, state или переход вида Idle -> Run")?;
+        let line = match word.as_str() {
+            "input" => {
+                let (name, name_span) = self.ident("имя входа")?;
+                let hint = "после имени входа: число (input speed 0), false/true (флаг) или trigger";
+                let (kind, default) = match self.next() {
+                    Some(Token { tok: Tok::Num(v), .. }) => (InputKind::Number, v),
+                    Some(Token { tok: Tok::Ident(w), span }) => match w.as_str() {
+                        "number" => match self.peek() {
+                            Some(Tok::Num(v)) => {
+                                let v = *v;
+                                self.pos += 1;
+                                (InputKind::Number, v)
+                            }
+                            _ => (InputKind::Number, 0.0),
+                        },
+                        "bool" | "false" => (InputKind::Bool, 0.0),
+                        "true" => (InputKind::Bool, 1.0),
+                        "trigger" => (InputKind::Trigger, 0.0),
+                        _ => return Err(self.err(span, hint)),
+                    },
+                    Some(t) => return Err(self.err(t.span, hint)),
+                    None => return Err(self.err(self.peek_span(), hint)),
+                };
+                MachineLine::Input { name, name_span, kind, default }
+            }
+            "state" => {
+                let (name, name_span) = self.ident("имя состояния")?;
+                let (mut anim, mut at) = (None, None);
+                while !self.at_line_end() {
+                    let (key, key_span) = self.ident("anim или at")?;
+                    match key.as_str() {
+                        "anim" => anim = Some(self.ident("имя анимации")?),
+                        "at" => at = Some((self.num("число")?.0, self.num("число")?.0)),
+                        _ => return Err(self.err(key_span, format!("у состояния нет «{key}»: anim Имя, at x y"))),
+                    }
+                }
+                MachineLine::State { name, name_span, anim, at }
+            }
+            "any" if self.word_is("at") => {
+                self.pos += 1;
+                MachineLine::AnyAt(self.num("число")?.0, self.num("число")?.0)
+            }
+            _ => {
+                if self.peek() != Some(&Tok::Arrow) {
+                    return Err(self.err(word_span, format!("неизвестная строка «{word}»: input, state или переход вида {word} -> Другое")));
+                }
+                self.pos += 1;
+                let (to, to_span) = self.ident("состояние после «->»")?;
+                let (mut conds, mut at_end, mut blend) = (Vec::new(), false, 0.0);
+                while !self.at_line_end() {
+                    let (key, key_span) = self.ident("when, at end или blend")?;
+                    match key.as_str() {
+                        "when" => loop {
+                            let negate = self.word_is("not");
+                            if negate {
+                                self.pos += 1;
+                            }
+                            let (input, span) = self.ident("имя входа")?;
+                            let (op, value) = match self.peek() {
+                                Some(Tok::Cmp(op)) if !negate => {
+                                    let op = CondOp::from_symbol(op).expect("the lexer makes only known comparisons");
+                                    self.pos += 1;
+                                    let value = match self.next() {
+                                        Some(Token { tok: Tok::Num(v), .. }) => v,
+                                        Some(Token { tok: Tok::Ident(w), .. }) if w == "true" => 1.0,
+                                        Some(Token { tok: Tok::Ident(w), .. }) if w == "false" => 0.0,
+                                        _ => return Err(self.err(span, "после сравнения нужно число")),
+                                    };
+                                    (op, value)
+                                }
+                                _ => (if negate { CondOp::Not } else { CondOp::Is }, 0.0),
+                            };
+                            conds.push(CondAst { input, span, op, value });
+                            if !self.word_is("and") {
+                                break;
+                            }
+                            self.pos += 1;
+                        },
+                        "at" => {
+                            let (w, span) = self.ident("end")?;
+                            if w != "end" {
+                                return Err(self.err(span, "ожидалось «at end»: переход в конце анимации"));
+                            }
+                            at_end = true;
+                        }
+                        "blend" => blend = self.num("время смешивания, например 0.2s")?.0.max(0.0),
+                        _ => return Err(self.err(key_span, format!("у перехода нет «{key}»: when условие, at end, blend 0.2s"))),
+                    }
+                }
+                let from = (word != "any").then_some(word);
+                MachineLine::Transition { from, from_span: word_span, to, to_span, conds, at_end, blend }
+            }
+        };
+        if !self.at_line_end() {
+            return Err(self.err(self.peek_span(), "лишнее в конце строки"));
+        }
+        let end = self.toks[self.pos - 1].span.end;
+        Ok(MachineLineAst { line, span: Span::new(start, end) })
     }
 
     fn track(&mut self) -> Result<TrackAst, ScriptError> {

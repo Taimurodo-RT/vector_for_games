@@ -105,6 +105,10 @@ fn run() -> Result<(), String> {
             for anim in &doc.animations {
                 println!("  {} — {} с{}", anim.name, motif_script::fmt_num(anim.duration), if anim.looping { ", повтор" } else { "" });
             }
+            for m in &doc.machines {
+                let inputs: Vec<&str> = m.inputs.iter().map(|i| i.name.as_str()).collect();
+                println!("  машина {} — состояний {}, переходов {}, входы: {}", m.name, m.states.len(), m.transitions.len(), inputs.join(", "));
+            }
         }
         "render" => {
             let posed = match &a.anim {

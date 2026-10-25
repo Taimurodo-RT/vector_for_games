@@ -22,6 +22,10 @@ pub enum Tok {
     Dot,
     DotDot,
     Eq,
+    /// `->` between two states of a machine.
+    Arrow,
+    /// A comparison in a transition condition: `>`, `>=`, `<`, `<=`, `==`, `!=`.
+    Cmp(&'static str),
     Newline,
 }
 
@@ -80,9 +84,29 @@ pub fn lex(src: &str) -> Result<Vec<Token>, ScriptError> {
                 out.push(single(Tok::Pipe));
                 i += 1;
             }
-            '=' => {
-                out.push(single(Tok::Eq));
-                i += 1;
+            '-' if at(i + 1) == Some('>') => {
+                out.push(Token { tok: Tok::Arrow, span: Span::new(start, start + 2) });
+                i += 2;
+            }
+            '<' | '>' | '!' | '=' => {
+                let two = at(i + 1) == Some('=');
+                let op = match (c, two) {
+                    ('<', false) => "<",
+                    ('<', true) => "<=",
+                    ('>', false) => ">",
+                    ('>', true) => ">=",
+                    ('=', true) => "==",
+                    ('!', true) => "!=",
+                    ('=', false) => {
+                        out.push(single(Tok::Eq));
+                        i += 1;
+                        continue;
+                    }
+                    _ => return Err(ScriptError::at(src, start, "неожиданный символ «!»: сравнение «не равно» пишется как !=")),
+                };
+                let len = if two { 2 } else { 1 };
+                out.push(Token { tok: Tok::Cmp(op), span: Span::new(start, start + len) });
+                i += len;
             }
             '}' => {
                 out.push(single(Tok::BlockClose));
@@ -166,6 +190,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, ScriptError> {
                 let mut s = String::new();
                 loop {
                     match at(j) {
+                        // `Idle->Run`: the arrow is not part of the name.
+                        Some('-') if at(j + 1) == Some('>') => break,
                         Some(ch) if is_ident_char(ch) => {
                             s.push(ch);
                             j += 1;
@@ -290,6 +316,29 @@ mod tests {
     #[test]
     fn hash_comment_only_at_line_start() {
         assert_eq!(toks("# note\nlet a = #000"), vec![Tok::Newline, Tok::Ident("let".into()), Tok::Ident("a".into()), Tok::Eq, Tok::Color(Color::BLACK)]);
+    }
+
+    #[test]
+    fn arrows_and_comparisons() {
+        assert_eq!(
+            toks("Idle->Run when speed >= 0.5 and n != -1 a=1"),
+            vec![
+                Tok::Ident("Idle".into()),
+                Tok::Arrow,
+                Tok::Ident("Run".into()),
+                Tok::Ident("when".into()),
+                Tok::Ident("speed".into()),
+                Tok::Cmp(">="),
+                Tok::Num(0.5),
+                Tok::Ident("and".into()),
+                Tok::Ident("n".into()),
+                Tok::Cmp("!="),
+                Tok::Num(-1.0),
+                Tok::Ident("a".into()),
+                Tok::Eq,
+                Tok::Num(1.0),
+            ]
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Expands the statement tree into a `Document` and records where each property value came from.
 
-use crate::parser::{NodeAst, ParamAst, Stmt, UseAst, ValueAst, ValueKind};
-use crate::{AnimSite, Backdrop, Instance, KeySite, NodeSite, ParamSite, Scene, ScriptError, Source, Span, SymbolSite, TrackSite};
+use crate::parser::{MachineLine, MachineLineAst, NodeAst, ParamAst, Stmt, UseAst, ValueAst, ValueKind};
+use crate::{AnimSite, Backdrop, Instance, KeySite, MachineSite, NodeSite, ParamSite, Scene, ScriptError, Source, Span, SymbolSite, TrackSite};
 use motif_core::kurbo::Shape;
 use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, ShapeKind, Track, Value};
 use std::collections::HashMap;
@@ -49,6 +49,7 @@ impl<'a> Evaluator<'a> {
                 backdrop: None,
                 symbols: Vec::new(),
                 instances: HashMap::new(),
+                machines: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -133,6 +134,97 @@ impl<'a> Evaluator<'a> {
                 self.scene.anims.insert(name.clone(), site);
             }
         }
+        // Machines play animations, so they come last.
+        for s in stmts {
+            if let Stmt::Machine { name, name_span, lines, span, close } = s {
+                self.note_block(span.start);
+                if self.scene.doc.machine(name).is_some() {
+                    self.err(*name_span, format!("машина «{name}» уже есть"));
+                    continue;
+                }
+                self.machine(name, lines, *span, *close);
+            }
+        }
+    }
+
+    fn machine(&mut self, name: &str, lines: &[MachineLineAst], span: Span, close: usize) {
+        use motif_core::{Cond, CondOp, Input, InputKind, Machine, State, Transition};
+        let mut m = Machine { name: name.to_string(), inputs: Vec::new(), states: Vec::new(), transitions: Vec::new(), any_pos: None };
+        let mut site = MachineSite { span, close, inputs: Vec::new(), states: Vec::new(), transitions: Vec::new(), any: None };
+        // Inputs and states first: transitions may name them before they are written.
+        for l in lines {
+            match &l.line {
+                MachineLine::Input { name, name_span, kind, default } => {
+                    if m.input(name).is_some() {
+                        self.err(*name_span, format!("вход «{name}» уже есть"));
+                        continue;
+                    }
+                    m.inputs.push(Input { name: name.clone(), kind: *kind, default: *default });
+                    site.inputs.push(l.span);
+                }
+                MachineLine::State { name, name_span, anim, at } => {
+                    if m.state(name).is_some() || name == "any" {
+                        self.err(*name_span, format!("состояние «{name}» уже есть"));
+                        continue;
+                    }
+                    let (anim, anim_span) = anim.clone().unwrap_or((name.clone(), *name_span));
+                    if self.scene.doc.animation(&anim).is_none() {
+                        let hint = if anim == *name { format!(": напишите state {name} anim ИмяАнимации") } else { String::new() };
+                        self.err(anim_span, format!("нет анимации «{anim}»{hint}"));
+                        continue;
+                    }
+                    m.states.push(State { name: name.clone(), anim, pos: *at });
+                    site.states.push(l.span);
+                }
+                MachineLine::AnyAt(x, y) => {
+                    m.any_pos = Some((*x, *y));
+                    site.any = Some(l.span);
+                }
+                MachineLine::Transition { .. } => {}
+            }
+        }
+        for l in lines {
+            let MachineLine::Transition { from, from_span, to, to_span, conds, at_end, blend } = &l.line else { continue };
+            let from = match from {
+                None => None,
+                Some(f) => match m.state(f) {
+                    Some(i) => Some(i),
+                    None => {
+                        self.err(*from_span, format!("нет состояния «{f}»"));
+                        continue;
+                    }
+                },
+            };
+            let Some(to) = m.state(to) else {
+                self.err(*to_span, format!("нет состояния «{to}»"));
+                continue;
+            };
+            let mut ok = true;
+            let mut out = Vec::new();
+            for c in conds {
+                let Some(input) = m.input(&c.input).map(|i| &m.inputs[i]) else {
+                    self.err(c.span, format!("нет входа «{}»: добавьте строку input {} false", c.input, c.input));
+                    ok = false;
+                    continue;
+                };
+                let bad = match (input.kind, c.op) {
+                    (InputKind::Number, CondOp::Is | CondOp::Not) => Some(format!("«{}» — число: сравните его, например {} > 0", c.input, c.input)),
+                    (InputKind::Trigger, op) if op != CondOp::Is => Some(format!("«{}» — триггер: пишется просто when {}", c.input, c.input)),
+                    _ => None,
+                };
+                if let Some(msg) = bad {
+                    self.err(c.span, msg);
+                    ok = false;
+                }
+                out.push(Cond { input: c.input.clone(), op: c.op, value: c.value });
+            }
+            if ok {
+                m.transitions.push(Transition { from, to, conds: out, at_end: *at_end, blend: *blend });
+                site.transitions.push(l.span);
+            }
+        }
+        self.scene.doc.machines.push(m);
+        self.scene.machines.insert(name.to_string(), site);
     }
 
     fn note_block(&mut self, start: usize) {
@@ -232,9 +324,9 @@ impl<'a> Evaluator<'a> {
                         None => self.vars.remove(var),
                     };
                 }
-                Stmt::Anim { .. } | Stmt::Override { .. } => {
+                Stmt::Anim { .. } | Stmt::Override { .. } | Stmt::Machine { .. } => {
                     if parent.is_some() {
-                        self.err(Span::new(0, 0), "anim и override пишутся на верхнем уровне");
+                        self.err(Span::new(0, 0), "anim, machine и override пишутся на верхнем уровне");
                     }
                 }
             }

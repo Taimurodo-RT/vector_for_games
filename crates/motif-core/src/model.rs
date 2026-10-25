@@ -8,6 +8,8 @@ pub struct Document {
     /// Nodes in paint order (parents always come before their children).
     pub nodes: Vec<Node>,
     pub animations: Vec<Animation>,
+    /// State machines that switch between the animations.
+    pub machines: Vec<crate::Machine>,
     /// Direction shadows fall from raised objects (`elevation`), in degrees: 90 is straight down.
     pub light: f64,
 }
@@ -479,7 +481,7 @@ fn polygon_path(w: f64, h: f64, sides: usize) -> BezPath {
 
 impl Document {
     pub fn new(artboard: Artboard) -> Self {
-        Document { artboard, nodes: Vec::new(), animations: Vec::new(), light: 90.0 }
+        Document { artboard, nodes: Vec::new(), animations: Vec::new(), machines: Vec::new(), light: 90.0 }
     }
 
     pub fn index_of(&self, id: &str) -> Option<usize> {
@@ -535,6 +537,10 @@ impl Document {
 
     pub fn animation(&self, name: &str) -> Option<&Animation> {
         self.animations.iter().find(|a| a.name == name)
+    }
+
+    pub fn machine(&self, name: &str) -> Option<&crate::Machine> {
+        self.machines.iter().find(|m| m.name == name)
     }
 }
 

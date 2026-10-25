@@ -617,3 +617,110 @@ fn symbol_clip_and_example() {
     assert_eq!(ex.symbols.len(), 3);
     assert!(ex.doc.node("coin5-face").is_some());
 }
+
+const MACHINE: &str = "rect b at 0 0 size 10
+anim Idle 1s loop {
+  b.x 0: 0 | 1: 0
+}
+anim Run 0.5s loop {
+  b.x 0: 100 | 0.5: 100
+}
+machine Player {
+  input speed 0
+  input hover false
+  input jump trigger
+  state Idle at 40 60
+  state Move anim Run
+  Idle->Run when speed > 0.5 and not hover blend 0.2s
+  Move -> Idle when speed <= 0.5
+  any -> Idle when jump at end
+}
+";
+
+#[test]
+fn machines_parse() {
+    use motif_core::{CondOp, InputKind};
+    let src = MACHINE.replace("Idle->Run", "Idle->Move");
+    let s = scene(&src);
+    let m = s.doc.machine("Player").unwrap();
+    assert_eq!(m.inputs.iter().map(|i| i.kind).collect::<Vec<_>>(), [InputKind::Number, InputKind::Bool, InputKind::Trigger]);
+    assert_eq!(m.states[1].anim, "Run");
+    assert_eq!(m.states[0].pos, Some((40.0, 60.0)));
+    let t = &m.transitions[0];
+    assert_eq!((t.from, t.to, t.blend, t.conds.len(), t.conds[1].op), (Some(0), 1, 0.2, 2, CondOp::Not));
+    assert!(m.transitions[2].from.is_none() && m.transitions[2].at_end);
+    assert_eq!(fmt_transition(m, t), "Idle -> Move when speed > 0.5 and not hover blend 0.2s");
+    assert_eq!(s.machines["Player"].transitions.len(), 3);
+}
+
+#[test]
+fn machine_errors() {
+    let msg = |src: &str| parse(src).unwrap_err().iter().map(|e| e.message.clone()).collect::<Vec<_>>().join(" | ");
+    assert!(msg(MACHINE).contains("нет состояния «Run»"), "{}", msg(MACHINE));
+    let bad = MACHINE.replace("state Move anim Run", "state Move").replace("Idle->Run", "Idle->Move");
+    assert!(msg(&bad).contains("нет анимации «Move»"));
+    let bad = MACHINE.replace("Idle->Run when speed > 0.5", "Idle->Move when speed");
+    assert!(msg(&bad).contains("число: сравните"));
+    let bad = MACHINE.replace("Idle->Run when speed > 0.5", "Idle->Move when fly > 0.5");
+    assert!(msg(&bad).contains("нет входа «fly»"));
+    let bad = MACHINE.replace("Idle->Run", "Idle->Move").replace("input jump trigger", "input jump maybe");
+    assert!(msg(&bad).contains("trigger"));
+}
+
+#[test]
+fn edits_machines() {
+    use motif_core::{Cond, CondOp, Input, InputKind, State, Transition};
+    let src = MACHINE.replace("Idle->Run", "Idle->Move");
+    let s = scene(&src);
+    // Moving a state rewrites only its line; the other lines keep their spelling.
+    let out = edit_machine(&src, &s, "Player", |m| m.states[1].pos = Some((220.0, 60.0))).unwrap();
+    assert!(out.contains("  state Move anim Run at 220 60\n") && out.contains("Idle->Move when"));
+    // Renaming an input rewrites the conditions that read it.
+    let out = edit_machine(&src, &s, "Player", |m| {
+        m.inputs[0].name = "vel".into();
+        for t in &mut m.transitions {
+            for c in &mut t.conds {
+                if c.input == "speed" {
+                    c.input = "vel".into();
+                }
+            }
+        }
+    })
+    .unwrap();
+    assert!(out.contains("input vel 0") && out.contains("Idle -> Move when vel > 0.5") && out.contains("Move -> Idle when vel <= 0.5"));
+    scene(&out);
+    // New lines go before the closing brace.
+    let out = edit_machine(&src, &s, "Player", |m| {
+        m.inputs.push(Input { name: "dead".into(), kind: InputKind::Bool, default: 0.0 });
+        m.states.push(State { name: "Rest".into(), anim: "Idle".into(), pos: None });
+        m.transitions.push(Transition {
+            from: Some(2),
+            to: 0,
+            conds: vec![Cond { input: "dead".into(), op: CondOp::Not, value: 0.0 }],
+            at_end: false,
+            blend: 0.0,
+        });
+    })
+    .unwrap();
+    assert!(out.ends_with("  input dead false\n  state Rest anim Idle\n  Rest -> Idle when not dead\n}\n"), "{out}");
+    assert_eq!(scene(&out).doc.machine("Player").unwrap().transitions.len(), 4);
+    // A state goes with its transitions; an input with its conditions.
+    let out = delete_machine_item(&src, &s, "Player", MachineItem::State(1)).unwrap();
+    let m = scene(&out).doc.machines[0].clone();
+    assert_eq!((m.states.len(), m.transitions.len()), (1, 1));
+    let out = delete_machine_item(&src, &s, "Player", MachineItem::Input(1)).unwrap();
+    assert!(out.contains("Idle -> Move when speed > 0.5 blend 0.2s\n"));
+    let out = make_entry(&src, &s, "Player", 1).unwrap();
+    assert_eq!(scene(&out).doc.machines[0].states[0].name, "Move");
+    let out = edit_machine(&src, &s, "Player", |m| m.any_pos = Some((10.0, 20.0))).unwrap();
+    assert!(out.contains("  any at 10 20\n"));
+    let s2 = scene(&out);
+    assert_eq!(s2.doc.machines[0].any_pos, Some((10.0, 20.0)));
+    let out = edit_machine(&out, &s2, "Player", |m| m.any_pos = Some((30.0, 20.0))).unwrap();
+    assert!(out.contains("  any at 30 20\n") && !out.contains("any at 10"));
+    let (out, name) = add_machine(&src, &s);
+    assert_eq!(name, "Machine");
+    assert!(out.ends_with("machine Machine {\n  state Idle at 40 80\n  state Run at 220 80\n}\n"));
+    let s2 = scene(&out);
+    assert_eq!(delete_machine(&out, &s2, "Machine").unwrap().trim_end(), src.trim_end());
+}

@@ -1,0 +1,59 @@
+// Машина состояний: капля-персонаж. Внизу выберите «Машина состояний» и нажмите ▶,
+// потом двигайте speed и жмите «Сработать» у jump и hurt — как будто это делает игра.
+artboard "Капля" 480x320 bg #20243a
+
+let ink = #11131c
+let skin = #5ee0a0
+
+rect    ground "Земля" at 240 280 size 480 80 fill #2e3452
+ellipse shadow "Тень"  at 240 238 size 90 14  fill #000000 opacity 0.3
+group hero "Капля" at 240 190 {
+  ellipse body "Тело" at 0 0 size 100 96 fill skin stroke ink 4
+  ellipse eye1 at -16 -12 size 12 18 fill ink
+  ellipse eye2 at 16 -12 size 12 18 fill ink
+  ellipse mouth at 0 14 size 22 6 fill ink opacity 0.7
+}
+
+anim Idle 1.6s loop {
+  body.h   0: 96 | 0.8: 88 | 1.6: 96
+  body.w   0: 100 | 0.8: 106 | 1.6: 100
+  shadow.w 0: 90 | 0.8: 98 | 1.6: 90
+}
+
+anim Run 0.4s loop {
+  hero.y   0: 190 ease-out | 0.2: 174 ease-in | 0.4: 190
+  hero.rot 0: 8 | 0.4: 8
+  body.h   0: 86 | 0.2: 100 | 0.4: 86
+  body.w   0: 108 | 0.2: 94 | 0.4: 108
+  shadow.w 0: 98 | 0.2: 72 | 0.4: 98
+}
+
+anim Jump 0.7s {
+  hero.y         0: 190 ease-out | 0.35: 80 ease-in | 0.7: 190
+  body.h         0: 80 | 0.1: 112 | 0.6: 100 | 0.7: 80
+  body.w         0: 116 | 0.1: 88 | 0.6: 96 | 0.7: 116
+  shadow.w       0: 90 | 0.35: 40 | 0.7: 90
+  shadow.opacity 0: 0.3 | 0.35: 0.1 | 0.7: 0.3
+}
+
+anim Hit 0.5s {
+  body.fill 0: #ff5a5a | 0.5: #5ee0a0
+  hero.x    0: 240 | 0.1: 228 | 0.2: 252 | 0.3: 234 | 0.4: 246 | 0.5: 240
+}
+
+machine Hero {
+  input speed 0
+  input jump trigger
+  input hurt trigger
+  any at 40 128
+  state Idle at 230 20
+  state Run at 470 20
+  state Jump at 230 110
+  state Hit at 20 20
+  Idle -> Run when speed > 0.5 blend 0.15s
+  Run -> Idle when speed <= 0.5 blend 0.25s
+  any -> Jump when jump blend 0.05s
+  Jump -> Idle at end blend 0.1s
+  any -> Hit when hurt
+  Hit -> Idle at end blend 0.2s
+}
