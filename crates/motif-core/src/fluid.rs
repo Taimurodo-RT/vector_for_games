@@ -189,10 +189,11 @@ impl Pool {
         let node = &pose.nodes[self.node];
         let g = pose.world.pull(node, f.gravity) / self.unit;
         let unit = self.unit;
+        let me = self.node;
         let old = self.p.clone();
         let cap = 400.0;
         for (q, v) in self.p.iter_mut().zip(&mut self.v) {
-            *v += (g + pose.world.blow(node, (q.to_vec2() * unit).to_point()) / unit) * dt;
+            *v += (g + pose.push(me, (q.to_vec2() * unit).to_point()) / unit) * dt;
             if v.hypot() > cap {
                 *v = v.normalize() * cap;
             }

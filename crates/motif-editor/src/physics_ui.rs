@@ -14,6 +14,7 @@ const SOFT_KEYS: [&str; 6] = ["soft", "pressure", "friction", "damp", "drive", "
 impl App {
     pub(crate) fn physics_section(&mut self, ui: &mut egui::Ui, node: &Node) {
         let mut edits: Vec<StyleEdit> = Vec::new();
+        let mut fields = None;
         section(ui, |ui| {
             theme::caption(ui, "Физика");
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
@@ -38,12 +39,14 @@ impl App {
             }
             if node.kind.is_container() {
                 crate::rope_ui::rope_editor(ui, &mut edits, node, &self.scene.doc);
+                fields = Some(crate::field_ui::field_editor(ui, node, |p| self.key_state(&node.id, p)));
                 weight_editor(ui, &mut edits, node);
                 return;
             }
             emitter_editor(ui, &mut edits, node);
             crate::rope_ui::rope_editor(ui, &mut edits, node, &self.scene.doc);
             fluid_editor(ui, &mut edits, node);
+            fields = Some(crate::field_ui::field_editor(ui, node, |p| self.key_state(&node.id, p)));
             let mut on = node.soft.is_some();
             if ui.checkbox(&mut on, RichText::new("Мягкое тело").size(12.5).color(FG)).changed() {
                 if on {
@@ -90,6 +93,9 @@ impl App {
         });
         if !edits.is_empty() {
             self.apply_styles(&node.id, edits);
+        }
+        if let Some(f) = fields {
+            crate::field_ui::apply_field_edits(self, &node.id, f);
         }
     }
 }

@@ -5,6 +5,7 @@
 mod app;
 mod bone_ui;
 mod canvas;
+mod field_ui;
 mod guides;
 mod highlight;
 mod importer;

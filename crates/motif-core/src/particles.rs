@@ -103,8 +103,9 @@ impl Spray {
         let keep = (1.0 - e.drag.clamp(0.0, 1.0)).powf(dt);
         let node = &doc.nodes[self.node];
         let pull = doc.world.pull(node, e.gravity);
+        let me = self.node;
         for q in &mut self.parts {
-            q.v += (pull + doc.world.blow(node, q.p)) * dt;
+            q.v += (pull + doc.push(me, q.p)) * dt;
             q.v *= keep;
             q.p += q.v * dt;
             q.age += dt;

@@ -211,8 +211,9 @@ impl Body {
         let old = self.p.clone();
         let node = &pose.nodes[self.node];
         let pull = pose.world.pull(node, s.gravity);
+        let me = self.node;
         for i in 0..n {
-            self.v[i] += (pull + pose.world.blow(node, self.p[i])) * dt;
+            self.v[i] += (pull + pose.push(me, self.p[i])) * dt;
             self.p[i] += self.v[i] * dt;
         }
         // Keep the drawn shape: best-fitting rotation of the rest pose around the centroid.

@@ -68,6 +68,11 @@ impl SimState {
     pub fn step(&mut self, keys: &Document, dt: f64) {
         let mut pose = keys.clone();
         pose.world.time = self.time;
+        if keys.has_fields() {
+            let mut rigged = keys.clone();
+            rigged.rig();
+            pose.fields = crate::field::sources(&rigged);
+        }
         self.time += dt;
         spring::step_values(&mut self.values, keys, dt, SUBSTEPS);
         spring::apply_values(&self.values, &mut pose);

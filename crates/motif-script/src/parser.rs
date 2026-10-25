@@ -233,6 +233,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "flow" => (1, 1),
         "roll" => (0, 2),
         "weight" | "sail" => (1, 1),
+        "pull" | "fan" | "range" | "cone" => (1, 1),
         _ => return None,
     })
 }
