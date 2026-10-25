@@ -209,7 +209,9 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "outline" => (2, 8),
         "gradient" => (2, 10),
         "len" | "chain" | "skin-sharp" | "ik" => (1, 1),
-        "flip" => (0, 0),
+        "flip" | "solid" => (0, 0),
+        "soft" => (0, 1),
+        "pressure" | "friction" | "damp" | "gravity" | "drive" => (1, 1),
         "skin" => (1, 16),
         _ => return None,
     })

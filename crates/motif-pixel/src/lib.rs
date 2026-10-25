@@ -121,10 +121,12 @@ pub fn render_frames(doc: &Document, anim: &str, opts: &FrameExport) -> Result<V
     if !animation.looping {
         count += 1;
     }
+    // Soft bodies are simulated once for all frames.
+    let mut sim = motif_core::SimCache::default();
     (0..count.max(1))
         .map(|i| {
             let t = (i as f64 / opts.fps).min(animation.duration);
-            render_cpu(&animation.pose(doc, t), opts.render).ok_or_else(|| "не удалось создать изображение".to_string())
+            render_cpu(&animation.pose_with(doc, t, &mut sim), opts.render).ok_or_else(|| "не удалось создать изображение".to_string())
         })
         .collect()
 }
