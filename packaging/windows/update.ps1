@@ -49,8 +49,10 @@ try {
     # Примеры: новые добавляются, изменённые вами остаются как есть.
     $examples = Join-Path $dir 'examples'
     New-Item -ItemType Directory -Force $examples | Out-Null
-    foreach ($f in Get-ChildItem "$tmp\new\examples" -File -ErrorAction SilentlyContinue) {
-        $dst = Join-Path $examples $f.Name
+    $src = (Resolve-Path "$tmp\new\examples").Path
+    foreach ($f in Get-ChildItem $src -File -Recurse -ErrorAction SilentlyContinue) {
+        $dst = Join-Path $examples $f.FullName.Substring($src.Length + 1)
+        New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
         if (-not (Test-Path $dst)) { Copy-Item $f.FullName $dst }
     }
     Copy-Item "$tmp\version.txt" $versionFile -Force

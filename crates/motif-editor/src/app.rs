@@ -156,6 +156,8 @@ pub struct App {
     pub(crate) key_drag: Option<(KeyRef, f64)>,
     pub(crate) show_script: bool,
     show_export: bool,
+    /// A file action waiting for an answer about unsaved changes.
+    pending_file: Option<FileAction>,
     show_help: bool,
     pub(crate) show_syntax: bool,
     space_used_for_pan: bool,
@@ -187,6 +189,7 @@ impl App {
         let scene = parse(&src).or_else(|_| parse(NEW_SCENE)).expect("built-in scene parses");
         let mut app = App {
             disk_mtime: path.as_ref().and_then(|p| mtime(p)),
+            pending_file: None,
             path,
             saved_src: src.clone(),
             src,
@@ -552,24 +555,71 @@ impl App {
         };
     }
 
-    fn new_scene(&mut self, template: &str) {
+    /// Runs a file action, first asking what to do with unsaved changes.
+    fn file_action(&mut self, action: FileAction) {
         if self.dirty() {
-            self.status = "Есть несохранённые правки: сохраните их перед созданием новой сцены".into();
-            return;
+            self.pending_file = Some(action);
+        } else {
+            self.run_file_action(action);
         }
+    }
+
+    fn run_file_action(&mut self, action: FileAction) {
+        match action {
+            FileAction::New(template) => self.new_scene(template),
+            FileAction::Open => self.open(),
+        }
+    }
+
+    /// «Сохранить», «Не сохранять» or «Отмена» for the waiting file action.
+    fn unsaved_window(&mut self, ctx: &egui::Context) {
+        let Some(action) = self.pending_file else { return };
+        let mut answer = None;
+        egui::Window::new("Несохранённые правки").collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0)).show(ctx, |ui| {
+            let name = self.path.as_ref().and_then(|p| p.file_name()).map_or("без имени.msc".into(), |n| n.to_string_lossy().into_owned());
+            ui.label(format!("В {name} есть несохранённые правки. Сохранить их?"));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if theme::button(ui, "Сохранить", ButtonKind::Primary).clicked() {
+                    answer = Some(true);
+                }
+                if theme::button(ui, "Не сохранять", ButtonKind::Normal).clicked() {
+                    answer = Some(false);
+                }
+                if theme::button(ui, "Отмена", ButtonKind::Normal).clicked() {
+                    self.pending_file = None;
+                }
+            });
+        });
+        let Some(save) = answer else { return };
+        self.pending_file = None;
+        if save {
+            self.save(false);
+            if self.dirty() {
+                // The save dialog was cancelled or failed: keep the work.
+                return;
+            }
+        }
+        // Without saving, the edits stay marked as unsaved if the open dialog is cancelled.
+        self.run_file_action(action);
+    }
+
+    fn new_scene(&mut self, template: &str) {
         self.checkpoint("file");
         self.src = template.into();
-        self.saved_src.clear();
+        // An untouched template is not unsaved work: the next «Новая сцена» or «Открыть» goes
+        // straight through.
+        self.saved_src = template.into();
+        self.status = "Новая сцена. Сохраните её, чтобы работать с файлом.".into();
+        self.selected = None;
+        self.also.clear();
+        self.anim = None;
         self.path = None;
         self.view = None;
         self.reparse();
     }
 
     fn open(&mut self) {
-        if self.dirty() {
-            self.status = "Есть несохранённые правки: сохраните их перед открытием другого файла".into();
-            return;
-        }
         let Some(p) = rfd::FileDialog::new().add_filter("Сцена Motif", &["msc"]).pick_file() else { return };
         match std::fs::read_to_string(&p) {
             Ok(s) => {
@@ -718,17 +768,17 @@ impl App {
             egui::Popup::menu(&file).show(|ui| {
                 ui.set_min_width(220.0);
                 if ui.add(egui::Button::new("Новая сцена")).clicked() {
-                    self.new_scene(NEW_SCENE);
+                    self.file_action(FileAction::New(NEW_SCENE));
                 }
                 if ui
                     .add(egui::Button::new("Новый UI-набор"))
                     .on_hover_text("Заготовка: кнопка с состояниями, панель, полоса, флажок, подсказка — для экспорта в Godot")
                     .clicked()
                 {
-                    self.new_scene(NEW_UI_KIT);
+                    self.file_action(FileAction::New(NEW_UI_KIT));
                 }
                 if ui.add(egui::Button::new("Открыть…").shortcut_text("Ctrl+O")).clicked() {
-                    self.open();
+                    self.file_action(FileAction::Open);
                 }
                 if ui.add(egui::Button::new("Сохранить").shortcut_text("Ctrl+S")).clicked() {
                     self.save(false);
@@ -1940,7 +1990,7 @@ impl App {
             self.save(true);
         }
         if cmd(Key::O) {
-            self.open();
+            self.file_action(FileAction::Open);
         }
         if cmd(Key::E) {
             self.show_script = !self.show_script;
@@ -2251,6 +2301,13 @@ fn parse_paint(text: &str) -> Option<Value> {
 }
 
 /// `update.bat` next to the editor, as in the Windows build folder.
+/// What «Файл» was asked to do when the scene had unsaved changes.
+#[derive(Clone, Copy)]
+enum FileAction {
+    New(&'static str),
+    Open,
+}
+
 fn updater_path() -> Option<PathBuf> {
     let p = std::env::current_exe().ok()?.parent()?.join("update.bat");
     p.exists().then_some(p)
@@ -2288,7 +2345,7 @@ impl eframe::App for App {
         let panel = egui::Frame::new().fill(PANEL);
         egui::Panel::top("top").exact_size(44.0).frame(panel.inner_margin(egui::Margin::symmetric(8, 0))).show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("status").exact_size(26.0).frame(panel.inner_margin(egui::Margin::symmetric(12, 0))).show(ui, |ui| self.status_bar(ui));
-        egui::Panel::right("props").exact_size(264.0).frame(panel).show(ui, |ui| self.props_panel(ui));
+        egui::Panel::right("props").resizable(true).default_size(264.0).size_range(240.0..=560.0).frame(panel).show(ui, |ui| self.props_panel(ui));
         egui::Panel::bottom("timeline").resizable(true).default_size(236.0).size_range(120.0..=520.0).frame(panel).show(ui, |ui| self.timeline(ui));
         egui::Panel::left("tools").exact_size(48.0).frame(panel).show(ui, |ui| self.tool_rail(ui));
         egui::Panel::left("layers").resizable(true).default_size(210.0).size_range(160.0..=360.0).frame(panel).show(ui, |ui| self.layers_panel(ui));
@@ -2300,6 +2357,7 @@ impl eframe::App for App {
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, frame));
         self.export_window(&ctx);
         self.help_window(&ctx);
+        self.unsaved_window(&ctx);
         self.syntax_window(&ctx);
     }
 }

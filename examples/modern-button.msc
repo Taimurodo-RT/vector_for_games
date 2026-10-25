@@ -1,0 +1,135 @@
+// Кнопка «Modern Button» с Uiverse.io (автор gharsh11032000), повторённая средствами Motif.
+// Размеры посчитаны по CSS: padding 16px 36px, прозрачная рамка 4px, шрифт 16px, строка 19.375
+// (Inter: восходящие + нисходящие = 1.2109 кегля). Текст «Modern Button» шириной 113.94,
+// значит рамка кнопки 193.94 × 59.38, а внутреннее поле (padding box) 185.94 × 51.38.
+// Кривая всех переходов — cubic-bezier(0.23, 1, 0.32, 1); цвет, скругление и кольцо — 0.6 с,
+// стрелки, текст и круг — 0.8 с, как в CSS.
+artboard "Modern Button" 333x211 bg #212121
+
+let lime = #adff2f
+let ink = #212121
+
+group button "Кнопка" at 158.125 114 ui {
+  // box-shadow 0 0 0 2px: кольцо снаружи рамки. Обводка по центру прямоугольника на s/2 больше
+  // рамки с каждой стороны и толщиной s даёт ровно тень с разлётом s.
+  rect ring "Кольцо" size 195.94 61.38 r 101 fill none stroke lime 2
+  // background-color: inherit — фон страницы под прозрачной рамкой. На этом артборде его не
+  // видно, но в экспорте UI-набора он закрывает щель между кольцом и заливкой при нажатии.
+  rect face "Фон" size 193.94 59.38 r 100 fill ink
+  // overflow: hidden режет по внутреннему полю: рамка 4px внутри, радиус 100 − 4.
+  group inside "Внутри" clip {
+    rect window "Окно" size 185.94 51.38 r 96 fill #000000
+    ellipse circle "Круг" size 20 20 fill lime opacity 0
+    text label "Текст" at -12 0 content "Modern Button" font "fonts/Inter-Medium.ttf" font-size 16 fill lime
+    path arr1 "Стрелка справа" at 64.97 0 d "M 4.1716 -1.0001 L -1.1924 -6.3641 L 0.2218 -7.7783 L 8 0 L 0.2218 7.778 L -1.1924 6.3638 L 4.1716 0.9999 H -8 V -1.0001 Z" fill lime
+    path arr2 "Стрелка слева" at -127.45 0 d "M 4.1716 -1.0001 L -1.1924 -6.3641 L 0.2218 -7.7783 L 8 0 L 0.2218 7.778 L -1.1924 6.3638 L 4.1716 0.9999 H -8 V -1.0001 Z" fill lime
+  }
+}
+
+// :hover — кольцо разлетается до 12px и гаснет, углы до 12px, круг заливает кнопку,
+// стрелки меняются местами, текст едет вправо и темнеет.
+anim Hover 0.8s {
+  ring.w       0: 195.94 cubic 0.23 1 0.32 1 | 0.6: 205.94
+  ring.h       0: 61.38 cubic 0.23 1 0.32 1 | 0.6: 71.38
+  ring.r       0: 101 cubic 0.23 1 0.32 1 | 0.6: 18
+  ring.stroke_w 0: 2 cubic 0.23 1 0.32 1 | 0.6: 12
+  ring.opacity 0: 1 cubic 0.23 1 0.32 1 | 0.6: 0
+  face.r       0: 100 cubic 0.23 1 0.32 1 | 0.6: 12
+  window.r     0: 96 cubic 0.23 1 0.32 1 | 0.6: 8
+  label.fill   0: lime cubic 0.23 1 0.32 1 | 0.6: ink
+  label.x      0: -12 cubic 0.23 1 0.32 1 | 0.8: 12
+  circle.w     0: 20 cubic 0.23 1 0.32 1 | 0.8: 220
+  circle.h     0: 20 cubic 0.23 1 0.32 1 | 0.8: 220
+  circle.opacity 0: 0 cubic 0.23 1 0.32 1 | 0.8: 1
+  arr1.x       0: 64.97 cubic 0.23 1 0.32 1 | 0.8: 127.45
+  arr1.fill    0: lime cubic 0.23 1 0.32 1 | 0.8: ink
+  arr2.x       0: -127.45 cubic 0.23 1 0.32 1 | 0.8: -64.97
+  arr2.fill    0: lime cubic 0.23 1 0.32 1 | 0.8: ink
+}
+
+// Уход курсора: те же свойства обратно, с той же кривой (CSS не переворачивает кривую).
+anim Leave 0.8s {
+  ring.w       0: 205.94 cubic 0.23 1 0.32 1 | 0.6: 195.94
+  ring.h       0: 71.38 cubic 0.23 1 0.32 1 | 0.6: 61.38
+  ring.r       0: 18 cubic 0.23 1 0.32 1 | 0.6: 101
+  ring.stroke_w 0: 12 cubic 0.23 1 0.32 1 | 0.6: 2
+  ring.opacity 0: 0 cubic 0.23 1 0.32 1 | 0.6: 1
+  face.r       0: 12 cubic 0.23 1 0.32 1 | 0.6: 100
+  window.r     0: 8 cubic 0.23 1 0.32 1 | 0.6: 96
+  label.fill   0: ink cubic 0.23 1 0.32 1 | 0.6: lime
+  label.x      0: 12 cubic 0.23 1 0.32 1 | 0.8: -12
+  circle.w     0: 220 cubic 0.23 1 0.32 1 | 0.8: 20
+  circle.h     0: 220 cubic 0.23 1 0.32 1 | 0.8: 20
+  circle.opacity 0: 1 cubic 0.23 1 0.32 1 | 0.8: 0
+  arr1.x       0: 127.45 cubic 0.23 1 0.32 1 | 0.8: 64.97
+  arr1.fill    0: ink cubic 0.23 1 0.32 1 | 0.8: lime
+  arr2.x       0: -64.97 cubic 0.23 1 0.32 1 | 0.8: -127.45
+  arr2.fill    0: ink cubic 0.23 1 0.32 1 | 0.8: lime
+}
+
+// :active поверх :hover — кнопка сжимается до 0.95, кольцо возвращается сплошным в 4px.
+// Остальное держит позу Hover, поэтому эта анимация годится и для экспорта состояния «pressed».
+anim Press 0.6s {
+  button.sx    0: 1 cubic 0.23 1 0.32 1 | 0.6: 0.95
+  button.sy    0: 1 cubic 0.23 1 0.32 1 | 0.6: 0.95
+  ring.w       0: 205.94 cubic 0.23 1 0.32 1 | 0.6: 197.94
+  ring.h       0: 71.38 cubic 0.23 1 0.32 1 | 0.6: 63.38
+  ring.r       0: 18 cubic 0.23 1 0.32 1 | 0.6: 14
+  ring.stroke_w 0: 12 cubic 0.23 1 0.32 1 | 0.6: 4
+  ring.opacity 0: 0 cubic 0.23 1 0.32 1 | 0.6: 1
+  face.r       0: 12 | 0.6: 12
+  window.r     0: 8 | 0.6: 8
+  label.fill   0: ink | 0.6: ink
+  label.x      0: 12 | 0.6: 12
+  circle.w     0: 220 | 0.6: 220
+  circle.h     0: 220 | 0.6: 220
+  circle.opacity 0: 1 | 0.6: 1
+  arr1.x       0: 127.45 | 0.6: 127.45
+  arr1.fill    0: ink | 0.6: ink
+  arr2.x       0: -64.97 | 0.6: -64.97
+  arr2.fill    0: ink | 0.6: ink
+}
+
+// Отпускание: назад к позе Hover.
+anim Release 0.6s {
+  button.sx    0: 0.95 cubic 0.23 1 0.32 1 | 0.6: 1
+  button.sy    0: 0.95 cubic 0.23 1 0.32 1 | 0.6: 1
+  ring.w       0: 197.94 cubic 0.23 1 0.32 1 | 0.6: 205.94
+  ring.h       0: 63.38 cubic 0.23 1 0.32 1 | 0.6: 71.38
+  ring.r       0: 14 cubic 0.23 1 0.32 1 | 0.6: 18
+  ring.stroke_w 0: 4 cubic 0.23 1 0.32 1 | 0.6: 12
+  ring.opacity 0: 1 cubic 0.23 1 0.32 1 | 0.6: 0
+  face.r       0: 12 | 0.6: 12
+  window.r     0: 8 | 0.6: 8
+  label.fill   0: ink | 0.6: ink
+  label.x      0: 12 | 0.6: 12
+  circle.w     0: 220 | 0.6: 220
+  circle.h     0: 220 | 0.6: 220
+  circle.opacity 0: 1 | 0.6: 1
+  arr1.x       0: 127.45 | 0.6: 127.45
+  arr1.fill    0: ink | 0.6: ink
+  arr2.x       0: -64.97 | 0.6: -64.97
+  arr2.fill    0: ink | 0.6: ink
+}
+
+anim Normal 0.1s {
+}
+
+// Как в браузере: включите «Машина состояний», ставьте hover и press галочками.
+machine Pointer {
+  input hover false
+  input press false
+  state Normal at 20 20
+  state Hover at 250 20
+  state Leave at 250 120
+  state Press at 480 20
+  state Release at 480 120
+  Normal -> Hover when hover
+  Hover -> Leave when not hover
+  Leave -> Hover when hover
+  Leave -> Normal at end
+  Hover -> Press when press
+  Press -> Release when not press
+  Release -> Hover at end
+  Release -> Press when press
+}

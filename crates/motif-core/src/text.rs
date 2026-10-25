@@ -75,6 +75,31 @@ impl ttf_parser::OutlineBuilder for Pen<'_> {
     }
 }
 
+/// The horizontal pair adjustment of `a` followed by `b` from the font's GPOS `kern` feature.
+fn gpos_kern(face: &ttf_parser::Face, a: ttf_parser::GlyphId, b: ttf_parser::GlyphId) -> Option<i16> {
+    use ttf_parser::gpos::{PairAdjustment, PositioningSubtable};
+    let gpos = face.tables().gpos?;
+    let feature = gpos.features.find(ttf_parser::Tag::from_bytes(b"kern"))?;
+    for index in feature.lookup_indices {
+        let Some(lookup) = gpos.lookups.get(index) else { continue };
+        for k in 0..lookup.subtables.len() {
+            let Some(PositioningSubtable::Pair(pair)) = lookup.subtables.get::<PositioningSubtable>(k) else { continue };
+            // The first subtable that holds the pair decides it; a class table holds every pair
+            // whose first glyph it covers.
+            let value = match pair {
+                PairAdjustment::Format1 { coverage, sets } => coverage.get(a).and_then(|i| sets.get(i)?.get(b)).map(|v| v.0.x_advance),
+                PairAdjustment::Format2 { coverage, classes, matrix } => {
+                    coverage.get(a).map(|_| matrix.get((classes.0.get(a), classes.1.get(b))).map_or(0, |v| v.0.x_advance))
+                }
+            };
+            if let Some(v) = value {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
 impl TextShape {
     /// Reads the outlines of `content` from a TrueType or OpenType font. Lines break at `\n`.
     pub fn new(content: &str, font: &[u8]) -> Result<TextShape, String> {
@@ -88,11 +113,13 @@ impl TextShape {
                 let mut prev: Option<ttf_parser::GlyphId> = None;
                 for ch in line.chars() {
                     let id = face.glyph_index(ch).unwrap_or(ttf_parser::GlyphId(0));
-                    // Old-style pair kerning, when the font has it.
-                    if let (Some(p), Some(kern), Some(last)) = (prev, kern, out.last_mut())
-                        && let Some(v) = kern.subtables.into_iter().filter(|s| s.horizontal && !s.variable).find_map(|s| s.glyphs_kerning(p, id))
-                    {
-                        last.advance += v as f64 * k;
+                    // Pair kerning: from the OpenType `kern` feature like a browser, or the old
+                    // `kern` table of older fonts.
+                    if let (Some(p), Some(last)) = (prev, out.last_mut()) {
+                        let old = || kern?.subtables.into_iter().filter(|s| s.horizontal && !s.variable).find_map(|s| s.glyphs_kerning(p, id));
+                        if let Some(v) = gpos_kern(&face, p, id).or_else(old) {
+                            last.advance += v as f64 * k;
+                        }
                     }
                     let mut outline = BezPath::new();
                     face.outline_glyph(id, &mut Pen { path: &mut outline, k });
@@ -186,5 +213,21 @@ impl TextShape {
             TextAlign::Right => -w,
         };
         kurbo::Rect::new(x0, -h / 2.0, x0 + w, h / 2.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opentype_kerning_matches_a_browser() {
+        // Inter keeps its kerning in the GPOS table only. At 16px «AVATAR» is 66.19 wide letter
+        // by letter and 61.13 kerned, as a browser lays it out.
+        let font = include_bytes!("../../../examples/fonts/Inter-Medium.ttf");
+        let style = TextStyle { size: 16.0, spacing: 0.0, line_height: 1.2, align: TextAlign::Center, reveal: 1.0, wave: 0.0, phase: 0.0 };
+        let width = |s: &str| TextShape::new(s, font).unwrap().bounds(&style).width();
+        assert!((width("AVATAR") - 61.125).abs() < 0.01, "{}", width("AVATAR"));
+        assert!((width("Modern Button") - 113.9375).abs() < 0.001, "{}", width("Modern Button"));
     }
 }
