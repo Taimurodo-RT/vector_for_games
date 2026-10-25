@@ -12,7 +12,7 @@ pub fn fmt_value(v: Value) -> String {
     }
 }
 
-fn splice(src: &str, span: Span, text: &str) -> String {
+pub(crate) fn splice(src: &str, span: Span, text: &str) -> String {
     let mut out = String::with_capacity(src.len() + text.len());
     out.push_str(&src[..span.start]);
     out.push_str(text);

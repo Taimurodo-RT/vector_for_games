@@ -522,3 +522,98 @@ fn blur_elevation_and_light() {
     assert!(out.starts_with("artboard \"M\" 200x200 bg #fff // свет\n"), "{out}");
     assert!(parse("artboard \"M\" 9x9 light #fff").is_err());
 }
+
+const SYMBOLS: &str = "artboard 320x160
+let ink = #1b1d24
+symbol Coin size=24 color=#ffd23f {
+  ellipse body size {size} fill color stroke ink 2
+  ellipse shine at {-size * 0.2} 0 size 4 fill #fff
+}
+use Coin c1 at 60 80
+use Coin c2 \"Большая\" at 140 80 size=48 color=#ff5a36
+group row at 200 80 {
+  for i in 0..2 {
+    use Coin r{i} at {i * 36} 0 size=20
+  }
+}
+anim Spin 1s loop {
+  c1-body.sx 0: 1 | 1: 0.5
+}
+";
+
+#[test]
+fn symbols_make_copies_with_parameters() {
+    let s = scene(SYMBOLS);
+    let doc = &s.doc;
+    let c1 = doc.node("c1").unwrap();
+    assert_eq!(c1.kind, ShapeKind::Group);
+    let body = doc.node("c1-body").unwrap();
+    assert_eq!(doc.nodes[body.parent.unwrap()].id, "c1");
+    assert_eq!((body.width, body.fill), (24.0, Color::from_hex("#ffd23f")));
+    let big = doc.node("c2-body").unwrap();
+    assert_eq!((big.width, big.fill), (48.0, Color::from_hex("#ff5a36")));
+    assert!((doc.node("c2-shine").unwrap().x + 9.6).abs() < 1e-9);
+    assert_eq!(doc.node("r1-body").unwrap().width, 20.0);
+    assert_eq!(doc.nodes[doc.node("r1").unwrap().parent.unwrap()].id, "row");
+    assert_eq!(doc.animation("Spin").unwrap().tracks[0].node, "c1-body");
+    // The objects of a copy are not written on their own line: edits go to `override`.
+    assert!(!s.sources[&("c1-body".to_string(), Prop::Width)].editable);
+    assert!(s.sources[&("c1".to_string(), Prop::X)].editable);
+    assert_eq!(s.symbols[0].name, "Coin");
+    let inst = &s.instances["c2"];
+    assert_eq!(inst.params[0].value, Value::Num(48.0));
+    assert!(inst.params[0].editable);
+    assert!(s.instances["c1"].params[0].span.is_none());
+}
+
+#[test]
+fn symbol_errors() {
+    let errs = parse("use Gem g at 0 0\nsymbol A x=1 {\n  rect a size {x}\n}\nuse A a1 y=2\nsymbol B {\n  use B b\n}\nuse B b1\n").unwrap_err();
+    let text = errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n");
+    assert!(text.contains("нет символа «Gem»"), "{text}");
+    assert!(text.contains("нет параметра «y»"), "{text}");
+    assert!(text.contains("сам в себя"), "{text}");
+}
+
+#[test]
+fn edits_symbol_parameters() {
+    let s = scene(SYMBOLS);
+    let out = set_param(SYMBOLS, &s, "c2", "size", Value::Num(30.0)).unwrap();
+    assert!(out.contains("use Coin c2 \"Большая\" at 140 80 size=30 color=#ff5a36"), "{out}");
+    let out = set_param(SYMBOLS, &s, "c1", "color", Value::Color(Color::from_hex("#3b5bff").unwrap())).unwrap();
+    assert!(out.contains("use Coin c1 at 60 80 color=#3b5bff\n"), "{out}");
+    assert_eq!(scene(&out).doc.node("c1-body").unwrap().fill, Color::from_hex("#3b5bff"));
+    // A copy made by a loop shares its line with the others.
+    assert!(set_param(SYMBOLS, &s, "r0", "size", Value::Num(5.0)).is_none());
+    let (out, id) = add_use(SYMBOLS, &s, "Coin", (10.0, 20.0));
+    assert_eq!(id, "coin1");
+    assert!(scene(&out).doc.node("coin1-body").is_some());
+}
+
+#[test]
+fn turns_a_group_into_a_symbol() {
+    let src = "artboard 200x200\ngroup ball \"Мяч\" at 100 100 clip {\n  ellipse shape size 72\n  ellipse body size 72 fill #ff5a36\n}\nanim Hit 1s {\n  body.sx 0: 1 | 1: 2\n  ball.y 0: 100 | 1: 50\n}\n";
+    let s = scene(src);
+    assert_eq!(free_symbol_name(&s, "ball"), "Ball");
+    let out = make_symbol(src, &s, "ball", "Ball").unwrap();
+    assert_eq!(
+        out,
+        "artboard 200x200\nsymbol Ball {\n  ellipse shape size 72\n  ellipse body size 72 fill #ff5a36\n}\n\nuse Ball ball \"Мяч\" at 100 100 clip\nanim Hit 1s {\n  ball-body.sx 0: 1 | 1: 2\n  ball.y 0: 100 | 1: 50\n}\n"
+    );
+    let after = scene(&out);
+    assert_eq!(after.doc.node("ball-body").unwrap().fill, Color::from_hex("#ff5a36"));
+    assert!(after.doc.node("ball").unwrap().clip);
+    // The same pictures before and after.
+    let a = motif_core::Document::clone(&s.doc);
+    assert_eq!(a.nodes.len(), after.doc.nodes.len());
+    assert!(make_symbol(&out, &after, "ball", "Ball2").is_none());
+}
+
+#[test]
+fn symbol_clip_and_example() {
+    let s = scene("symbol Ball clip size=10 {\n  ellipse mask size {size}\n  rect band size 20 4\n}\nuse Ball b at 0 0\n");
+    assert!(s.doc.node("b").unwrap().clip);
+    let ex = scene(include_str!("../../../examples/symbols.msc"));
+    assert_eq!(ex.symbols.len(), 3);
+    assert!(ex.doc.node("coin5-face").is_some());
+}

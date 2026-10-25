@@ -1,7 +1,7 @@
 //! Expands the statement tree into a `Document` and records where each property value came from.
 
-use crate::parser::{NodeAst, Stmt, ValueAst, ValueKind};
-use crate::{AnimSite, Backdrop, KeySite, NodeSite, Scene, ScriptError, Source, Span, TrackSite};
+use crate::parser::{NodeAst, ParamAst, Stmt, UseAst, ValueAst, ValueKind};
+use crate::{AnimSite, Backdrop, Instance, KeySite, NodeSite, ParamSite, Scene, ScriptError, Source, Span, SymbolSite, TrackSite};
 use motif_core::kurbo::Shape;
 use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, ShapeKind, Track, Value};
 use std::collections::HashMap;
@@ -17,6 +17,12 @@ pub struct Evaluator<'a> {
     /// Folder that font files named in the script are relative to.
     base: Option<std::path::PathBuf>,
     vars: HashMap<String, Var>,
+    /// `symbol` blocks by name: their parameters and objects.
+    symbols: HashMap<String, (bool, Vec<ParamAst>, Vec<Stmt>)>,
+    /// Put before every id while a symbol is being copied: `coin1-`.
+    prefix: String,
+    /// How many symbols are being copied one inside another (to stop a symbol using itself).
+    depth: usize,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
@@ -27,6 +33,9 @@ impl<'a> Evaluator<'a> {
             src,
             base: base.map(|b| b.to_path_buf()),
             vars: HashMap::new(),
+            symbols: HashMap::new(),
+            prefix: String::new(),
+            depth: 0,
             scene: Scene {
                 doc: Document::new(Artboard::default()),
                 sources: HashMap::new(),
@@ -38,6 +47,8 @@ impl<'a> Evaluator<'a> {
                 path_sources: HashMap::new(),
                 prop_spans: HashMap::new(),
                 backdrop: None,
+                symbols: Vec::new(),
+                instances: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -48,6 +59,26 @@ impl<'a> Evaluator<'a> {
     }
 
     pub fn run(&mut self, stmts: &[Stmt]) {
+        // Symbols can be used above the place they are written.
+        for s in stmts {
+            if let Stmt::Symbol { name, name_span, clip, params, body, span } = s {
+                if self.symbols.contains_key(name) {
+                    self.err(*name_span, format!("символ «{name}» уже есть"));
+                    continue;
+                }
+                let mut defaults = Vec::new();
+                for p in params {
+                    if defaults.iter().any(|(n, _)| n == &p.name) {
+                        self.err(p.name_span, format!("параметр «{}» уже есть", p.name));
+                    }
+                    if let Some(v) = self.param_value(&p.value) {
+                        defaults.push((p.name.clone(), v));
+                    }
+                }
+                self.symbols.insert(name.clone(), (*clip, params.clone(), body.clone()));
+                self.scene.symbols.push(SymbolSite { name: name.clone(), clip: *clip, params: defaults, span: *span });
+            }
+        }
         // Animations and overrides refer to nodes, so they run after the whole tree is built.
         self.stmts(stmts, None, false);
         for s in stmts {
@@ -172,7 +203,15 @@ impl<'a> Evaluator<'a> {
                     }
                     self.scene.backdrop = Some(b);
                 }
-                Stmt::Node(n) => self.node(n, parent, generated),
+                Stmt::Node(n) => {
+                    self.node(n, parent, generated);
+                }
+                Stmt::Symbol { name_span, .. } => {
+                    if parent.is_some() {
+                        self.err(*name_span, "symbol пишется на верхнем уровне, не внутри group, for или другого символа");
+                    }
+                }
+                Stmt::Use(u) => self.use_symbol(u, parent, generated),
                 Stmt::For { var, from, to, body } => {
                     let (Some(Value::Num(a)), Some(Value::Num(b))) = (self.value(from), self.value(to)) else {
                         self.err(from.span, "границы цикла должны быть числами");
@@ -202,11 +241,73 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn node(&mut self, n: &NodeAst, parent: Option<usize>, generated: bool) {
-        let Some(id) = self.template(&n.id, n.id_span) else { return };
+    /// A number or colour for a symbol parameter.
+    fn param_value(&mut self, v: &ValueAst) -> Option<Value> {
+        match self.value(v)? {
+            Value::None => {
+                self.err(v.span, "параметр символа — число или цвет");
+                None
+            }
+            v => Some(v),
+        }
+    }
+
+    fn use_symbol(&mut self, u: &UseAst, parent: Option<usize>, generated: bool) {
+        let Some((clip, params, body)) = self.symbols.get(&u.symbol).cloned() else {
+            let known: Vec<&str> = self.scene.symbols.iter().map(|s| s.name.as_str()).collect();
+            let hint = if known.is_empty() { "в сцене нет ни одного symbol".to_string() } else { format!("есть: {}", known.join(", ")) };
+            self.err(u.symbol_span, format!("нет символа «{}»: {hint}", u.symbol));
+            return;
+        };
+        if self.depth >= 16 {
+            self.err(u.symbol_span, format!("символ «{}» вставлен сам в себя", u.symbol));
+            return;
+        }
+        // Defaults, then the values written on the `use` line.
+        let mut sites: Vec<ParamSite> = Vec::new();
+        for p in &params {
+            if let Some(value) = self.param_value(&p.value) {
+                sites.push(ParamSite { name: p.name.clone(), value, span: None, editable: false });
+            }
+        }
+        for p in &u.params {
+            let Some(site) = sites.iter().position(|s| s.name == p.name) else {
+                let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+                let hint = if names.is_empty() { "у него нет параметров".to_string() } else { format!("есть: {}", names.join(", ")) };
+                self.err(p.name_span, format!("у символа «{}» нет параметра «{}»: {hint}", u.symbol, p.name));
+                continue;
+            };
+            if let Some(value) = self.param_value(&p.value) {
+                sites[site] = ParamSite { name: p.name.clone(), value, span: Some(p.value.span), editable: p.value.is_literal() && !generated };
+            }
+        }
+        let Some(index) = self.node(&u.node, parent, generated) else { return };
+        let id = self.scene.doc.nodes[index].id.clone();
+        self.scene.doc.nodes[index].clip |= clip;
+        let saved_vars = self.vars.clone();
+        let saved_prefix = std::mem::replace(&mut self.prefix, format!("{id}-"));
+        for p in &sites {
+            let var = match p.value {
+                Value::Num(n) => Var::Num(n),
+                Value::Color(c) => Var::Color(c),
+                Value::None => continue,
+            };
+            self.vars.insert(p.name.clone(), var);
+        }
+        self.scene.instances.insert(id, Instance { symbol: u.symbol.clone(), params: sites });
+        self.depth += 1;
+        self.stmts(&body, Some(index), true);
+        self.depth -= 1;
+        self.prefix = saved_prefix;
+        self.vars = saved_vars;
+    }
+
+    fn node(&mut self, n: &NodeAst, parent: Option<usize>, generated: bool) -> Option<usize> {
+        let id = self.template(&n.id, n.id_span)?;
+        let id = format!("{}{id}", self.prefix);
         if self.scene.doc.index_of(&id).is_some() {
             self.err(n.id_span, format!("id «{id}» уже занят"));
-            return;
+            return None;
         }
         let mut node = Node::new(id.clone(), n.kind);
         node.name = n.name.clone();
@@ -506,6 +607,7 @@ impl<'a> Evaluator<'a> {
             .sites
             .insert(id, NodeSite { insert_at: n.insert_at, generated, line: crate::line_of(self.src, n.id_span.start), span: n.span, id_span: n.id_span });
         self.stmts(&n.children, Some(index), generated);
+        Some(index)
     }
 
     /// Expands `{expr}` parts of an id.
