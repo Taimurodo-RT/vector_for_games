@@ -222,7 +222,9 @@ pub fn faces(path: &BezPath, body: Body, yaw: f64, pitch: f64, light: f64, fill:
                 let len = e.hypot().max(1e-12);
                 (side.x * m.x + side.y * m.y) / len
             };
-            let local = V3::new(side.x / e.hypot().max(1e-12), side.y / e.hypot().max(1e-12), lean / body.depth.abs().max(1e-9) * flip);
+            // Narrowing towards the back turns the side to face it a little: a cone seen from its tip
+            // shows all its sides.
+            let local = V3::new(side.x / e.hypot().max(1e-12), side.y / e.hypot().max(1e-12), -lean / body.depth.abs().max(1e-9) * flip);
             let normal = turn.apply(local.unit()).mul(flip);
             let me = raw.len();
             let next = if k + 1 == edges_n(r) { r.closed.then_some(first) } else { Some(me + 1) };
@@ -248,7 +250,8 @@ pub fn faces(path: &BezPath, body: Body, yaw: f64, pitch: f64, light: f64, fill:
         if k > 1.0 { fill.lerp(Color { a: fill.a, ..Color::WHITE }, (k - 1.0) * 0.8) } else { fill.lerp(Color { a: fill.a, ..Color::BLACK }, (1.0 - k) * 0.75) }
     };
     // Open outlines (ribbons) show both sides; closed bodies hide what faces away.
-    let shows = |f: &Raw| f.normal.z > 1e-6 || f.cap.is_none() && !rings.iter().all(|r| r.closed);
+    // The back of a pyramid or cone is a point: nothing to draw.
+    let shows = |f: &Raw| (f.normal.z > 1e-6 || f.cap.is_none() && !rings.iter().all(|r| r.closed)) && !(f.cap == Some(false) && taper < 1e-9);
     let visible: Vec<bool> = raw.iter().map(shows).collect();
     // A cap seen from the front is the body's nearest plane: everything else lies behind it.
     // The sides sort by their middles.
@@ -495,6 +498,18 @@ mod tests {
         // From the side (tipped by 90°) it is a triangle: 80 wide at the base, 100 tall.
         let b = side.iter().map(|f| f.path.bounding_box()).reduce(|a, b| a.union(b)).unwrap();
         assert!((b.width() - 80.0).abs() < 1.0 && (b.height() - 100.0).abs() < 1.0, "{b:?}");
+    }
+
+    #[test]
+    fn a_pyramid_seen_from_its_tip_shows_every_side() {
+        // Tip towards the viewer: the base faces away, all four sides show around the point.
+        let tip = faces(&square(), Body { depth: 100.0, taper: 0.0 }, 0.0, 180.0, 90.0, Color::WHITE, true, 0);
+        assert_eq!(tip.len(), 4, "{}", tip.len());
+        let b = tip.iter().map(|f| f.path.bounding_box()).reduce(|a, b| a.union(b)).unwrap();
+        assert!((b.width() - 100.0).abs() < 1.0 && (b.height() - 100.0).abs() < 1.0, "{b:?}");
+        // From the base, only the base.
+        let base = faces(&square(), Body { depth: 100.0, taper: 0.0 }, 0.0, 0.0, 90.0, Color::WHITE, true, 0);
+        assert_eq!(base.len(), 1);
     }
 
     #[test]
