@@ -836,3 +836,11 @@ fn bone_edits_round_trip() {
     assert!(((before * motif_core::kurbo::Point::ZERO) - (s.doc.world_transform(i) * motif_core::kurbo::Point::ZERO)).hypot() < 0.2, "{out}");
     assert!(out.contains("\nrect body at 200 150"), "{out}");
 }
+
+#[test]
+fn variables_named_like_bone_props_stay_values() {
+    let s = scene("let skin = #5ee0a0\nlet len = 30\nrect a size len fill skin\n");
+    let a = s.doc.node("a").unwrap();
+    assert_eq!(a.fill, Color::from_hex("#5ee0a0"));
+    assert_eq!(a.width, 30.0);
+}

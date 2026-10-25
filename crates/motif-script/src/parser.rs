@@ -220,11 +220,14 @@ pub struct Parser<'a> {
     toks: Vec<Token>,
     pos: usize,
     pub errors: Vec<ScriptError>,
+    /// Names from `let` and `for`: such a name is a value even where it is also a property
+    /// (`let skin = #5ee0a0` then `fill skin`).
+    vars: std::collections::HashSet<String>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(src: &'a str, toks: Vec<Token>) -> Self {
-        Parser { src, toks, pos: 0, errors: Vec::new() }
+        Parser { src, toks, pos: 0, errors: Vec::new(), vars: Default::default() }
     }
 
     fn peek(&self) -> Option<&Tok> {
@@ -282,7 +285,7 @@ impl<'a> Parser<'a> {
     fn is_value_start(&self) -> bool {
         match self.peek() {
             Some(Tok::Num(_) | Tok::Color(_) | Tok::Expr(_) | Tok::Seconds(_)) => true,
-            Some(Tok::Ident(s)) => prop_arity(s).is_none(),
+            Some(Tok::Ident(s)) => prop_arity(s).is_none() || self.vars.contains(s),
             _ => false,
         }
     }
@@ -347,12 +350,14 @@ impl<'a> Parser<'a> {
             "backdrop" => self.backdrop(span.start),
             "let" => {
                 let (name, _) = self.ident("имя переменной")?;
+                self.vars.insert(name.clone());
                 self.expect(Tok::Eq, "«=»")?;
                 let value = self.value()?;
                 Ok(Stmt::Let { name, value })
             }
             "for" => {
                 let (var, _) = self.ident("имя переменной цикла")?;
+                self.vars.insert(var.clone());
                 let (kw, kw_span) = self.ident("«in»")?;
                 if kw != "in" {
                     return Err(self.err(kw_span, "ожидалось «in»"));
