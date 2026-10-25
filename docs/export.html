@@ -31,6 +31,7 @@
       <li><b>Сглаживание краёв.</b> Перед пикселизацией его лучше выключить: края станут жёсткими, и пикселизатор не будет придумывать промежуточные оттенки.</li>
       <li><b>Прозрачный фон</b> — без цвета артборда, для спрайтов.</li>
       <li><b>«Сохранить кадры…»</b> снимает выбранную анимацию в папку: <code>ИМЯ_0000.png</code>, <code>ИМЯ_0001.png</code> и так далее.</li>
+      <li><b>«Сохранить UI-набор…»</b> — кнопки и панели для интерфейса игры, см. <a href="#ui-kit">«UI-наборы»</a>.</li>
       <li><b>PixaTool</b> внизу окна — те же кадры сразу после пикселизации, см. <a href="#pixatool">ниже</a>.</li>
     </ul>
   </div>
@@ -89,7 +90,8 @@ motif.exe render  сцена.msc -o кадр.png --scale 2
 motif.exe render  сцена.msc --anim Idle --time 0.5 -o кадр.png
 motif.exe frames  сцена.msc --anim Idle --fps 12 --width 120 --no-aa -o out\idle
 motif.exe palette сцена.msc -o out\scene.pal
-motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --no-aa -o out\idle_px</code></pre>
+motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --no-aa -o out\idle_px
+motif.exe kit     ui.msc --scale 2 -o game\ui</code></pre>
 <div class="table-wrap"><table>
   <tr><th>Команда / ключ</th><th>Что делает</th></tr>
   <tr><td><code>check</code></td><td>Проверяет сцену и печатает объекты и анимации; при ошибке пишет строку и причину.</td></tr>
@@ -97,6 +99,7 @@ motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --n
   <tr><td><code>frames</code></td><td>Все кадры анимации в папку, как кнопка «Сохранить кадры…».</td></tr>
   <tr><td><code>palette</code></td><td>Палитра сцены в JASC <code>.pal</code>.</td></tr>
   <tr><td><code>pixel</code></td><td>Кадры анимации сразу через PixaTool, как кнопка «Пикселизировать кадры…».</td></tr>
+  <tr><td><code>kit</code></td><td>UI-набор: каждая деталь <code>ui</code>/<code>slice</code> в каждом состоянии и тема Godot <code>.tres</code>, как кнопка «Сохранить UI-набор…». Без <code>-o</code> — в папку <code>ИМЯ_ui</code>.</td></tr>
   <tr><td><code>--preset X.preset</code></td><td>Пресет PixaTool для <code>pixel</code>; без него — настройки PixaTool по умолчанию.</td></tr>
   <tr><td><code>--pixatool путь</code></td><td>Где лежит <code>Pixatool.exe</code>. Без ключа он ищется в переменной <code>MOTIF_PIXATOOL</code> и в папке <code>tools</code> рядом с Motif.</td></tr>
   <tr><td><code>--scale N</code> / <code>--width W</code></td><td>Пикселей на единицу артборда, или итоговая ширина в пикселях.</td></tr>
@@ -105,8 +108,41 @@ motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --n
   <tr><td><code>--fps N</code></td><td>Кадров в секунду для <code>frames</code> и <code>pixel</code> (по умолчанию 12).</td></tr>
 </table></div>
 
+<h2 id="ui-kit">UI-наборы для Godot</h2>
+<p>Кнопки, панели, рамки, полосы здоровья и подсказки рисуются в Motif как обычные фигуры, а в игру уходят готовой темой Godot. Начните с «Файл → Новый UI-набор»: это заготовка с кнопкой в четырёх состояниях, круглой кнопкой «закрыть», панелью, полосой, флажком и подсказкой.</p>
+<div class="side">
+  <figure><img src="img/kit-panel.png" alt="Раздел Интерфейс и линии 9-slice на холсте"></figure>
+  <div>
+    <ul>
+      <li><b>Деталь интерфейса</b> (<code>ui</code>) — объект или группа экспортируется отдельной картинкой. Так помечают иконки и всё, что не тянется.</li>
+      <li><b>Тянется (9-slice)</b> (<code>slice</code>) — поля слева, сверху, справа и снизу не растягиваются: углы и рамка остаются как нарисованы, тянется середина. На холсте поля видны розовым пунктиром.</li>
+      <li><b>Состояния</b> — анимации с именами <code>Hover</code>, <code>Press</code>, <code>Disabled</code>, <code>Focus</code>. Состояние — последний кадр анимации, поэтому та же анимация в игре и в редакторе показывает переход. Если анимация не меняет деталь, картинка не сохраняется.</li>
+      <li>Тени, свечение и обводки выходят за рамку детали — Motif сам добавляет нужный запас (<code>expand_margin</code>), и кнопка в Godot остаётся своего размера.</li>
+    </ul>
+  </div>
+</div>
+<pre><code>group button "Кнопка" at 130 70 ui slice 20 {
+  rect base at 0 5 size 180 52 r 14 fill #2441a8
+  rect body size 180 52 r 14 fill #3b6cff stroke #10131d 4
+}
+anim Hover 0.15s {
+  body.fill 0: #3b6cff | 0.15: #6f93ff
+}
+anim Press 0.08s {
+  body.y 0: 0 | 0.08: 5
+}</code></pre>
+<p>«Экспорт → Сохранить UI-набор…» (или <code>motif kit</code>) пишет в папку PNG по деталям и состояниям (<code>button_normal.png</code>, <code>button_hover.png</code>…) и тему <code>ИМЯ.tres</code>. Деталь с состояниями становится вариацией типа <code>Button</code>, без них — <code>PanelContainer</code>. Имя вариации — id детали в PascalCase; если оно совпадает с классом Godot, добавляется <code>Kit</code> (<code>button</code> → <code>ButtonKit</code>).</p>
+<figure><img src="img/kit-render.png" alt="Картинки UI-набора: кнопка в четырёх состояниях, закрыть, флажки, панель, подсказка, полоса"></figure>
+<ol>
+  <li>Положите папку набора в проект Godot, например в <code>res://ui/</code>.</li>
+  <li>Назначьте <code>ui.tres</code> свойству <b>Theme</b> корневого <code>Control</code> — тема перейдёт на всех потомков.</li>
+  <li>У кнопки или панели в инспекторе выберите <b>Theme Type Variation</b>: <code>ButtonKit</code>, <code>Card</code>, <code>Tooltip</code>…</li>
+</ol>
+<figure><img src="img/kit-godot.png" alt="Тот же набор в Godot 4: кнопки в состояниях, панель, подсказка и рамка полосы растянуты по 9-slice"></figure>
+<p>Масштаб и сглаживание берутся из окна экспорта: для пиксельного интерфейса снимите набор без сглаживания и с целым масштабом.</p>
+
 <h2 id="godot">Godot</h2>
-<p>Пока сцены попадают в Godot как кадры PNG: их можно собрать в <code>SpriteFrames</code> для <code>AnimatedSprite2D</code>. В плане развития Motif есть сборка спрайт-листа и готового <code>SpriteFrames</code> прямо из редактора, а позже рантайм для Godot 4 (.NET), который будет проигрывать анимации и состояния Motif прямо в игре, без запекания в кадры.</p>
+<p>UI-наборы уходят в Godot темой, см. <a href="#ui-kit">выше</a>. Анимации пока попадают в Godot как кадры PNG: их можно собрать в <code>SpriteFrames</code> для <code>AnimatedSprite2D</code>. В плане развития Motif есть сборка спрайт-листа и готового <code>SpriteFrames</code> прямо из редактора, а позже рантайм для Godot 4 (.NET), который будет проигрывать анимации и состояния Motif прямо в игре, без запекания в кадры.</p>
 
 </div></main>
 </div>

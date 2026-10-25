@@ -231,6 +231,8 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "links" => (1, 1),
         "morph" => (1, 9),
         "extrude" => (1, 2),
+        "ui" => (0, 0),
+        "slice" => (1, 4),
         "fluid" => (0, 1),
         "flow" => (1, 1),
         "roll" => (0, 2),

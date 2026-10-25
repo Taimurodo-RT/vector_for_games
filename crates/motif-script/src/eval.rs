@@ -1001,6 +1001,13 @@ impl<'a> Evaluator<'a> {
                     _ => self.err(p.key_span, "«sail» — сколько ветра ловит объект: 1 обычно, 0 не замечает ветра"),
                 },
                 "solid" => node.solid = true,
+                "ui" => node.ui = true,
+                "slice" => match (p.values.len(), num(0), num(1), num(2), num(3)) {
+                    (1, Some(a), ..) if a >= 0.0 => node.slice = Some([a; 4]),
+                    (2, Some(x), Some(y), ..) if x >= 0.0 && y >= 0.0 => node.slice = Some([x, y, x, y]),
+                    (4, Some(l), Some(t), Some(r), Some(b)) if [l, t, r, b].iter().all(|v| *v >= 0.0) => node.slice = Some([l, t, r, b]),
+                    _ => self.err(p.key_span, "slice — поля 9-slice, которые не растягиваются: slice 16, slice 16 12 (по бокам, сверху-снизу), slice 16 12 16 20 (слева, сверху, справа, снизу)"),
+                },
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
                 "clip" => {

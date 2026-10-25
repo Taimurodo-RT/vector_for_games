@@ -10,6 +10,7 @@ use motif_script::{Scene, ScriptError, add_node, delete_key, delete_node, fmt_nu
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 
+const NEW_UI_KIT: &str = include_str!("../../../examples/ui-kit.msc");
 const NEW_SCENE: &str = "artboard \"Сцена\" 320x240 bg #f4f1ff\n\nrect bg at 160 200 size 280 16 r 8 fill #2a2e39\nellipse hero at 160 120 size 64 fill #ff5a36 stroke #1b1d24 3\n\nanim Idle 1s loop {\n  hero.y 0: 120 ease-in-out | 0.5: 100 ease-in-out | 1: 120\n}\n";
 const EXAMPLE: &str = include_str!("../../../examples/bounce.msc");
 /// Frame length used by `,` and `.` and shown in the timecode.
@@ -549,13 +550,13 @@ impl App {
         };
     }
 
-    fn new_scene(&mut self) {
+    fn new_scene(&mut self, template: &str) {
         if self.dirty() {
             self.status = "Есть несохранённые правки: сохраните их перед созданием новой сцены".into();
             return;
         }
         self.checkpoint("file");
-        self.src = NEW_SCENE.into();
+        self.src = template.into();
         self.saved_src.clear();
         self.path = None;
         self.view = None;
@@ -655,6 +656,19 @@ impl App {
         };
     }
 
+    /// Every UI piece of the scene in each of its states, plus a Godot theme over the pictures.
+    fn export_kit(&mut self) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Папка для UI-набора").pick_folder() else { return };
+        let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
+        let theme = self.path.as_ref().and_then(|p| p.file_stem()).map_or("ui".to_string(), |s| s.to_string_lossy().into_owned());
+        let result = motif_pixel::kit::render_kit(&self.scene.doc, render)
+            .and_then(|items| motif_pixel::kit::write_kit(&dir, &theme, &items).map(|files| (items.len(), files.len())));
+        self.status = match result {
+            Ok((pieces, files)) => format!("UI-набор: деталей {pieces}, файлов {files} в {} (тема {theme}.tres)", dir.display()),
+            Err(e) => format!("UI-набор не сохранён: {e}"),
+        };
+    }
+
     fn pixelize_frames(&mut self, ctx: &egui::Context) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка для кадров после PixaTool").pick_folder() else { return };
         let (name, frames) = self.export_render();
@@ -702,7 +716,14 @@ impl App {
             egui::Popup::menu(&file).show(|ui| {
                 ui.set_min_width(220.0);
                 if ui.add(egui::Button::new("Новая сцена")).clicked() {
-                    self.new_scene();
+                    self.new_scene(NEW_SCENE);
+                }
+                if ui
+                    .add(egui::Button::new("Новый UI-набор"))
+                    .on_hover_text("Заготовка: кнопка с состояниями, панель, полоса, флажок, подсказка — для экспорта в Godot")
+                    .clicked()
+                {
+                    self.new_scene(NEW_UI_KIT);
                 }
                 if ui.add(egui::Button::new("Открыть…").shortcut_text("Ctrl+O")).clicked() {
                     self.open();
@@ -1223,6 +1244,7 @@ impl App {
             self.orbit_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             self.body_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             self.morph_section(ui, &node, &mut changes, &mut diamonds, &mut styles);
+            self.kit_section(ui, &node, half, &mut styles);
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();
                 job.wrap.max_width = ui.available_width();
@@ -1706,6 +1728,7 @@ impl App {
         {
             if self.point_edit.is_none() {
                 outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+                slice_guides(&painter, rect, view, &doc, i);
             }
             if let Some(h) = &handles
                 && self.point_edit.is_none()
@@ -1855,6 +1878,21 @@ impl App {
                     }
                 });
                 ui.label(RichText::new("Кадры называются ИМЯ_0000.png: PixaTool берёт их пакетом.").size(12.0).color(FAINT));
+                ui.add_space(6.0);
+                theme::rule(ui);
+                ui.add_space(4.0);
+                theme::caption(ui, "UI-набор для Godot");
+                if theme::button(ui, "Сохранить UI-набор…", ButtonKind::Normal)
+                    .on_hover_text("Каждая деталь с ui или slice — отдельные PNG по состояниям и тема .tres со StyleBoxTexture")
+                    .clicked()
+                {
+                    self.export_kit();
+                }
+                ui.label(
+                    RichText::new("Масштаб и сглаживание — те же, что для кадров. Тему подключают в Godot как theme, детали — через Theme Type Variation.")
+                        .size(12.0)
+                        .color(FAINT),
+                );
                 ui.add_space(6.0);
                 theme::rule(ui);
                 ui.add_space(4.0);
@@ -2172,6 +2210,22 @@ fn outline(painter: &egui::Painter, rect: Rect, view: View, doc: &Document, i: u
 }
 
 /// The stage's dot grid, around the artboard only.
+/// The nine-slice lines of a UI piece: what lies outside them keeps its size when the piece stretches.
+fn slice_guides(painter: &egui::Painter, rect: Rect, view: View, doc: &Document, i: usize) {
+    let (Some([l, t, r, b]), Some(bx)) = (doc.nodes[i].slice, motif_pixel::kit::piece_box(doc, i)) else { return };
+    let stroke = Stroke::new(1.0, Color32::from_rgb(255, 92, 170));
+    let p = |x: f64, y: f64| view.to_screen(rect, Point::new(x, y));
+    let lines = [
+        [p(bx.x0 + l, bx.y0), p(bx.x0 + l, bx.y1)],
+        [p(bx.x1 - r, bx.y0), p(bx.x1 - r, bx.y1)],
+        [p(bx.x0, bx.y0 + t), p(bx.x1, bx.y0 + t)],
+        [p(bx.x0, bx.y1 - b), p(bx.x1, bx.y1 - b)],
+    ];
+    for line in lines {
+        painter.extend(egui::Shape::dashed_line(&line, stroke, 4.0, 3.0));
+    }
+}
+
 fn paint_dots(painter: &egui::Painter, rect: Rect, board: Rect, view: View) {
     let step = 16.0;
     let origin = rect.min + view.pan;

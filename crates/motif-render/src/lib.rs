@@ -8,7 +8,7 @@ mod cpu;
 #[cfg(feature = "gpu")]
 mod gpu;
 
-pub use cpu::{CpuOptions, render_cpu, render_cpu_with};
+pub use cpu::{CpuOptions, render_cpu, render_cpu_with, render_region};
 #[cfg(feature = "gpu")]
 pub use gpu::{build_scene, vello};
 

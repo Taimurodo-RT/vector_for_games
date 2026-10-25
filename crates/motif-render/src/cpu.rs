@@ -42,6 +42,17 @@ pub fn render_cpu_with(doc: &Document, opts: CpuOptions, backdrop: Option<Backdr
     Some(pixmap)
 }
 
+/// Renders `region` of the scene (artboard units, which may reach past the artboard) into a
+/// transparent image of `region * scale` pixels: one object with its shadow, for example.
+pub fn render_region(doc: &Document, region: motif_core::kurbo::Rect, opts: CpuOptions) -> Option<Pixmap> {
+    let w = (region.width() * opts.scale).round().max(1.0) as u32;
+    let h = (region.height() * opts.scale).round().max(1.0) as u32;
+    let mut pixmap = Pixmap::new(w, h)?;
+    let view = Affine::scale(opts.scale) * Affine::translate(-region.origin().to_vec2());
+    draw_ops(&mut pixmap, &display_ops(doc), view, opts.antialias, None);
+    Some(pixmap)
+}
+
 /// Paints ops into `pixmap` under `view`, inside `outer` when given.
 pub(crate) fn draw_ops(pixmap: &mut Pixmap, ops: &[Op], view: Affine, antialias: bool, outer: Option<&Mask>) {
     let (w, h) = (pixmap.width(), pixmap.height());

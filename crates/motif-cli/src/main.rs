@@ -13,6 +13,7 @@ motif — скрипты сцен Motif без окна редактора
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [параметры рендера]
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [-o папка] [параметры рендера]
   motif palette <сцена.msc> [-o палитра.pal]
+  motif kit     <сцена.msc> [-o папка] [параметры рендера]
   motif pixel   <сцена.msc> --anim ИМЯ [--preset X.preset] [--pixatool Pixatool.exe] [--fps 12] [-o папка] [параметры рендера]
 
 Параметры рендера:
@@ -22,6 +23,8 @@ motif — скрипты сцен Motif без окна редактора
   --transparent    без фона артборда
 
 frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их можно обработать в PixaTool пакетом.
+kit сохраняет элементы интерфейса (ui, slice) в каждом состоянии (анимации Hover, Press, Disabled, Focus)
+и тему Godot ИМЯ.tres, где они стоят стилями 9-slice.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
 pixel снимает кадры и сам прогоняет их через PixaTool с пресетом, сохранённым в PixaTool кнопкой
 «Save Preset». PixaTool ищется в --pixatool, в переменной MOTIF_PIXATOOL и в папке tools рядом с Motif.";
@@ -153,6 +156,17 @@ fn run() -> Result<(), String> {
             std::fs::remove_dir_all(&tmp).ok();
             result?;
             println!("{}: {} кадров через PixaTool", dir.display(), outputs.len());
+        }
+        "kit" => {
+            let items = motif_pixel::kit::render_kit(&doc, render)?;
+            let dir = a.out.unwrap_or_else(|| PathBuf::from(format!("{stem}_ui")));
+            let files = motif_pixel::kit::write_kit(&dir, &stem, &items)?;
+            for item in &items {
+                let states: Vec<&str> = item.states.iter().map(|s| s.0).collect();
+                let (w, h) = (item.states[0].1.width(), item.states[0].1.height());
+                println!("  {} ({}) — {w}×{h}, {}", item.id, motif_pixel::kit::type_name(&item.id), states.join(", "));
+            }
+            println!("{}: {} файлов, тема {stem}.tres", dir.display(), files.len());
         }
         "palette" => {
             let colors = scene_palette(&doc);

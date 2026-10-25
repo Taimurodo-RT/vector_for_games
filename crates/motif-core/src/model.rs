@@ -392,6 +392,11 @@ pub struct Node {
     pub morph: Option<crate::Morph>,
     /// Pushed into depth as a 3D body (`extrude 60`), turned by `yaw` and `pitch`.
     pub body: Option<crate::Body>,
+    /// A piece of interface (`ui`): exported on its own, in each state, for the game's UI.
+    pub ui: bool,
+    /// Nine-slice margins (`slice 16`): left, top, right, bottom, in artboard units from the
+    /// edges of its box. The corners keep their size when the game stretches it.
+    pub slice: Option<[f64; 4]>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -548,6 +553,8 @@ impl Node {
             fan: None,
             morph: None,
             body: None,
+            ui: false,
+            slice: None,
         }
     }
 
@@ -804,6 +811,18 @@ impl Document {
 
     /// Topmost visible shape under an artboard-space point. Bones come first: they are thin and
     /// drawn over the shapes they move.
+    /// Whether node `i` sits inside node `outer`, at any depth.
+    pub fn is_inside(&self, i: usize, outer: usize) -> bool {
+        let mut cur = self.nodes.get(i).and_then(|n| n.parent);
+        while let Some(p) = cur {
+            if p == outer {
+                return true;
+            }
+            cur = self.nodes[p].parent;
+        }
+        false
+    }
+
     pub fn hit_test(&self, point: Point) -> Option<usize> {
         let bones = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind == ShapeKind::Bone);
         let others = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind != ShapeKind::Bone);

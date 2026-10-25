@@ -5,6 +5,7 @@
 //! * JASC `.pal` palettes (the format PixaTool loads, up to 192 colors).
 //! * A quick pixel preview: render at the target size without anti-aliasing, then snap to a palette.
 
+pub mod kit;
 pub mod pixatool;
 
 use motif_core::{Color, Document, Value};
