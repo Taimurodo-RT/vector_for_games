@@ -54,6 +54,7 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::Morph => "Морфинг",
         Prop::Depth => "Глубина",
         Prop::Taper => "Сужение",
+        Prop::Rough => "Неровность",
         Prop::GravityX => "Гравитация X",
         Prop::GravityY => "Гравитация Y",
         Prop::WindX => "Ветер X",

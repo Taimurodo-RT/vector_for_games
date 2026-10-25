@@ -164,8 +164,10 @@ struct Edge {
 
 /// The faces of `path` pushed into depth by `body`, turned by `yaw` and `pitch` (degrees), back
 /// to front, shaded by a light falling towards `light` (degrees, as the scene's shadows fall).
-/// Faces turned away are left out. `fill` colours the faces, `ink` marks which edges to draw.
-pub fn faces(path: &BezPath, body: Body, yaw: f64, pitch: f64, light: f64, fill: Color, ink: bool) -> Vec<Face> {
+/// Faces turned away are left out. `fill` colours the faces, `ink` marks which edges to draw,
+/// `bands` (when not 0) snaps the light to that many flat steps.
+#[allow(clippy::too_many_arguments)]
+pub fn faces(path: &BezPath, body: Body, yaw: f64, pitch: f64, light: f64, fill: Color, ink: bool, bands: u32) -> Vec<Face> {
     let turn = Turn { yaw, pitch };
     let rings = rings(path);
     let half = body.depth / 2.0;
@@ -241,7 +243,7 @@ pub fn faces(path: &BezPath, body: Body, yaw: f64, pitch: f64, light: f64, fill:
     let a = light.to_radians();
     let to_light = V3::new(-a.cos() * 0.7, -a.sin() * 0.7, 0.7).unit();
     let shade = |n: V3| {
-        let d = n.dot(to_light).max(0.0);
+        let d = crate::brush::band_light(n.dot(to_light).max(0.0), bands);
         let k = 0.4 + 0.75 * d;
         if k > 1.0 { fill.lerp(Color { a: fill.a, ..Color::WHITE }, (k - 1.0) * 0.8) } else { fill.lerp(Color { a: fill.a, ..Color::BLACK }, (1.0 - k) * 0.75) }
     };
@@ -409,7 +411,7 @@ impl Node {
         let path = self.path()?;
         let fill = self.fill.or(self.gradient.as_ref().and_then(|g| g.colors.first().copied())).or(self.stroke)?;
         let ink = self.fill.is_some() && self.stroke.is_some() && self.stroke_width > 0.0;
-        Some(faces(&path, body, self.yaw, self.pitch, light, fill, ink))
+        Some(faces(&path, body, self.yaw, self.pitch, light, fill, ink, self.brush.bands))
     }
 }
 
@@ -458,7 +460,7 @@ mod tests {
     #[test]
     fn a_cube_shows_three_faces_lit_differently() {
         // Turned right and tipped towards the viewer: front, left side and top show.
-        let f = faces(&square(), Body::new(100.0), 30.0, 25.0, 90.0, Color::rgb(200, 100, 50), true);
+        let f = faces(&square(), Body::new(100.0), 30.0, 25.0, 90.0, Color::rgb(200, 100, 50), true, 0);
         assert_eq!(f.len(), 3, "{f:?}");
         // The front cap is the nearest plane, so it comes last.
         assert!(f[2].even_odd);
@@ -468,7 +470,7 @@ mod tests {
         let ink: usize = f.iter().map(|f| f.edges.len() + f.top_edges.len()).sum();
         assert_eq!(ink, 9);
         // Seen straight on, only the front shows.
-        let flat = faces(&square(), Body::new(100.0), 0.0, 0.0, 90.0, Color::BLACK, false);
+        let flat = faces(&square(), Body::new(100.0), 0.0, 0.0, 90.0, Color::BLACK, false, 0);
         assert_eq!(flat.len(), 1);
         assert_eq!(flat[0].path.bounding_box(), square().bounding_box());
     }
@@ -476,7 +478,7 @@ mod tests {
     #[test]
     fn a_cylinder_wall_is_one_smooth_face() {
         let circle = kurbo::Circle::new((0.0, 0.0), 40.0).to_path(0.1);
-        let f = faces(&circle, Body::new(120.0), 0.0, -60.0, 90.0, Color::rgb(90, 220, 160), true);
+        let f = faces(&circle, Body::new(120.0), 0.0, -60.0, 90.0, Color::rgb(90, 220, 160), true, 0);
         // The wall and the cap, nothing in slices.
         assert_eq!(f.len(), 2, "{}", f.len());
         assert!(f[0].gradient.is_some());
@@ -489,7 +491,7 @@ mod tests {
     #[test]
     fn a_cone_narrows_to_a_point() {
         let circle = kurbo::Circle::new((0.0, 0.0), 40.0).to_path(0.1);
-        let side = faces(&circle, Body { depth: 100.0, taper: 0.0 }, 0.0, 90.0, 90.0, Color::WHITE, false);
+        let side = faces(&circle, Body { depth: 100.0, taper: 0.0 }, 0.0, 90.0, 90.0, Color::WHITE, false, 0);
         // From the side (tipped by 90°) it is a triangle: 80 wide at the base, 100 tall.
         let b = side.iter().map(|f| f.path.bounding_box()).reduce(|a, b| a.union(b)).unwrap();
         assert!((b.width() - 80.0).abs() < 1.0 && (b.height() - 100.0).abs() < 1.0, "{b:?}");
@@ -501,7 +503,7 @@ mod tests {
         let mut p = square();
         // Drawn the same way round as the outside: still a hole.
         p.extend(kurbo::Rect::new(-20.0, -20.0, 20.0, 20.0).to_path(0.1));
-        let f = faces(&p, Body::new(40.0), 40.0, 0.0, 90.0, Color::WHITE, true);
+        let f = faces(&p, Body::new(40.0), 40.0, 0.0, 90.0, Color::WHITE, true, 0);
         let cap = f.last().unwrap();
         assert!(cap.even_odd);
         // One outer side and one inner wall show besides the cap.

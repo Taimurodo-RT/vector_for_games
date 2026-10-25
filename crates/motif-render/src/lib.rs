@@ -196,17 +196,22 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         // A 3D body draws its faces; its shadow and outlines take the whole silhouette.
         let faces = node.body_faces(doc.light);
         let path = faces.as_deref().map_or(path, motif_core::silhouette);
+        let brush = &node.brush;
+        let seed = brush.seed_at(&node.id, doc.time);
+        // A body keeps its true outline: its faces are drawn from the shape itself.
+        let path = if faces.is_none() { brush.roughen(&path, seed) } else { path };
         let opacity = doc.world_opacity(i).clamp(0.0, 1.0);
         let stroke = node.stroke.filter(|_| node.stroke_width > 0.0).map(|c| (c, node.stroke_width));
         let fill = match (&node.gradient, node.fill) {
             (Some(g), _) if g.colors.len() >= 2 => {
                 let (from, to) = g.line(path.bounding_box());
-                Some(Paint::Gradient { gradient: g.clone(), from, to })
+                Some(Paint::Gradient { gradient: brush.band_gradient(g).unwrap_or_else(|| g.clone()), from, to })
             }
             (_, Some(c)) => Some(Paint::Solid(c)),
             _ => None,
         };
-        if opacity <= 0.0 || (fill.is_none() && stroke.is_none() && node.outlines.is_empty()) {
+        let textured = brush.hatch.is_some() || brush.grain.is_some();
+        if opacity <= 0.0 || (fill.is_none() && stroke.is_none() && node.outlines.is_empty() && !textured) {
             continue;
         }
         let mut own = Vec::new();
@@ -248,7 +253,35 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
                 })
             })),
             None => match faces {
-                Some(faces) => body_ops(&mut own, i, faces, transform, stroke, opacity, node.blend),
+                Some(faces) => body_ops(&mut own, i, faces, transform, stroke, opacity, node.blend, brush.bands > 0),
+                None if textured => {
+                    // Hatching and grain lie on the fill, under the outline.
+                    let base = node.fill.or_else(|| node.gradient.as_ref().and_then(|g| g.colors.first().copied()));
+                    let darker = base.map(|c| c.lerp(Color { a: c.a, ..Color::BLACK }, 0.45));
+                    let item = |path: BezPath, fill: Option<Paint>, stroke: Option<(Color, f64)>, line: Line, even_odd: bool| {
+                        Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd })
+                    };
+                    if fill.is_some() {
+                        own.push(item(path.clone(), fill, None, line.clone(), node.even_odd));
+                    }
+                    own.push(Op::PushClip { path: path.clone(), transform, even_odd: node.even_odd });
+                    let bounds = path.bounding_box();
+                    if let (Some(h), Some(lines)) = (brush.hatch, brush.hatch_lines(bounds, seed))
+                        && let Some(c) = h.color.or(node.stroke).or(darker)
+                    {
+                        let round = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
+                        own.push(item(lines, None, Some((c, h.width)), round, false));
+                    }
+                    if let (Some(g), Some(dots)) = (brush.grain, brush.grain_dots(bounds, seed ^ 0x5bd1_e995))
+                        && let Some(c) = g.color.or(darker).or(node.stroke)
+                    {
+                        own.push(item(dots, Some(Paint::Solid(c)), None, Line::default(), false));
+                    }
+                    own.push(Op::Pop);
+                    if stroke.is_some() {
+                        own.push(item(path, None, stroke, line, node.even_odd));
+                    }
+                }
                 None => own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd })),
             },
         }
@@ -272,7 +305,17 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
 /// The faces of a body back to front, then its inked edges over them all, so that a thick edge
 /// is not cut by the next face. A hairline of the face's own colour closes the seams between
 /// neighbouring faces.
-fn body_ops(ops: &mut Vec<Op>, node: usize, faces: Vec<motif_core::Face>, transform: Affine, stroke: Option<(Color, f64)>, opacity: f64, blend: Blend) {
+#[allow(clippy::too_many_arguments)]
+fn body_ops(
+    ops: &mut Vec<Op>,
+    node: usize,
+    faces: Vec<motif_core::Face>,
+    transform: Affine,
+    stroke: Option<(Color, f64)>,
+    opacity: f64,
+    blend: Blend,
+    banded: bool,
+) {
     let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
     let polylines = |lines: &[Vec<motif_core::kurbo::Point>], path: &mut BezPath| {
         for e in lines {
@@ -287,7 +330,11 @@ fn body_ops(ops: &mut Vec<Op>, node: usize, faces: Vec<motif_core::Face>, transf
         polylines(&f.top_edges, &mut top);
         // A curved stretch is shaded by a gradient across it.
         let (fill, seam) = match f.gradient {
-            Some((from, to, colors)) => (Paint::Gradient { gradient: Gradient { radial: false, angle: 0.0, colors }, from, to }, None),
+            Some((from, to, colors)) => {
+                // Banded light: neighbouring shades meet in a hard step, not a blend.
+                let colors = if banded { motif_core::brush_hard(colors) } else { colors };
+                (Paint::Gradient { gradient: Gradient { radial: false, angle: 0.0, colors }, from, to }, None)
+            }
             None => (Paint::Solid(f.color), Some((f.color, 0.6))),
         };
         ops.push(Op::Draw(Item {

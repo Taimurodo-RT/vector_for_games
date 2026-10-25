@@ -16,6 +16,8 @@ pub struct Document {
     pub world: crate::World,
     /// Pulls and fans where they are on the frame being simulated.
     pub(crate) fields: Vec<crate::field::Source>,
+    /// Seconds into the animation this pose is from: boiling lines redraw with it.
+    pub time: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -133,6 +135,8 @@ pub enum Prop {
     /// A body's depth and how much its back narrows.
     Depth,
     Taper,
+    /// How far a hand-drawn outline wanders.
+    Rough,
     /// The scene's gravity and wind (`world.gravity-y`), keyed on the world, not on a node.
     GravityX,
     GravityY,
@@ -142,7 +146,7 @@ pub enum Prop {
 }
 
 impl Prop {
-    pub const ALL: [Prop; 36] = [
+    pub const ALL: [Prop; 37] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -179,6 +183,7 @@ impl Prop {
         Prop::Morph,
         Prop::Depth,
         Prop::Taper,
+        Prop::Rough,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -220,6 +225,7 @@ impl Prop {
             Prop::Morph => "morph",
             Prop::Depth => "depth",
             Prop::Taper => "taper",
+            Prop::Rough => "rough",
             Prop::GravityX => "gravity-x",
             Prop::GravityY => "gravity-y",
             Prop::WindX => "wind-x",
@@ -397,6 +403,8 @@ pub struct Node {
     /// Nine-slice margins (`slice 16`): left, top, right, bottom, in artboard units from the
     /// edges of its box. The corners keep their size when the game stretches it.
     pub slice: Option<[f64; 4]>,
+    /// Hand-drawn look: wobbly outline, hatching, grain, banded light.
+    pub brush: crate::Brush,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -554,6 +562,7 @@ impl Node {
             morph: None,
             body: None,
             ui: false,
+            brush: crate::Brush::default(),
             slice: None,
         }
     }
@@ -601,6 +610,7 @@ impl Node {
             Prop::Morph => Value::Num(self.morph.as_ref().map_or(0.0, |m| m.amount)),
             Prop::Depth => Value::Num(self.body.map_or(0.0, |b| b.depth)),
             Prop::Taper => Value::Num(self.body.map_or(1.0, |b| b.taper)),
+            Prop::Rough => Value::Num(self.brush.rough),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => Value::None,
         }
     }
@@ -670,6 +680,7 @@ impl Node {
                     b.taper = v.max(0.0);
                 }
             }
+            Prop::Rough => self.brush.rough = v.max(0.0),
             Prop::Fill | Prop::StrokeColor => unreachable!(),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => {}
         }
@@ -772,7 +783,16 @@ fn polygon_path(w: f64, h: f64, sides: usize) -> BezPath {
 
 impl Document {
     pub fn new(artboard: Artboard) -> Self {
-        Document { artboard, nodes: Vec::new(), animations: Vec::new(), machines: Vec::new(), light: 90.0, world: crate::World::default(), fields: Vec::new() }
+        Document {
+            artboard,
+            nodes: Vec::new(),
+            animations: Vec::new(),
+            machines: Vec::new(),
+            light: 90.0,
+            world: crate::World::default(),
+            fields: Vec::new(),
+            time: 0.0,
+        }
     }
 
     pub fn index_of(&self, id: &str) -> Option<usize> {
@@ -927,6 +947,7 @@ impl Animation {
     pub fn keys_at(&self, doc: &Document, t: f64) -> Document {
         let t = self.local_time(t);
         let mut out = doc.clone();
+        out.time = t;
         for track in &self.tracks {
             let Some(v) = track.sample(t) else { continue };
             if track.prop.is_world() {

@@ -5,6 +5,7 @@
 mod app;
 mod body_ui;
 mod bone_ui;
+mod brush_ui;
 mod canvas;
 mod field_ui;
 mod guides;
