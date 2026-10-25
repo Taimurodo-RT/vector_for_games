@@ -337,6 +337,8 @@ pub struct Node {
     pub links: Option<String>,
     /// Set by hanging on a rope's end: extra turn in degrees, so the object swings with it.
     pub swing: f64,
+    /// A fluid: the shape fills with water, or pours it with `flow`, while an animation plays.
+    pub fluid: Option<crate::Fluid>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -485,6 +487,7 @@ impl Node {
             hang: None,
             links: None,
             swing: 0.0,
+            fluid: None,
         }
     }
 

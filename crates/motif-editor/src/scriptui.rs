@@ -103,6 +103,8 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("tie hand · hang cord 0.5", "конец держит объект · объект висит на верёвке"),
             ("ellipse link … links chain", "звенья цепи вдоль верёвки"),
             ("rect flag … cloth pin left", "ткань, закреплённая краем"),
+            ("rect water … fluid 0.1", "жидкость, вязкость 0–1"),
+            ("rect tap … fluid flow 60", "кран: капель в секунду"),
             ("ellipse ball … soft 0.2", "мягкое тело, упругость 0–1"),
             ("pressure 1 friction 0.3 damp 0.05", "объём, трение, затухание"),
             ("drive 0.4 gravity 900", "следование ключам, гравитация"),

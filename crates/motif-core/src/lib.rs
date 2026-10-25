@@ -2,6 +2,7 @@
 
 mod color;
 mod ease;
+mod fluid;
 mod ik;
 mod machine;
 mod model;
@@ -18,6 +19,7 @@ pub mod text;
 
 pub use color::Color;
 pub use ease::{Dir, Ease, Family};
+pub use fluid::Fluid;
 pub use kurbo;
 pub use machine::{Cond, CondOp, Input, InputKind, Machine, MachinePlayer, State, Transition};
 pub use model::{Animation, Artboard, Document, Gradient, Ik, Keyframe, Node, Prop, ShapeKind, Skin, SkinBind, Track, Value};

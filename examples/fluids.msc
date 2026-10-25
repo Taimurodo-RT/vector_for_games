@@ -1,0 +1,29 @@
+// Жидкости: фигура заполняется водой (fluid) или льёт её (flow). Вода — множество капель,
+// которые держат плотность, падают и упираются в препятствия (solid); рисуется она одним
+// гладким контуром с заливкой и обводкой фигуры. Вязкость делает из воды мёд.
+artboard "Жидкости" 640x360 bg #141826
+
+let ink = #0d1018
+let wall = #3a4258
+
+rect ground "Земля" at 320 345 size 640 30 fill #232a3d solid
+
+// Аквариум: столб воды обрушивается, в воду падает камень.
+rect tankL "Стенка Л" at 25 250 size 10 160 fill wall stroke ink 2 solid
+rect tankR "Стенка П" at 295 250 size 10 160 fill wall stroke ink 2 solid
+rect water "Вода" at 85 250 size 100 150 fill #3b8cff stroke #1d4fa8 3 fluid
+ellipse stone "Камень" at 220 -40 size 34 30 fill #8b93a8 stroke ink 3 solid
+
+// Кран наливает воду в чашку.
+rect pipe "Труба" at 400 52 size 70 14 r 4 fill wall stroke ink 2
+rect nozzle "Носик" at 428 64 size 14 16 r 2 fill wall stroke ink 2
+rect tap "Кран" at 428 73 size 10 2 fill #3b8cff stroke #1d4fa8 3 fluid flow 50
+path cup "Чашка" at 440 290 d "M -45 -60 L -35 -60 L -35 30 L 35 30 L 35 -60 L 45 -60 L 45 40 L -45 40 Z" fill #e8f0ff stroke ink 3 solid
+
+// Мёд стекает по наклонной доске.
+rect plank "Доска" at 570 170 size 110 12 r 3 rot 18 fill #6b4a2f stroke ink 3 solid
+ellipse honey "Мёд" at 545 130 size 50 40 fill #ffb400 stroke #b06d00 3 fluid 0.6
+
+anim Splash 4s {
+  stone.y 0: -40 | 1.4: -40 ease-in | 1.9: 300
+}

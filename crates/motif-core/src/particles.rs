@@ -65,7 +65,7 @@ pub(crate) struct Spray {
 }
 
 /// A number in 0..1 from a seed (splitmix64).
-fn random(seed: u64) -> f64 {
+pub(crate) fn random(seed: u64) -> f64 {
     let mut z = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
     z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
