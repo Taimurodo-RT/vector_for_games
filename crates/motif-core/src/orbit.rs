@@ -8,47 +8,70 @@ use kurbo::{Affine, Point, Vec2};
 
 /// A point of the unit sphere: x right, y down, z towards the viewer.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct V3 {
-    x: f64,
-    y: f64,
-    z: f64,
+pub(crate) struct V3 {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) z: f64,
 }
 
 impl V3 {
-    fn new(x: f64, y: f64, z: f64) -> V3 {
+    pub(crate) const ZERO: V3 = V3 { x: 0.0, y: 0.0, z: 0.0 };
+
+    pub(crate) fn new(x: f64, y: f64, z: f64) -> V3 {
         V3 { x, y, z }
     }
-    fn add(self, o: V3) -> V3 {
+    pub(crate) fn add(self, o: V3) -> V3 {
         V3::new(self.x + o.x, self.y + o.y, self.z + o.z)
     }
-    fn mul(self, k: f64) -> V3 {
+    pub(crate) fn sub(self, o: V3) -> V3 {
+        V3::new(self.x - o.x, self.y - o.y, self.z - o.z)
+    }
+    pub(crate) fn mul(self, k: f64) -> V3 {
         V3::new(self.x * k, self.y * k, self.z * k)
     }
-    fn len(self) -> f64 {
+    pub(crate) fn dot(self, o: V3) -> f64 {
+        self.x * o.x + self.y * o.y + self.z * o.z
+    }
+    pub(crate) fn cross(self, o: V3) -> V3 {
+        V3::new(self.y * o.z - self.z * o.y, self.z * o.x - self.x * o.z, self.x * o.y - self.y * o.x)
+    }
+    pub(crate) fn len(self) -> f64 {
         (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
+    }
+    pub(crate) fn unit(self) -> V3 {
+        let l = self.len();
+        if l < 1e-12 { V3::new(0.0, 0.0, 1.0) } else { self.mul(1.0 / l) }
     }
 }
 
 /// How a ball is turned: around the vertical axis by `yaw`, then tipped by `pitch` (degrees).
-#[derive(Clone, Copy)]
-struct Turn {
-    yaw: f64,
-    pitch: f64,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Turn {
+    pub(crate) yaw: f64,
+    pub(crate) pitch: f64,
 }
 
 impl Turn {
-    fn apply(self, p: V3) -> V3 {
+    pub(crate) fn apply(self, p: V3) -> V3 {
         let (sy, cy) = self.yaw.to_radians().sin_cos();
         let (sp, cp) = self.pitch.to_radians().sin_cos();
         // Yaw turns the front towards the right; pitch tips the top towards the viewer.
         let a = V3::new(p.x * cy + p.z * sy, p.y, -p.x * sy + p.z * cy);
         V3::new(a.x, a.y * cp + a.z * sp, -a.y * sp + a.z * cp)
     }
+
+    /// The point that `apply` takes to `q`.
+    pub(crate) fn undo(self, q: V3) -> V3 {
+        let (sy, cy) = self.yaw.to_radians().sin_cos();
+        let (sp, cp) = self.pitch.to_radians().sin_cos();
+        let a = V3::new(q.x, q.y * cp - q.z * sp, q.y * sp + q.z * cp);
+        V3::new(a.x * cy - a.z * sy, a.y, a.x * sy + a.z * cy)
+    }
 }
 
 /// The unit-sphere point at latitude `lat` (up is positive) and longitude `lon` (right is
 /// positive), with the directions east and north there.
-fn frame(lat: f64, lon: f64) -> (V3, V3, V3) {
+pub(crate) fn frame(lat: f64, lon: f64) -> (V3, V3, V3) {
     let (sf, cf) = lat.to_radians().sin_cos();
     let (sl, cl) = lon.to_radians().sin_cos();
     let at = V3::new(cf * sl, -sf, cf * cl);
@@ -58,15 +81,15 @@ fn frame(lat: f64, lon: f64) -> (V3, V3, V3) {
 }
 
 /// A ball as the objects on it see it: its transform to the artboard, radii and turn.
-struct Ball {
-    world: Affine,
-    rx: f64,
-    ry: f64,
-    turn: Turn,
+pub(crate) struct Ball {
+    pub(crate) world: Affine,
+    pub(crate) rx: f64,
+    pub(crate) ry: f64,
+    pub(crate) turn: Turn,
 }
 
 impl Ball {
-    fn of(doc: &Document, s: usize) -> Ball {
+    pub(crate) fn of(doc: &Document, s: usize) -> Ball {
         let n = &doc.nodes[s];
         Ball { world: doc.world_transform(s), rx: n.width.abs() / 2.0, ry: n.height.abs() / 2.0, turn: Turn { yaw: n.yaw, pitch: n.pitch } }
     }

@@ -3,9 +3,10 @@
 
 use crate::app::{App, section};
 use crate::style_ui::StyleEdit;
-use crate::theme::{self, FAINT, FG, MUTED};
+use crate::theme::{self, FAINT, FG, KeyState, MUTED};
 use egui::{RichText, vec2};
-use motif_core::{Node, Prop, ShapeKind, Value};
+use motif_core::{Node, Prop, Roll, ShapeKind, Value};
+use motif_script::fmt_num;
 
 impl App {
     /// Keyable fields go to `changes` and `diamonds` like the other fields of the panel; the
@@ -72,6 +73,7 @@ impl App {
                     .size(11.5)
                     .color(FAINT),
                 );
+                roll_editor(ui, node, half, styles);
             }
             if is_ball {
                 ui.add_space(2.0);
@@ -84,4 +86,46 @@ impl App {
             }
         });
     }
+}
+
+/// «Катится по шару»: the object rolls over its ball under gravity.
+fn roll_editor(ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<StyleEdit>) {
+    let mut on = node.roll.is_some();
+    if ui.checkbox(&mut on, RichText::new("Катится по шару").size(12.5).color(FG)).changed() {
+        styles.push(("roll", on.then(|| "roll".to_string())));
+        if !on && node.emit.is_none() && node.soft.is_none() && node.rope.is_none() && node.fluid.is_none() {
+            styles.push(("gravity", None));
+        }
+    }
+    let Some(r) = node.roll else { return };
+    let d = Roll::default();
+    let head = |friction: f64, damp: f64| {
+        if damp != d.damp {
+            format!("roll {} {}", fmt_num(friction), fmt_num(damp))
+        } else if friction != d.friction {
+            format!("roll {}", fmt_num(friction))
+        } else {
+            "roll".to_string()
+        }
+    };
+    let round = |v: f64| (v * 100.0).round() / 100.0;
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Сцепление", r.friction, 0.005, 0.0..=1.0, 2, KeyState::Hidden).changed {
+            styles.push(("roll", Some(head(round(v), r.damp))));
+        }
+        if let Some(v) = theme::num_field(ui, half, "Затухание", r.damp, 0.002, 0.0..=1.0, 2, KeyState::Hidden).changed {
+            styles.push(("roll", Some(head(r.friction, round(v)))));
+        }
+    });
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Гравитация", r.gravity, 5.0, -5000.0..=5000.0, 0, KeyState::Hidden).changed {
+            let v = v.round();
+            styles.push(("gravity", (v != d.gravity).then(|| format!("gravity {}", fmt_num(v)))));
+        }
+    });
+    ui.label(
+        RichText::new("Объект сам катится по шару вниз и крутится на ходу; широта и долгота задают, откуда он стартует. Сцепление 1 — вращается вместе с шаром, 0 — шар скользит под ним. Объекты на одном шаре толкаются.")
+            .size(11.5)
+            .color(FAINT),
+    );
 }

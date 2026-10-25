@@ -952,3 +952,12 @@ fn fluids_parse() {
     let errs = parse("rect a flow 10\nrect b fluid 2\ngroup g fluid\nrect c fluid flow 0\n").unwrap_err();
     assert_eq!(errs.len(), 4, "{errs:?}");
 }
+
+#[test]
+fn rolling_parses() {
+    let s = scene("ellipse ball size 200 200\nellipse m size 20 20 on ball lat 40 roll 0.8 0.1 gravity 500\nellipse n size 20 20 on ball roll\n");
+    assert_eq!(s.doc.node("m").unwrap().roll, Some(motif_core::Roll { friction: 0.8, damp: 0.1, gravity: 500.0 }));
+    assert_eq!(s.doc.node("n").unwrap().roll, Some(motif_core::Roll::default()));
+    let errs = parse("ellipse ball size 200 200\nellipse a size 20 20 roll\nellipse b size 20 20 on ball roll 2\n").unwrap_err();
+    assert_eq!(errs.len(), 2, "{errs:?}");
+}

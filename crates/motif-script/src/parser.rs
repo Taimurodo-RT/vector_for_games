@@ -226,6 +226,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "links" => (1, 1),
         "fluid" => (0, 1),
         "flow" => (1, 1),
+        "roll" => (0, 2),
         _ => return None,
     })
 }
