@@ -24,7 +24,7 @@ impl Spring {
     pub const MAX_FREQ: f64 = 30.0;
 
     /// Acceleration towards `target` for a value at `x` moving at `v`.
-    fn pull<T>(self, x: T, v: T, target: T) -> T
+    pub(crate) fn pull<T>(self, x: T, v: T, target: T) -> T
     where
         T: std::ops::Sub<Output = T> + std::ops::Mul<f64, Output = T>,
     {

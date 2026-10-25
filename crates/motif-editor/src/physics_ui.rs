@@ -5,7 +5,7 @@ use crate::app::{App, section};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
-use motif_core::{Node, ShapeKind, Soft, Spring};
+use motif_core::{Node, ShapeKind, Soft, Spring, Squash};
 use motif_script::fmt_num;
 
 /// Script keys of a soft body, each with its label, value, range and drag speed.
@@ -25,6 +25,7 @@ impl App {
                 node.spring,
                 "Ключи положения, размера и поворота догоняются с перелётом и успокаиваются. Частота — колебаний в секунду, затухание 1 — без перелёта.",
             );
+            squash_editor(ui, &mut edits, node.squash);
             if node.kind == ShapeKind::Bone {
                 spring_editor(
                     ui,
@@ -111,4 +112,35 @@ fn spring_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, key: &'static st
         }
     });
     ui.label(RichText::new(hint).size(11.5).color(FAINT));
+}
+
+/// The «Сжатие» checkbox and its strength, frequency and damping fields.
+fn squash_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, value: Option<Squash>) {
+    let d = Squash::default();
+    let text = |s: Squash| {
+        if s == d { "squash".to_string() } else { format!("squash {} {} {}", fmt_num(s.amount), fmt_num(s.spring.freq), fmt_num(s.spring.damp)) }
+    };
+    let mut on = value.is_some();
+    if ui.checkbox(&mut on, RichText::new("Сжатие и растяжение").size(12.5).color(FG)).changed() {
+        edits.push(("squash", on.then(|| "squash".to_string())));
+    }
+    let Some(s) = value else { return };
+    let round = |v: f64| (v * 100.0).round() / 100.0;
+    let third = (ui.available_width() - 12.0) / 3.0;
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, third, "Сила", s.amount, 0.01, 0.0..=4.0, 2, KeyState::Hidden).changed {
+            edits.push(("squash", Some(text(Squash { amount: round(v), ..s }))));
+        }
+        if let Some(v) = theme::num_field(ui, third, "Част.", s.spring.freq, 0.02, 0.1..=Spring::MAX_FREQ, 2, KeyState::Hidden).changed {
+            edits.push(("squash", Some(text(Squash { spring: Spring { freq: round(v), ..s.spring }, ..s }))));
+        }
+        if let Some(v) = theme::num_field(ui, third, "Зат.", s.spring.damp, 0.005, 0.0..=2.0, 2, KeyState::Hidden).changed {
+            edits.push(("squash", Some(text(Squash { spring: Spring { damp: round(v), ..s.spring }, ..s }))));
+        }
+    });
+    ui.label(
+        RichText::new("Объект вытягивается по ходу движения и сплющивается при резкой остановке, площадь не меняется. Сжатие идёт от оси (pivot): поставьте её внизу, чтобы мяч сплющивался о пол.")
+            .size(11.5)
+            .color(FAINT),
+    );
 }
