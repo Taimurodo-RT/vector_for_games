@@ -905,3 +905,18 @@ fn orbits_parse_and_place() {
     let errs = parse("ellipse a on nowhere\ngroup g\nellipse b on g\nellipse c on c\nellipse d wrap\n").unwrap_err();
     assert_eq!(errs.len(), 4, "{errs:?}");
 }
+
+#[test]
+fn emitters_parse() {
+    let s = scene(
+        "ellipse spark size 6 6 emit 40 life 1.5 speed 200 angle -60 spread 90 gravity 500 drag 0.2 fade 0 grow 0.3 spin 180 burst 10\nellipse blob soft gravity 900\n",
+    );
+    let e = s.doc.node("spark").unwrap().emit.unwrap();
+    assert_eq!((e.rate, e.life, e.speed, e.angle, e.spread, e.gravity), (40.0, 1.5, 200.0, -60.0, 90.0, 500.0));
+    assert_eq!((e.drag, e.fade, e.grow, e.spin, e.burst), (0.2, 0.0, 0.3, 180.0, 10.0));
+    assert!(s.doc.node("spark").unwrap().soft.is_none(), "gravity goes to the particles");
+    assert_eq!(s.doc.node("blob").unwrap().soft.unwrap().gravity, 900.0);
+    assert_eq!(scene("rect r emit\n").doc.node("r").unwrap().emit, Some(motif_core::Emitter::default()));
+    let errs = parse("rect a life 2\nrect b emit -1\ngroup g emit 5\nrect c emit fade 3\n").unwrap_err();
+    assert_eq!(errs.len(), 4, "{errs:?}");
+}

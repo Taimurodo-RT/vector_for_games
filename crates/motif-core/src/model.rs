@@ -322,6 +322,11 @@ pub struct Node {
     pub pitch: f64,
     /// Set by `place_orbits`: the ball this hides behind (`false`) or is clipped to (`true`).
     pub behind: Option<(usize, bool)>,
+    /// An emitter: copies of this shape fly out of it while an animation plays.
+    pub emit: Option<crate::Emitter>,
+    /// Set by the simulation: where each particle is drawn (on the artboard) and its opacity.
+    /// The shape itself is drawn only while this is `None`.
+    pub particles: Option<Vec<(Affine, f64)>>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -463,6 +468,8 @@ impl Node {
             yaw: 0.0,
             pitch: 0.0,
             behind: None,
+            emit: None,
+            particles: None,
         }
     }
 

@@ -473,6 +473,9 @@ impl<'a> Evaluator<'a> {
         let mut sharp = motif_core::Skin::SHARP;
         let mut soft: Option<motif_core::Soft> = None;
         let mut on: Option<(String, Span)> = None;
+        let mut gravity: Option<f64> = None;
+        let mut emit: Option<motif_core::Emitter> = None;
+        let (mut has_emit, mut emit_only) = (false, None);
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
@@ -653,10 +656,81 @@ impl<'a> Evaluator<'a> {
                     Some(v) if v > 0.0 => sharp = v,
                     _ => bad(self),
                 },
-                "soft" | "pressure" | "friction" | "damp" | "gravity" | "drive" if n.kind.is_container() => {
+                "gravity" if n.kind.is_container() => self.err(p.key_span, "«gravity» бывает у фигур: мягких тел и источников частиц"),
+                "gravity" => match num(0) {
+                    Some(v) => gravity = Some(v),
+                    None => self.err(p.key_span, "«gravity»: gravity — ускорение вниз в единицах артборда за секунду²: gravity 900"),
+                },
+                "emit" | "burst" | "life" | "speed" | "angle" | "spread" | "drag" | "fade" | "grow" | "spin" if n.kind.is_container() => {
+                    self.err(p.key_span, format!("«{}» бывает у фигур: источником частиц становится фигура", p.key));
+                }
+                "emit" | "burst" | "life" | "speed" | "angle" | "spread" | "drag" | "fade" | "grow" | "spin" => {
+                    let e = emit.get_or_insert_with(motif_core::Emitter::default);
+                    if p.key != "emit" {
+                        emit_only = emit_only.or(Some(p.key_span));
+                    }
+                    let v = if p.key == "emit" && p.values.is_empty() { Some(e.rate) } else { num(0) };
+                    let ok = match (p.key.as_str(), v) {
+                        ("emit", Some(v)) if v >= 0.0 => {
+                            e.rate = v;
+                            has_emit = true;
+                            true
+                        }
+                        ("burst", Some(v)) if v >= 0.0 => {
+                            e.burst = v;
+                            true
+                        }
+                        ("life", Some(v)) if v > 0.0 => {
+                            e.life = v;
+                            true
+                        }
+                        ("speed", Some(v)) => {
+                            e.speed = v;
+                            true
+                        }
+                        ("angle", Some(v)) => {
+                            e.angle = v;
+                            true
+                        }
+                        ("spread", Some(v)) if v >= 0.0 => {
+                            e.spread = v;
+                            true
+                        }
+                        ("drag", Some(v)) if (0.0..=1.0).contains(&v) => {
+                            e.drag = v;
+                            true
+                        }
+                        ("fade", Some(v)) if (0.0..=1.0).contains(&v) => {
+                            e.fade = v;
+                            true
+                        }
+                        ("grow", Some(v)) if v >= 0.0 => {
+                            e.grow = v;
+                            true
+                        }
+                        ("spin", Some(v)) => {
+                            e.spin = v;
+                            true
+                        }
+                        _ => false,
+                    };
+                    if !ok {
+                        let hint = match p.key.as_str() {
+                            "emit" => "emit — частиц в секунду, 0 и больше: emit 30",
+                            "burst" => "burst — сколько частиц сразу при старте: burst 20",
+                            "life" => "life — сколько секунд живёт частица, больше 0: life 1.2",
+                            "spread" => "spread — ширина конуса вылета в градусах: spread 40",
+                            "drag" | "fade" => "значение от 0 до 1",
+                            "grow" => "grow — размер в конце жизни относительно начала, 0 и больше: grow 0.2",
+                            _ => "нужно число",
+                        };
+                        self.err(p.key_span, format!("«{}»: {hint}", p.key));
+                    }
+                }
+                "soft" | "pressure" | "friction" | "damp" | "drive" if n.kind.is_container() => {
                     self.err(p.key_span, format!("«{}» бывает у фигур: мягким телом становится контур", p.key));
                 }
-                "soft" | "pressure" | "friction" | "damp" | "gravity" | "drive" => {
+                "soft" | "pressure" | "friction" | "damp" | "drive" => {
                     let s = soft.get_or_insert_with(motif_core::Soft::default);
                     let v = num(0);
                     let unit = |v: Option<f64>| v.filter(|v| (0.0..=1.0).contains(v));
@@ -667,12 +741,11 @@ impl<'a> Evaluator<'a> {
                         "damp" => unit(v).map(|v| s.damp = v).is_some(),
                         "drive" => unit(v).map(|v| s.drive = v).is_some(),
                         "pressure" => v.filter(|v| *v >= 0.0).map(|v| s.pressure = v).is_some(),
-                        _ => v.map(|v| s.gravity = v).is_some(),
+                        _ => false,
                     };
                     if !ok {
                         let hint = match p.key.as_str() {
                             "pressure" => "pressure — объём относительно нарисованного, 0 и больше: pressure 1",
-                            "gravity" => "gravity — ускорение вниз в единицах артборда за секунду²: gravity 900",
                             _ => "значение от 0 до 1",
                         };
                         self.err(p.key_span, format!("«{}»: {hint}", p.key));
@@ -857,6 +930,17 @@ impl<'a> Evaluator<'a> {
         if let Some((target, span)) = ik {
             node.ik = Some(motif_core::Ik { target: format!("{}{target}", self.prefix), chain, flip });
             self.rig_refs.push((index, format!("{}{target}", self.prefix), span));
+        }
+        if let Some(span) = emit_only.filter(|_| !has_emit) {
+            self.err(span, "это настройка частиц: сначала сделайте фигуру источником, emit 30");
+        }
+        if has_emit {
+            if let Some(g) = gravity {
+                emit.as_mut().unwrap().gravity = g;
+            }
+            node.emit = emit;
+        } else if let Some(g) = gravity {
+            soft.get_or_insert_with(motif_core::Soft::default).gravity = g;
         }
         node.soft = soft;
         if let Some((ball, span)) = on {
