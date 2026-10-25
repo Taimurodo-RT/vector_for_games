@@ -355,7 +355,7 @@ impl Node {
             ShapeKind::Group => return None,
             ShapeKind::Rect => {
                 let max = w.min(h) / 2.0;
-                let radii = self.radii.map_or([self.radius; 4], |r| r).map(|r| r.clamp(0.0, max));
+                let radii = self.radii.unwrap_or([self.radius; 4]).map(|r| r.clamp(0.0, max));
                 RoundedRect::from_rect(rect, kurbo::RoundedRectRadii::new(radii[0], radii[1], radii[2], radii[3])).to_path(0.1)
             }
             ShapeKind::Ellipse => Ellipse::from_rect(rect).to_path(0.1),
