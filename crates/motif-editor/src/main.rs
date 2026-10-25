@@ -4,6 +4,9 @@
 
 mod app;
 mod canvas;
+mod highlight;
+mod theme;
+mod timeline;
 
 fn main() -> eframe::Result {
     let path = std::env::args().nth(1).map(std::path::PathBuf::from);

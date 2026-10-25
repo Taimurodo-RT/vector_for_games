@@ -29,6 +29,8 @@ impl<'a> Evaluator<'a> {
                 sites: HashMap::new(),
                 override_close: None,
                 anims: HashMap::new(),
+                blocks_start: None,
+                override_entries: Vec::new(),
             },
             errors: Vec::new(),
         }
@@ -42,7 +44,8 @@ impl<'a> Evaluator<'a> {
         // Animations and overrides refer to nodes, so they run after the whole tree is built.
         self.stmts(stmts, None, false);
         for s in stmts {
-            if let Stmt::Override { entries, close } = s {
+            if let Stmt::Override { entries, close, start } = s {
+                self.note_block(*start);
                 self.scene.override_close = Some(*close);
                 for e in entries {
                     let Some(prop) = self.prop_path(&e.prop, e.span) else { continue };
@@ -50,6 +53,7 @@ impl<'a> Evaluator<'a> {
                         self.err(e.span, format!("нет объекта «{}»", e.node));
                         continue;
                     };
+                    self.scene.override_entries.push((e.node.clone(), Span::new(e.span.start, e.value.span.end)));
                     let Some(value) = self.value(&e.value) else { continue };
                     self.scene.doc.nodes[index].set(prop, value);
                     self.scene
@@ -59,13 +63,14 @@ impl<'a> Evaluator<'a> {
             }
         }
         for s in stmts {
-            if let Stmt::Anim { name, duration, looping, tracks, span, close } = s {
+            if let Stmt::Anim { name, duration, looping, tracks, span, close, duration_span, loop_span } = s {
+                self.note_block(span.start);
                 if self.scene.doc.animation(name).is_some() {
                     self.err(*span, format!("анимация «{name}» уже есть"));
                     continue;
                 }
                 let mut anim = Animation { name: name.clone(), duration: *duration, looping: *looping, tracks: Vec::new() };
-                let mut site = AnimSite { close: *close, tracks: Vec::new() };
+                let mut site = AnimSite { close: *close, duration: *duration_span, loop_word: *loop_span, tracks: Vec::new() };
                 for t in tracks {
                     if self.scene.doc.index_of(&t.node).is_none() {
                         self.err(t.span, format!("нет объекта «{}»", t.node));
@@ -90,13 +95,19 @@ impl<'a> Evaluator<'a> {
                     }
                     keys.sort_by(|a, b| a.time.total_cmp(&b.time));
                     anim.tracks.push(Track { node: t.node.clone(), prop, keys });
-                    let keys = t.keys.iter().map(|k| KeySite { time: k.time, span: k.span, value: k.value.span }).collect();
-                    site.tracks.push(TrackSite { node: t.node.clone(), prop, keys });
+                    let keys: Vec<KeySite> =
+                        t.keys.iter().map(|k| KeySite { time: k.time, span: k.span, value: k.value.span, time_span: k.time_span, ease: k.ease_span }).collect();
+                    let end = keys.last().map_or(t.span.end, |k| k.span.end);
+                    site.tracks.push(TrackSite { node: t.node.clone(), prop, span: Span::new(t.span.start, end), keys });
                 }
                 self.scene.doc.animations.push(anim);
                 self.scene.anims.insert(name.clone(), site);
             }
         }
+    }
+
+    fn note_block(&mut self, start: usize) {
+        self.scene.blocks_start = Some(self.scene.blocks_start.map_or(start, |s| s.min(start)));
     }
 
     fn prop_path(&mut self, name: &str, span: Span) -> Option<Prop> {
@@ -255,7 +266,7 @@ impl<'a> Evaluator<'a> {
         }
         let index = self.scene.doc.nodes.len();
         self.scene.doc.nodes.push(node);
-        self.scene.sites.insert(id, NodeSite { insert_at: n.insert_at, generated, line: crate::line_of(self.src, n.id_span.start) });
+        self.scene.sites.insert(id, NodeSite { insert_at: n.insert_at, generated, line: crate::line_of(self.src, n.id_span.start), span: n.span });
         self.stmts(&n.children, Some(index), generated);
     }
 
