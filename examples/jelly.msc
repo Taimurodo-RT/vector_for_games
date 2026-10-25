@@ -1,0 +1,21 @@
+// Мягкие тела друг с другом: желейные шарики падают в чашу, отскакивают от пика,
+// толкаются и ложатся горкой. Каждое тело — стенка для остальных, и обе стороны
+// немного мнутся в месте касания. Ключей нет: всё делает гравитация сцены.
+artboard "Желе" 480x360 bg #1b2030
+
+let ink = #10131d
+let wall = #3a4466
+
+rect floor "Пол"        at 240 350 size 480 20 fill #283049 solid
+rect left  "Левый борт"  at 70 250 size 200 24 r 8 rot 35 fill wall stroke ink 4 solid
+rect right "Правый борт" at 410 250 size 200 24 r 8 rot -35 fill wall stroke ink 4 solid
+polygon peak "Пик" at 240 300 size 60 60 points 3 fill wall stroke ink 4 solid
+
+ellipse j1 "Красный"  at 225 40 size 64 fill #ff7a59 stroke ink 4 soft 0.25 drive 0 weight 1
+ellipse j2 "Зелёный"  at 160 -40 size 56 fill #5ee0a0 stroke ink 4 soft 0.2 drive 0 weight 1
+ellipse j3 "Синий"    at 300 -90 size 60 fill #6aa8ff stroke ink 4 soft 0.3 drive 0 weight 1
+ellipse j4 "Жёлтый"   at 235 -170 size 50 fill #ffd23f stroke ink 4 soft 0.2 drive 0 weight 1
+ellipse j5 "Розовый"  at 200 -250 size 70 fill #ff5d9e stroke ink 4 soft 0.15 drive 0 weight 1
+
+anim Fall 4s {
+}
