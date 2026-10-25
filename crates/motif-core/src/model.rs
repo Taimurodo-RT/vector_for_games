@@ -335,10 +335,12 @@ pub struct Node {
     pub hang: Option<(String, f64)>,
     /// Drawn as the links of a chain along this rope (an id) instead of itself.
     pub links: Option<String>,
-    /// Set by hanging on a rope's end: extra turn in degrees, so the object swings with it.
+    /// Extra turn in degrees set by the simulation: hanging at a rope's end, rolling on a ball.
     pub swing: f64,
     /// A fluid: the shape fills with water, or pours it with `flow`, while an animation plays.
     pub fluid: Option<crate::Fluid>,
+    /// On a ball (`on`): rolls over it under gravity instead of sitting where its keys put it.
+    pub roll: Option<crate::Roll>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -488,6 +490,7 @@ impl Node {
             links: None,
             swing: 0.0,
             fluid: None,
+            roll: None,
         }
     }
 

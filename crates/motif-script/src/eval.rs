@@ -487,6 +487,7 @@ impl<'a> Evaluator<'a> {
         let mut soft: Option<motif_core::Soft> = None;
         let mut on: Option<(String, Span)> = None;
         let mut gravity: Option<f64> = None;
+        let mut gravity_span: Option<Span> = None;
         let mut emit: Option<motif_core::Emitter> = None;
         let (mut has_emit, mut emit_only) = (false, None);
         let mut rope: Option<motif_core::Rope> = None;
@@ -496,6 +497,7 @@ impl<'a> Evaluator<'a> {
         let mut links: Option<(String, Span)> = None;
         let mut fluid: Option<motif_core::Fluid> = None;
         let mut flow: Option<(f64, Span)> = None;
+        let mut roll: Option<(motif_core::Roll, Span)> = None;
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
@@ -676,9 +678,11 @@ impl<'a> Evaluator<'a> {
                     Some(v) if v > 0.0 => sharp = v,
                     _ => bad(self),
                 },
-                "gravity" if n.kind.is_container() => self.err(p.key_span, "«gravity» бывает у фигур: мягких тел, верёвок, жидкостей и источников частиц"),
                 "gravity" => match num(0) {
-                    Some(v) => gravity = Some(v),
+                    Some(v) => {
+                        gravity = Some(v);
+                        gravity_span = Some(p.key_span);
+                    }
                     None => self.err(p.key_span, "«gravity»: gravity — ускорение вниз в единицах артборда за секунду²: gravity 900"),
                 },
                 "emit" | "burst" | "life" | "speed" | "angle" | "spread" | "drag" | "fade" | "grow" | "spin" if n.kind.is_container() => {
@@ -878,6 +882,16 @@ impl<'a> Evaluator<'a> {
                     Some(v) if v > 0.0 => flow = Some((v, p.key_span)),
                     _ => self.err(p.key_span, "«flow» — капель в секунду из фигуры, больше 0: flow 60"),
                 },
+                "roll" => {
+                    let d = motif_core::Roll::default();
+                    let at = |i: usize, def: f64| if p.values.len() <= i { Some(def) } else { num(i) };
+                    match (at(0, d.friction), at(1, d.damp)) {
+                        (Some(friction), Some(damp)) if (0.0..=1.0).contains(&friction) && (0.0..=1.0).contains(&damp) => {
+                            roll = Some((motif_core::Roll { friction, damp, ..d }, p.key_span));
+                        }
+                        _ => self.err(p.key_span, "«roll» — сцепление с шаром от 0 до 1 (1 — вращается вместе с ним) и затухание от 0 до 1: roll 0.3 0.05"),
+                    }
+                }
                 "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
@@ -1058,6 +1072,9 @@ impl<'a> Evaluator<'a> {
             node.links = Some(format!("{}{r}", self.prefix));
             self.rope_refs.push((index, format!("{}{r}", self.prefix), span, true));
         }
+        if let Some(span) = gravity_span.filter(|_| n.kind.is_container() && roll.is_none()) {
+            self.err(span, "«gravity» бывает у фигур: мягких тел, верёвок, жидкостей, источников частиц — и у всего, что катится по шару (roll)");
+        }
         if let Some((v, span)) = flow {
             match fluid.as_mut() {
                 Some(f) => f.flow = v,
@@ -1073,12 +1090,20 @@ impl<'a> Evaluator<'a> {
             r.gravity = g;
         } else if let (Some(g), Some(f)) = (gravity, fluid.as_mut()) {
             f.gravity = g;
+        } else if let (Some(g), Some((r, _))) = (gravity, roll.as_mut()) {
+            r.gravity = g;
         } else if let Some(g) = gravity {
             soft.get_or_insert_with(motif_core::Soft::default).gravity = g;
         }
         node.soft = soft;
         node.rope = rope;
         node.fluid = fluid;
+        if let Some((r, span)) = roll {
+            if on.is_none() {
+                self.err(span, "roll катит объект по шару: нужен ещё on шар");
+            }
+            node.roll = Some(r);
+        }
         if let Some((ball, span)) = on {
             node.on = Some(format!("{}{ball}", self.prefix));
             self.ball_refs.push((index, format!("{}{ball}", self.prefix), span));

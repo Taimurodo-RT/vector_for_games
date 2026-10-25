@@ -35,6 +35,7 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/particles.msc
       - run: cargo run -p motif-cli -- check examples/ropes.msc
       - run: cargo run -p motif-cli -- check examples/fluids.msc
+      - run: cargo run -p motif-cli -- check examples/rolling.msc
 
   # Windows build. On main it is also published as the release that update.bat downloads.
   windows-build:

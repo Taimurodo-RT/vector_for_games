@@ -5,6 +5,7 @@
 
 use crate::fluid::{self, Pool};
 use crate::particles::{self, Spray};
+use crate::roll::{self, Roller};
 use crate::rope::{self, Strand};
 use crate::soft::{self, Body};
 use crate::spring::{self, Sprung, Tip};
@@ -19,6 +20,7 @@ const SUBSTEPS: usize = 10;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SimState {
     values: Vec<Sprung>,
+    rollers: Vec<Roller>,
     tips: Vec<Tip>,
     stretches: Vec<Stretch>,
     strands: Vec<Strand>,
@@ -43,6 +45,7 @@ impl SimState {
         rope::apply_strands(&strands, &mut pose);
         SimState {
             values,
+            rollers: roll::rollers(keys),
             tips,
             stretches,
             strands,
@@ -63,6 +66,8 @@ impl SimState {
         let mut pose = keys.clone();
         spring::step_values(&mut self.values, keys, dt, SUBSTEPS);
         spring::apply_values(&self.values, &mut pose);
+        roll::step_rollers(&mut self.rollers, &pose, dt, SUBSTEPS);
+        roll::apply_rollers(&self.rollers, &mut pose);
         pose.place_orbits();
         pose.solve_ik();
         spring::step_tips(&mut self.tips, &mut pose, dt, SUBSTEPS);
@@ -89,6 +94,7 @@ impl SimState {
     pub fn apply(&self, keys: &Document) -> Document {
         let mut out = keys.clone();
         spring::apply_values(&self.values, &mut out);
+        roll::apply_rollers(&self.rollers, &mut out);
         out.place_orbits();
         out.solve_ik();
         spring::apply_tips(&self.tips, &mut out);
@@ -120,7 +126,14 @@ impl Document {
     /// needs a simulation.
     pub fn has_sim(&self) -> bool {
         self.nodes.iter().any(|n| {
-            n.soft.is_some() || n.spring.is_some() || n.jiggle.is_some() || n.squash.is_some() || n.emit.is_some() || n.rope.is_some() || n.fluid.is_some()
+            n.soft.is_some()
+                || n.spring.is_some()
+                || n.jiggle.is_some()
+                || n.squash.is_some()
+                || n.emit.is_some()
+                || n.rope.is_some()
+                || n.fluid.is_some()
+                || n.roll.is_some()
         })
     }
 }
