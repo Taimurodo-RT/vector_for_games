@@ -102,6 +102,15 @@ const CLOTH_MAX: usize = 28;
 const ITERATIONS: usize = 6;
 /// How much of a sliding point's speed a wall takes per step.
 const FRICTION: f64 = 0.3;
+/// The smallest a cloth's cell may be squeezed, as a share of its drawn area: below it the
+/// cell would turn inside out, which shows as a notch in the outline.
+const CLOTH_MIN_AREA: f64 = 0.3;
+/// How strongly each pass straightens kinks in the cloth's rows and columns, 0..1.
+const CLOTH_BEND: f64 = 0.03;
+/// Flutter of cloth in the wind: sideways push as a share of the wind, and the length of the
+/// waves that run from the fastened edge to the free one, in artboard units.
+const FLUTTER: f64 = 1.0;
+const FLUTTER_WAVE: f64 = 60.0;
 
 /// What holds a point in place.
 #[derive(Clone, Debug, PartialEq)]
@@ -147,6 +156,11 @@ pub(crate) struct Strand {
     time: f64,
     /// Where each point is in the wind's waves, from its place on the drawn shape.
     phase: Vec<f64>,
+    /// Cloth: how far each point is from the fastened part as drawn, as a share of the
+    /// farthest one (1 everywhere when nothing is fastened).
+    reach: Vec<f64>,
+    /// Cloth: each cell as two triangles of point indices, with the drawn signed area of each.
+    cells: Vec<([usize; 3], f64)>,
 }
 
 /// The first piece of `path`'s outline as a polyline with points at most `step` apart, and
@@ -396,8 +410,28 @@ impl Strand {
             }
         }
         let margin = if n.stroke.is_some() && !rope.cloth { n.stroke_width / 2.0 } else { 0.0 };
-        let phase = rest.iter().map(|q| (q.x + q.y * 0.5) * 0.06).collect();
-        Some(Strand { node, rope, old: p.clone(), p, inv, anchors, sticks, form, margin, time: 0.0, phase })
+        let mut phase: Vec<f64> = rest.iter().map(|q| (q.x + q.y * 0.5) * 0.06).collect();
+        let (mut reach, mut cells) = (vec![1.0; rest.len()], Vec::new());
+        if let Form::Grid { cols, rows, .. } = form {
+            // Waves start at the fastened part and run away from it.
+            let held: Vec<Point> = (0..rest.len()).filter(|&k| inv[k] <= 0.0).map(|k| rest[k]).collect();
+            if !held.is_empty() {
+                let dist: Vec<f64> = rest.iter().map(|q| held.iter().map(|h| (*q - *h).hypot()).fold(f64::MAX, f64::min)).collect();
+                let far = dist.iter().copied().fold(1e-9, f64::max);
+                reach = dist.iter().map(|d| d / far).collect();
+                phase = dist.iter().map(|d| d / FLUTTER_WAVE * std::f64::consts::TAU).collect();
+            }
+            let area = |t: [usize; 3]| (rest[t[1]] - rest[t[0]]).cross(rest[t[2]] - rest[t[0]]) / 2.0;
+            for r in 0..rows - 1 {
+                for c in 0..cols - 1 {
+                    let (a, b, d, e) = (r * cols + c, r * cols + c + 1, (r + 1) * cols + c, (r + 1) * cols + c + 1);
+                    for t in [[a, b, e], [a, e, d], [a, b, d], [b, e, d]] {
+                        cells.push((t, area(t)));
+                    }
+                }
+            }
+        }
+        Some(Strand { node, rope, old: p.clone(), p, inv, anchors, sticks, form, margin, time: 0.0, phase, reach, cells })
     }
 
     fn step(&mut self, pose: &Document, walls: &[Wall], dt: f64, steps: usize) {
@@ -428,7 +462,16 @@ impl Strand {
                 }
                 None => {
                     let ph = self.phase[i];
-                    let acc = Vec2::new(gust * (1.0 + 0.5 * (t * 5.0 - ph).sin()), gust * (t * 4.0 - ph * 1.3).sin()) + pull + pose.push(me, self.p[i]);
+                    let acc = if r.cloth {
+                        // The wind blows the cloth out and makes it flutter: waves across the wind
+                        // run from the fastened edge to the free one and grow on the way.
+                        let wind = Vec2::new(gust, 0.0) + pose.push(me, self.p[i]);
+                        let across = Vec2::new(-wind.y, wind.x);
+                        let reach = self.reach[i];
+                        wind * (1.0 + 0.3 * (t * 7.0 - ph).sin()) + across * (FLUTTER * reach * (t * 9.0 - ph).sin()) + pull
+                    } else {
+                        Vec2::new(gust * (1.0 + 0.5 * (t * 5.0 - ph).sin()), gust * (t * 4.0 - ph * 1.3).sin()) + pull + pose.push(me, self.p[i])
+                    };
                     let v = (self.p[i] - self.old[i]) * keep;
                     self.old[i] = self.p[i];
                     self.p[i] += v + acc * dt * dt;
@@ -456,6 +499,9 @@ impl Strand {
                 self.p[b] -= fix * wb;
             }
         }
+        if let Form::Grid { cols, rows, .. } = self.form {
+            self.keep_cloth_smooth(cols, rows);
+        }
         for wall in walls {
             let margin = wall.margin + self.margin;
             for i in 0..self.p.len() {
@@ -473,6 +519,58 @@ impl Strand {
                 self.p[i] = on + out * margin;
                 let v = self.p[i] - self.old[i];
                 self.old[i] = self.p[i] - along * v.dot(along) * (1.0 - FRICTION);
+            }
+        }
+    }
+
+    /// Cloth: straightens kinks in the rows and columns, then keeps every cell from being
+    /// squeezed flat or turned inside out. Folds stay smooth waves instead of notches.
+    fn keep_cloth_smooth(&mut self, cols: usize, rows: usize) {
+        let n = self.p.len();
+        let mut fix = vec![Vec2::ZERO; n];
+        let mut bend = |a: usize, b: usize, c: usize, p: &[Point], inv: &[f64]| {
+            let w = inv[a] * 0.25 + inv[b] + inv[c] * 0.25;
+            if w <= 0.0 {
+                return;
+            }
+            let d = (p[a].midpoint(p[c]) - p[b]) * (CLOTH_BEND / w);
+            fix[b] += d * inv[b];
+            fix[a] -= d * (inv[a] * 0.5);
+            fix[c] -= d * (inv[c] * 0.5);
+        };
+        for r in 0..rows {
+            for c in 1..cols - 1 {
+                let k = r * cols + c;
+                bend(k - 1, k, k + 1, &self.p, &self.inv);
+            }
+        }
+        for r in 1..rows - 1 {
+            for c in 0..cols {
+                let k = r * cols + c;
+                bend(k - cols, k, k + cols, &self.p, &self.inv);
+            }
+        }
+        for (q, f) in self.p.iter_mut().zip(&fix) {
+            *q += *f;
+        }
+        for _ in 0..2 {
+            for &(t, rest) in &self.cells {
+                let [a, b, c] = t.map(|k| self.p[k]);
+                let sign = rest.signum();
+                let area = (b - a).cross(c - a) / 2.0 * sign;
+                let want = rest.abs() * CLOTH_MIN_AREA;
+                if area >= want {
+                    continue;
+                }
+                let g = [(b - c) / 2.0, (c - a) / 2.0, (a - b) / 2.0].map(|v| Vec2::new(v.y, -v.x) * sign);
+                let norm: f64 = (0..3).map(|i| self.inv[t[i]] * g[i].hypot2()).sum();
+                if norm < 1e-12 {
+                    continue;
+                }
+                let lambda = (want - area) / norm;
+                for i in 0..3 {
+                    self.p[t[i]] += g[i] * (self.inv[t[i]] * lambda);
+                }
             }
         }
     }
@@ -728,5 +826,32 @@ mod tests {
         // Down the hanging rope, one after another.
         let ys: Vec<f64> = parts.iter().map(|(a, _)| (*a * Point::ZERO).y).collect();
         assert!(ys.windows(2).all(|w| w[1] > w[0]), "{ys:?}");
+    }
+
+    #[test]
+    fn a_cloth_in_a_storm_flutters_without_turning_inside_out() {
+        let mut d = Document::new(Artboard::default());
+        let mut c = Node::new("flag", ShapeKind::Rect);
+        (c.x, c.y, c.width, c.height) = (200.0, 100.0, 100.0, 60.0);
+        c.rope = Some(Rope { pins: vec![Pin::Left], wind: 2500.0, ..Rope::cloth() });
+        c.weight = Some(0.35);
+        d.nodes.push(c);
+        let mut s = super::strands(&d);
+        let (mut lowest, mut highest) = (f64::MAX, f64::MIN);
+        for frame in 0..240 {
+            d.world.time = frame as f64 / 60.0;
+            super::step_strands(&mut s, &d, 1.0 / 60.0, 10);
+            for &(t, rest) in &s[0].cells {
+                let [a, b, c] = t.map(|k| s[0].p[k]);
+                let area = (b - a).cross(c - a) / 2.0 * rest.signum();
+                assert!(area > rest.abs() * 0.2, "a cell turned inside out at frame {frame}: {area} of {rest}");
+            }
+            // The free corner rises and falls as waves run along the flag.
+            if frame > 60 {
+                let tip = s[0].p[s[0].p.len() - 1].y;
+                (lowest, highest) = (lowest.min(tip), highest.max(tip));
+            }
+        }
+        assert!(highest - lowest > 8.0, "flutters: {lowest}..{highest}");
     }
 }
