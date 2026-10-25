@@ -34,6 +34,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("rot 15 · scale 1.2 [0.8] · skew 10 [0]", "поворот, масштаб, наклон"),
             ("pivot 0 -20", "точка вращения (transform-origin)"),
             ("opacity 0.5 · hidden", "прозрачность, скрыть"),
+            ("locked", "заблокировать: холст не выбирает объект"),
             ("fill #ff5a36 · fill none · evenodd", "заливка; evenodd — дырки по чётности"),
             ("gradient linear 90 #a #b · gradient radial #a #b", "градиент"),
             ("stroke #000 2 · dash 6 4 · cap round · join round", "обводка, пунктир, концы, углы"),

@@ -20,6 +20,7 @@ const PROPS: &[&str] = &[
     "fill",
     "stroke",
     "hidden",
+    "locked",
     "bg",
     "none",
     "d",

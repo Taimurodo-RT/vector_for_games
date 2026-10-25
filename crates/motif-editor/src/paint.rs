@@ -102,8 +102,7 @@ impl App {
             return;
         }
         let mut on = node.clip;
-        crate::app::section(ui, |ui| {
-            theme::caption(ui, "Маска");
+        crate::app::fold(ui, "Маска", |ui| {
             ui.checkbox(&mut on, RichText::new("Первый объект обрезает остальные").size(12.5).color(theme::FG));
             let first = self.scene.doc.index_of(&node.id).and_then(|gi| self.scene.doc.nodes.iter().find(|n| n.parent == Some(gi)));
             let hint = match (node.clip, first) {

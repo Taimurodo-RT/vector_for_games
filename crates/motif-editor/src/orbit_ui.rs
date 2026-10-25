@@ -1,7 +1,7 @@
 //! The «Орбита» section: putting an object on a ball by latitude and longitude, and turning a
 //! ball so that everything on it goes round.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState, MUTED};
 use egui::{RichText, vec2};
@@ -29,8 +29,7 @@ impl App {
             doc.nodes.iter().filter(|n| n.id != id && !matches!(n.kind, ShapeKind::Group | ShapeKind::Bone)).map(|n| n.id.clone()).collect();
         // Something sits on this shape: it is a ball, and can be turned.
         let is_ball = doc.nodes.iter().any(|n| n.on.as_deref() == Some(id.as_str()));
-        section(ui, |ui| {
-            theme::caption(ui, "Орбита (2.5D)");
+        fold(ui, "Орбита (2.5D)", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             let mut field = |ui: &mut egui::Ui, label: &str, prop: Prop, range: std::ops::RangeInclusive<f64>| {
                 let v = node.get(prop).as_num().unwrap_or(0.0);

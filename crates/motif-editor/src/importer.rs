@@ -1,7 +1,7 @@
 //! Bringing outside pictures in: a PNG reference under the artboard (`backdrop`), SVG files as
 //! editable paths, and files dropped onto the window.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::theme::{self, ButtonKind, FAINT, FG, KeyState, MUTED};
 use egui::RichText;
 use motif_core::kurbo::Affine;
@@ -156,8 +156,7 @@ impl App {
 
     /// Backdrop controls in the panel shown when nothing is selected.
     pub(crate) fn backdrop_section(&mut self, ui: &mut egui::Ui) {
-        section(ui, |ui| {
-            theme::caption(ui, "Подложка");
+        fold(ui, "Подложка", |ui| {
             let Some(b) = self.scene.backdrop.clone() else {
                 ui.label(RichText::new("Картинка-референс под фигурами: эскиз, кадр, макет. Видна только в редакторе.").size(12.0).color(FAINT));
                 if theme::button(ui, "Загрузить PNG…", ButtonKind::Normal).clicked() {

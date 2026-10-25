@@ -400,6 +400,8 @@ pub struct Node {
     pub body: Option<crate::Body>,
     /// A piece of interface (`ui`): exported on its own, in each state, for the game's UI.
     pub ui: bool,
+    /// Locked (`locked`): drawn as usual, but clicks on the canvas pass through it.
+    pub locked: bool,
     /// Nine-slice margins (`slice 16`): left, top, right, bottom, in artboard units from the
     /// edges of its box. The corners keep their size when the game stretches it.
     pub slice: Option<[f64; 4]>,
@@ -562,6 +564,7 @@ impl Node {
             morph: None,
             body: None,
             ui: false,
+            locked: false,
             brush: crate::Brush::default(),
             slice: None,
         }
@@ -829,8 +832,6 @@ impl Document {
         self.nodes[index].parent.map_or(0, |p| self.depth(p) + 1)
     }
 
-    /// Topmost visible shape under an artboard-space point. Bones come first: they are thin and
-    /// drawn over the shapes they move.
     /// Whether node `i` sits inside node `outer`, at any depth.
     pub fn is_inside(&self, i: usize, outer: usize) -> bool {
         let mut cur = self.nodes.get(i).and_then(|n| n.parent);
@@ -843,12 +844,20 @@ impl Document {
         false
     }
 
+    /// Whether node `index` or a group around it is locked.
+    pub fn is_locked(&self, index: usize) -> bool {
+        let node = &self.nodes[index];
+        node.locked || node.parent.is_some_and(|p| self.is_locked(p))
+    }
+
+    /// Topmost visible, unlocked shape under an artboard-space point. Bones come first: they are
+    /// thin and drawn over the shapes they move.
     pub fn hit_test(&self, point: Point) -> Option<usize> {
         let bones = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind == ShapeKind::Bone);
         let others = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind != ShapeKind::Bone);
         bones.chain(others).find(|&i| {
             let node = &self.nodes[i];
-            if !self.is_visible(i) {
+            if !self.is_visible(i) || self.is_locked(i) {
                 return false;
             }
             let Some(path) = node.path() else { return false };

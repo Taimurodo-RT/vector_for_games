@@ -125,7 +125,7 @@ fn clean_id(s: &str) -> Option<String> {
 
 /// Words that cannot be an id: commands and flag properties.
 fn reserved(id: &str) -> bool {
-    matches!(id, "artboard" | "backdrop" | "let" | "for" | "in" | "anim" | "override" | "none" | "hidden" | "clip" | "evenodd")
+    matches!(id, "artboard" | "backdrop" | "let" | "for" | "in" | "anim" | "override" | "none" | "hidden" | "locked" | "clip" | "evenodd")
         || motif_core::ShapeKind::from_keyword(id).is_some()
 }
 

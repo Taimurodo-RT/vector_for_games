@@ -1,6 +1,6 @@
 //! The «3D-тело» section: pushing a flat shape into depth and turning it in space.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG};
 use egui::{RichText, vec2};
@@ -22,8 +22,7 @@ impl App {
             return;
         }
         let id = node.id.clone();
-        section(ui, |ui| {
-            theme::caption(ui, "3D-тело");
+        fold(ui, "3D-тело", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             let mut on = node.body.is_some();
             if ui.checkbox(&mut on, RichText::new("Объём").size(12.5).color(FG)).changed() {

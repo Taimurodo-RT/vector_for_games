@@ -2,7 +2,7 @@
 //! the inputs and the selected state or transition on the right, and a run mode that plays the
 //! machine on the canvas while the inputs are switched by hand.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::theme::{self, ACCENT, ButtonKind, FAINT, FG, GOOD, Icon, LINE, MUTED, PANEL, PANEL_2, RAISE, SEL};
 use egui::{Align, Align2, Color32, Layout, Pos2, Rect, RichText, Sense, Shape, Stroke, StrokeKind, Ui, UiBuilder, Vec2, pos2, vec2};
 use motif_core::{Cond, CondOp, Input, InputKind, Machine, MachinePlayer, State, Transition};
@@ -577,8 +577,7 @@ impl App {
             }
             _ => {
                 self.inputs_section(ui, m);
-                section(ui, |ui| {
-                    theme::caption(ui, &format!("Машина {}", m.name));
+                fold(ui, &format!("Машина {}", m.name), |ui| {
                     ui.label(
                         RichText::new(
                             "Состояние играет свою анимацию. Переход срабатывает, когда выполнены его условия. Щёлкните состояние или стрелку, чтобы их настроить; двойной щелчок открывает анимацию состояния на таймлайне.",
@@ -603,8 +602,7 @@ impl App {
         let mut remove = None;
         let mut rename = None;
         let mut default = None;
-        section(ui, |ui| {
-            theme::caption(ui, if self.run.is_some() { "Входы · сейчас" } else { "Входы" });
+        fold(ui, if self.run.is_some() { "Входы · сейчас" } else { "Входы" }, |ui| {
             if m.inputs.is_empty() {
                 ui.label(RichText::new("Входы задаёт игра: флаг (наведён ли курсор), число (скорость), триггер (прыжок).").size(11.5).color(FAINT));
             }
@@ -705,8 +703,7 @@ impl App {
         let mut open = false;
         let mut link = None;
         let mut delete = false;
-        section(ui, |ui| {
-            theme::caption(ui, if i == 0 { "Состояние · начальное" } else { "Состояние" });
+        fold(ui, if i == 0 { "Состояние · начальное" } else { "Состояние" }, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Имя").size(12.0).color(MUTED));
                 rename = name_edit(ui, ("state-name", &m.name, i), &s.name, 150.0);
@@ -775,8 +772,7 @@ impl App {
         let t = &m.transitions[k];
         let mut new = t.clone();
         let mut delete = false;
-        section(ui, |ui| {
-            theme::caption(ui, "Переход");
+        fold(ui, "Переход", |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Из").size(12.0).color(MUTED));
                 let name = |f: Option<usize>| f.map_or("Любое".to_string(), |i| m.states[i].name.clone());

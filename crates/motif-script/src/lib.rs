@@ -36,9 +36,9 @@ mod symbol;
 pub use bone::{add_bone, add_ik_target, attach_to_bone, set_ik, set_skin};
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
-    Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, paste_nodes, path_to_d,
-    set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_light, set_path, set_prop, set_style, set_world,
-    world_text,
+    Place, Snippet, add_anim, add_node, add_path, backdrop_text, copy_nodes, delete_key, delete_node, fmt_value, gradient_text, move_key, move_node,
+    paste_nodes, path_to_d, rename_node, set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_light, set_path,
+    set_prop, set_style, set_world, world_text,
 };
 pub use machine::{MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_machine, fmt_transition, free_name, make_entry};
 use motif_core::{Document, Prop};
@@ -112,6 +112,8 @@ pub struct NodeSite {
     pub span: Span,
     /// The id as written (a template such as `coin{i}` for nodes made by loops).
     pub id_span: Span,
+    /// The quoted name, when the node has one.
+    pub name_span: Option<Span>,
 }
 
 /// A parsed scene: the document plus everything needed to edit the script it came from.

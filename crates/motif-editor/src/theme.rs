@@ -156,6 +156,8 @@ pub enum Icon {
     Text,
     /// Two joints and a thin diamond between them: a bone.
     Bone,
+    /// A padlock: locked on the canvas.
+    Lock,
 }
 
 /// Line icons drawn as vectors, so they never depend on font coverage.
@@ -228,6 +230,11 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
             painter.add(Shape::closed_line(vec![a, p(-1.5, -0.5), b, p(0.5, 1.5)], st));
             painter.circle_stroke(a, 2.0 * s, st);
             painter.circle_filled(b, 1.2 * s, color);
+        }
+        Icon::Lock => {
+            painter.rect_stroke(Rect::from_min_max(p(-4.5, -1.0), p(4.5, 6.0)), 1.2 * s, st, StrokeKind::Middle);
+            painter
+                .add(Shape::line((0..=8).map(|i| std::f32::consts::PI * (1.0 + i as f32 / 8.0)).map(|a| p(a.cos() * 3.0, -1.0 + a.sin() * 4.0)).collect(), st));
         }
         Icon::Pen => {
             painter.add(Shape::closed_line(vec![p(-6.0, 6.5), p(-5.0, 2.0), p(2.5, -5.5), p(5.5, -2.5), p(-2.0, 5.0)], st));

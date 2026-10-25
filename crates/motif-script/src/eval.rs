@@ -1004,6 +1004,7 @@ impl<'a> Evaluator<'a> {
                 },
                 "solid" => node.solid = true,
                 "ui" => node.ui = true,
+                "locked" => node.locked = true,
                 "rough" | "boil" | "hatch" | "grain" | "bands" | "seed" if n.kind.is_container() => {
                     self.err(p.key_span, format!("«{}» бывает у фигур: кисть рисует контур", p.key))
                 }
@@ -1298,9 +1299,17 @@ impl<'a> Evaluator<'a> {
             self.rig_refs.extend(bones.into_iter().map(|(b, span)| (index, format!("{}{b}", self.prefix), span)));
         }
         self.scene.doc.nodes.push(node);
-        self.scene
-            .sites
-            .insert(id, NodeSite { insert_at: n.insert_at, generated, line: crate::line_of(self.src, n.id_span.start), span: n.span, id_span: n.id_span });
+        self.scene.sites.insert(
+            id,
+            NodeSite {
+                insert_at: n.insert_at,
+                generated,
+                line: crate::line_of(self.src, n.id_span.start),
+                span: n.span,
+                id_span: n.id_span,
+                name_span: n.name_span,
+            },
+        );
         self.stmts(&n.children, Some(index), generated);
         Some(index)
     }

@@ -650,3 +650,131 @@ pub fn set_light(src: &str, angle: f64) -> Option<String> {
     }
     Some(splice(src, Span::new(start, end), &code))
 }
+
+/// Returns the script with the name shown in the layers set to `name` (an empty name removes it).
+/// `None` when the node comes from a loop.
+pub fn rename_node(src: &str, scene: &Scene, node: &str, name: &str) -> Option<String> {
+    let site = scene.sites.get(node).filter(|s| !s.generated)?;
+    // Names have no escapes: a quote or a line break would end the string.
+    let name: String = name.chars().filter(|c| *c != '"' && *c != '\n' && *c != '\r').collect();
+    let name = name.trim();
+    Some(match (site.name_span, name.is_empty()) {
+        (Some(span), false) => splice(src, span, &format!("\"{name}\"")),
+        (Some(span), true) => splice(src, with_space_before(src, span), ""),
+        (None, false) => splice(src, Span::new(site.id_span.end, site.id_span.end), &format!(" \"{name}\"")),
+        (None, true) => src.to_string(),
+    })
+}
+
+/// Where a dragged layer lands, next to `target` in the script or inside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// Written before the target: drawn under it.
+    Before,
+    /// Written after the target: drawn over it.
+    After,
+    /// The last child of the target group: drawn over its other children.
+    Into,
+}
+
+/// Returns the script with the declaration of `node` (with its children) moved next to `target`
+/// or into the group `target`. Animation tracks stay where they are, they name the node by id.
+/// When the parent changes, `at` is rewritten so the node stays where it was on the artboard.
+/// `None` when either node comes from a loop, `node` would land inside itself, or `Into` names
+/// something other than a group.
+pub fn move_node(src: &str, scene: &Scene, node: &str, target: &str, place: Place) -> Option<String> {
+    let doc = &scene.doc;
+    let (i, t) = (doc.index_of(node)?, doc.index_of(target)?);
+    let site = scene.sites.get(node).filter(|s| !s.generated)?;
+    let tsite = scene.sites.get(target).filter(|s| !s.generated)?;
+    if i == t || doc.is_inside(t, i) || (place == Place::Into && doc.nodes[t].kind != ShapeKind::Group) {
+        return None;
+    }
+    // Both declarations must have their lines to themselves (a comment after them is fine).
+    let alone = |span: Span| {
+        let l = whole_lines(src, span);
+        let after = src[span.end..l.end].trim();
+        src[l.start..span.start].trim().is_empty() && (after.is_empty() || after.starts_with("//"))
+    };
+    if !alone(site.span) || !alone(tsite.span) {
+        return None;
+    }
+    // The comment lines right above a declaration describe it, so they move with it.
+    let with_comments = |start: usize| {
+        let mut start = start;
+        while start > 0 {
+            let prev = src[..start - 1].rfind('\n').map_or(0, |k| k + 1);
+            if !src[prev..start].trim_start().starts_with("//") {
+                break;
+            }
+            start = prev;
+        }
+        start
+    };
+    let lines = whole_lines(src, site.span);
+    let lines = Span::new(with_comments(lines.start), lines.end);
+    let new_parent = if place == Place::Into { Some(t) } else { doc.nodes[t].parent };
+
+    // The declaration's lines, with `at` adjusted to the new parent.
+    let mut text = src[lines.start..lines.end].to_string();
+    if new_parent != doc.nodes[i].parent {
+        let n = &doc.nodes[i];
+        let world = |p: Option<usize>| p.map_or(Affine::IDENTITY, |p| doc.world_transform(p));
+        let at = world(new_parent).inverse() * (world(n.parent) * Point::new(n.x, n.y));
+        let (x, y) = (fmt_num((at.x * 100.0).round() / 100.0), fmt_num((at.y * 100.0).round() / 100.0));
+        let rel = |s: Span| Span::new(s.start - lines.start, s.end - lines.start);
+        let inside = |s: &crate::Source| !s.from_override && s.span.start >= site.span.start && s.span.end <= site.span.end;
+        let sx = scene.sources.get(&(node.to_string(), Prop::X));
+        let sy = scene.sources.get(&(node.to_string(), Prop::Y));
+        match (sx, sy) {
+            (Some(a), _) if a.editable && inside(a) && a.paired.is_some() => text = splice(&text, rel(a.span), &format!("{x} {y}")),
+            (Some(a), Some(b)) if a.editable && b.editable && inside(a) && inside(b) => {
+                // The later literal first, so the earlier span still points at its number.
+                let (first, second) = if a.span.start < b.span.start { ((a, &x), (b, &y)) } else { ((b, &y), (a, &x)) };
+                text = splice(&text, rel(second.0.span), second.1);
+                text = splice(&text, rel(first.0.span), first.1);
+            }
+            (None, None) => {
+                let end = site.insert_at - lines.start;
+                text = splice(&text, Span::new(end, end), &format!(" at {x} {y}"));
+            }
+            // Written by a formula: the formula stays.
+            _ => {}
+        }
+    }
+
+    // Indent it like its new neighbours.
+    let indent_of = |at: usize| {
+        let start = src[..at].rfind('\n').map_or(0, |k| k + 1);
+        src[start..].chars().take_while(|c| *c == ' ' || *c == '\t').collect::<String>()
+    };
+    let old_indent = indent_of(site.span.start);
+    let new_indent = if place == Place::Into { format!("{}  ", indent_of(tsite.span.start)) } else { indent_of(tsite.span.start) };
+    let mut block = String::new();
+    for line in text.lines() {
+        let line = line.strip_prefix(old_indent.as_str()).unwrap_or(line.trim_start());
+        if !line.is_empty() {
+            block.push_str(&new_indent);
+        }
+        block.push_str(line);
+        block.push('\n');
+    }
+
+    let (at, block) = match place {
+        Place::Before => (with_comments(whole_lines(src, tsite.span).start), block),
+        Place::After => (whole_lines(src, tsite.span).end, block),
+        Place::Into => {
+            let close = tsite.span.end - 1;
+            let line_start = src[..close].rfind('\n').map_or(0, |k| k + 1);
+            if src[line_start..close].trim().is_empty() { (line_start, block) } else { (close, format!("\n{block}")) }
+        }
+    };
+    let block = if at == src.len() && !src.ends_with('\n') { format!("\n{block}") } else { block };
+    Some(if at <= lines.start {
+        format!("{}{block}{}{}", &src[..at], &src[at..lines.start], &src[lines.end..])
+    } else if at >= lines.end {
+        format!("{}{}{block}{}", &src[..lines.start], &src[lines.end..at], &src[at..])
+    } else {
+        return None;
+    })
+}

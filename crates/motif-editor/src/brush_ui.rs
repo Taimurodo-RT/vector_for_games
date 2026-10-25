@@ -1,7 +1,7 @@
 //! The «Кисть» section: a hand-drawn look for a shape — wobbly outline, hatching, grain,
 //! banded light.
 
-use crate::app::{App, section};
+use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
@@ -55,8 +55,7 @@ impl App {
         }
         let id = node.id.clone();
         let b = &node.brush;
-        section(ui, |ui| {
-            theme::caption(ui, "Кисть");
+        fold(ui, "Кисть", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             let plain = |ui: &mut egui::Ui, label: &str, v: f64, speed: f64, range: std::ops::RangeInclusive<f64>, digits: usize| {
                 theme::num_field(ui, half, label, v, speed, range, digits, KeyState::Hidden).changed.map(|n| {
