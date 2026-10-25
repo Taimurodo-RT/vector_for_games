@@ -55,6 +55,12 @@ Ctrl+C / Ctrl+V / Ctrl+D — копировать, вставить, дубли�
 позицию, поворот и масштаб, F — вписать, стрелки — сдвиг (Shift — на 10),
 колесо — масштаб, Ctrl+E — показать или скрыть скрипт. Полный список — кнопка «?».
 
-motif.exe — командная строка: motif.exe check|render|frames|palette (см. motif.exe --help).
+PixaTool: «Экспорт → PixaTool». Motif сам находит Pixatool.exe в папке tools
+рядом с Motif, загружает пресет (файл из «Save Preset» в PixaTool) и прогоняет
+через него кадры анимации — кнопка «Пикселизировать кадры…». PixaTool
+запускается вне экрана и закрывается сам. Пути запоминаются в motif.ini.
+
+motif.exe — командная строка: motif.exe check|render|frames|palette|pixel
+(см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 
 В строке состояния внизу видно, чем рисует холст: «Vello на GPU» или запасной CPU-рендер.

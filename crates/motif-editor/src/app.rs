@@ -144,6 +144,7 @@ pub struct App {
     hex_edit: Option<(Prop, String)>,
     pixel: PixelPreview,
     export: ExportSettings,
+    pixa: crate::pixabridge::Bridge,
     canvas: Canvas,
     pub(crate) backdrop_img: crate::importer::BackdropCache,
     pub(crate) status: String,
@@ -201,6 +202,7 @@ impl App {
             hex_edit: None,
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
             export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true },
+            pixa: crate::pixabridge::Bridge::load(),
             canvas: Canvas::new(),
             guides: Vec::new(),
             backdrop_img: Default::default(),
@@ -577,14 +579,19 @@ impl App {
         }
     }
 
-    fn export_frames(&mut self) {
-        let Some(dir) = rfd::FileDialog::new().set_title("Папка для PNG-кадров").pick_folder() else { return };
+    /// The frames the export window would save: the current animation, or the scene as one frame.
+    fn export_render(&self) -> (String, Result<Vec<tiny_skia::Pixmap>, String>) {
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !self.export.transparent };
         let doc = &self.scene.doc;
-        let (name, frames) = match &self.anim {
+        match &self.anim {
             Some(a) => (a.clone(), render_frames(doc, a, &FrameExport { fps: self.export.fps, render })),
             None => ("scene".to_string(), render_cpu(doc, render).map(|p| vec![p]).ok_or_else(|| "не удалось создать изображение".to_string())),
-        };
+        }
+    }
+
+    fn export_frames(&mut self) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Папка для PNG-кадров").pick_folder() else { return };
+        let (name, frames) = self.export_render();
         let result = frames.and_then(|frames| {
             for (i, px) in frames.iter().enumerate() {
                 let path = dir.join(format!("{name}_{i:04}.png"));
@@ -595,6 +602,15 @@ impl App {
         self.status = match result {
             Ok(n) => format!("Сохранено кадров: {n} в {}", dir.display()),
             Err(e) => format!("Экспорт не удался: {e}"),
+        };
+    }
+
+    fn pixelize_frames(&mut self, ctx: &egui::Context) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Папка для кадров после PixaTool").pick_folder() else { return };
+        let (name, frames) = self.export_render();
+        self.status = match frames.and_then(|f| self.pixa.start(&f, &name, &dir, ctx).map(|()| f.len())) {
+            Ok(n) => format!("PixaTool: обрабатываю {n} кадров…"),
+            Err(e) => format!("Пикселизация не удалась: {e}"),
         };
     }
 
@@ -1735,8 +1751,63 @@ impl App {
                     }
                 });
                 ui.label(RichText::new("Кадры называются ИМЯ_0000.png: PixaTool берёт их пакетом.").size(12.0).color(FAINT));
+                ui.add_space(6.0);
+                theme::rule(ui);
+                ui.add_space(4.0);
+                self.pixatool_section(ui);
             });
         self.show_export = open;
+    }
+
+    fn pixatool_section(&mut self, ui: &mut egui::Ui) {
+        use crate::pixabridge::short;
+        theme::caption(ui, "PixaTool");
+        let mut changed = false;
+        egui::Grid::new("pixatool").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+            ui.label("Программа");
+            let exe = self.pixa.exe.as_deref().map_or("не найдена".to_string(), short);
+            let r = theme::button(ui, &exe, ButtonKind::Normal)
+                .on_hover_text(self.pixa.exe.as_ref().map_or("Укажите Pixatool.exe".into(), |p| p.display().to_string()));
+            if r.clicked()
+                && let Some(p) = rfd::FileDialog::new().set_title("Pixatool.exe").pick_file()
+            {
+                self.pixa.exe = Some(p);
+                changed = true;
+            }
+            ui.end_row();
+            ui.label("Пресет");
+            ui.horizontal(|ui| {
+                let preset = self.pixa.preset.as_deref().map_or("настройки PixaTool".to_string(), short);
+                let r = theme::button(ui, &preset, ButtonKind::Normal)
+                    .on_hover_text(self.pixa.preset.as_ref().map_or("Файл из «Save Preset» в PixaTool".into(), |p| p.display().to_string()));
+                if r.clicked()
+                    && let Some(p) = rfd::FileDialog::new().set_title("Пресет PixaTool").add_filter("Пресет PixaTool", &["preset"]).pick_file()
+                {
+                    self.pixa.preset = Some(p);
+                    changed = true;
+                }
+                if self.pixa.preset.is_some() && theme::button(ui, "×", ButtonKind::Normal).on_hover_text("Без пресета").clicked() {
+                    self.pixa.preset = None;
+                    changed = true;
+                }
+            });
+            ui.end_row();
+        });
+        if changed {
+            self.pixa.save();
+        }
+        if let Some(job) = &self.pixa.job {
+            ui.add(egui::ProgressBar::new(job.done as f32 / job.total.max(1) as f32).text(format!("кадр {} из {}", job.done, job.total)));
+        } else if ui
+            .add_enabled_ui(self.pixa.exe.is_some(), |ui| theme::button(ui, "Пикселизировать кадры…", ButtonKind::Primary))
+            .inner
+            .on_hover_text("Снять кадры и прогнать их через PixaTool с пресетом. PixaTool откроется сам, вне экрана.")
+            .clicked()
+        {
+            let ctx = ui.ctx().clone();
+            self.pixelize_frames(&ctx);
+        }
+        ui.label(RichText::new("Пресет сохраняется в PixaTool кнопкой «Save Preset».").size(12.0).color(FAINT));
     }
 
     fn help_window(&mut self, ctx: &egui::Context) {
@@ -2069,6 +2140,9 @@ impl eframe::App for App {
         self.poll_disk();
         self.dropped_files(&ctx);
         self.refresh_backdrop();
+        if let Some(status) = self.pixa.poll() {
+            self.status = status;
+        }
         self.shortcuts(&ctx);
         if self.playing {
             self.time += dt.min(0.1) as f64;
