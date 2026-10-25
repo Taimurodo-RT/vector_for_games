@@ -27,6 +27,8 @@ pub struct Evaluator<'a> {
     rig_refs: Vec<(usize, String, Span)>,
     /// Balls named by `on`, checked once every object exists.
     ball_refs: Vec<(usize, String, Span)>,
+    /// Objects named by `tie` (any object) and ropes named by `hang` and `links` (`true`).
+    rope_refs: Vec<(usize, String, Span, bool)>,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
@@ -42,6 +44,7 @@ impl<'a> Evaluator<'a> {
             depth: 0,
             rig_refs: Vec::new(),
             ball_refs: Vec::new(),
+            rope_refs: Vec::new(),
             scene: Scene {
                 doc: Document::new(Artboard::default()),
                 sources: HashMap::new(),
@@ -196,6 +199,16 @@ impl<'a> Evaluator<'a> {
                 Some(b) if b == i => errors.push((span, "объект не может лежать на самом себе".to_string())),
                 Some(b) if matches!(doc.nodes[b].kind, ShapeKind::Group | ShapeKind::Bone) => {
                     errors.push((span, format!("«{id}» — не фигура: шаром для on служит ellipse или другая фигура")))
+                }
+                Some(_) => {}
+            }
+        }
+        for (i, id, span, rope) in std::mem::take(&mut self.rope_refs) {
+            match doc.index_of(&id) {
+                None => errors.push((span, format!("нет объекта «{id}»"))),
+                Some(r) if r == i => errors.push((span, "объект не может держаться сам за себя".to_string())),
+                Some(r) if rope && doc.nodes[r].rope.as_ref().is_none_or(|r| r.cloth) => {
+                    errors.push((span, format!("«{id}» — не верёвка: сделайте её верёвкой, rope")))
                 }
                 Some(_) => {}
             }
@@ -476,13 +489,18 @@ impl<'a> Evaluator<'a> {
         let mut gravity: Option<f64> = None;
         let mut emit: Option<motif_core::Emitter> = None;
         let (mut has_emit, mut emit_only) = (false, None);
+        let mut rope: Option<motif_core::Rope> = None;
+        let (mut pins, mut wind, mut rope_only): (Option<Vec<motif_core::Pin>>, Option<f64>, Option<Span>) = (None, None, None);
+        let mut ties: Vec<(String, Span)> = Vec::new();
+        let mut hang: Option<(String, f64, Span)> = None;
+        let mut links: Option<(String, Span)> = None;
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
                 self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
-                "d" | "content" | "font" | "align" | "ik" | "skin" | "on" => Vec::new(),
+                "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
@@ -786,6 +804,63 @@ impl<'a> Evaluator<'a> {
                     _ => self.err(p.key_span, "on — на каком шаре лежит объект: on planet"),
                 },
                 "wrap" => node.wrap = true,
+                "rope" | "cloth" if n.kind.is_container() => self.err(p.key_span, format!("«{}» бывает у фигур: верёвкой или тканью становится контур", p.key)),
+                "rope" | "cloth" => {
+                    let mut r = if p.key == "cloth" { motif_core::Rope::cloth() } else { motif_core::Rope::default() };
+                    let at = |i: usize, def: f64| if p.values.len() <= i { Some(def) } else { num(i) };
+                    match (at(0, r.stiff), at(1, r.damp)) {
+                        (Some(stiff), Some(damp)) if (0.0..=1.0).contains(&stiff) && (0.0..=1.0).contains(&damp) => {
+                            (r.stiff, r.damp) = (stiff, damp);
+                            rope = Some(r);
+                        }
+                        _ => self.err(p.key_span, format!("«{}» — жёсткость от 0 до 1 (1 не тянется) и затухание от 0 до 1: {} 1 0.02", p.key, p.key)),
+                    }
+                }
+                "pin" => {
+                    rope_only = rope_only.or(Some(p.key_span));
+                    let mut list = Vec::new();
+                    for v in &p.values {
+                        match &v.kind {
+                            ValueKind::None => {}
+                            ValueKind::Ref(w) => match motif_core::Pin::from_word(w) {
+                                Some(pin) => list.push(pin),
+                                None => self.err(
+                                    v.span,
+                                    "pin: у верёвки start, end; у ткани top, bottom, left, right, top-left, top-right, bottom-left, bottom-right; none — ничего",
+                                ),
+                            },
+                            _ => self.err(v.span, "pin — где закреплено: pin start end, pin top, pin none"),
+                        }
+                    }
+                    pins = Some(list);
+                }
+                "wind" => {
+                    rope_only = rope_only.or(Some(p.key_span));
+                    match num(0) {
+                        Some(v) => wind = Some(v),
+                        None => self.err(p.key_span, "«wind»: сила ветра вправо (меньше нуля — влево): wind 300"),
+                    }
+                }
+                "tie" => {
+                    rope_only = rope_only.or(Some(p.key_span));
+                    ties = p.values.iter().filter_map(|v| if let ValueKind::Path(t) = &v.kind { Some((t.clone(), v.span)) } else { None }).collect();
+                }
+                "links" if n.kind.is_container() => self.err(p.key_span, "«links» бывает у фигур: звеном цепи служит фигура"),
+                "hang" => {
+                    let f = match p.values.get(1) {
+                        None => Some(1.0),
+                        Some(v) => self.value(v).and_then(|v| v.as_num()).filter(|f| (0.0..=1.0).contains(f)),
+                    };
+                    match (&p.values[0].kind, f) {
+                        (ValueKind::Path(t), Some(f)) => hang = Some((t.clone(), f, p.values[0].span)),
+                        _ => self.err(p.key_span, "hang — на какой верёвке висит объект и где: 0 начало, 1 конец: hang rope 1"),
+                    }
+                }
+                "links" => {
+                    if let ValueKind::Path(t) = &p.values[0].kind {
+                        links = Some((t.clone(), p.values[0].span));
+                    }
+                }
                 "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
@@ -934,15 +1009,50 @@ impl<'a> Evaluator<'a> {
         if let Some(span) = emit_only.filter(|_| !has_emit) {
             self.err(span, "это настройка частиц: сначала сделайте фигуру источником, emit 30");
         }
+        if let Some(span) = rope_only.filter(|_| rope.is_none()) {
+            self.err(span, "это настройка верёвки или ткани: сначала сделайте фигуру верёвкой (rope) или тканью (cloth)");
+        }
+        if let Some(r) = rope.as_mut() {
+            if let Some(pins) = pins {
+                if let Some(bad) = pins.iter().find(|p| p.of_rope() == r.cloth) {
+                    let what = if r.cloth {
+                        "у ткани закрепляют края и углы: top, bottom, left, right, top-left…"
+                    } else {
+                        "у верёвки закрепляют концы: start, end"
+                    };
+                    self.err(n.id_span, format!("pin {}: {what}", bad.word()));
+                }
+                r.pins = pins;
+            }
+            if let Some(w) = wind {
+                r.wind = w;
+            }
+            if r.cloth && !ties.is_empty() {
+                self.err(n.id_span, "tie держит концы верёвки, у ткани их нет: закрепите край, pin top");
+            }
+        }
+        node.tie = ties.iter().map(|(t, _)| format!("{}{t}", self.prefix)).collect();
+        self.rope_refs.extend(ties.into_iter().map(|(t, span)| (index, format!("{}{t}", self.prefix), span, false)));
+        if let Some((r, f, span)) = hang {
+            node.hang = Some((format!("{}{r}", self.prefix), f));
+            self.rope_refs.push((index, format!("{}{r}", self.prefix), span, true));
+        }
+        if let Some((r, span)) = links {
+            node.links = Some(format!("{}{r}", self.prefix));
+            self.rope_refs.push((index, format!("{}{r}", self.prefix), span, true));
+        }
         if has_emit {
             if let Some(g) = gravity {
                 emit.as_mut().unwrap().gravity = g;
             }
             node.emit = emit;
+        } else if let (Some(g), Some(r)) = (gravity, rope.as_mut()) {
+            r.gravity = g;
         } else if let Some(g) = gravity {
             soft.get_or_insert_with(motif_core::Soft::default).gravity = g;
         }
         node.soft = soft;
+        node.rope = rope;
         if let Some((ball, span)) = on {
             node.on = Some(format!("{}{ball}", self.prefix));
             self.ball_refs.push((index, format!("{}{ball}", self.prefix), span));

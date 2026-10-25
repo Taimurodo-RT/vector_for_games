@@ -920,3 +920,26 @@ fn emitters_parse() {
     let errs = parse("rect a life 2\nrect b emit -1\ngroup g emit 5\nrect c emit fade 3\n").unwrap_err();
     assert_eq!(errs.len(), 4, "{errs:?}");
 }
+
+#[test]
+fn ropes_and_cloth_parse() {
+    use motif_core::{Pin, Rope};
+    let s = scene(
+        "group hand at 300 40\npath rope at 100 50 d \"M 0 0 L 100 0\" stroke #000 2 rope 0.8 0.05 pin start gravity 600 wind 120 tie hand\n\
+         ellipse lamp size 10 10 hang rope 0.5\nellipse link size 16 10 links rope\nrect flag size 80 60 cloth pin top-left top-right\n",
+    );
+    let r = s.doc.node("rope").unwrap();
+    assert_eq!(r.rope, Some(Rope { stiff: 0.8, damp: 0.05, gravity: 600.0, wind: 120.0, ..Rope::default() }));
+    assert_eq!(r.tie, vec!["hand".to_string()]);
+    assert_eq!(s.doc.node("lamp").unwrap().hang, Some(("rope".into(), 0.5)));
+    assert_eq!(s.doc.node("link").unwrap().links.as_deref(), Some("rope"));
+    let flag = s.doc.node("flag").unwrap().rope.clone().unwrap();
+    assert!(flag.cloth);
+    assert_eq!(flag.pins, vec![Pin::TopLeft, Pin::TopRight]);
+    assert_eq!(scene("rect r hang x\nrect x rope\n").doc.node("r").unwrap().hang, Some(("x".into(), 1.0)));
+    let errs = parse(
+        "rect a pin start\nrect b rope pin top\nrect c cloth tie a\nrect d hang nothing\nrect e links f\nrect f cloth\nrect g rope 2\ngroup h rope\nrect i rope pin sideways\n",
+    )
+    .unwrap_err();
+    assert_eq!(errs.len(), 8, "{errs:?}");
+}
