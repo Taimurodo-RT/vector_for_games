@@ -1,7 +1,7 @@
 //! Expands the statement tree into a `Document` and records where each property value came from.
 
 use crate::parser::{NodeAst, Stmt, ValueAst, ValueKind};
-use crate::{NodeSite, Scene, ScriptError, Source, Span};
+use crate::{AnimSite, KeySite, NodeSite, Scene, ScriptError, Source, Span, TrackSite};
 use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, Track, Value};
 use std::collections::HashMap;
 
@@ -23,7 +23,13 @@ impl<'a> Evaluator<'a> {
         Evaluator {
             src,
             vars: HashMap::new(),
-            scene: Scene { doc: Document::new(Artboard::default()), sources: HashMap::new(), sites: HashMap::new(), override_close: None },
+            scene: Scene {
+                doc: Document::new(Artboard::default()),
+                sources: HashMap::new(),
+                sites: HashMap::new(),
+                override_close: None,
+                anims: HashMap::new(),
+            },
             errors: Vec::new(),
         }
     }
@@ -53,12 +59,13 @@ impl<'a> Evaluator<'a> {
             }
         }
         for s in stmts {
-            if let Stmt::Anim { name, duration, looping, tracks, span } = s {
+            if let Stmt::Anim { name, duration, looping, tracks, span, close } = s {
                 if self.scene.doc.animation(name).is_some() {
                     self.err(*span, format!("анимация «{name}» уже есть"));
                     continue;
                 }
                 let mut anim = Animation { name: name.clone(), duration: *duration, looping: *looping, tracks: Vec::new() };
+                let mut site = AnimSite { close: *close, tracks: Vec::new() };
                 for t in tracks {
                     if self.scene.doc.index_of(&t.node).is_none() {
                         self.err(t.span, format!("нет объекта «{}»", t.node));
@@ -83,8 +90,11 @@ impl<'a> Evaluator<'a> {
                     }
                     keys.sort_by(|a, b| a.time.total_cmp(&b.time));
                     anim.tracks.push(Track { node: t.node.clone(), prop, keys });
+                    let keys = t.keys.iter().map(|k| KeySite { time: k.time, span: k.span, value: k.value.span }).collect();
+                    site.tracks.push(TrackSite { node: t.node.clone(), prop, keys });
                 }
                 self.scene.doc.animations.push(anim);
+                self.scene.anims.insert(name.clone(), site);
             }
         }
     }

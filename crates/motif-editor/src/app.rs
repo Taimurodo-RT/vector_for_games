@@ -4,7 +4,7 @@ use motif_core::kurbo::{Affine, Point, Shape};
 use motif_core::{Color, Document, Prop, ShapeKind, Value};
 use motif_pixel::{FrameExport, PIXATOOL_MAX_COLORS, parse_jasc, quantize, render_frames, scene_palette, to_jasc};
 use motif_render::{CpuOptions, render_cpu};
-use motif_script::{Scene, ScriptError, parse, set_prop};
+use motif_script::{Scene, ScriptError, delete_key, parse, set_key, set_prop};
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 
@@ -12,6 +12,8 @@ const NEW_SCENE: &str = "artboard \"Сцена\" 320x240 bg #f4f1ff\n\nrect bg a
 const EXAMPLE: &str = include_str!("../../../examples/bounce.msc");
 const SELECT: Color32 = Color32::from_rgb(90, 169, 255);
 const ACCENT: Color32 = Color32::from_rgb(244, 166, 42);
+/// Keyframes and recording.
+const KEY: Color32 = Color32::from_rgb(255, 92, 120);
 
 struct Drag {
     node: String,
@@ -133,15 +135,58 @@ impl App {
         self.last_checkpoint = (kind.to_string(), Instant::now());
     }
 
+    /// Applies a visual edit: in scene mode it changes the value in the script, with an animation
+    /// selected it records a key at the current time instead.
     fn edit(&mut self, node: &str, prop: Prop, value: Value) {
         if !self.errors.is_empty() {
             self.status = "Сначала исправьте ошибки в скрипте: правки мышью пишутся в рабочую версию".into();
             return;
         }
-        if let Some(new_src) = set_prop(&self.src, &self.scene, node, prop, value) {
+        let new_src = match self.key_time() {
+            Some((anim, t)) => {
+                self.playing = false;
+                self.status = format!("Ключ {node}.{} на {} с в «{anim}»", prop.path_name(), motif_script::fmt_num(t));
+                set_key(&self.src, &self.scene, &anim, node, prop, t, value)
+            }
+            None => set_prop(&self.src, &self.scene, node, prop, value),
+        };
+        if let Some(new_src) = new_src {
             self.checkpoint(&format!("{node}.{}", prop.path_name()));
             self.src = new_src;
             self.reparse();
+        }
+    }
+
+    /// The selected animation and the time within it, rounded the way keys are written.
+    fn key_time(&self) -> Option<(String, f64)> {
+        let anim = self.scene.doc.animation(self.anim.as_deref()?)?;
+        Some((anim.name.clone(), (anim.local_time(self.time) * 100.0).round() / 100.0))
+    }
+
+    /// Times of the keys of `node` (every node when `None`) in the selected animation.
+    fn key_times(&self, node: Option<&str>) -> Vec<f64> {
+        let Some(anim) = self.anim.as_deref().and_then(|a| self.scene.doc.animation(a)) else { return Vec::new() };
+        let mut times: Vec<f64> = anim.tracks.iter().filter(|t| node.is_none_or(|n| t.node == n)).flat_map(|t| t.keys.iter().map(|k| k.time)).collect();
+        times.sort_by(f64::total_cmp);
+        times.dedup_by(|a, b| (*a - *b).abs() < 0.005);
+        times
+    }
+
+    /// Removes every key of `node` at the current time.
+    fn delete_keys_here(&mut self, node: &str) {
+        let Some((anim, t)) = self.key_time() else { return };
+        let props: Vec<Prop> = self.scene.anims.get(&anim).map_or(Vec::new(), |a| a.tracks.iter().filter(|tr| tr.node == node).map(|tr| tr.prop).collect());
+        let before = self.src.clone();
+        for prop in props {
+            if let Some(out) = delete_key(&self.src, &self.scene, &anim, node, prop, t) {
+                self.src = out;
+                self.reparse();
+            }
+        }
+        if self.src != before {
+            self.undo.push(before);
+            self.redo.clear();
+            self.last_checkpoint.0.clear();
         }
     }
 
@@ -429,19 +474,35 @@ impl App {
             ui.label(RichText::new("Выберите объект на холсте или в списке слоёв.").weak());
             return;
         };
-        let Some(node) = self.scene.doc.node(&id).cloned() else { return };
+        let Some(node) = self.display_doc().node(&id).cloned() else { return };
+        let keyed: Vec<Prop> = match self.anim.as_deref().and_then(|a| self.scene.doc.animation(a)) {
+            Some(a) => a.tracks.iter().filter(|t| t.node == id).map(|t| t.prop).collect(),
+            None => Vec::new(),
+        };
+        let here = self.key_time().map(|(_, t)| t);
+        let has_key_here = here.is_some_and(|t| self.key_times(Some(&id)).iter().any(|k| (k - t).abs() < 0.005));
         let generated = self.scene.sites.get(&id).is_some_and(|s| s.generated);
         ui.label(RichText::new(format!("{} · id {}", node.kind.keyword(), node.id)).weak());
-        if generated {
+        if generated && here.is_none() {
             ui.label(RichText::new("Создан циклом: правки попадут в блок override { }").small().color(ACCENT));
         }
-        if self.anim.is_some() {
-            ui.label(RichText::new("Показаны базовые значения; ключи анимации пока правятся в тексте.").small().weak());
+        let mut delete_here = false;
+        if let Some(t) = here {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("• Запись ключей · {} с", motif_script::fmt_num(t))).small().color(KEY));
+                if has_key_here && ui.small_button("Удалить ключи здесь").clicked() {
+                    delete_here = true;
+                }
+            });
         }
         let mut changes: Vec<(Prop, Value)> = Vec::new();
         let mut num = |ui: &mut egui::Ui, label: &str, prop: Prop, speed: f64, range: std::ops::RangeInclusive<f64>| {
             let mut v = node.get(prop).as_num().unwrap_or(0.0);
-            ui.label(label);
+            if keyed.contains(&prop) {
+                ui.label(RichText::new(format!("• {label}")).color(KEY)).on_hover_text("Свойство анимировано в этой анимации");
+            } else {
+                ui.label(label);
+            }
             if ui.add(egui::DragValue::new(&mut v).speed(speed).range(range).max_decimals(2)).changed() {
                 changes.push((prop, Value::Num(v)));
             }
@@ -495,6 +556,9 @@ impl App {
         for (prop, value) in changes {
             self.edit(&id, prop, value);
         }
+        if delete_here {
+            self.delete_keys_here(&id);
+        }
     }
 
     fn timeline(&mut self, ui: &mut egui::Ui) {
@@ -513,20 +577,47 @@ impl App {
                 }
             });
             let Some(anim) = self.anim.as_deref().and_then(|a| self.scene.doc.animation(a)).cloned() else {
-                ui.label(RichText::new("Выберите анимацию, чтобы проиграть её. Объекты двигаются мышью в режиме «Сцена».").weak());
+                ui.label(RichText::new("Выберите анимацию: её можно проиграть, а правки мышью и в свойствах станут ключами.").weak());
                 return;
             };
+            let t = anim.local_time(self.time);
+            let keys = self.key_times(self.selected.as_deref());
             if ui.button("⏮").on_hover_text("В начало").clicked() {
                 self.time = 0.0;
+            }
+            if ui.button("‹ ключ").on_hover_text("Предыдущий ключ").clicked()
+                && let Some(k) = keys.iter().rev().find(|k| **k < t - 0.005)
+            {
+                self.time = *k;
+                self.playing = false;
             }
             if ui.button(if self.playing { "⏸" } else { "▶" }).on_hover_text("Пробел").clicked() {
                 self.playing = !self.playing;
             }
-            let mut t = anim.local_time(self.time);
-            ui.spacing_mut().slider_width = (ui.available_width() - 260.0).max(120.0);
-            if ui.add(egui::Slider::new(&mut t, 0.0..=anim.duration).show_value(false)).changed() {
-                self.time = t;
+            if ui.button("ключ ›").on_hover_text("Следующий ключ").clicked()
+                && let Some(k) = keys.iter().find(|k| **k > t + 0.005)
+            {
+                self.time = *k;
                 self.playing = false;
+            }
+            let mut slider_t = t;
+            ui.spacing_mut().slider_width = (ui.available_width() - 260.0).max(120.0);
+            let resp = ui.add(egui::Slider::new(&mut slider_t, 0.0..=anim.duration).show_value(false));
+            if resp.changed() {
+                self.time = slider_t;
+                self.playing = false;
+            }
+            // Keys of the selected object (or of all objects) as diamonds on the rail.
+            let rail = resp.rect;
+            let pad = rail.height() / 2.5;
+            let painter = ui.painter_at(rail.expand(4.0));
+            for k in &keys {
+                let x = rail.left() + pad + (*k / anim.duration.max(1e-6)) as f32 * (rail.width() - 2.0 * pad);
+                let c = egui::pos2(x, rail.center().y);
+                let r = 6.0;
+                let pts = vec![c + egui::vec2(0.0, -r), c + egui::vec2(r, 0.0), c + egui::vec2(0.0, r), c + egui::vec2(-r, 0.0)];
+                let fill = if (*k - t).abs() < 0.005 { KEY } else { Color32::from_rgb(196, 70, 96) };
+                painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(1.0, Color32::from_gray(20))));
             }
             ui.monospace(format!("{:.2} / {:.2} с · кадр {} при 60 к/с{}", t, anim.duration, (t * 60.0).round(), if anim.looping { " · повтор" } else { "" }));
         });
@@ -581,13 +672,9 @@ impl App {
                     Some(i) => {
                         let id = doc.nodes[i].id.clone();
                         self.selected = Some(id.clone());
-                        if self.anim.is_some() {
-                            self.status = "Двигать объекты мышью можно в режиме «Сцена» (внизу, слева от таймлайна)".into();
-                        } else {
-                            let to_parent = doc.nodes[i].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse());
-                            let origin = doc.world_transform(i) * Point::ZERO;
-                            self.drag = Some(Drag { node: id, from: p, origin, to_parent });
-                        }
+                        let to_parent = doc.nodes[i].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse());
+                        let origin = doc.world_transform(i) * Point::ZERO;
+                        self.drag = Some(Drag { node: id, from: p, origin, to_parent });
                     }
                     None => self.panning = true,
                 }
@@ -601,7 +688,7 @@ impl App {
             } else if let (Some(d), Some(p)) = (&self.drag, doc_pt) {
                 let target = d.to_parent * (d.origin + (p - d.from));
                 let (node, x, y) = (d.node.clone(), target.x.round(), target.y.round());
-                let cur = self.scene.doc.node(&node).map(|n| (n.x, n.y));
+                let cur = doc.node(&node).map(|n| (n.x, n.y));
                 if cur.is_some_and(|c| c.0 != x) {
                     self.edit(&node, Prop::X, Value::Num(x));
                 }
@@ -714,11 +801,9 @@ impl App {
         if i.key_pressed(Key::Escape) {
             self.selected = None;
         }
-        if let Some(id) = self.selected.clone()
-            && self.anim.is_none()
-        {
+        if let Some(id) = self.selected.clone() {
             let step = if i.modifiers.shift { 10.0 } else { 1.0 };
-            let node = self.scene.doc.node(&id).cloned();
+            let node = self.display_doc().node(&id).cloned();
             let nudge = [(Key::ArrowLeft, Prop::X, -step), (Key::ArrowRight, Prop::X, step), (Key::ArrowUp, Prop::Y, -step), (Key::ArrowDown, Prop::Y, step)];
             for (key, prop, delta) in nudge {
                 if i.key_pressed(key)
