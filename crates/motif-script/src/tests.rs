@@ -943,3 +943,12 @@ fn ropes_and_cloth_parse() {
     .unwrap_err();
     assert_eq!(errs.len(), 8, "{errs:?}");
 }
+
+#[test]
+fn fluids_parse() {
+    let s = scene("rect pool size 60 120 fluid\nrect tap size 10 10 fluid 0.4 flow 80 gravity 600\n");
+    assert_eq!(s.doc.node("pool").unwrap().fluid, Some(motif_core::Fluid::default()));
+    assert_eq!(s.doc.node("tap").unwrap().fluid, Some(motif_core::Fluid { visc: 0.4, flow: 80.0, gravity: 600.0 }));
+    let errs = parse("rect a flow 10\nrect b fluid 2\ngroup g fluid\nrect c fluid flow 0\n").unwrap_err();
+    assert_eq!(errs.len(), 4, "{errs:?}");
+}

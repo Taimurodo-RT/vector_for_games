@@ -5,7 +5,7 @@ use crate::app::{App, section};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
-use motif_core::{Emitter, Node, ShapeKind, Soft, Spring, Squash};
+use motif_core::{Emitter, Fluid, Node, ShapeKind, Soft, Spring, Squash};
 use motif_script::fmt_num;
 
 /// Script keys of a soft body, each with its label, value, range and drag speed.
@@ -42,6 +42,7 @@ impl App {
             }
             emitter_editor(ui, &mut edits, node);
             crate::rope_ui::rope_editor(ui, &mut edits, node, &self.scene.doc);
+            fluid_editor(ui, &mut edits, node);
             let mut on = node.soft.is_some();
             if ui.checkbox(&mut on, RichText::new("Мягкое тело").size(12.5).color(FG)).changed() {
                 if on {
@@ -86,7 +87,7 @@ impl App {
             if ui.checkbox(&mut solid, RichText::new("Препятствие").size(12.5).color(FG)).changed() {
                 edits.push(("solid", solid.then(|| "solid".to_string())));
             }
-            ui.label(RichText::new("Мягкие тела не проходят сквозь препятствия: стены, пол, тоннели.").size(11.5).color(FAINT));
+            ui.label(RichText::new("Мягкие тела, верёвки, ткань и жидкости не проходят сквозь препятствия: стены, пол, чашки.").size(11.5).color(FAINT));
         });
         if !edits.is_empty() {
             self.apply_styles(&node.id, edits);
@@ -195,6 +196,44 @@ fn emitter_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, node: &Node) {
     ui.horizontal(|ui| field(ui, "Вращение °/с", "spin", e.spin, d.spin, -3600.0..=3600.0, 2.0));
     ui.label(
         RichText::new("Пока играет анимация, из фигуры вылетают её копии; сама она не рисуется. Угол −90 — вверх, конус 360 — во все стороны. Источник можно двигать ключами и вешать на кости.")
+            .size(11.5)
+            .color(FAINT),
+    );
+}
+
+/// The «Жидкость» checkbox with thickness, flow and gravity.
+fn fluid_editor(ui: &mut egui::Ui, edits: &mut Vec<StyleEdit>, node: &Node) {
+    let mut on = node.fluid.is_some();
+    if ui.checkbox(&mut on, RichText::new("Жидкость").size(12.5).color(FG)).changed() {
+        edits.push(("fluid", on.then(|| "fluid".to_string())));
+        if !on {
+            edits.push(("flow", None));
+            if node.emit.is_none() && node.soft.is_none() && node.rope.is_none() {
+                edits.push(("gravity", None));
+            }
+        }
+    }
+    let Some(f) = node.fluid else { return };
+    let d = Fluid::default();
+    let half = (ui.available_width() - 6.0) / 2.0;
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Вязкость", f.visc, 0.005, 0.0..=1.0, 2, KeyState::Hidden).changed {
+            let v = (v * 100.0).round() / 100.0;
+            edits.push(("fluid", Some(if v == d.visc { "fluid".to_string() } else { format!("fluid {}", fmt_num(v)) })));
+        }
+        if let Some(v) = theme::num_field(ui, half, "Поток, к/с", f.flow, 0.5, 0.0..=1000.0, 0, KeyState::Hidden).changed {
+            let v = v.round();
+            edits.push(("flow", (v > 0.0).then(|| format!("flow {}", fmt_num(v)))));
+        }
+    });
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Гравитация", f.gravity, 5.0, -5000.0..=5000.0, 0, KeyState::Hidden).changed {
+            let v = v.round();
+            edits.push(("gravity", (v != d.gravity).then(|| format!("gravity {}", fmt_num(v)))));
+        }
+    });
+    ui.label(
+        RichText::new("Фигура заполняется водой, которая течёт, плещется и упирается в препятствия; рисуется одним гладким контуром с заливкой и обводкой фигуры. Поток больше 0 — фигура льёт воду вниз, как кран. Вязкость 0.5 и выше — мёд, краска.")
             .size(11.5)
             .color(FAINT),
     );

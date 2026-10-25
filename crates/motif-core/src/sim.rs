@@ -1,8 +1,9 @@
 //! The simulation behind physical animation: springs, jiggling bones, squash, ropes and cloth,
-//! particles and soft bodies, stepped together in fixed steps. An animation simulates from its
+//! fluids, particles and soft bodies, stepped together in fixed steps. An animation simulates from its
 //! start, so the same time always gives the same pose and export bakes it into frames; a state
 //! machine steps it as it plays.
 
+use crate::fluid::{self, Pool};
 use crate::particles::{self, Spray};
 use crate::rope::{self, Strand};
 use crate::soft::{self, Body};
@@ -21,6 +22,7 @@ pub struct SimState {
     tips: Vec<Tip>,
     stretches: Vec<Stretch>,
     strands: Vec<Strand>,
+    pools: Vec<Pool>,
     sprays: Vec<Spray>,
     bodies: Vec<Body>,
     /// Nodes in the document it was started from: a different count means the scene changed.
@@ -39,7 +41,16 @@ impl SimState {
         pose.skin_all();
         let strands = rope::strands(&pose);
         rope::apply_strands(&strands, &mut pose);
-        SimState { values, tips, stretches, strands, sprays: particles::sprays(&pose), bodies: soft::bodies(&pose), nodes: keys.nodes.len() }
+        SimState {
+            values,
+            tips,
+            stretches,
+            strands,
+            pools: fluid::pools(&pose),
+            sprays: particles::sprays(&pose),
+            bodies: soft::bodies(&pose),
+            nodes: keys.nodes.len(),
+        }
     }
 
     /// True when the simulation was started from a document shaped like `doc`.
@@ -59,6 +70,7 @@ impl SimState {
         pose.skin_all();
         rope::step_strands(&mut self.strands, &pose, dt, SUBSTEPS);
         rope::apply_strands(&self.strands, &mut pose);
+        fluid::step_pools(&mut self.pools, &pose, dt);
         particles::step_sprays(&mut self.sprays, &pose, dt);
         soft::step_bodies(&mut self.bodies, &pose, dt, SUBSTEPS);
     }
@@ -83,6 +95,7 @@ impl SimState {
         squash::apply_stretches(&self.stretches, &mut out);
         out.skin_all();
         rope::apply_strands(&self.strands, &mut out);
+        fluid::apply_pools(&self.pools, &mut out);
         particles::apply_sprays(&self.sprays, &mut out);
         soft::apply_bodies(&self.bodies, &mut out);
         out
@@ -106,7 +119,9 @@ impl Document {
     /// particles, soft bodies), so posing
     /// needs a simulation.
     pub fn has_sim(&self) -> bool {
-        self.nodes.iter().any(|n| n.soft.is_some() || n.spring.is_some() || n.jiggle.is_some() || n.squash.is_some() || n.emit.is_some() || n.rope.is_some())
+        self.nodes.iter().any(|n| {
+            n.soft.is_some() || n.spring.is_some() || n.jiggle.is_some() || n.squash.is_some() || n.emit.is_some() || n.rope.is_some() || n.fluid.is_some()
+        })
     }
 }
 

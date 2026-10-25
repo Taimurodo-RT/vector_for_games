@@ -24,8 +24,9 @@ impl Document {
     /// Bends skinned shapes with their bones as they are posed now.
     pub fn skin_all(&mut self) {
         for i in 0..self.nodes.len() {
-            // Soft bodies, ropes and cloth get their outline from the simulation.
-            if self.nodes[i].soft.is_none() && self.nodes[i].rope.is_none() {
+            // Soft bodies, ropes, cloth and fluids get their outline from the simulation.
+            let n = &self.nodes[i];
+            if n.soft.is_none() && n.rope.is_none() && n.fluid.is_none() {
                 self.nodes[i].deformed = self.deform(i).or_else(|| self.wrapped(i));
             }
         }

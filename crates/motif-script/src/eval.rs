@@ -494,6 +494,8 @@ impl<'a> Evaluator<'a> {
         let mut ties: Vec<(String, Span)> = Vec::new();
         let mut hang: Option<(String, f64, Span)> = None;
         let mut links: Option<(String, Span)> = None;
+        let mut fluid: Option<motif_core::Fluid> = None;
+        let mut flow: Option<(f64, Span)> = None;
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
@@ -674,7 +676,7 @@ impl<'a> Evaluator<'a> {
                     Some(v) if v > 0.0 => sharp = v,
                     _ => bad(self),
                 },
-                "gravity" if n.kind.is_container() => self.err(p.key_span, "«gravity» бывает у фигур: мягких тел и источников частиц"),
+                "gravity" if n.kind.is_container() => self.err(p.key_span, "«gravity» бывает у фигур: мягких тел, верёвок, жидкостей и источников частиц"),
                 "gravity" => match num(0) {
                     Some(v) => gravity = Some(v),
                     None => self.err(p.key_span, "«gravity»: gravity — ускорение вниз в единицах артборда за секунду²: gravity 900"),
@@ -861,6 +863,21 @@ impl<'a> Evaluator<'a> {
                         links = Some((t.clone(), p.values[0].span));
                     }
                 }
+                "fluid" | "flow" if n.kind.is_container() => self.err(p.key_span, format!("«{}» бывает у фигур: жидкость заполняет контур", p.key)),
+                "fluid" => {
+                    let mut f = motif_core::Fluid::default();
+                    match if p.values.is_empty() { Some(f.visc) } else { num(0) } {
+                        Some(v) if (0.0..=1.0).contains(&v) => {
+                            f.visc = v;
+                            fluid = Some(f);
+                        }
+                        _ => self.err(p.key_span, "«fluid» — вязкость от 0 (вода) до 1 (почти не течёт): fluid 0.1"),
+                    }
+                }
+                "flow" => match num(0) {
+                    Some(v) if v > 0.0 => flow = Some((v, p.key_span)),
+                    _ => self.err(p.key_span, "«flow» — капель в секунду из фигуры, больше 0: flow 60"),
+                },
                 "solid" => node.solid = true,
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
@@ -1041,6 +1058,12 @@ impl<'a> Evaluator<'a> {
             node.links = Some(format!("{}{r}", self.prefix));
             self.rope_refs.push((index, format!("{}{r}", self.prefix), span, true));
         }
+        if let Some((v, span)) = flow {
+            match fluid.as_mut() {
+                Some(f) => f.flow = v,
+                None => self.err(span, "flow льёт жидкость: сначала сделайте фигуру жидкостью, fluid"),
+            }
+        }
         if has_emit {
             if let Some(g) = gravity {
                 emit.as_mut().unwrap().gravity = g;
@@ -1048,11 +1071,14 @@ impl<'a> Evaluator<'a> {
             node.emit = emit;
         } else if let (Some(g), Some(r)) = (gravity, rope.as_mut()) {
             r.gravity = g;
+        } else if let (Some(g), Some(f)) = (gravity, fluid.as_mut()) {
+            f.gravity = g;
         } else if let Some(g) = gravity {
             soft.get_or_insert_with(motif_core::Soft::default).gravity = g;
         }
         node.soft = soft;
         node.rope = rope;
+        node.fluid = fluid;
         if let Some((ball, span)) = on {
             node.on = Some(format!("{}{ball}", self.prefix));
             self.ball_refs.push((index, format!("{}{ball}", self.prefix), span));

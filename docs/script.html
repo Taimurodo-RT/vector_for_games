@@ -69,6 +69,7 @@
   <tr><td>Сжатие и растяжение</td><td><code>squash 0.6 6 0.3</code></td><td>Тянется на скорости, сплющивается при ударе. См. <a href="physics.html#squash">«Физика»</a>.</td></tr>
   <tr><td>Частицы</td><td><code>ellipse spark … emit 40 life 1 speed 160 spread 50 gravity -60 fade 0</code></td><td>Фигура становится источником частиц. См. <a href="physics.html#particles">«Физика»</a>.</td></tr>
   <tr><td>Верёвка, цепь, ткань</td><td><code>path cord … rope pin start wind 200</code>, <code>group lamp … hang cord</code>, <code>ellipse link … links chain</code>, <code>rect flag … cloth pin left</code></td><td>Провисает, качается, полощется. См. <a href="physics.html#ropes">«Физика»</a>.</td></tr>
+  <tr><td>Жидкость</td><td><code>rect water … fluid 0.1</code>, <code>rect tap … fluid flow 60</code></td><td>Вода в фигуре или льётся из неё. См. <a href="physics.html#fluids">«Физика»</a>.</td></tr>
   <tr><td>Мягкое тело</td><td><code>ellipse ball … soft 0.2 pressure 1 drive 0.4</code>, <code>rect wall … solid</code></td><td>Форму считает физика. См. <a href="physics.html#script">«Физика»</a>.</td></tr>
   <tr><td>Объект на шаре</td><td><code>on planet lat 20 lon -30 alt 0 wrap</code>, у шара <code>yaw 30 pitch 10</code></td><td>Орбита 2.5D. См. <a href="orbit.html">«Орбиты 2.5D»</a>.</td></tr>
   <tr><td>Машина состояний</td><td><code>machine Hero { state Idle … Idle -&gt; Run when speed &gt; 0.5 }</code></td><td>Какую анимацию играть. См. <a href="machine.html#script">«Машина состояний»</a>.</td></tr>
