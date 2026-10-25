@@ -10,7 +10,7 @@
     ["machine.html", "Машина состояний"],
     ["bones.html", "Кости и IK"],
     ["physics.html", "Физика"],
-    ["orbit.html", "Орбиты 2.5D"],
+    ["orbit.html", "2.5D и 3D"],
     ["script.html", "Скрипт сцены"],
     ["export.html", "Экспорт и программы"],
   ];

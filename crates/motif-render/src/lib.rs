@@ -193,6 +193,9 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             continue;
         }
         let Some(path) = node.path() else { continue };
+        // A 3D body draws its faces; its shadow and outlines take the whole silhouette.
+        let faces = node.body_faces(doc.light);
+        let path = faces.as_deref().map_or(path, motif_core::silhouette);
         let opacity = doc.world_opacity(i).clamp(0.0, 1.0);
         let stroke = node.stroke.filter(|_| node.stroke_width > 0.0).map(|c| (c, node.stroke_width));
         let fill = match (&node.gradient, node.fill) {
@@ -244,7 +247,10 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
                     even_odd: node.even_odd,
                 })
             })),
-            None => own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd })),
+            None => match faces {
+                Some(faces) => body_ops(&mut own, i, faces, transform, stroke, opacity, node.blend),
+                None => own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd })),
+            },
         }
         if let Some(clip) = ball_clip(doc, i) {
             own.insert(0, clip);
@@ -261,6 +267,49 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         close(&mut ops, &mut open);
     }
     ops
+}
+
+/// The faces of a body back to front, then its inked edges over them all, so that a thick edge
+/// is not cut by the next face. A hairline of the face's own colour closes the seams between
+/// neighbouring faces.
+fn body_ops(ops: &mut Vec<Op>, node: usize, faces: Vec<motif_core::Face>, transform: Affine, stroke: Option<(Color, f64)>, opacity: f64, blend: Blend) {
+    let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
+    let polylines = |lines: &[Vec<motif_core::kurbo::Point>], path: &mut BezPath| {
+        for e in lines {
+            path.move_to(e[0]);
+            for p in &e[1..] {
+                path.line_to(*p);
+            }
+        }
+    };
+    let mut top = BezPath::new();
+    for f in faces {
+        polylines(&f.top_edges, &mut top);
+        // A curved stretch is shaded by a gradient across it.
+        let (fill, seam) = match f.gradient {
+            Some((from, to, colors)) => (Paint::Gradient { gradient: Gradient { radial: false, angle: 0.0, colors }, from, to }, None),
+            None => (Paint::Solid(f.color), Some((f.color, 0.6))),
+        };
+        ops.push(Op::Draw(Item {
+            node,
+            path: f.path,
+            transform,
+            fill: Some(fill),
+            stroke: seam,
+            line: Line { join: Join::Round, ..Line::default() },
+            opacity,
+            blend,
+            even_odd: f.even_odd,
+        }));
+        let mut own = BezPath::new();
+        polylines(&f.edges, &mut own);
+        if let Some(ink) = stroke.filter(|_| !own.is_empty()) {
+            ops.push(Op::Draw(Item { node, path: own, transform, fill: None, stroke: Some(ink), line: line.clone(), opacity, blend, even_odd: false }));
+        }
+    }
+    if let Some(ink) = stroke.filter(|_| !top.is_empty()) {
+        ops.push(Op::Draw(Item { node, path: top, transform, fill: None, stroke: Some(ink), line, opacity, blend, even_odd: false }));
+    }
 }
 
 /// The clip of an object on a ball (see `Document::place_orbits`): inside the ball for a shape

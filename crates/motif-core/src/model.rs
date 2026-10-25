@@ -130,6 +130,9 @@ pub enum Prop {
     Fan,
     /// How far a morph has gone: 0 is the shape itself, 1 its first target, 2 the second.
     Morph,
+    /// A body's depth and how much its back narrows.
+    Depth,
+    Taper,
     /// The scene's gravity and wind (`world.gravity-y`), keyed on the world, not on a node.
     GravityX,
     GravityY,
@@ -139,7 +142,7 @@ pub enum Prop {
 }
 
 impl Prop {
-    pub const ALL: [Prop; 34] = [
+    pub const ALL: [Prop; 36] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -174,6 +177,8 @@ impl Prop {
         Prop::Pull,
         Prop::Fan,
         Prop::Morph,
+        Prop::Depth,
+        Prop::Taper,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -213,6 +218,8 @@ impl Prop {
             Prop::Pull => "pull",
             Prop::Fan => "fan",
             Prop::Morph => "morph",
+            Prop::Depth => "depth",
+            Prop::Taper => "taper",
             Prop::GravityX => "gravity-x",
             Prop::GravityY => "gravity-y",
             Prop::WindX => "wind-x",
@@ -383,6 +390,8 @@ pub struct Node {
     pub fan: Option<crate::Field>,
     /// Flows into the shapes of other objects (`morph star heart`) as `morph` goes 0 → 1 → 2.
     pub morph: Option<crate::Morph>,
+    /// Pushed into depth as a 3D body (`extrude 60`), turned by `yaw` and `pitch`.
+    pub body: Option<crate::Body>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -538,6 +547,7 @@ impl Node {
             pull: None,
             fan: None,
             morph: None,
+            body: None,
         }
     }
 
@@ -582,6 +592,8 @@ impl Node {
             Prop::Pull => Value::Num(self.pull.map_or(0.0, |f| f.strength)),
             Prop::Fan => Value::Num(self.fan.map_or(0.0, |f| f.strength)),
             Prop::Morph => Value::Num(self.morph.as_ref().map_or(0.0, |m| m.amount)),
+            Prop::Depth => Value::Num(self.body.map_or(0.0, |b| b.depth)),
+            Prop::Taper => Value::Num(self.body.map_or(1.0, |b| b.taper)),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => Value::None,
         }
     }
@@ -643,6 +655,12 @@ impl Node {
             Prop::Morph => {
                 if let Some(m) = &mut self.morph {
                     m.amount = v.max(0.0);
+                }
+            }
+            Prop::Depth => self.body.get_or_insert(crate::Body::new(0.0)).depth = v,
+            Prop::Taper => {
+                if let Some(b) = &mut self.body {
+                    b.taper = v.max(0.0);
                 }
             }
             Prop::Fill | Prop::StrokeColor => unreachable!(),
@@ -807,6 +825,9 @@ impl Document {
             // Text is picked by its whole box, not only the letters.
             if let Some(t) = &node.text {
                 return t.bounds(&node.text_style).inflate(2.0, 2.0).contains(local);
+            }
+            if let Some(faces) = node.body_faces(self.light) {
+                return faces.iter().any(|f| f.path.contains(local));
             }
             path.contains(local) || (node.stroke.is_some() && near_outline(&path, local, node.stroke_width.max(4.0)))
         })

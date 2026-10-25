@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Орбиты 2.5D — Motif</title>
+<title>Орбиты 2.5D и 3D-тела — Motif</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="layout">
 <main><div class="content">
 
-<h1>Орбиты 2.5D</h1>
+<h1>Орбиты 2.5D и 3D-тела</h1>
 <p class="lead">Объект можно положить на шар: широта и долгота задают, где он, а Motif сам считает, куда он попадёт на экране, когда уйдёт за край и спрячется за шаром. Шар можно поворачивать, и всё, что на нём лежит, поедет вместе с ним. Объекты остаются плоскими векторными фигурами, 3D-модели не нужны.</p>
 
 <figure><img src="img/orbit-render.png" alt="Четыре кадра: планета вращается, материк уходит за край, луна облетает планету; голова поворачивается, глаза и нос съезжают вбок"><figcaption>Пример <code>orbit.msc</code>: планета крутится одним ключом <code>yaw</code>, луна облетает её и прячется сзади. Голова поворачивается и кивает ключами <code>yaw</code> и <code>pitch</code>, а глаза, нос и рот съезжают и сужаются сами.</figcaption></figure>
@@ -62,6 +62,31 @@
 </div>
 <pre><code><span class="k">group</span> m1 <span class="p">on</span> globe <span class="p">lat</span> <span class="n">40</span> <span class="p">lon</span> <span class="n">-40</span> <span class="p">alt</span> <span class="n">12</span> <span class="p">roll</span> <span class="n">0.2 0.03</span> { … }
 <span class="k">group</span> rover <span class="p">on</span> planet <span class="p">roll</span> <span class="n">1</span> <span class="p">weight</span> <span class="n">0</span> { … }</code></pre>
+
+<h2 id="bodies">3D-тела</h2>
+<p>Любую плоскую фигуру можно выдавить в глубину: <code>extrude 90</code> делает из квадрата куб, из круга цилиндр, из треугольника призму, из звезды печенье, из контура с дыркой — кольцо или монету. Второе число — сужение задней грани: <code>extrude 120 0</code> даёт конус или пирамиду, <code>0.5</code> — усечённые. Тело поворачивается в пространстве ключами <code>yaw</code> (влево-вправо) и <code>pitch</code> (наклон), а <code>rot</code> по-прежнему поворачивает его в плоскости.</p>
+<figure><img src="img/bodies-render.png" alt="Четыре кадра: куб, цилиндр, конус, призма, звезда, пирамида, монета с дыркой-звездой и лента поворачиваются в пространстве"><figcaption>Пример <code>bodies.msc</code> в кадрах 0, 0.7, 1.6 и 2.6 с: тела крутятся ключами <code>yaw</code> и <code>pitch</code>. Освещение граней идёт от света сцены (<code>light 60</code>: тени падают вниз-вправо, свет сверху-слева).</figcaption></figure>
+<ul>
+  <li><b>Рисуется векторными гранями.</b> Грани, повёрнутые от зрителя, скрыты, остальные идут от дальних к ближним. На выходе по-прежнему вектор: его можно экспортировать, пикселизовать, запекать в спрайты.</li>
+  <li><b>Свет сцены.</b> Грани, повёрнутые к свету, светлее, от света — темнее. Свет задаёт <code>light</code> у артборда, тот же, что для теней и «Высоты».</li>
+  <li><b>Гладкие стенки</b> цилиндра, конуса или волнистой ленты закрашиваются одним плавным переходом, без полос.</li>
+  <li><b>Обводка</b> рисуется только по настоящим рёбрам: по силуэту, по краю торцов и по острым углам контура. На гладкой стенке линий нет.</li>
+  <li><b>Открытый контур</b> (линия пером) выдавливается в ленту, видную с обеих сторон.</li>
+  <li><b>Анимируется всё</b>: глубина (<code>depth</code>), сужение (<code>taper</code>), <code>yaw</code>, <code>pitch</code>. Выдавить можно и морфинг: тело меняет форму на ходу.</li>
+</ul>
+<div class="side">
+  <figure><img src="img/bodies-panel.png" alt="Раздел «3D-тело» в панели свойств"></figure>
+  <div>
+    <p>В редакторе это раздел <b>«3D-тело»</b> в панели свойств фигуры. Галочка «Объём» выдавливает фигуру на её ширину, дальше поля «Глубина», «Сужение», «Разворот» и «Наклон», все с ромбами ключей.</p>
+  </div>
+</div>
+<pre><code><span class="k">rect</span> cube <span class="p">size</span> <span class="n">90 90</span> <span class="p">fill</span> <span class="n">#ff7a59</span> <span class="p">stroke</span> ink <span class="n">4</span> <span class="p">extrude</span> <span class="n">90</span> <span class="p">yaw</span> <span class="n">30</span> <span class="p">pitch</span> <span class="n">25</span>
+<span class="k">ellipse</span> cone <span class="p">size</span> <span class="n">90 90</span> <span class="p">fill</span> <span class="n">#ffd23f</span> <span class="p">extrude</span> <span class="n">120 0</span> <span class="p">pitch</span> <span class="n">-100</span>
+
+<span class="k">anim</span> Spin <span class="n">4s</span> <span class="k">loop</span> {
+  cube.yaw <span class="n">0</span>: <span class="n">30</span> <span class="p">linear</span> | <span class="n">4</span>: <span class="n">390</span>
+}</code></pre>
+<p class="muted">Грани сортируются по глубине целиком, поэтому сложные невыпуклые тела под некоторыми углами могут перекрываться неточно. Перспективы нет: тела рисуются в изометрии, как в большинстве 2D-игр.</p>
 
 <h2 id="script">В скрипте</h2>
 <pre><code><span class="k">ellipse</span> head <span class="p">at</span> <span class="n">420 170</span> <span class="p">size</span> <span class="n">150 170</span>

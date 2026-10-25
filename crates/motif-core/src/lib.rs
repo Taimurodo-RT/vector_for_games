@@ -1,5 +1,6 @@
 //! Document model shared by the editor, the exporters and the game runtimes.
 
+mod body;
 mod color;
 mod ease;
 mod field;
@@ -21,6 +22,7 @@ mod style;
 pub mod text;
 mod world;
 
+pub use body::{Body, Face, silhouette};
 pub use color::Color;
 pub use ease::{Dir, Ease, Family};
 pub use field::Field;

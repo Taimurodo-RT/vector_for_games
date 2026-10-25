@@ -82,8 +82,8 @@ fn every_prop_round_trips_through_edit() {
     for prop in Prop::ALL {
         let s = scene(src);
         let value = if prop.is_color() { Value::Color(Color::rgb(1, 2, 3)) } else { Value::Num(7.0) };
-        // How far a morph goes means nothing without shapes to flow into.
-        if prop == Prop::Morph {
+        // How far a morph goes means nothing without shapes to flow into, a taper without depth.
+        if matches!(prop, Prop::Morph | Prop::Taper) {
             assert_eq!(set_prop(src, &s, "p", prop, value), None);
             continue;
         }
@@ -965,6 +965,21 @@ fn morphs_parse_key_and_edit() {
     let errs =
         parse("ellipse a morph nothing\nellipse b morph b\ngroup g\nellipse c morph g\ngroup h morph a\nellipse d morph a -1\nellipse e morph\n").unwrap_err();
     assert_eq!(errs.len(), 6, "{errs:?}");
+}
+
+#[test]
+fn bodies_parse_key_and_edit() {
+    let src = "rect cube size 80 80 extrude 80 yaw 30 pitch 20\nellipse cone extrude 120 0\nanim A 1s {\n  cube.depth 0: 80 | 1: 20\n}\n";
+    let s = scene(src);
+    assert_eq!(s.doc.node("cube").unwrap().body, Some(motif_core::Body { depth: 80.0, taper: 1.0 }));
+    assert_eq!(s.doc.node("cone").unwrap().body, Some(motif_core::Body { depth: 120.0, taper: 0.0 }));
+    assert_eq!(s.doc.animation("A").unwrap().keys_at(&s.doc, 0.5).node("cube").unwrap().get(Prop::Depth), Value::Num(50.0));
+    let out = set_prop(src, &s, "cube", Prop::Taper, Value::Num(0.5)).unwrap();
+    assert!(out.contains("extrude 80 0.5 yaw"), "{out}");
+    let out = set_prop(&out, &scene(&out), "cube", Prop::Depth, Value::Num(40.0)).unwrap();
+    assert!(out.contains("extrude 40 0.5 yaw"), "{out}");
+    let errs = parse("rect a extrude 0\ngroup g extrude 10\nrect b extrude 10 -1\n").unwrap_err();
+    assert_eq!(errs.len(), 3, "{errs:?}");
 }
 
 #[test]
