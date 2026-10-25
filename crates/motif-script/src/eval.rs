@@ -590,7 +590,7 @@ impl<'a> Evaluator<'a> {
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
-                "cap" | "join" | "blend" => Vec::new(),
+                "cap" | "join" | "blend" | "stack" | "anchor" => Vec::new(),
                 // `cross` is a keyword of the hatching.
                 "hatch" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(t) if t == "cross") { None } else { self.value(v) }).collect(),
                 _ => p.values.iter().map(|v| self.value(v)).collect(),
@@ -1085,6 +1085,56 @@ impl<'a> Evaluator<'a> {
                 },
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
+                "stack" | "gap" | "pad" if n.kind != ShapeKind::Group => {
+                    self.err(p.key_span, format!("«{}» бывает у group: группа выстраивает объекты в ряд или столбик", p.key))
+                }
+                "stack" => {
+                    let word = |i: usize| match p.values.get(i).map(|v| &v.kind) {
+                        Some(ValueKind::Ref(w)) => Some(w.as_str()),
+                        _ => None,
+                    };
+                    let dir = word(0).and_then(motif_core::StackDir::from_keyword);
+                    let align = match word(1) {
+                        None if p.values.len() < 2 => Some(motif_core::StackAlign::Center),
+                        w => w.and_then(motif_core::StackAlign::from_keyword),
+                    };
+                    match (dir, align) {
+                        (Some(dir), Some(align)) => {
+                            let s = node.stack.get_or_insert(motif_core::Stack::new(dir));
+                            (s.dir, s.align) = (dir, align);
+                        }
+                        _ => self.err(p.key_span, "stack row или stack column, и выравнивание поперёк: start, center (по умолчанию) или end — stack column start"),
+                    }
+                }
+                "gap" | "pad" => match num(0) {
+                    Some(v) if v >= 0.0 => {
+                        let s = node.stack.get_or_insert(motif_core::Stack::new(motif_core::StackDir::Column));
+                        if p.key == "gap" { s.gap = v } else { s.pad = v }
+                    }
+                    _ => self.err(p.key_span, format!("«{}» — отступ в стеке, число от 0: {} 8", p.key, p.key)),
+                },
+                "fit" => node.fit = true,
+                "anchor" => {
+                    let (mut h, mut v) = (None, None);
+                    let mut ok = true;
+                    for val in &p.values {
+                        match &val.kind {
+                            ValueKind::Ref(w) => match motif_core::anchor_word(w) {
+                                Some((a, b)) if (a.is_none() || h.is_none()) && (b.is_none() || v.is_none()) => {
+                                    h = h.or(a);
+                                    v = v.or(b);
+                                }
+                                _ => ok = false,
+                            },
+                            _ => ok = false,
+                        }
+                    }
+                    if ok {
+                        node.anchor = Some((h.unwrap_or(0.0), v.unwrap_or(0.0)));
+                    } else {
+                        self.err(p.key_span, "anchor — от какого края считать at: left, center, right и top, middle, bottom — anchor right bottom");
+                    }
+                }
                 "clip" => {
                     if n.kind != ShapeKind::Group {
                         self.err(p.key_span, "маска clip бывает только у group: первый объект группы обрезает остальные");

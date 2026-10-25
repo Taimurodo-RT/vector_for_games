@@ -1310,6 +1310,7 @@ impl App {
             }
             let mut add_states = false;
             if interface {
+                self.layout_section(ui, &node, half, &mut styles);
                 add_states = self.kit_section(ui, &node, half, &mut styles);
             }
             section(ui, |ui| {
@@ -1635,12 +1636,17 @@ impl App {
                             .selection()
                             .into_iter()
                             .filter_map(|id| doc.index_of(&id).map(|k| (id, k)))
+                            // A stack places its children itself.
+                            .filter(|(_, k)| doc.nodes[*k].parent.is_none_or(|p| doc.nodes[p].stack.is_none()))
                             .map(|(node, k)| MoveItem {
                                 node,
                                 origin: doc.world_transform(k) * Point::ZERO,
                                 to_parent: doc.nodes[k].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse()),
                             })
                             .collect::<Vec<_>>();
+                        if items.is_empty() {
+                            self.status = "Объект в стеке: место задаёт стек группы. Порядок меняется перетаскиванием в слоях".into();
+                        }
                         let moving: Vec<usize> = items.iter().filter_map(|it| doc.index_of(&it.node)).collect();
                         let start_box = moving.iter().filter_map(|&k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
                         let targets = crate::guides::Targets::collect(&doc, &moving);
@@ -1696,9 +1702,11 @@ impl App {
                         .iter()
                         .map(|it| {
                             let target = it.to_parent * (it.origin + delta);
-                            let x = if stuck[0] { fine(target.x) } else { snap.pos(target.x) };
-                            let y = if stuck[1] { fine(target.y) } else { snap.pos(target.y) };
-                            (it.node.clone(), x, y)
+                            // Stacks and anchors move objects by an offset the script does not hold.
+                            let off = doc.node(&it.node).map_or(motif_core::kurbo::Vec2::ZERO, |n| n.offset);
+                            let x = if stuck[0] { fine(target.x) } else { snap.pos(target.x) } - off.x;
+                            let y = if stuck[1] { fine(target.y) } else { snap.pos(target.y) } - off.y;
+                            (it.node.clone(), fine(x), fine(y))
                         })
                         .collect();
                     for (node, x, y) in moves {

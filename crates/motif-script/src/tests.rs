@@ -1256,3 +1256,32 @@ fn pointer_listeners_parse_edit_and_go_with_their_object() {
     let out = delete_node(&src, &s, "b").unwrap();
     assert!(!out.contains("listen"), "{out}");
 }
+
+#[test]
+fn stacks_panels_and_anchors() {
+    use motif_core::{StackAlign, StackDir};
+    let src = "artboard 400x300\ngroup g at 200 150 stack row end gap 4 pad 6 {\n  rect bg fit\n  rect a size 20 10\n  rect b size 30 30\n}\nrect c at -10 10 size 8 8 anchor right\n";
+    let s = scene(src);
+    let g = s.doc.node("g").unwrap();
+    let st = g.stack.unwrap();
+    assert_eq!((st.dir, st.align, st.gap, st.pad), (StackDir::Row, StackAlign::End, 4.0, 6.0));
+    assert!(s.doc.node("bg").unwrap().fit);
+    assert_eq!(s.doc.node("c").unwrap().anchor, Some((1.0, 0.0)));
+    // Laid out on parse: the panel covers 20 + 4 + 30 plus padding, the anchored rect sits at the right edge.
+    assert_eq!((s.doc.node("bg").unwrap().width, s.doc.node("bg").unwrap().height), (66.0, 42.0));
+    let c = s.doc.world_transform(s.doc.index_of("c").unwrap()) * motif_core::kurbo::Point::ZERO;
+    assert_eq!((c.x, c.y), (390.0, 10.0));
+    // Words, not names: `center` and `bottom` need no `let`.
+    let s = scene("group g stack column center {\n}\nrect c anchor center bottom\n");
+    assert_eq!(s.doc.node("c").unwrap().anchor, Some((0.5, 1.0)));
+    let msg = |src: &str| parse(src).unwrap_err().iter().map(|e| e.message.clone()).collect::<Vec<_>>().join(" | ");
+    assert!(msg("rect r stack row\n").contains("бывает у group"));
+    assert!(msg("group g stack diagonal {\n}\n").contains("stack row или stack column"));
+    assert!(msg("rect r anchor up\n").contains("anchor"));
+    assert!(msg("rect r anchor left right\n").contains("anchor"));
+    // The panel writes these keys back like any other.
+    let out = set_style(src, &scene(src), "g", "stack", Some("stack column")).unwrap();
+    assert!(out.contains("group g at 200 150 stack column gap 4 pad 6 {"), "{out}");
+    let out = set_style(src, &scene(src), "c", "anchor", None).unwrap();
+    assert!(out.contains("rect c at -10 10 size 8 8\n"), "{out}");
+}

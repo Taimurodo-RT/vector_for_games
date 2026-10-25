@@ -130,6 +130,9 @@
   <tr><td>Высота над артбордом</td><td><code>elevation 12</code></td></tr>
   <tr><td>Наложение</td><td><code>blend multiply</code>: screen, overlay, darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, exclusion, hue, saturation, color, luminosity</td></tr>
   <tr><td>Маска у группы</td><td><code>group окно clip { ellipse форма … остальное … }</code></td></tr>
+  <tr><td>Стек у группы</td><td><code>group меню stack column center gap 10 pad 18 { … }</code>: <code>row</code> или <code>column</code>, выравнивание <code>start|center|end</code></td></tr>
+  <tr><td>Фон по размеру стека</td><td><code>rect фон r 18 fill #1f2333 fit</code> внутри группы со стеком</td></tr>
+  <tr><td>Привязка к краю</td><td><code>anchor right</code>, <code>anchor center bottom</code>: <code>at</code> считается от этой точки артборда</td></tr>
 </table></div>
 <p>Цвета пишутся как <code>#rgb</code>, <code>#rrggbb</code> или с прозрачностью <code>#rrggbbaa</code> (<code>#00000055</code> — чёрный на треть).</p>
 
