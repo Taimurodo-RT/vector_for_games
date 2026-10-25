@@ -171,6 +171,15 @@ impl App {
             }
         }
         let Some(anim) = anim else { return };
+        // The curve picker goes first, at the right end; the rest fills what is left and is cut
+        // off at it when the window is narrow.
+        let rest = ui.available_rect_before_wrap();
+        let mut right = ui.new_child(UiBuilder::new().max_rect(rest).layout(Layout::right_to_left(Align::Center)));
+        right.spacing_mut().item_spacing.x = 8.0;
+        let narrow = rest.width() < 820.0;
+        self.curve_picker(&mut right, anim, narrow);
+        let left_end = right.min_rect().left() - 8.0;
+        ui.set_clip_rect(ui.clip_rect().intersect(Rect::from_x_y_ranges(rest.left()..=left_end, rest.y_range())));
         vsep(ui);
 
         if theme::icon_button(ui, Icon::First, "В начало").clicked() {
@@ -203,11 +212,17 @@ impl App {
         let mut job = LayoutJob::default();
         let font = theme::mono(12.0);
         let part = |job: &mut LayoutJob, s: &str, c: Color32| job.append(s, 0.0, TextFormat { font_id: font.clone(), color: c, ..Default::default() });
+        // In a narrow window only the time, so that the duration still fits.
+        let wide = left_end - ui.cursor().left() > 310.0;
         part(&mut job, &format!("{t:.2}"), FG);
-        part(&mut job, &format!(" / {:.2} с · кадр ", anim.duration), MUTED);
-        part(&mut job, &format!("{}", (t * FPS).round() as i64), FG);
+        if wide {
+            part(&mut job, &format!(" / {:.2} с · кадр ", anim.duration), MUTED);
+            part(&mut job, &format!("{}", (t * FPS).round() as i64), FG);
+        } else {
+            part(&mut job, " с", MUTED);
+        }
         let galley = ui.painter().layout_job(job);
-        let (r, _) = ui.allocate_exact_size(vec2(galley.size().x.max(150.0), 20.0), Sense::hover());
+        let (r, _) = ui.allocate_exact_size(vec2(galley.size().x.max(if wide { 150.0 } else { 0.0 }), 20.0), Sense::hover());
         ui.painter().galley(pos2(r.left(), r.center().y - galley.size().y / 2.0), galley, FG);
         vsep(ui);
 
@@ -221,26 +236,16 @@ impl App {
             let out = set_anim_duration(&self.src, &self.scene, &anim.name, (d * 100.0).round() / 100.0);
             self.apply("anim-duration", out);
         }
+    }
 
-        // Curve of the selected key.
-        ui.label(egui::RichText::new("Кривая").size(12.0).color(MUTED));
+    /// The curve of the selected key: a list of curves and a preview that opens the curve
+    /// editor. Laid out right to left at the end of the bar, so it never slides off a narrow window.
+    fn curve_picker(&mut self, ui: &mut Ui, anim: &Animation, narrow: bool) {
         let sel = self.sel_key.clone().filter(|_| self.anim.as_deref() == Some(anim.name.as_str()));
         let cur = sel.as_ref().and_then(|k| key_of(anim, k)).map(|k| k.ease);
         ui.add_enabled_ui(cur.is_some(), |ui| {
             let mut pick = None;
-            egui::ComboBox::from_id_salt("ease")
-                .width(108.0)
-                .selected_text(ease_label(cur.unwrap_or(Ease::EaseInOut)))
-                .show_ui(ui, |ui| {
-                    for e in Ease::BASIC {
-                        if ui.selectable_label(cur == Some(e), ease_label(e)).clicked() {
-                            pick = Some(e);
-                        }
-                    }
-                })
-                .response
-                .on_disabled_hover_text("Выберите ключ на таймлайне");
-            let resp = ease_preview(ui, cur).on_hover_text("Редактор кривой: тяните ручки");
+            let resp = ease_preview(ui, cur).on_hover_text("Редактор кривой: тяните ручки").on_disabled_hover_text("Выберите ключ на таймлайне");
             egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
@@ -256,15 +261,37 @@ impl App {
                     });
                 });
             });
+            egui::ComboBox::from_id_salt("ease")
+                .width(108.0)
+                .selected_text(match cur {
+                    Some(e) => ease_label(e),
+                    None => "нет ключа".into(),
+                })
+                .show_ui(ui, |ui| {
+                    for e in Ease::BASIC {
+                        if ui.selectable_label(cur == Some(e), ease_label(e)).clicked() {
+                            pick = Some(e);
+                        }
+                    }
+                })
+                .response
+                .on_disabled_hover_text("Выберите ключ на таймлайне: щелчок по ромбику. Правый щелчок по ромбику тоже меняет кривую");
+            if !narrow {
+                ui.label(egui::RichText::new("Кривая").size(12.0).color(MUTED));
+            }
             if let (Some(e), Some(k)) = (pick, &sel)
                 && Some(e) != cur
             {
-                let out = set_key_ease(&self.src, &self.scene, &anim.name, &k.node, k.prop, k.time, &e.script());
-                if self.apply("ease", out) {
-                    self.status = format!("Кривая ключа {}.{} на {} с: {}", k.node, k.prop.path_name(), fmt_num(k.time), e.script());
-                }
+                self.set_ease(anim, k, e);
             }
         });
+    }
+
+    fn set_ease(&mut self, anim: &Animation, k: &KeyRef, e: Ease) {
+        let out = set_key_ease(&self.src, &self.scene, &anim.name, &k.node, k.prop, k.time, &e.script());
+        if self.apply("ease", out) {
+            self.status = format!("Кривая ключа {}.{} на {} с: {}", k.node, k.prop.path_name(), fmt_num(k.time), e.script());
+        }
     }
 
     fn timeline_body(&mut self, ui: &mut Ui, body: Rect, anim: &Animation) {
@@ -461,7 +488,28 @@ impl App {
                         ACCENT
                     };
                     theme::diamond(&p, c, 6.0, fill, Stroke::new(1.5, if selected { FG } else { ACCENT }));
-                    let kresp = kresp.on_hover_text(format!("{} · {:.2} с · {}", prop_label(*prop), k.time, ease_label(k.ease)));
+                    let kresp = kresp.on_hover_text(format!("{} · {:.2} с · {} · правый щелчок — кривая", prop_label(*prop), k.time, ease_label(k.ease)));
+                    // Right click: pick the curve straight from the key.
+                    let mut pick = None;
+                    kresp.context_menu(|ui| {
+                        ui.label(egui::RichText::new("Кривая ключа").size(12.0).color(MUTED));
+                        for e in Ease::BASIC {
+                            if ui.selectable_label(k.ease == e, ease_label(e)).clicked() {
+                                pick = Some(e);
+                                ui.close();
+                            }
+                        }
+                    });
+                    if kresp.secondary_clicked() {
+                        self.ensure_anim(&anim.name);
+                        self.sel_key = Some(me.clone());
+                        self.selected = Some(id.clone());
+                    }
+                    if let Some(e) = pick
+                        && e != k.ease
+                    {
+                        self.set_ease(anim, &me, e);
+                    }
                     if kresp.clicked() || kresp.drag_started() {
                         self.ensure_anim(&anim.name);
                         self.sel_key = Some(me.clone());
@@ -517,7 +565,7 @@ impl App {
         };
         let mut pick: Option<(String, Option<usize>)> = None;
         let resp = egui::ComboBox::from_id_salt("anim-pick")
-            .width(170.0)
+            .width(140.0)
             .height(420.0)
             .selected_text(egui::RichText::new(text).color(if self.anim.is_some() { FG } else { MUTED }))
             .show_ui(ui, |ui| {
