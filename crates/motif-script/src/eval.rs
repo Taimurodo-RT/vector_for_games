@@ -922,6 +922,17 @@ impl<'a> Evaluator<'a> {
                         links = Some((t.clone(), p.values[0].span));
                     }
                 }
+                "extrude" if n.kind.is_container() => self.err(p.key_span, "«extrude» бывает у фигур: в глубину выдавливается контур"),
+                "extrude" => match (num(0), if p.values.len() > 1 { num(1) } else { Some(1.0) }) {
+                    (Some(d), Some(t)) if d != 0.0 && t >= 0.0 => {
+                        node.body = Some(motif_core::Body { depth: d, taper: t });
+                        record(&mut self.scene, Prop::Depth, &p.values[0], None);
+                        if let Some(v) = p.values.get(1) {
+                            record(&mut self.scene, Prop::Taper, v, None);
+                        }
+                    }
+                    _ => self.err(p.key_span, "extrude — глубина и сужение задней грани (1 — призма, 0 — конус): extrude 60, extrude 120 0"),
+                },
                 "morph" if n.kind.is_container() => self.err(p.key_span, "«morph» бывает у фигур: перетекает контур"),
                 "morph" => {
                     let ids: Vec<_> = p.values.iter().filter_map(|v| if let ValueKind::Path(t) = &v.kind { Some((t.clone(), v.span)) } else { None }).collect();

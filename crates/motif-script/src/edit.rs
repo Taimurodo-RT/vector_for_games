@@ -109,6 +109,12 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         }
         Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => return None,
         // How far goes after the targets: without them there is nothing to flow into.
+        Prop::Depth => format!("extrude {text}"),
+        // How much the back narrows goes after the depth.
+        Prop::Taper => {
+            let span = scene.prop_spans.get(&(node.to_string(), "extrude".to_string()))?;
+            return Some(splice(src, Span::new(span.end, span.end), &format!(" {text}")));
+        }
         Prop::Morph => {
             let span = scene.prop_spans.get(&(node.to_string(), "morph".to_string()))?;
             return Some(splice(src, Span::new(span.end, span.end), &format!(" {text}")));
