@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 //! Motif editor: write a scene script, see it live, finish it with the mouse.
 
 mod app;

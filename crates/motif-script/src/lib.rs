@@ -23,7 +23,7 @@ mod expr;
 mod lexer;
 mod parser;
 
-pub use edit::{fmt_value, set_prop};
+pub use edit::{delete_key, fmt_value, set_key, set_prop};
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
 use std::fmt;
@@ -99,6 +99,34 @@ pub struct Scene {
     pub sites: HashMap<String, NodeSite>,
     /// Offset of the closing brace of the `override { }` block, when there is one.
     pub override_close: Option<usize>,
+    /// Where each animation and its tracks are written, by animation name.
+    pub anims: HashMap<String, AnimSite>,
+}
+
+/// Where an `anim` block is written in the script.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnimSite {
+    /// Offset of the block's closing brace.
+    pub close: usize,
+    pub tracks: Vec<TrackSite>,
+}
+
+/// One `node.prop  t: v | …` line of an `anim` block.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackSite {
+    pub node: String,
+    pub prop: Prop,
+    pub keys: Vec<KeySite>,
+}
+
+/// One `t: v [curve]` key of a track, in the order it is written.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KeySite {
+    pub time: f64,
+    /// The whole key, from the time to the curve.
+    pub span: Span,
+    /// Just the value.
+    pub value: Span,
 }
 
 /// Parses and evaluates a scene script. Returns every error found, not only the first.

@@ -117,3 +117,59 @@ fn override_entries_stay_on_adjacent_lines() {
     }
     assert!(src.ends_with("override {\n  coin0.y = 35\n  coin0.x = 2\n}\n"), "{src}");
 }
+
+#[test]
+fn set_key_replaces_inserts_and_appends() {
+    let src = "rect a at 10 20\nanim Go 1s {\n  a.x  0: 10 linear | 1: 50\n}\n";
+    let s = scene(src);
+    // Same time: only the value changes, the curve stays.
+    let out = set_key(src, &s, "Go", "a", Prop::X, 0.0, Value::Num(12.0)).unwrap();
+    assert!(out.contains("a.x  0: 12 linear | 1: 50\n"), "{out}");
+    // Between keys: inserted in time order.
+    let out = set_key(src, &s, "Go", "a", Prop::X, 0.5, Value::Num(80.0)).unwrap();
+    assert!(out.contains("a.x  0: 10 linear | 0.5: 80 | 1: 50\n"), "{out}");
+    assert_eq!(scene(&out).doc.animations[0].tracks[0].keys.len(), 3);
+    // After the last key: appended.
+    let out = set_key(src, &s, "Go", "a", Prop::X, 1.25, Value::Num(0.0)).unwrap();
+    assert!(out.contains("| 1: 50 | 1.25: 0\n"), "{out}");
+    // Times snap to hundredths, so a nearby time hits the same key.
+    let out = set_key(src, &s, "Go", "a", Prop::X, 0.9999, Value::Num(7.0)).unwrap();
+    assert!(out.contains("| 1: 7\n"), "{out}");
+}
+
+#[test]
+fn set_key_creates_track_from_scene_value() {
+    let src = "rect a at 10 20\nanim Go 1s {\n  a.x  0: 10 | 1: 50\n}\n";
+    let s = scene(src);
+    let out = set_key(src, &s, "Go", "a", Prop::Y, 0.4, Value::Num(60.0)).unwrap();
+    assert!(out.ends_with("  a.x  0: 10 | 1: 50\n  a.y  0: 20 | 0.4: 60\n}\n"), "{out}");
+    let s2 = scene(&out);
+    let posed = s2.doc.animations[0].pose(&s2.doc, 0.4);
+    assert_eq!(posed.node("a").unwrap().y, 60.0);
+    // A colour key at time 0 needs no extra base key.
+    let out = set_key(src, &s, "Go", "a", Prop::Fill, 0.0, Value::Color(Color::WHITE)).unwrap();
+    assert!(out.contains("  a.fill  0: #ffffff\n}"), "{out}");
+    // Empty block, closing brace on the anim line's own block.
+    let src = "rect a\nanim Go 1s {\n}\n";
+    let out = set_key(src, &scene(src), "Go", "a", Prop::X, 0.0, Value::Num(5.0)).unwrap();
+    assert_eq!(out, "rect a\nanim Go 1s {\n  a.x  0: 5\n}\n");
+    assert!(set_key(src, &scene(src), "Nope", "a", Prop::X, 0.0, Value::Num(5.0)).is_none());
+}
+
+#[test]
+fn delete_key_keeps_the_line_tidy() {
+    let src = "rect a\nanim Go 1s {\n  a.x  0: 10 linear | 0.5: 3 | 1: 50\n  a.y  0: 1\n}\n";
+    let s = scene(src);
+    let first = delete_key(src, &s, "Go", "a", Prop::X, 0.0).unwrap();
+    assert!(first.contains("  a.x  0.5: 3 | 1: 50\n"), "{first}");
+    let mid = delete_key(src, &s, "Go", "a", Prop::X, 0.5).unwrap();
+    assert!(mid.contains("  a.x  0: 10 linear | 1: 50\n"), "{mid}");
+    let last = delete_key(src, &s, "Go", "a", Prop::X, 1.0).unwrap();
+    assert!(last.contains("  a.x  0: 10 linear | 0.5: 3\n"), "{last}");
+    let whole = delete_key(src, &s, "Go", "a", Prop::Y, 0.0).unwrap();
+    assert_eq!(whole, "rect a\nanim Go 1s {\n  a.x  0: 10 linear | 0.5: 3 | 1: 50\n}\n");
+    assert!(delete_key(src, &s, "Go", "a", Prop::Y, 0.3).is_none());
+    for out in [first, mid, last, whole] {
+        scene(&out);
+    }
+}

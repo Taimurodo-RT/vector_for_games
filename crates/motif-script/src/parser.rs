@@ -53,6 +53,8 @@ pub struct KeyAst {
     pub time: f64,
     pub value: ValueAst,
     pub ease: Option<String>,
+    /// From the time to the end of the value or curve: the whole `0.6: 278 ease-out`.
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -96,6 +98,8 @@ pub enum Stmt {
         looping: bool,
         tracks: Vec<TrackAst>,
         span: Span,
+        /// Offset of the block's closing brace (where new tracks are inserted).
+        close: usize,
     },
     /// `close` is the offset of the block's closing brace (where new entries are inserted).
     Override {
@@ -399,14 +403,15 @@ impl<'a> Parser<'a> {
                 },
             }
         }
-        self.close_block()?;
-        Ok(Stmt::Anim { name, duration, looping, tracks, span })
+        let close = self.close_block()?;
+        Ok(Stmt::Anim { name, duration, looping, tracks, span, close })
     }
 
     fn track(&mut self) -> Result<TrackAst, ScriptError> {
         let (node, prop, span) = self.path()?;
         let mut keys = Vec::new();
         loop {
+            let start = self.peek_span().start;
             let time = match self.next() {
                 Some(Token { tok: Tok::Num(v) | Tok::Seconds(v), .. }) => v,
                 Some(t) => return Err(self.err(t.span, "ожидалось время ключа, например 0.6")),
@@ -414,11 +419,16 @@ impl<'a> Parser<'a> {
             };
             self.expect(Tok::Colon, "«:» после времени ключа")?;
             let value = self.value()?;
+            let mut end = value.span.end;
             let ease = match self.peek() {
-                Some(Tok::Ident(_)) => self.ident("кривая")?.0.into(),
+                Some(Tok::Ident(_)) => {
+                    let (e, span) = self.ident("кривая")?;
+                    end = span.end;
+                    Some(e)
+                }
                 _ => None,
             };
-            keys.push(KeyAst { time, value, ease });
+            keys.push(KeyAst { time, value, ease, span: Span::new(start, end) });
             if self.peek() == Some(&Tok::Pipe) {
                 self.pos += 1;
             } else {

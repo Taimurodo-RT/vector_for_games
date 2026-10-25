@@ -21,3 +21,21 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo run -p motif-cli -- check examples/bounce.msc
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p motif-editor -p motif-cli
+      - name: Collect the build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force Motif/examples | Out-Null
+          Copy-Item target/release/motif-editor.exe, target/release/motif.exe Motif/
+          Copy-Item examples/*.msc Motif/examples/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Motif-windows-x64
+          path: Motif
