@@ -132,6 +132,8 @@ Disabled, Focus. «Экспорт → Сохранить UI-набор…» пи
 (hero.speed = 1.0, hero.fire_jump()).
 Флажок «Через PixaTool» под кнопкой выгрузки сначала прогоняет кадры через
 PixaTool с пресетом из раздела PixaTool: в атлас ложится пиксель-арт.
+После первой выгрузки каждое Ctrl+S обновляет персонажа в той же папке Godot
+(«Отвязать» в окне «Экспорт» выключает).
 
 motif.exe — командная строка: motif.exe check|render|frames|palette|pixel|kit|godot
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out

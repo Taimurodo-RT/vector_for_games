@@ -201,6 +201,8 @@ pub struct App {
     pixel: PixelPreview,
     export: ExportSettings,
     pixa: crate::pixabridge::Bridge,
+    /// For work that finishes on another thread and must wake the window (re-export on save).
+    ctx: egui::Context,
     canvas: Canvas,
     pub(crate) backdrop_img: crate::importer::BackdropCache,
     pub(crate) status: String,
@@ -275,6 +277,7 @@ impl App {
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
             export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true },
             pixa: crate::pixabridge::Bridge::load(),
+            ctx: cc.egui_ctx.clone(),
             canvas: Canvas::new(),
             guides: Vec::new(),
             backdrop_img: Default::default(),
@@ -729,7 +732,11 @@ impl App {
                 self.saved_src = self.src.clone();
                 self.disk_mtime = mtime(&path);
                 self.status = format!("Сохранено: {}", path.display());
-                self.path = Some(path);
+                self.path = Some(path.clone());
+                if let Some(link) = self.pixa.link(&path).cloned() {
+                    let ctx = self.ctx.clone();
+                    self.status = format!("Сохранено. {}", self.godot_to(&link.dir, link.node, &ctx));
+                }
             }
             Err(e) => self.status = format!("Не удалось сохранить {}: {e}", path.display()),
         }
@@ -801,32 +808,44 @@ impl App {
     }
 
     /// Every animation of the scene (or of the selected object) for Godot: atlas, SpriteFrames,
-    /// a scene with the sprite and, with a state machine, its AnimationTree.
+    /// a scene with the sprite and, with a state machine, its AnimationTree. A saved scene stays
+    /// linked to the folder and is exported there again on every save.
     fn export_godot(&mut self, ctx: &egui::Context) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка в проекте Godot").pick_folder() else { return };
-        let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
         let only = self.selected.clone().filter(|id| self.scene.doc.node(id).is_some());
+        if let Some(path) = self.path.clone() {
+            self.pixa.set_link(&path, Some((dir.clone(), only.clone())));
+        }
+        self.status = self.godot_to(&dir, only, ctx);
+    }
+
+    /// Exports into `dir` and returns the status line; with PixaTool it only starts the job.
+    fn godot_to(&mut self, dir: &std::path::Path, only: Option<String>, ctx: &egui::Context) -> String {
+        let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
+        let only = only.filter(|id| self.scene.doc.node(id).is_some());
         let stem = self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned());
         let name = only.clone().unwrap_or(stem);
         let opts = motif_pixel::godot::GodotExport { fps: self.export.fps, render, only, pivot: None };
-        if self.pixa.godot {
+        if self.pixa.godot && self.pixa.exe.is_some() {
+            if self.pixa.job.is_some() {
+                return "Godot: PixaTool ещё занят прошлой выгрузкой".into();
+            }
             let (doc, machine) = (self.scene.doc.clone(), self.scene.doc.machines.first().cloned());
-            self.status = match self.pixa.start_godot(doc, opts, dir, name, machine, ctx) {
+            return match self.pixa.start_godot(doc, opts, dir.to_path_buf(), name, machine, ctx) {
                 Ok(()) => "Godot: снимаю кадры для PixaTool…".into(),
                 Err(e) => format!("Экспорт в Godot не удался: {e}"),
             };
-            return;
         }
         let doc = &self.scene.doc;
         let result = motif_pixel::godot::bake_sheet(doc, &opts)
-            .and_then(|sheet| motif_pixel::godot::write_godot(&dir, &name, &sheet, doc.machines.first(), !self.export.antialias).map(|f| (sheet, f.len())));
-        self.status = match result {
+            .and_then(|sheet| motif_pixel::godot::write_godot(dir, &name, &sheet, doc.machines.first(), !self.export.antialias).map(|f| (sheet, f.len())));
+        match result {
             Ok((sheet, files)) => {
                 let tree = doc.machines.first().map_or(String::new(), |m| format!(", машина «{}» в AnimationTree", m.name));
                 format!("Godot: {name}.tscn, анимаций {}, кадров {} в атласе{tree} — {files} файлов в {}", sheet.anims.len(), sheet.cells.len(), dir.display())
             }
             Err(e) => format!("Экспорт в Godot не удался: {e}"),
-        };
+        }
     }
 
     fn pixelize_frames(&mut self, ctx: &egui::Context) {
@@ -2049,6 +2068,19 @@ impl App {
         if let Some(job) = &self.pixa.job {
             job_progress(ui, job);
         }
+        if let Some(link) = self.path.as_deref().and_then(|p| self.pixa.link(p)).cloned() {
+            let what =
+                link.node.as_deref().and_then(|id| self.scene.doc.node(id)).map_or("вся сцена".to_string(), |n| format!("«{}»", n.display_name()));
+            let mut unlink = false;
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(format!("Обновляется при каждом сохранении: {what} → {}", crate::pixabridge::short(&link.dir))).size(12.0))
+                    .on_hover_text(link.dir.display().to_string());
+                unlink = theme::button(ui, "Отвязать", ButtonKind::Normal).on_hover_text("Больше не выгружать при сохранении").clicked();
+            });
+            if unlink && let Some(path) = self.path.clone() {
+                self.pixa.set_link(&path, None);
+            }
+        }
         let machine = self
             .scene
             .doc
@@ -2057,7 +2089,7 @@ impl App {
             .map_or(String::new(), |m| format!(" Машина «{}» станет AnimationTree, её входы — переменными скрипта сцены (speed, fire_jump()…).", m.name));
         ui.label(
             RichText::new(format!(
-                "Выделите персонажа, чтобы выгрузить его без фона: точкой привязки станет его центр. Кадры в секунду, масштаб и сглаживание — из настроек ниже. Через PixaTool спрайт выйдет в размере пикселей пресета, с фильтром Nearest.{machine}"
+                "Выделите персонажа, чтобы выгрузить его без фона: точкой привязки станет его центр. Кадры в секунду, масштаб и сглаживание — из настроек ниже. Через PixaTool спрайт выйдет в размере пикселей пресета, с фильтром Nearest. После выгрузки сохранённая сцена обновляется в Godot при каждом Ctrl+S.{machine}"
             ))
             .size(12.0)
             .color(FAINT),

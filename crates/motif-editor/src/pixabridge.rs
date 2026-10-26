@@ -24,6 +24,13 @@ pub struct Job {
     pub done: usize,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct GodotLink {
+    pub scene: PathBuf,
+    pub dir: PathBuf,
+    pub node: Option<String>,
+}
+
 #[derive(Default)]
 pub struct Bridge {
     /// Pixatool.exe, picked by hand or found in the tools folder.
@@ -32,30 +39,44 @@ pub struct Bridge {
     pub preset: Option<PathBuf>,
     /// Run the Godot export's frames through PixaTool.
     pub godot: bool,
+    /// Scenes exported to Godot, re-exported on every save: the scene file, the folder in the
+    /// Godot project and the object exported (the whole scene when `None`).
+    pub links: Vec<GodotLink>,
     pub job: Option<Job>,
 }
 
 impl Bridge {
     pub fn load() -> Self {
-        let mut b = Bridge::default();
-        if let Some(text) = settings_path().and_then(|p| std::fs::read_to_string(p).ok()) {
-            for line in text.lines() {
-                match line.split_once('=') {
-                    Some(("pixatool", v)) if Path::new(v.trim()).is_file() => b.exe = Some(v.trim().into()),
-                    Some(("pixatool-preset", v)) if Path::new(v.trim()).is_file() => b.preset = Some(v.trim().into()),
-                    Some(("godot-pixatool", v)) => b.godot = v.trim() == "1",
-                    _ => {}
-                }
-            }
-        }
+        let text = settings_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+        let mut b = Bridge::parse(&text);
         if b.exe.is_none() {
             b.exe = pixatool::locate(None).filter(|p| p.is_file());
         }
         b
     }
 
-    pub fn save(&self) {
-        let Some(path) = settings_path() else { return };
+    /// The settings from `motif.ini` text; programs and presets that are gone are skipped.
+    fn parse(text: &str) -> Self {
+        let mut b = Bridge::default();
+        for line in text.lines() {
+            match line.split_once('=') {
+                Some(("pixatool", v)) if Path::new(v.trim()).is_file() => b.exe = Some(v.trim().into()),
+                Some(("pixatool-preset", v)) if Path::new(v.trim()).is_file() => b.preset = Some(v.trim().into()),
+                Some(("godot-pixatool", v)) => b.godot = v.trim() == "1",
+                Some(("godot-link", v)) => {
+                    let mut parts = v.split('\t');
+                    if let (Some(scene), Some(dir)) = (parts.next(), parts.next()) {
+                        let node = parts.next().filter(|n| !n.is_empty()).map(String::from);
+                        b.links.push(GodotLink { scene: scene.into(), dir: dir.into(), node });
+                    }
+                }
+                _ => {}
+            }
+        }
+        b
+    }
+
+    fn text(&self) -> String {
         let mut text = String::new();
         if let Some(p) = &self.exe {
             text += &format!("pixatool={}\n", p.display());
@@ -66,7 +87,29 @@ impl Bridge {
         if self.godot {
             text += "godot-pixatool=1\n";
         }
-        let _ = std::fs::write(path, text);
+        for l in &self.links {
+            text += &format!("godot-link={}\t{}\t{}\n", l.scene.display(), l.dir.display(), l.node.as_deref().unwrap_or(""));
+        }
+        text
+    }
+
+    pub fn save(&self) {
+        let Some(path) = settings_path() else { return };
+        let _ = std::fs::write(path, self.text());
+    }
+
+    /// The Godot folder the scene at `scene` is kept up to date in.
+    pub fn link(&self, scene: &Path) -> Option<&GodotLink> {
+        self.links.iter().find(|l| l.scene == scene)
+    }
+
+    /// Keeps `scene` exported into `dir` from now on (one folder per scene), or stops with `None`.
+    pub fn set_link(&mut self, scene: &Path, target: Option<(PathBuf, Option<String>)>) {
+        self.links.retain(|l| l.scene != scene);
+        if let Some((dir, node)) = target {
+            self.links.push(GodotLink { scene: scene.to_path_buf(), dir, node });
+        }
+        self.save();
     }
 
     /// Saves `frames` to a temporary folder and runs them through PixaTool on another thread,
@@ -182,6 +225,16 @@ pub fn short(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn godot_links_survive_a_restart() {
+        let mut b = Bridge { godot: true, ..Default::default() };
+        b.links.push(GodotLink { scene: "C:\\Игры\\hero.msc".into(), dir: "C:\\game\\characters\\hero".into(), node: Some("hero".into()) });
+        b.links.push(GodotLink { scene: "/tmp/ui.msc".into(), dir: "/tmp/game/ui".into(), node: None });
+        let back = Bridge::parse(&b.text());
+        assert!(back.godot);
+        assert_eq!(back.links, b.links);
+    }
 
     /// Runs only where a PixaTool copy is given: `MOTIF_TEST_PIXATOOL=…/Pixatool cargo test`.
     #[test]
