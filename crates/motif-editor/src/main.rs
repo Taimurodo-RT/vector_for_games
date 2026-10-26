@@ -20,6 +20,7 @@ mod morph_ui;
 mod motion_ui;
 mod orbit_ui;
 mod paint;
+mod palette_ui;
 mod pathedit;
 mod physics_ui;
 mod pixabridge;

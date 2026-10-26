@@ -70,6 +70,8 @@ impl<'a> Evaluator<'a> {
                 world: None,
                 weights: HashMap::new(),
                 board_cell: None,
+                palette: Vec::new(),
+                refs: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -490,7 +492,18 @@ impl<'a> Evaluator<'a> {
                     }
                 }
                 Stmt::Let { name, value } => {
-                    if let Some(v) = self.value(value) {
+                    let v = self.value(value);
+                    if parent.is_none()
+                        && !generated
+                        && let Some(Value::Color(color)) = v
+                    {
+                        let swatch = crate::Swatch { name: name.clone(), color, span: value.span, literal: value.is_literal() };
+                        match self.scene.palette.iter_mut().find(|s| s.name == *name) {
+                            Some(s) => *s = swatch,
+                            None => self.scene.palette.push(swatch),
+                        }
+                    }
+                    if let Some(v) = v {
                         match v {
                             Value::Num(n) => self.vars.insert(name.clone(), Var::Num(n)),
                             Value::Color(c) => self.vars.insert(name.clone(), Var::Color(c)),
@@ -665,6 +678,9 @@ impl<'a> Evaluator<'a> {
         node.name = n.name.clone();
         node.parent = parent;
         let record = |scene: &mut Scene, prop: Prop, v: &ValueAst, paired: Option<Prop>| {
+            if let ValueKind::Ref(name) = &v.kind {
+                scene.refs.insert((id.clone(), prop), name.clone());
+            }
             scene.sources.insert((id.clone(), prop), Source { span: v.span, editable: v.is_literal() && !generated, paired, from_override: false });
         };
         let mut content = String::new();

@@ -60,12 +60,12 @@ fn appends_missing_property() {
 
 #[test]
 fn derived_values_go_to_override() {
-    let src = "let c = #ff0000\nrect a fill c\nfor i in 0..2 {\n  rect b{i} at {i * 10} 0\n}\n";
+    let src = "let w = 30\nrect a size w 10\nfor i in 0..2 {\n  rect b{i} at {i * 10} 0\n}\n";
     let s = scene(src);
-    let out = set_prop(src, &s, "a", Prop::Fill, Value::Color(Color::WHITE)).unwrap();
-    assert!(out.ends_with("override {\n  a.fill = #ffffff\n}\n"), "{out}");
+    let out = set_prop(src, &s, "a", Prop::Width, Value::Num(40.0)).unwrap();
+    assert!(out.ends_with("override {\n  a.w = 40\n}\n"), "{out}");
     let s2 = scene(&out);
-    assert_eq!(s2.doc.node("a").unwrap().fill, Some(Color::WHITE));
+    assert_eq!(s2.doc.node("a").unwrap().width, 40.0);
     // Second edit to a generated node goes into the same block; editing it again rewrites the entry.
     let out2 = set_prop(&out, &s2, "b1", Prop::Y, Value::Num(7.0)).unwrap();
     let s3 = scene(&out2);
@@ -1089,6 +1089,40 @@ fn ui_roles_and_parts() {
     );
     assert_eq!(errors("group a ui {\n  rect b part text\n}\n"), ["part text — подпись: это должен быть text"]);
     assert_eq!(errors("group a ui check {\n  rect b part wheel\n  rect c part checked\n  rect d part unchecked\n}\n").len(), 1);
+}
+
+#[test]
+fn the_palette_is_the_top_level_colors() {
+    let src = "// kit\nlet main = #3b6cff\nlet r = 14\nlet ink = main\nrect a size 10 10 fill main stroke ink 2\nrect b size 10 10 fill #ffffff\ngroup g {\n  rect c size 4 4\n}\n";
+    let s = scene(src);
+    let names: Vec<_> = s.palette.iter().map(|p| (p.name.as_str(), p.literal)).collect();
+    assert_eq!(names, [("main", true), ("ink", false)], "numbers are not colors");
+    assert_eq!(s.refs.get(&("a".to_string(), Prop::Fill)).map(String::as_str), Some("main"));
+    assert_eq!(s.refs.get(&("a".to_string(), Prop::StrokeColor)).map(String::as_str), Some("ink"));
+    // Recolor the palette: every user follows.
+    let out = set_swatch(src, &s, "main", Color::rgb(255, 0, 0)).unwrap();
+    assert!(out.contains("let main = #ff0000\n"), "{out}");
+    assert_eq!(scene(&out).doc.node("a").unwrap().stroke, Some(Color::rgb(255, 0, 0)));
+    assert!(set_swatch(src, &s, "ink", Color::BLACK).is_none(), "ink is written as a name");
+    // Assign by name: replacing a color, a name, or adding the property.
+    let out = set_ref(src, &s, "b", Prop::Fill, "main").unwrap();
+    assert!(out.contains("rect b size 10 10 fill main\n"), "{out}");
+    let out = set_ref(src, &s, "a", Prop::Fill, "ink").unwrap();
+    assert!(out.contains("fill ink stroke ink 2"), "{out}");
+    let out = set_ref(src, &s, "c", Prop::StrokeColor, "main").unwrap();
+    assert!(out.contains("rect c size 4 4 stroke main 2\n"), "{out}");
+    // A picked color replaces the name on the node's own line, not through override.
+    let out = set_prop(src, &s, "a", Prop::Fill, Value::Color(Color::rgb(1, 2, 3))).unwrap();
+    assert!(out.contains("rect a size 10 10 fill #010203 stroke ink 2") && !out.contains("override"), "{out}");
+    // New colors go after the last one, or after the opening comments.
+    let name = free_swatch_name(src);
+    assert_eq!(name, "color1");
+    let out = add_swatch(src, &s, &name, Color::WHITE);
+    assert!(out.contains("let ink = main\nlet color1 = #ffffff\nrect a"), "{out}");
+    let bare = "// title\n\nartboard 10x10\nrect a size 2 2\n";
+    let out = add_swatch(bare, &scene(bare), "paper", Color::WHITE);
+    assert!(out.starts_with("// title\n\nlet paper = #ffffff\n\nartboard"), "{out}");
+    assert_eq!(scene(&out).palette.len(), 1);
 }
 
 #[test]

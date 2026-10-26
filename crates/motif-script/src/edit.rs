@@ -35,7 +35,13 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
     let key = (node.to_string(), prop);
 
     if let Some(s) = scene.sources.get(&key) {
-        if !s.editable {
+        // A palette color named on the node's own line (`fill main`) gives way to the picked color
+        // there: the object leaves the palette. Numbers from `let` stay and get an override.
+        let named = matches!(prop, Prop::Fill | Prop::StrokeColor)
+            && scene.refs.contains_key(&key)
+            && !s.from_override
+            && scene.sites.get(node).is_some_and(|site| !site.generated);
+        if !s.editable && !named {
             return Some(write_override(src, scene, node, prop, &text));
         }
         let repl = match s.paired {
@@ -128,7 +134,7 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
     Some(splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {addition}")))
 }
 
-fn write_override(src: &str, scene: &Scene, node: &str, prop: Prop, text: &str) -> String {
+pub(crate) fn write_override(src: &str, scene: &Scene, node: &str, prop: Prop, text: &str) -> String {
     let line = format!("  {node}.{} = {text}\n", prop.path_name());
     match scene.override_close {
         Some(close) => insert_before_close(src, close, &line),

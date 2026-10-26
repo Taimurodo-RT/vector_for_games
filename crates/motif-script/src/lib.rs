@@ -34,6 +34,7 @@ mod parser;
 mod svg;
 mod symbol;
 
+mod palette;
 pub use boards::{
     BOARD_GAP, BoardGrid, BoardSize, board_file_name, board_layout, boards, head_end, new_board, parse_boards, rename_artboard, set_artboard_size,
     set_board_cell,
@@ -49,7 +50,8 @@ pub use edit::{
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
 };
-use motif_core::{Document, Prop};
+use motif_core::{Color, Document, Prop};
+pub use palette::{add_swatch, free_swatch_name, set_ref, set_swatch};
 use std::collections::HashMap;
 use std::fmt;
 pub use svg::import_svg;
@@ -157,6 +159,20 @@ pub struct Scene {
     pub weights: HashMap<String, WeightsSite>,
     /// The grid cell (column, row) of this artboard among the others of its file: `cell 1 0`.
     pub board_cell: Option<(u32, u32)>,
+    /// Colors named by top-level `let` lines, in the order written: the scene's palette.
+    pub palette: Vec<Swatch>,
+    /// Properties written as a name (`fill main`): the name, by node id and property.
+    pub refs: HashMap<(String, Prop), String>,
+}
+
+/// A named color of the palette: `let main = #3b6cff`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Swatch {
+    pub name: String,
+    pub color: Color,
+    /// The value after `=`; rewritten when the color is edited, if it is a plain color.
+    pub span: Span,
+    pub literal: bool,
 }
 
 /// A `weights` block: the strokes match the shape's `skin.paint` one to one.
