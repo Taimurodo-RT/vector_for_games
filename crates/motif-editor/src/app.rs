@@ -123,8 +123,8 @@ pub struct PixelPreview {
 
 pub struct ExportSettings {
     fps: f64,
-    scale: f64,
-    antialias: bool,
+    pub(crate) scale: f64,
+    pub(crate) antialias: bool,
     transparent: bool,
     /// Export every board of the file, not only the open one.
     all_boards: bool,
@@ -144,6 +144,8 @@ pub struct App {
     pub(crate) clipboard: (String, Vec<motif_script::Snippet>),
     /// Undo-step name shared by a batch of edits (moving or aligning several objects).
     pub(crate) edit_group: Option<String>,
+    /// The «Растяжение 9-slice» window, when open.
+    pub(crate) stretch: Option<crate::stretch_ui::Stretch>,
     pub(crate) hovered: Option<String>,
     view: Option<View>,
     pub(crate) anim: Option<String>,
@@ -212,7 +214,7 @@ pub struct App {
     space_used_for_pan: bool,
     hex_edit: Option<(Prop, String)>,
     pixel: PixelPreview,
-    export: ExportSettings,
+    pub(crate) export: ExportSettings,
     pixa: crate::pixabridge::Bridge,
     /// For work that finishes on another thread and must wake the window (re-export on save).
     ctx: egui::Context,
@@ -251,6 +253,7 @@ impl App {
             also: Vec::new(),
             clipboard: (String::new(), Vec::new()),
             edit_group: None,
+            stretch: None,
             hovered: None,
             view: None,
             anim: None,
@@ -474,6 +477,22 @@ impl App {
     }
 
     /// Adds the animations a kit takes its states from, and opens the first in Animate.
+    /// Moves the shapes of piece `id` so their edges land on whole pixels of the export.
+    fn align_to_pixels(&mut self, id: &str) {
+        if self.key_time().is_some() {
+            self.status = "Выравнивание по пикселям меняет сцену: выключите Animate".into();
+            return;
+        }
+        let Some(i) = self.scene.doc.index_of(id) else { return };
+        let (_, edits) = crate::kit_ui::crisp_edits(&self.scene.doc, i, self.export.scale);
+        self.edit_group = Some("pixel-align".into());
+        for (node, prop, v) in &edits {
+            self.edit(node, *prop, Value::Num(*v));
+        }
+        self.edit_group = None;
+        self.status = format!("Выровнено по пикселям: правок {}", edits.len());
+    }
+
     fn add_ui_states(&mut self) {
         if !self.can_edit() {
             return;
@@ -1496,10 +1515,10 @@ impl App {
             if game {
                 self.brush_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             }
-            let mut add_states = false;
+            let mut kit = crate::kit_ui::KitAction::default();
             if interface {
                 self.layout_section(ui, &node, half, &mut styles);
-                add_states = self.kit_section(ui, &node, half, &mut styles);
+                kit = self.kit_section(ui, &node, half, &mut styles);
             }
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();
@@ -1541,8 +1560,14 @@ impl App {
                 self.select_only(Some(id.clone()));
                 self.boolean(motif_script::BoolOp::Union);
             }
-            if add_states {
+            if kit.add_states {
                 self.add_ui_states();
+            }
+            if kit.stretch {
+                self.stretch = Some(crate::stretch_ui::Stretch::new(&id));
+            }
+            if kit.crisp {
+                self.align_to_pixels(&id);
             }
         });
     }
@@ -1722,6 +1747,9 @@ impl App {
         paint_dots(&painter, rect, &boards, view);
         if self.snap.grid {
             crate::guides::paint_grid(&painter, rect, view, &doc, self.snap.grid_size);
+        }
+        if self.snap.pixels {
+            crate::guides::paint_grid(&painter, rect, view, &doc, 1.0 / self.export.scale.max(0.01));
         }
 
         // Zoom around the pointer.
@@ -2839,6 +2867,7 @@ impl eframe::App for App {
         self.help_window(&ctx);
         self.unsaved_window(&ctx);
         self.syntax_window(&ctx);
+        self.stretch_window(&ctx);
     }
 }
 

@@ -99,8 +99,8 @@ anim Disabled 0.2s {
 // Слайдер: HSlider. Дорожка, пройденная часть и ползунок; Hover подсвечивает их.
 artboard "Слайдер" 260x80 bg #39415a ui
 group volume "Громкость" at 130 40 ui slider {
-  rect rail "Дорожка" size 200 12 r 6 fill #1b2132 stroke ink 3 slice 6 part track
-  rect level "Пройдено" at -50 0 size 100 12 r 6 fill main stroke ink 3 slice 6 part fill
+  rect rail "Дорожка" size 200 12 r 6 fill #1b2132 stroke ink 4 slice 6 part track
+  rect level "Пройдено" at -50 0 size 100 12 r 6 fill main stroke ink 4 slice 6 part fill
   ellipse knob "Ползунок" size 28 28 fill paper stroke ink 4 part grabber
 }
 
@@ -116,7 +116,7 @@ anim Disabled 0.2s {
 // Полоса прокрутки: VScrollBar. Ползунок тянется вдоль полосы по 9-slice.
 artboard "Прокрутка" 80x200 bg #39415a ui
 group scroller "Прокрутка" at 40 100 ui scroll {
-  rect gutter "Дорожка" size 16 160 r 8 fill #1b2132 stroke ink 3 slice 8 part track
+  rect gutter "Дорожка" size 16 160 r 8 fill #1b2132 stroke ink 4 slice 8 part track
   rect thumb "Ползунок" at 0 -30 size 10 50 r 5 fill light slice 5 part grabber
 }
 
