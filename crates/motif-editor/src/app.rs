@@ -185,6 +185,10 @@ pub struct App {
     pub(crate) key_clip: (String, Vec<motif_script::KeyCopy>),
     /// Where a frame-select drag in the timeline started.
     pub(crate) key_marquee: Option<egui::Pos2>,
+    /// An event flag being dragged on the timeline: its name, its time and where it is now.
+    pub(crate) event_drag: Option<(String, f64, f64)>,
+    /// The name typed in an event flag's menu.
+    pub(crate) event_name: String,
     /// The timeline shows value curves instead of key lanes.
     pub(crate) curves: bool,
     /// The property whose curve is edited in the graph.
@@ -265,6 +269,8 @@ impl App {
             key_drag: None,
             key_clip: (String::new(), Vec::new()),
             key_marquee: None,
+            event_drag: None,
+            event_name: String::new(),
             curves: false,
             curve_focus: None,
             curve_drag: None,

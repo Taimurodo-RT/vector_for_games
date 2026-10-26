@@ -175,7 +175,7 @@ mod tests {
         (n.x, n.y, n.width, n.height) = (100.0, 200.0, 6.0, 6.0);
         n.emit = Some(e);
         d.nodes.push(n);
-        (d, Animation { name: "Go".into(), duration: 3.0, looping: false, tracks: Vec::new() })
+        (d, Animation { name: "Go".into(), duration: 3.0, looping: false, tracks: Vec::new(), events: Vec::new() })
     }
 
     fn at(d: &Document) -> Vec<(Point, f64)> {

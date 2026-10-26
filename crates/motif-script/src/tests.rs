@@ -1337,6 +1337,31 @@ fn weight_brush_finds_the_drawn_point_on_a_folded_knee() {
 }
 
 #[test]
+fn events_are_read_checked_and_written() {
+    let src = "rect event at 10 10\nanim Run 0.4s loop {\n  event.x  0: 0 | 0.4: 10\n  event step 0.1 0.3\n  event dust 0\n}\n";
+    let s = scene(src);
+    let run = s.doc.animation("Run").unwrap();
+    assert_eq!(run.tracks.len(), 1, "event.x is a track of the object «event»");
+    let got: Vec<(&str, f64)> = run.events.iter().map(|e| (e.name.as_str(), e.time)).collect();
+    assert_eq!(got, [("dust", 0.0), ("step", 0.1), ("step", 0.3)]);
+    // Out of range, twice the same name, no time.
+    for bad in ["anim A 1s {\n  event hit 2\n}\n", "anim A 1s {\n  event hit 0.2\n  event hit 0.5\n}\n", "anim A 1s {\n  event hit\n}\n"] {
+        assert!(parse(bad).is_err(), "{bad}");
+    }
+    // Moving a time, renaming, adding a new event and removing one.
+    let out = write_event(src, &s, "Run", "step", "step", &[0.3, 0.12]).unwrap();
+    assert!(out.contains("  event step 0.12 0.3\n"), "{out}");
+    let out = write_event(src, &s, "Run", "step", "шаг", &[0.1, 0.3]).unwrap();
+    assert!(out.contains("  event шаг 0.1 0.3\n"), "{out}");
+    let out = write_event(src, &s, "Run", "land", "land", &[0.2]).unwrap();
+    assert!(out.ends_with("  event dust 0\n  event land 0.2\n}\n"), "{out}");
+    let out = write_event(src, &s, "Run", "dust", "dust", &[]).unwrap();
+    assert!(!out.contains("dust") && scene(&out).doc.animation("Run").unwrap().events.len() == 2, "{out}");
+    assert!(write_event(src, &s, "Run", "step", "dust", &[0.1]).is_none(), "name taken");
+    assert!(write_event(src, &s, "Run", "step", "two words", &[0.1]).is_none());
+}
+
+#[test]
 fn group_and_ungroup_keep_everything_in_place() {
     use motif_core::kurbo::Point;
     let src = "rect a at 10 10 size 20 20\nellipse b at 50 30 size 20 20\nrect c at 100 100 size 10 10\nanim Go 1s {\n  a.x  0: 10 | 1: 70\n  b.rot  0: 0 | 1: 90\n}\n";

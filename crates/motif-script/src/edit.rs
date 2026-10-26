@@ -1030,6 +1030,29 @@ pub fn move_node(src: &str, scene: &Scene, node: &str, target: &str, place: Plac
     })
 }
 
+/// Returns the script with the event `name` of animation `anim` written as `new_name` at
+/// `times` (sorted, a time given twice kept once): its line rewritten, a new line at the end of
+/// the block, or the line removed when `times` is empty. `None` when the animation does not
+/// exist, or `new_name` is not a plain word or already names another event there.
+pub fn write_event(src: &str, scene: &Scene, anim: &str, name: &str, new_name: &str, times: &[f64]) -> Option<String> {
+    let site = scene.anims.get(anim)?;
+    let word =
+        !new_name.is_empty() && new_name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') && !new_name.starts_with(|c: char| c.is_ascii_digit());
+    if !word || (new_name != name && site.events.iter().any(|e| e.name == new_name)) {
+        return None;
+    }
+    let mut times: Vec<f64> = times.iter().map(|t| key_time(*t)).collect();
+    times.sort_by(f64::total_cmp);
+    times.dedup_by(|a, b| (*a - *b).abs() < SAME_TIME);
+    let line = format!("event {new_name} {}", times.iter().map(|t| fmt_num(*t)).collect::<Vec<_>>().join(" "));
+    match site.events.iter().find(|e| e.name == name) {
+        Some(e) if times.is_empty() => Some(splice(src, whole_lines(src, e.span), "")),
+        Some(e) => Some(splice(src, e.span, &line)),
+        None if times.is_empty() => Some(src.to_string()),
+        None => Some(insert_before_close(src, site.close, &format!("  {line}\n"))),
+    }
+}
+
 /// Fails when the position of `node` is written by a formula: moving it to another parent would
 /// leave the formula as it is and the node somewhere else.
 fn movable(scene: &Scene, node: &str) -> Result<(), String> {

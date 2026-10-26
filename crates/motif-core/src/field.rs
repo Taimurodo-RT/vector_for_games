@@ -120,7 +120,7 @@ mod tests {
     }
 
     fn spark(d: &Document, t: f64) -> Point {
-        let a = Animation { name: "Go".into(), duration: 9.0, looping: false, tracks: Vec::new() };
+        let a = Animation { name: "Go".into(), duration: 9.0, looping: false, tracks: Vec::new(), events: Vec::new() };
         let p = a.pose_with(d, t, &mut SimCache::default());
         p.nodes[0].particles.as_ref().unwrap()[0].0 * Point::ZERO
     }

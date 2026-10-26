@@ -357,6 +357,7 @@ mod tests {
             duration: 1.0,
             looping: false,
             tracks: vec![Track { node: "ball".into(), prop: Prop::Morph, keys: vec![key(0.0, 0.0), key(1.0, 1.0)] }],
+            events: Vec::new(),
         };
         let end = a.pose_with(&d, 1.0, &mut SimCache::default());
         assert_eq!(end.nodes[0].path().unwrap(), end.nodes[1].path().unwrap());

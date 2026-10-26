@@ -608,6 +608,7 @@ mod tests {
             duration: 3.0,
             looping: false,
             tracks: vec![Track { node: "ball".into(), prop: Prop::X, keys: vec![key(0.0, 60.0), key(3.0, 340.0)] }],
+            events: Vec::new(),
         };
         (d, a)
     }
@@ -641,7 +642,7 @@ mod tests {
         (floor.x, floor.y, floor.width, floor.height) = (100.0, 220.0, 300.0, 40.0);
         floor.solid = true;
         d.nodes = vec![ball, floor];
-        let a = Animation { name: "Fall".into(), duration: 3.0, looping: false, tracks: Vec::new() };
+        let a = Animation { name: "Fall".into(), duration: 3.0, looping: false, tracks: Vec::new(), events: Vec::new() };
         let end = a.pose_with(&d, 3.0, &mut SimCache::default());
         let b = bounds(&end, "ball");
         assert!((b.max_y() - 200.0).abs() < 2.0, "rests on the floor: {b:?}");
@@ -674,7 +675,7 @@ mod tests {
         (spike.x, spike.y, spike.width, spike.height) = (200.0, 240.0, 80.0, 70.0);
         spike.solid = true;
         d.nodes = vec![ball("ball", 200.0, 120.0, 70.0), spike];
-        let a = Animation { name: "Fall".into(), duration: 1.0, looping: false, tracks: Vec::new() };
+        let a = Animation { name: "Fall".into(), duration: 1.0, looping: false, tracks: Vec::new(), events: Vec::new() };
         let mut cache = SimCache::default();
         let tip = Point::new(200.0, 205.0);
         let mut touched = false;
@@ -699,7 +700,7 @@ mod tests {
         (floor.x, floor.y, floor.width, floor.height) = (200.0, 260.0, 400.0, 40.0);
         floor.solid = true;
         d.nodes = vec![ball("low", 200.0, 180.0, 60.0), ball("high", 205.0, 80.0, 60.0), floor];
-        let a = Animation { name: "Fall".into(), duration: 2.0, looping: false, tracks: Vec::new() };
+        let a = Animation { name: "Fall".into(), duration: 2.0, looping: false, tracks: Vec::new(), events: Vec::new() };
         let mut cache = SimCache::default();
         for k in 1..=20 {
             let pose = a.pose_with(&d, k as f64 / 10.0, &mut cache);

@@ -124,7 +124,9 @@ fn run() -> Result<(), String> {
         "check" => {
             println!("{}: ок — объектов {}, анимаций {}", a.scene.display(), doc.nodes.len(), doc.animations.len());
             for anim in &doc.animations {
-                println!("  {} — {} с{}", anim.name, motif_script::fmt_num(anim.duration), if anim.looping { ", повтор" } else { "" });
+                let events = anim.events.iter().map(|e| format!("{} {}", e.name, motif_script::fmt_num(e.time))).collect::<Vec<_>>();
+                let events = if events.is_empty() { String::new() } else { format!(", события: {}", events.join(", ")) };
+                println!("  {} — {} с{}{events}", anim.name, motif_script::fmt_num(anim.duration), if anim.looping { ", повтор" } else { "" });
             }
             for m in &doc.machines {
                 let inputs: Vec<&str> = m.inputs.iter().map(|i| i.name.as_str()).collect();

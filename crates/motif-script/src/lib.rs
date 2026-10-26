@@ -39,7 +39,7 @@ pub use edit::{
     KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_key, delete_keys,
     delete_node, fmt_value, gradient_text, group_nodes, move_key, move_node, paste_keys, paste_nodes, path_to_d, rename_node, restack, retime_keys,
     set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_keys_ease, set_light, set_path, set_prop, set_purpose,
-    set_style, set_world, ungroup, world_text, write_tracks,
+    set_style, set_world, ungroup, world_text, write_event, write_tracks,
 };
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
@@ -234,6 +234,17 @@ pub struct AnimSite {
     /// The `loop` word, when present.
     pub loop_word: Option<Span>,
     pub tracks: Vec<TrackSite>,
+    pub events: Vec<EventSite>,
+}
+
+/// One `event name t1 t2 …` line of an `anim` block.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventSite {
+    pub name: String,
+    /// From `event` to the last time.
+    pub span: Span,
+    /// Each time with the span of its number.
+    pub times: Vec<(f64, Span)>,
 }
 
 /// One `node.prop  t: v | …` line of an `anim` block.
