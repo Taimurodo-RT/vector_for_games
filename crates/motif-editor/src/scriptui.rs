@@ -48,6 +48,8 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("letter-spacing 2 · line-height 1.2", "межбуквенный и межстрочный интервал"),
             ("reveal 0..1 · wave 6 · phase 0..1", "анимация букв: появление, волна"),
             ("group g clip { маска … }", "первый объект группы — маска"),
+            ("group m stack column center gap 8 pad 12 {", "стек: ряд или столбик, как flex"),
+            ("  rect bg fit · anchor right bottom", "фон во весь стек; at от края артборда"),
         ],
     ),
     (

@@ -13,6 +13,7 @@ mod highlight;
 mod importer;
 mod kit_ui;
 mod layers;
+mod layout_ui;
 mod machine_ui;
 mod morph_ui;
 mod orbit_ui;

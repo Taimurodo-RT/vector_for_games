@@ -421,6 +421,18 @@ pub struct Node {
     pub slice: Option<[f64; 4]>,
     /// Hand-drawn look: wobbly outline, hatching, grain, banded light.
     pub brush: crate::Brush,
+    /// Group only: lays the children out in a row or a column (`stack column center gap 8 pad 12`).
+    pub stack: Option<crate::Stack>,
+    /// Sized to the stack box of its group and put behind its middle (`fit`): a panel that
+    /// grows with what is stacked on it.
+    pub fit: bool,
+    /// Measured from a point of the artboard, or of its group's box (`anchor right bottom`):
+    /// 0 is the left or top edge, 0.5 the middle, 1 the right or bottom edge.
+    pub anchor: Option<(f64, f64)>,
+    /// Set by `layout`: where a stack, a panel or an anchor moves the object, added to `x`, `y`.
+    pub offset: Vec2,
+    /// Set by `layout` on a stack: the box of the stacked children with the padding, in local space.
+    pub frame: Option<kurbo::Rect>,
 }
 
 /// Bones that bend a shape. Every point of the outline follows a mix of the bones: mostly the
@@ -581,6 +593,11 @@ impl Node {
             locked: false,
             brush: crate::Brush::default(),
             slice: None,
+            stack: None,
+            fit: false,
+            anchor: None,
+            offset: Vec2::ZERO,
+            frame: None,
         }
     }
 
@@ -707,7 +724,7 @@ impl Node {
     /// The local origin is the node's center; rotation, skew and scale turn around `pivot`.
     pub fn local_transform(&self) -> Affine {
         let tan = |deg: f64| deg.clamp(-89.0, 89.0).to_radians().tan();
-        Affine::translate(Vec2::new(self.x, self.y) + self.pivot)
+        Affine::translate(Vec2::new(self.x, self.y) + self.offset + self.pivot)
             * self.warp.unwrap_or(Affine::IDENTITY)
             * Affine::rotate((self.rotation + self.swing).to_radians())
             * Affine::skew(tan(self.skew_x), tan(self.skew_y))

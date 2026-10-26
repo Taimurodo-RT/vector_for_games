@@ -1,0 +1,50 @@
+// Меню игры на авто-раскладке: столбик кнопок со своим фоном и кнопка
+// «закрыть», привязанная к правому верхнему углу.
+// Поменяйте размер артборда — кнопка останется в углу, меню в центре.
+// Наведите на «Играть» после «▶ Проверить»: кнопка растёт, соседи
+// разъезжаются сами — стек пересчитывается каждый кадр.
+artboard "Меню" 480x360 bg #14161f ui
+
+let panel = #1f2333
+let ink = #e8ecf5
+let accent = #ffb23e
+
+group menu "Меню" at 0 10 anchor center middle stack column gap 10 pad 18 ui {
+  rect bg "Фон" r 18 fill panel stroke #2d3348 2 fit
+  text title "Заголовок" content "ПАУЗА" font bold font-size 26 letter-spacing 4 fill ink
+  group play "Играть" {
+    rect play-face "Кнопка" size 200 44 r 12 fill accent
+    text play-label "Надпись" content "Играть" font-size 18 fill #1b1406
+  }
+  group options "Настройки" {
+    rect options-face "Кнопка" size 200 44 r 12 fill #2d3348
+    text options-label "Надпись" content "Настройки" font-size 18 fill ink
+  }
+  group quit "Выход" {
+    rect quit-face "Кнопка" size 200 44 r 12 fill #2d3348
+    text quit-label "Надпись" content "Выход" font-size 18 fill ink
+  }
+}
+
+// at считается от правого верхнего угла артборда.
+group close "Закрыть" at -28 28 anchor right ui {
+  ellipse close-face "Круг" size 32 fill #2d3348
+  path close-x "Крестик" d "M -6 -6 L 6 6 M 6 -6 L -6 6" fill none stroke ink 2.5 cap round
+}
+
+anim Idle 0.2s {
+}
+
+anim Hover 0.25s {
+  play-face.h  0: 44 ease-out | 0.25: 64
+  play-face.w  0: 200 ease-out | 0.25: 220
+}
+
+machine Buttons {
+  input hover false
+  listen play hover -> hover
+  state Idle
+  state Hover
+  Idle -> Hover when hover blend 0.15s
+  Hover -> Idle when not hover blend 0.15s
+}

@@ -119,6 +119,9 @@ UI-наборы для Godot: «Файл → Новый UI-набор» — за
 Disabled, Focus. «Экспорт → Сохранить UI-набор…» пишет PNG и тему .tres:
 назначьте её Theme корневому Control, а детали выберите в Theme Type Variation
 (пример examples\ui-kit.msc).
+Раздел «Раскладка»: у группы «Стек» (ряд или столбик с зазором и полями),
+«Фон по размеру стека» у панели, «Привязка» к краю артборда — объект держится
+своего угла при любом размере (пример examples\menu.msc).
 
 motif.exe — командная строка: motif.exe check|render|frames|palette|pixel|kit
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out

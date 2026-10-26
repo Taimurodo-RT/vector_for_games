@@ -37,6 +37,7 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/ropes.msc
       - run: cargo run -p motif-cli -- check examples/fluids.msc
       - run: cargo run -p motif-cli -- check examples/rolling.msc
+      - run: cargo run -p motif-cli -- check examples/menu.msc
       - run: cargo run -p motif-cli -- check examples/world.msc
       - run: cargo run -p motif-cli -- check examples/morph.msc
       - run: cargo run -p motif-cli -- check examples/bodies.msc
