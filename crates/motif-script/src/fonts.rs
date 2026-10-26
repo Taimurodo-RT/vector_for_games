@@ -35,6 +35,15 @@ pub fn load(font: Option<&str>, base: Option<&Path>) -> Result<Arc<Vec<u8>>, Str
     Ok(bytes)
 }
 
+/// The file name a font is saved under next to an exported theme.
+pub fn file_name(font: Option<&str>) -> String {
+    match font {
+        None | Some("regular") => "IBMPlexSans-Regular.ttf".into(),
+        Some("bold") => "IBMPlexSans-SemiBold.ttf".into(),
+        Some(f) => Path::new(f).file_name().map_or_else(|| f.to_string(), |n| n.to_string_lossy().into_owned()),
+    }
+}
+
 fn builtin(bold: bool) -> Arc<Vec<u8>> {
     static REGULAR: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
     static BOLD: OnceLock<Arc<Vec<u8>>> = OnceLock::new();

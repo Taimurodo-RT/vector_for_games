@@ -414,6 +414,10 @@ pub struct Node {
     pub body: Option<crate::Body>,
     /// A piece of interface (`ui`): exported on its own, in each state, for the game's UI.
     pub ui: bool,
+    /// The Godot control the piece is styled for (`ui progress`).
+    pub ui_role: crate::UiRole,
+    /// The part of a composite piece this object draws (`part grabber`).
+    pub part: Option<crate::UiPart>,
     /// Locked (`locked`): drawn as usual, but clicks on the canvas pass through it.
     pub locked: bool,
     /// Nine-slice margins (`slice 16`): left, top, right, bottom, in artboard units from the
@@ -604,6 +608,8 @@ impl Node {
             morph: None,
             body: None,
             ui: false,
+            ui_role: crate::UiRole::Auto,
+            part: None,
             locked: false,
             brush: crate::Brush::default(),
             slice: None,
