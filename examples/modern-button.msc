@@ -115,10 +115,13 @@ anim Release 0.6s {
 anim Normal 0.1s {
 }
 
-// Как в браузере: включите «Машина состояний», ставьте hover и press галочками.
+// Как в браузере: нажмите «▶ Проверить» вверху и водите мышью по кнопке.
+// Строки listen связывают наведение и нажатие на кнопку со входами машины.
 machine Pointer {
   input hover false
   input press false
+  listen button hover -> hover
+  listen button press -> press
   state Normal at 20 20
   state Hover at 250 20
   state Leave at 250 120

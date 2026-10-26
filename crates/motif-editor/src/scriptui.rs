@@ -153,6 +153,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("  Idle -> Walk when speed > 0.5 blend 0.2s", "переход: условие и смешивание"),
             ("  any -> Jump when jump · Jump -> Idle at end", "из любого; в конце анимации"),
             ("  … when hover and not dead", "несколько условий; not — флаг выключен"),
+            ("  listen btn hover -> hover", "мышь: hover press click x y на объекте"),
             ("}", "первое состояние — начальное"),
         ],
     ),

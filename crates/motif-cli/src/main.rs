@@ -110,7 +110,8 @@ fn run() -> Result<(), String> {
             }
             for m in &doc.machines {
                 let inputs: Vec<&str> = m.inputs.iter().map(|i| i.name.as_str()).collect();
-                println!("  машина {} — состояний {}, переходов {}, входы: {}", m.name, m.states.len(), m.transitions.len(), inputs.join(", "));
+                let mouse = if m.listeners.is_empty() { String::new() } else { format!(", связей с мышью {}", m.listeners.len()) };
+                println!("  машина {} — состояний {}, переходов {}, входы: {}{mouse}", m.name, m.states.len(), m.transitions.len(), inputs.join(", "));
             }
         }
         "render" => {

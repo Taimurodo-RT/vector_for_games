@@ -1212,3 +1212,47 @@ fn several_keys_move_scale_delete_and_paste() {
     .unwrap();
     assert!(out.contains("b.y  0.2: 2 spring | 1: 3\n"), "{out}");
 }
+
+#[test]
+fn pointer_listeners_parse_edit_and_go_with_their_object() {
+    use motif_core::{Listener, PointerEvent};
+    let src = MACHINE
+        .replace("Idle->Run", "Idle->Move")
+        .replace("  state Idle at 40 60\n", "  listen b hover -> hover\n  listen b click -> jump\n  state Idle at 40 60\n");
+    let s = scene(&src);
+    let m = s.doc.machine("Player").unwrap();
+    assert_eq!(
+        m.listeners,
+        vec![
+            Listener { node: "b".into(), event: PointerEvent::Hover, input: "hover".into() },
+            Listener { node: "b".into(), event: PointerEvent::Click, input: "jump".into() },
+        ]
+    );
+    // Errors: a missing object, a missing input, an event that does not fit the input.
+    let msg = |src: &str| parse(src).unwrap_err().iter().map(|e| e.message.clone()).collect::<Vec<_>>().join(" | ");
+    assert!(msg(&src.replace("listen b hover", "listen nope hover")).contains("нет объекта «nope»"));
+    assert!(msg(&src.replace("hover -> hover", "hover -> nope")).contains("нет входа «nope»"));
+    assert!(msg(&src.replace("hover -> hover", "hover -> speed")).contains("флагом"));
+    assert!(msg(&src.replace("hover -> hover", "x -> hover")).contains("числом"));
+    assert!(msg(&src.replace("b hover", "b wiggle")).contains("нет события «wiggle»"));
+    // Editing: change one, add one, remove one.
+    let out = edit_machine(&src, &s, "Player", |m| {
+        m.listeners[0].event = PointerEvent::Press;
+        m.listeners.push(Listener { node: "b".into(), event: PointerEvent::X, input: "speed".into() });
+    })
+    .unwrap();
+    assert!(out.contains("  listen b press -> hover\n  listen b click -> jump\n"), "{out}");
+    assert!(out.contains("  listen b x -> speed\n}"), "{out}");
+    let out = edit_machine(&src, &s, "Player", |m| {
+        m.listeners.remove(0);
+    })
+    .unwrap();
+    assert!(!out.contains("listen b hover") && out.contains("listen b click -> jump"), "{out}");
+    scene(&out);
+    // Deleting the input or the object removes its listeners.
+    let out = delete_machine_item(&src, &s, "Player", MachineItem::Input(1)).unwrap();
+    assert!(!out.contains("listen b hover"), "{out}");
+    scene(&out);
+    let out = delete_node(&src, &s, "b").unwrap();
+    assert!(!out.contains("listen"), "{out}");
+}

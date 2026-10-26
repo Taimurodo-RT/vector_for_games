@@ -3,7 +3,7 @@
 
 use crate::edit::splice;
 use crate::{Scene, Span, fmt_num};
-use motif_core::{Cond, CondOp, Input, InputKind, Machine, State, Transition};
+use motif_core::{Cond, CondOp, Input, InputKind, Listener, Machine, State, Transition};
 
 /// One line of a machine, by its place in the machine's lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,6 +21,10 @@ pub fn fmt_input(i: &Input) -> String {
         InputKind::Trigger => "trigger".into(),
     };
     format!("input {} {value}", i.name)
+}
+
+pub fn fmt_listener(l: &Listener) -> String {
+    format!("listen {} {} -> {}", l.node, l.event.keyword(), l.input)
 }
 
 pub fn fmt_state(s: &State) -> String {
@@ -68,6 +72,9 @@ pub fn fmt_machine(m: &Machine) -> String {
     for i in &m.inputs {
         out += &format!("  {}\n", fmt_input(i));
     }
+    for l in &m.listeners {
+        out += &format!("  {}\n", fmt_listener(l));
+    }
     if let Some(p) = m.any_pos {
         out += &format!("  {}\n", fmt_any(p));
     }
@@ -98,7 +105,7 @@ pub fn add_machine(src: &str, scene: &Scene) -> (String, String) {
         .enumerate()
         .map(|(i, a)| State { name: a.name.clone(), anim: a.name.clone(), pos: Some((40.0 + 180.0 * i as f64, 80.0)) })
         .collect();
-    let m = Machine { name: name.clone(), inputs: Vec::new(), states, transitions: Vec::new(), any_pos: None };
+    let m = Machine { name: name.clone(), inputs: Vec::new(), listeners: Vec::new(), states, transitions: Vec::new(), any_pos: None };
     let mut out = src.trim_end().to_string();
     out += if out.is_empty() { "" } else { "\n\n" };
     out += &fmt_machine(&m);
@@ -123,7 +130,8 @@ pub(crate) fn apply(src: &str, mut edits: Vec<(Span, String)>) -> String {
 
 /// Changes machine `name` with `f` and writes the result back: lines that mean something new
 /// are rewritten, and inputs, states and transitions added to the ends of the lists get new lines.
-/// `None` when there is no such machine or `f` removed something (see [`delete_machine_item`]).
+/// Listeners may also be removed. `None` when there is no such machine or `f` removed something
+/// else (see [`delete_machine_item`]).
 pub fn edit_machine(src: &str, scene: &Scene, name: &str, f: impl FnOnce(&mut Machine)) -> Option<String> {
     let old = scene.doc.machine(name)?;
     let site = scene.machines.get(name)?;
@@ -146,6 +154,16 @@ pub fn edit_machine(src: &str, scene: &Scene, name: &str, f: impl FnOnce(&mut Ma
             Some(_) => edits.push((site.inputs[i], fmt_input(b))),
             None => added += &format!("  {}\n", fmt_input(b)),
         }
+    }
+    for (i, a) in old.listeners.iter().enumerate() {
+        match new.listeners.get(i) {
+            Some(b) if b == a => {}
+            Some(b) => edits.push((site.listeners[i], fmt_listener(b))),
+            None => edits.push((full_line(src, site.listeners[i]), String::new())),
+        }
+    }
+    for b in new.listeners.iter().skip(old.listeners.len()) {
+        added += &format!("  {}\n", fmt_listener(b));
     }
     for (i, b) in new.states.iter().enumerate() {
         match old.states.get(i) {
@@ -191,6 +209,11 @@ pub fn delete_machine_item(src: &str, scene: &Scene, name: &str, item: MachineIt
         MachineItem::Input(i) => {
             let input = &m.inputs.get(i)?.name;
             edits.push((full_line(src, site.inputs[i]), String::new()));
+            for (k, l) in m.listeners.iter().enumerate() {
+                if &l.input == input {
+                    edits.push((full_line(src, site.listeners[k]), String::new()));
+                }
+            }
             for (k, t) in m.transitions.iter().enumerate() {
                 if t.conds.iter().any(|c| &c.input == input) {
                     let mut t = t.clone();

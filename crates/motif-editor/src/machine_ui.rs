@@ -5,7 +5,7 @@
 use crate::app::{App, fold};
 use crate::theme::{self, ACCENT, ButtonKind, FAINT, FG, GOOD, Icon, LINE, MUTED, PANEL, PANEL_2, RAISE, SEL};
 use egui::{Align, Align2, Color32, Layout, Pos2, Rect, RichText, Sense, Shape, Stroke, StrokeKind, Ui, UiBuilder, Vec2, pos2, vec2};
-use motif_core::{Cond, CondOp, Input, InputKind, Machine, MachinePlayer, State, Transition};
+use motif_core::{Cond, CondOp, Input, InputKind, Listener, Machine, MachinePlayer, PointerEvent, State, Transition};
 use motif_script::{MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, free_name, make_entry};
 
 const BOX: Vec2 = vec2(150.0, 46.0);
@@ -14,7 +14,8 @@ const ANY_BOX: Vec2 = vec2(96.0, 28.0);
 const ANY_AT: Pos2 = pos2(40.0, 12.0);
 const INSPECTOR_W: f32 = 330.0;
 /// Words the script reads as part of a machine line, so they cannot name an input or a state.
-const RESERVED: [&str; 15] = ["any", "not", "and", "when", "at", "end", "blend", "input", "state", "anim", "true", "false", "trigger", "number", "bool"];
+const RESERVED: [&str; 16] =
+    ["any", "not", "and", "when", "at", "end", "blend", "input", "state", "anim", "true", "false", "trigger", "number", "bool", "listen"];
 
 /// The graph view: scroll offset and the drag in progress.
 #[derive(Default)]
@@ -57,6 +58,16 @@ fn kind_label(k: InputKind) -> &'static str {
         InputKind::Bool => "флаг",
         InputKind::Number => "число",
         InputKind::Trigger => "триггер",
+    }
+}
+
+pub(crate) fn event_label(e: PointerEvent) -> &'static str {
+    match e {
+        PointerEvent::Hover => "наведение",
+        PointerEvent::Press => "нажатие",
+        PointerEvent::Click => "клик",
+        PointerEvent::X => "указатель X",
+        PointerEvent::Y => "указатель Y",
     }
 }
 
@@ -131,9 +142,28 @@ impl App {
                 return;
             }
             let player = MachinePlayer::new(m);
-            self.status = format!("Машина «{}» играет: переключайте входы справа", m.name);
+            self.status = if m.listeners.is_empty() {
+                format!("Машина «{}» играет: переключайте входы справа", m.name)
+            } else {
+                format!("Машина «{}» играет: наводите и нажимайте мышью на холсте, входы меняются сами", m.name)
+            };
             self.set_mode_animate(false);
             self.run = Some(Run { player, flash: None });
+        }
+    }
+
+    /// The live preview: passes the pointer on the canvas to the running machine's listeners.
+    pub(crate) fn live_pointer(&mut self, ui: &Ui, resp: &egui::Response, doc: &motif_core::Document, at: Option<motif_core::kurbo::Point>) {
+        let Some(m) = self.shown_machine().cloned() else { return };
+        let on_canvas = resp.hovered() || resp.dragged() || resp.is_pointer_button_down_on();
+        let at = at.filter(|_| on_canvas);
+        let down = ui.input(|i| i.pointer.primary_down()) && (resp.is_pointer_button_down_on() || resp.dragged());
+        if let Some(run) = &mut self.run {
+            run.player.pointer(&m, doc, at, down);
+        }
+        let over = at.is_some_and(|p| m.listeners.iter().any(|l| doc.index_of(&l.node).is_some_and(|i| doc.hits_tree(i, p))));
+        if over {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
     }
 
@@ -302,7 +332,9 @@ impl App {
         {
             self.run = Some(Run { player: MachinePlayer::new(&m), flash: None });
         }
-        let hint = if running {
+        let hint = if running && !m.listeners.is_empty() {
+            "Играет: мышь на холсте и входы справа"
+        } else if running {
             "Играет: переключайте входы справа"
         } else {
             "Переход: тяните от точки на краю состояния"
@@ -570,13 +602,16 @@ impl App {
             Some(MachineItem::State(i)) if i < m.states.len() => {
                 self.state_section(ui, m, i);
                 self.inputs_section(ui, m);
+                self.pointer_section(ui, m);
             }
             Some(MachineItem::Transition(k)) if k < m.transitions.len() => {
                 self.transition_section(ui, m, k);
                 self.inputs_section(ui, m);
+                self.pointer_section(ui, m);
             }
             _ => {
                 self.inputs_section(ui, m);
+                self.pointer_section(ui, m);
                 fold(ui, &format!("Машина {}", m.name), |ui| {
                     ui.label(
                         RichText::new(
@@ -685,12 +720,128 @@ impl App {
                 let old = m.inputs[i].name.clone();
                 self.machine_edit("machine-rename", |m| {
                     m.inputs[i].name = new.clone();
+                    for l in m.listeners.iter_mut().filter(|l| l.input == old) {
+                        l.input = new.clone();
+                    }
                     for c in m.transitions.iter_mut().flat_map(|t| t.conds.iter_mut()) {
                         if c.input == old {
                             c.input = new.clone();
                         }
                     }
                 });
+            }
+        }
+    }
+
+    /// Pointer listeners: which object drives which input with hover, press, click or position.
+    fn pointer_section(&mut self, ui: &mut Ui, m: &Machine) {
+        let mut remove = None;
+        let mut add = None;
+        let mut quick = false;
+        let selected = self.selected.clone().filter(|id| self.scene.doc.node(id).is_some());
+        fold(ui, "Мышь", |ui| {
+            ui.label(
+                RichText::new("Указатель на объекте сам меняет входы: при запуске машины на холсте и в игре, которая передаёт мышь машине.")
+                    .size(11.5)
+                    .color(FAINT),
+            );
+            for (k, l) in m.listeners.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let live = self.run.as_ref().zip(m.input(&l.input)).and_then(|(r, i)| r.player.values.get(i).copied());
+                    let on = live.is_some_and(|v| v != 0.0);
+                    ui.label(RichText::new(&l.node).font(theme::mono(12.0)).color(if on { ACCENT } else { FG }));
+                    ui.label(RichText::new(event_label(l.event)).size(12.0).color(MUTED));
+                    ui.label(RichText::new("→").color(FAINT));
+                    ui.label(RichText::new(&l.input).font(theme::mono(12.0)).color(if on { ACCENT } else { FG }));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.add(egui::Button::new(RichText::new("×").color(MUTED)).frame(false)).on_hover_text("Убрать").clicked() {
+                            remove = Some(k);
+                        }
+                    });
+                });
+            }
+            // A new listener: object, event, input.
+            let draft = &mut self.listen_draft;
+            if !draft.0.is_empty() && self.scene.doc.node(&draft.0).is_none() {
+                draft.0.clear();
+            }
+            if draft.0.is_empty() {
+                draft.0 = selected.clone().or_else(|| self.scene.doc.nodes.first().map(|n| n.id.clone())).unwrap_or_default();
+            }
+            let fits: Vec<&Input> = m.inputs.iter().filter(|i| draft.1.fits(i.kind)).collect();
+            if !fits.iter().any(|i| i.name == draft.2) {
+                draft.2 = fits.first().map(|i| i.name.clone()).unwrap_or_default();
+            }
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                egui::ComboBox::from_id_salt("listen-node").width(86.0).selected_text(draft.0.as_str()).show_ui(ui, |ui| {
+                    for n in &self.scene.doc.nodes {
+                        if n.kind != motif_core::ShapeKind::Bone {
+                            ui.selectable_value(&mut draft.0, n.id.clone(), &n.id);
+                        }
+                    }
+                });
+                egui::ComboBox::from_id_salt("listen-event").width(86.0).selected_text(event_label(draft.1)).show_ui(ui, |ui| {
+                    for e in PointerEvent::ALL {
+                        ui.selectable_value(&mut draft.1, e, event_label(e));
+                    }
+                });
+                egui::ComboBox::from_id_salt("listen-input").width(76.0).selected_text(if draft.2.is_empty() { "—" } else { draft.2.as_str() }).show_ui(
+                    ui,
+                    |ui| {
+                        for i in &fits {
+                            ui.selectable_value(&mut draft.2, i.name.clone(), &i.name);
+                        }
+                    },
+                );
+                let ok = !draft.0.is_empty() && !draft.2.is_empty();
+                if ui
+                    .add_enabled(ok, egui::Button::new("+"))
+                    .on_hover_text("Добавить")
+                    .on_disabled_hover_text(match draft.1 {
+                        PointerEvent::X | PointerEvent::Y => "Нужен вход-число: «+ Число» выше",
+                        _ => "Нужен вход-флаг: «+ Флаг» выше",
+                    })
+                    .clicked()
+                {
+                    add = Some(Listener { node: draft.0.clone(), event: draft.1, input: draft.2.clone() });
+                }
+            });
+            if let Some(id) = &selected
+                && theme::button(ui, &format!("Кнопка: hover и press на {id}"), ButtonKind::Normal)
+                    .on_hover_text("Добавит флаги hover и press (если их нет) и свяжет их с наведением и нажатием на выбранный объект")
+                    .clicked()
+            {
+                quick = true;
+            }
+        });
+        if let Some(k) = remove {
+            self.machine_edit("machine-listen", |m| {
+                m.listeners.remove(k);
+            });
+        }
+        if let Some(l) = add {
+            if m.listeners.contains(&l) {
+                self.status = "Такая связь уже есть".into();
+            } else if self.machine_edit("machine-listen", |m| m.listeners.push(l.clone())) {
+                self.status = format!("{} · {} → {}: запустите машину (▶) и проверьте мышью на холсте", l.node, event_label(l.event), l.input);
+            }
+        }
+        if quick && let Some(id) = selected {
+            let ok = self.machine_edit("machine-listen", |m| {
+                for (event, name) in [(PointerEvent::Hover, "hover"), (PointerEvent::Press, "press")] {
+                    if m.input(name).is_none() {
+                        m.inputs.push(Input { name: name.into(), kind: InputKind::Bool, default: 0.0 });
+                    }
+                    let l = Listener { node: id.clone(), event, input: name.into() };
+                    if !m.listeners.contains(&l) {
+                        m.listeners.push(l);
+                    }
+                }
+            });
+            if ok {
+                self.status = format!("{id}: наведение → hover, нажатие → press. Переходы пишутся when hover, when press");
             }
         }
     }

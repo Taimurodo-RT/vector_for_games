@@ -41,7 +41,9 @@ pub use edit::{
     set_backdrop, set_clip, set_gradient, set_key, set_key_ease, set_keys_ease, set_light, set_path, set_prop, set_purpose, set_style, set_world, world_text,
     write_tracks,
 };
-pub use machine::{MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_machine, fmt_transition, free_name, make_entry};
+pub use machine::{
+    MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
+};
 use motif_core::{Document, Prop};
 use std::collections::HashMap;
 use std::fmt;
@@ -157,6 +159,7 @@ pub struct MachineSite {
     /// Offset of the closing brace.
     pub close: usize,
     pub inputs: Vec<Span>,
+    pub listeners: Vec<Span>,
     pub states: Vec<Span>,
     pub transitions: Vec<Span>,
     /// The `any at x y` line, when there is one.

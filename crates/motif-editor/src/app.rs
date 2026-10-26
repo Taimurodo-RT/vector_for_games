@@ -157,6 +157,8 @@ pub struct App {
     pub(crate) machine_pick: Option<motif_script::MachineItem>,
     /// The machine playing on the canvas.
     pub(crate) run: Option<crate::machine_ui::Run>,
+    /// The pointer listener being put together in the machine panel: object, event, input.
+    pub(crate) listen_draft: (String, motif_core::PointerEvent, String),
     pub(crate) graph: crate::machine_ui::Graph,
     pub(crate) undo: Vec<String>,
     redo: Vec<String>,
@@ -241,6 +243,7 @@ impl App {
             machine: None,
             machine_pick: None,
             run: None,
+            listen_draft: (String::new(), motif_core::PointerEvent::Hover, String::new()),
             graph: Default::default(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -913,6 +916,15 @@ impl App {
         if self.pixel.on {
             rui.add(egui::DragValue::new(&mut self.pixel.width).range(8..=1024).suffix(" px"));
         }
+        if self.shown_machine().is_some_and(|m| !m.listeners.is_empty()) {
+            let kind = if self.run.is_some() { ButtonKind::On } else { ButtonKind::Normal };
+            if theme::button(&mut rui, if self.run.is_some() { "■ Проверка" } else { "▶ Проверить" }, kind)
+                .on_hover_text("Живой предпросмотр: машина состояний играет, а мышь на холсте наводит, нажимает и кликает по объектам")
+                .clicked()
+            {
+                self.toggle_run();
+            }
+        }
         let zoom = self.view.map_or(100.0, |v| v.zoom * 100.0);
         if theme::button(&mut rui, &format!("{zoom:.0}%"), ButtonKind::Normal).on_hover_text("Вписать артборд (F)").clicked() {
             self.view = None;
@@ -1539,17 +1551,24 @@ impl App {
 
         let (space, middle, alt, shift) = ui.input(|i| (i.key_down(Key::Space), i.pointer.middle_down(), i.modifiers.alt, i.modifiers.shift));
         let pan_gesture = space || middle || (alt && self.point_edit.is_none()) || self.tool == Tool::Hand;
+        // A running machine that listens to the pointer takes it: the canvas is a live preview.
+        let live = !pan_gesture && self.drag.is_none() && self.running().is_some_and(|(m, _)| !m.listeners.is_empty());
+        if live {
+            self.hovered = None;
+            self.live_pointer(ui, &resp, &doc, doc_pt);
+        }
         // The pen and point editing take the pointer themselves.
-        let special = !pan_gesture
-            && self.drag.is_none()
-            && if self.tool == Tool::Pen {
-                self.pen_input(ui, &resp, rect, view);
-                true
-            } else if self.point_edit.is_some() {
-                self.point_edit_input(ui, &resp, rect, view, &doc)
-            } else {
-                false
-            };
+        let special = live
+            || (!pan_gesture
+                && self.drag.is_none()
+                && if self.tool == Tool::Pen {
+                    self.pen_input(ui, &resp, rect, view);
+                    true
+                } else if self.point_edit.is_some() {
+                    self.point_edit_input(ui, &resp, rect, view, &doc)
+                } else {
+                    false
+                });
         if !special
             && let Some(p) = pointer
             && resp.hovered()

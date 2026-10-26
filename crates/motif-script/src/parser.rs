@@ -116,6 +116,8 @@ pub enum MachineLine {
     AnyAt(f64, f64),
     /// `state Run anim Running at 220 40`.
     State { name: String, name_span: Span, anim: Option<(String, Span)>, at: Option<(f64, f64)> },
+    /// `listen btn hover -> hover`: the pointer on an object drives an input.
+    Listen { node: String, node_span: Span, event: motif_core::PointerEvent, input: String, input_span: Span },
     /// `Idle -> Run when speed > 0.5 at end blend 0.2s`; `from` is `None` for `any`.
     Transition { from: Option<String>, from_span: Span, to: String, to_span: Span, conds: Vec<CondAst>, at_end: bool, blend: f64 },
 }
@@ -732,7 +734,7 @@ impl<'a> Parser<'a> {
     fn machine_line(&mut self) -> Result<MachineLineAst, ScriptError> {
         use motif_core::{CondOp, InputKind};
         let start = self.peek_span().start;
-        let (word, word_span) = self.ident("строка машины: input, state или переход вида Idle -> Run")?;
+        let (word, word_span) = self.ident("строка машины: input, state, listen или переход вида Idle -> Run")?;
         let line = match word.as_str() {
             "input" => {
                 let (name, name_span) = self.ident("имя входа")?;
@@ -770,6 +772,18 @@ impl<'a> Parser<'a> {
                     }
                 }
                 MachineLine::State { name, name_span, anim, at }
+            }
+            "listen" if self.peek() != Some(&Tok::Arrow) => {
+                let (node, node_span) = self.ident("объект: listen btn hover -> hover")?;
+                let (ev, ev_span) = self.ident("событие: hover, press, click, x или y")?;
+                let event = motif_core::PointerEvent::from_keyword(&ev)
+                    .ok_or_else(|| self.err(ev_span, format!("нет события «{ev}»: hover (наведение), press (нажатие), click (клик), x, y (где указатель)")))?;
+                if self.peek() != Some(&Tok::Arrow) {
+                    return Err(self.err(self.peek_span(), "ожидалось «->» и имя входа: listen btn hover -> hover"));
+                }
+                self.pos += 1;
+                let (input, input_span) = self.ident("имя входа после «->»")?;
+                MachineLine::Listen { node, node_span, event, input, input_span }
             }
             "any" if self.word_is("at") => {
                 self.pos += 1;
