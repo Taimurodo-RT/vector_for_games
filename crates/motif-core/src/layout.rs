@@ -183,6 +183,24 @@ impl Document {
         self.nodes[g].frame = Some(frame);
     }
 
+    /// Whether node `i` is drawn as part of a checkbox (its stroke counts both ways) or of a
+    /// slider (its stroke counts up and down).
+    fn icon_ink(&self, i: usize) -> (bool, bool) {
+        let mut up = Some(i);
+        while let Some(k) = up {
+            let n = &self.nodes[k];
+            if n.ui {
+                return match n.ui_role {
+                    crate::UiRole::Check => (true, true),
+                    crate::UiRole::Slider => (false, true),
+                    _ => (false, false),
+                };
+            }
+            up = n.parent;
+        }
+        (false, false)
+    }
+
     /// The box of node `i` with everything inside it, in its parent's space, as if it stood at
     /// the parent's origin: what a stack lines up.
     fn own_box(&self, i: usize) -> Option<Rect> {
@@ -193,7 +211,13 @@ impl Document {
             (Some(f), _) => Some(f),
             // A text takes the room of its lines, not of the ink of its letters.
             (None, _) if n.text.is_some() => n.text.as_ref().map(|t| t.line_box(&n.text_style)),
-            (None, Some(p)) => Some(p.bounding_box()),
+            (None, Some(p)) => {
+                // Godot draws a checkbox's boxes and a slider's grabber as icons, strokes and all,
+                // and makes the control as tall as them.
+                let (across, down) = self.icon_ink(i);
+                let half = if n.stroke.is_some() { n.stroke_width / 2.0 } else { 0.0 };
+                Some(p.bounding_box().inflate(if across { half } else { 0.0 }, if down { half } else { 0.0 }))
+            }
             (None, None) => None,
         }
         .map(|r| (shift * at).transform_rect_bbox(r));

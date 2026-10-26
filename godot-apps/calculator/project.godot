@@ -1,0 +1,17 @@
+; Калькулятор с интерфейсом из Motif: ui/ собирает ../build.sh (motif screen calculator.msc).
+
+config_version=5
+
+[application]
+config/name="Калькулятор (Motif)"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3")
+
+[display]
+window/size/viewport_width=360
+window/size/viewport_height=600
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"

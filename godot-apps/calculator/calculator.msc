@@ -1,0 +1,127 @@
+// Калькулятор: интерфейс целиком нарисован здесь и уходит в Godot экраном.
+// godot-apps/build.sh (или build.bat) запускает motif screen: этот холст становится
+// ui/calculator_screen.tscn из Control-узлов, клавиши — Button с темой ui/calculator.tres.
+// Клавиши, нарисованные одинаково, — один стиль темы: состояния Hover и Press достаточно
+// анимировать у одной клавиши каждого вида (7, AC, ÷, =, 0). Логика — в main.gd.
+artboard "calculator" 360x600 bg #0d0f16 ui
+
+let key = #222737
+let fn = #353c53
+let op = #ff9f1c
+let edge = #2c3247
+let ink = #eef1f7
+let dim = #7d869c
+
+group calc "Калькулятор" anchor center middle stack column gap 10 pad 18 {
+  rect body "Корпус" r 30 fill #151925 stroke #222941 2 fit shadow 0 18 36 #00000099
+  group display "Табло" stack column end gap 0 pad 14 {
+    rect screen "Экран" r 18 fill #0a0c12 stroke #1b2030 2 fit inset 0 5 10 #000000cc
+    rect led "Огонёк" size 258 3 r 1.5 fill op glow 6 #ff9f1c88
+    text expr "Выражение" content "12 × 3 =" font-size 18 fill dim align right
+    text result "Результат" content "36" font bold font-size 46 fill ink align right
+  }
+  group row1 "Ряд 1" stack row gap 10 {
+    group kac "AC" ui button {
+      rect kac-face size 64 56 r 18 fill fn stroke edge 2
+      text kac-label content "AC" font bold font-size 20 fill ink part text
+    }
+    group ksign "±" ui button {
+      rect ksign-face size 64 56 r 18 fill fn stroke edge 2
+      text ksign-label content "±" font bold font-size 20 fill ink part text
+    }
+    group kpct "%" ui button {
+      rect kpct-face size 64 56 r 18 fill fn stroke edge 2
+      text kpct-label content "%" font bold font-size 20 fill ink part text
+    }
+    group kdiv "÷" ui button {
+      rect kdiv-face size 64 56 r 18 fill op stroke #ffbd5c 2
+      text kdiv-label content "÷" font bold font-size 30 fill #241503 part text
+    }
+  }
+  group row2 "Ряд 2" stack row gap 10 {
+    group k7 "7" ui button {
+      rect k7-face size 64 56 r 18 fill key stroke edge 2
+      text k7-label content "7" font-size 26 fill ink part text
+    }
+    group k8 "8" ui button {
+      rect k8-face size 64 56 r 18 fill key stroke edge 2
+      text k8-label content "8" font-size 26 fill ink part text
+    }
+    group k9 "9" ui button {
+      rect k9-face size 64 56 r 18 fill key stroke edge 2
+      text k9-label content "9" font-size 26 fill ink part text
+    }
+    group kmul "×" ui button {
+      rect kmul-face size 64 56 r 18 fill op stroke #ffbd5c 2
+      text kmul-label content "×" font bold font-size 30 fill #241503 part text
+    }
+  }
+  group row3 "Ряд 3" stack row gap 10 {
+    group k4 "4" ui button {
+      rect k4-face size 64 56 r 18 fill key stroke edge 2
+      text k4-label content "4" font-size 26 fill ink part text
+    }
+    group k5 "5" ui button {
+      rect k5-face size 64 56 r 18 fill key stroke edge 2
+      text k5-label content "5" font-size 26 fill ink part text
+    }
+    group k6 "6" ui button {
+      rect k6-face size 64 56 r 18 fill key stroke edge 2
+      text k6-label content "6" font-size 26 fill ink part text
+    }
+    group ksub "−" ui button {
+      rect ksub-face size 64 56 r 18 fill op stroke #ffbd5c 2
+      text ksub-label content "−" font bold font-size 30 fill #241503 part text
+    }
+  }
+  group row4 "Ряд 4" stack row gap 10 {
+    group k1 "1" ui button {
+      rect k1-face size 64 56 r 18 fill key stroke edge 2
+      text k1-label content "1" font-size 26 fill ink part text
+    }
+    group k2 "2" ui button {
+      rect k2-face size 64 56 r 18 fill key stroke edge 2
+      text k2-label content "2" font-size 26 fill ink part text
+    }
+    group k3 "3" ui button {
+      rect k3-face size 64 56 r 18 fill key stroke edge 2
+      text k3-label content "3" font-size 26 fill ink part text
+    }
+    group kadd "+" ui button {
+      rect kadd-face size 64 56 r 18 fill op stroke #ffbd5c 2
+      text kadd-label content "+" font bold font-size 30 fill #241503 part text
+    }
+  }
+  group row5 "Ряд 5" stack row gap 10 {
+    group k0 "0" ui button {
+      rect k0-face size 138 56 r 18 fill key stroke edge 2
+      text k0-label content "0" font-size 26 fill ink part text
+    }
+    group kdot "," ui button {
+      rect kdot-face size 64 56 r 18 fill key stroke edge 2
+      text kdot-label content "," font-size 26 fill ink part text
+    }
+    group keq "=" ui button {
+      rect keq-face size 64 56 r 18 fill op stroke #ffd08a 2 gradient linear 90 #ffc14d #ff8a1c glow 8 #ff9f1c66
+      text keq-label content "=" font bold font-size 30 fill #241503 part text
+    }
+  }
+}
+
+// Состояния: по одной клавише каждого вида, остальные такие же берут их стиль.
+anim Hover 0.12s {
+  k7-face.fill    0: #222737 | 0.12: #2d3349
+  k0-face.fill    0: #222737 | 0.12: #2d3349
+  kac-face.fill   0: #353c53 | 0.12: #434b66
+  kdiv-face.fill  0: #ff9f1c | 0.12: #ffb247
+  kdiv-face.glow  0: 0 | 0.12: 10
+  keq-face.glow   0: 8 | 0.12: 16
+}
+
+anim Press 0.06s {
+  k7-face.fill    0: #222737 | 0.06: #181c28
+  k0-face.fill    0: #222737 | 0.06: #181c28
+  kac-face.fill   0: #353c53 | 0.06: #2a3044
+  kdiv-face.fill  0: #ff9f1c | 0.06: #e0820a
+  keq-face.glow   0: 8 | 0.06: 22
+}

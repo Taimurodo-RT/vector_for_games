@@ -352,6 +352,9 @@ UI-набор…» (или `motif kit`) собирает детали всех �
   `VBoxContainer`/`HBoxContainer` в `PanelContainer` с фоном 9-slice, привязки — якоря, тексты — `Label`, остальное —
   картинки `TextureRect`. Тема пишется рядом и назначена корню; меню из `examples/menu.msc` в Godot 4.3 совпадает
   с холстом до пикселя. Подробнее — [docs/export.html#screens](docs/export.html#screens).
+* `godot-apps/` — два приложения Godot с интерфейсом из Motif: калькулятор и таймер «Фокус». Рисунок в `ИМЯ.msc`,
+  `motif screen` собирает из него `ui/`, а `main.gd` — только логика по id узлов. Одинаково нарисованные клавиши
+  становятся одним типом темы. Подробнее — [godot-apps/README.md](godot-apps/README.md).
 
 ## Пикселизация: PixaTool
 

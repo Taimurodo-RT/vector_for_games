@@ -9,6 +9,8 @@ Copy-Item "$root/examples/*.msc" "$Out/examples/"
 # Fonts the examples use, with their licences.
 Copy-Item "$root/examples/fonts" "$Out/examples/fonts" -Recurse -Force
 Copy-Item "$root/docs" "$Out/docs" -Recurse -Force
+# Godot apps whose interface is drawn in Motif: projects to open in Godot.
+Copy-Item "$root/godot-apps" "$Out/godot-apps" -Recurse -Force
 Copy-Item "$PSScriptRoot/README.txt", "$PSScriptRoot/update.bat", "$PSScriptRoot/update.ps1" $Out
 Set-Content -Path "$Out/version.txt" -Value $Version -NoNewline -Encoding ascii
 Compress-Archive -Path "$Out/*" -DestinationPath 'Motif-windows-x64.zip' -Force

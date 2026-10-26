@@ -103,9 +103,22 @@ impl Writer<'_> {
     }
 
     /// The header of a node and where it sits.
-    fn open(&mut self, name: &str, kind: &str, parent: &str, place: Place, b: Rect, anchor: Option<(f64, f64)>) {
+    /// Opens node `name` at `b`. `lean` is where it is held when its content grows: 0 its left
+    /// edge (it grows right), 0.5 its centre, 1 its right edge, as a text is aligned.
+    #[allow(clippy::too_many_arguments)]
+    fn open(&mut self, name: &str, kind: &str, parent: &str, place: Place, b: Rect, anchor: Option<(f64, f64)>, lean: f64) {
         self.nodes.push_str(&format!("\n[node name=\"{}\" type=\"{kind}\" parent=\"{parent}\"]\n", quote(name)));
         let r = Rect::new(self.s(b.x0), self.s(b.y0), self.s(b.x1), self.s(b.y1));
+        // A centred control grows both ways, one at the right or bottom grows back.
+        let grow = |a: f64| {
+            if a > 0.75 {
+                0
+            } else if a > 0.25 {
+                2
+            } else {
+                1
+            }
+        };
         match place {
             Place::Stacked(dir, align) => {
                 self.nodes.push_str("layout_mode = 2\n");
@@ -121,8 +134,9 @@ impl Writer<'_> {
             Place::Inside(o) => {
                 let (x, y) = (self.s(o.x0), self.s(o.y0));
                 self.nodes.push_str("layout_mode = 1\n");
-                for (side, v) in [("left", r.x0 - x), ("top", r.y0 - y), ("right", r.x1 - x), ("bottom", r.y1 - y)] {
-                    self.nodes.push_str(&format!("offset_{side} = {}\n", num(v.round())));
+                self.offsets(r, x, y);
+                if grow(lean) != 1 {
+                    self.nodes.push_str(&format!("grow_horizontal = {}\n", grow(lean)));
                 }
             }
             Place::Screen => {
@@ -134,19 +148,9 @@ impl Writer<'_> {
                         self.nodes.push_str(&format!("anchor_{side} = {}\n", num(a)));
                     }
                 }
-                for (side, val) in [("left", r.x0 - h * w), ("top", r.y0 - v * ht), ("right", r.x1 - h * w), ("bottom", r.y1 - v * ht)] {
-                    self.nodes.push_str(&format!("offset_{side} = {}\n", num(val.round())));
-                }
-                // A centred control grows both ways, one at the right or bottom grows back.
-                let grow = |a: f64| {
-                    if a > 0.75 {
-                        0
-                    } else if a > 0.25 {
-                        2
-                    } else {
-                        1
-                    }
-                };
+                self.offsets(r, h * w, v * ht);
+                // Without an anchor, it grows the way its text is aligned.
+                let h = if anchor.is_some() { h } else { lean };
                 if grow(h) != 1 {
                     self.nodes.push_str(&format!("grow_horizontal = {}\n", grow(h)));
                 }
@@ -154,6 +158,16 @@ impl Writer<'_> {
                     self.nodes.push_str(&format!("grow_vertical = {}\n", grow(v)));
                 }
             }
+        }
+    }
+
+    /// The offsets of box `r` from the point (`x`, `y`) its anchors hold. The size is rounded on
+    /// its own, so a box on a half pixel (a stack centred with an odd height) keeps its height.
+    fn offsets(&mut self, r: Rect, x: f64, y: f64) {
+        let (left, top) = ((r.x0 - x).round(), (r.y0 - y).round());
+        let (right, bottom) = (left + r.width().round(), top + r.height().round());
+        for (side, v) in [("left", left), ("top", top), ("right", right), ("bottom", bottom)] {
+            self.nodes.push_str(&format!("offset_{side} = {}\n", num(v)));
         }
     }
 
@@ -181,7 +195,7 @@ impl Writer<'_> {
         }
         if let Some((item, ty)) = self.pieces[k].clone() {
             let b = kit::control_box(d, k).unwrap_or_default();
-            self.open(&name, item.base, parent, place, b, anchor);
+            self.open(&name, item.base, parent, place, b, anchor, 0.0);
             self.nodes.push_str(&format!("theme_type_variation = &\"{ty}\"\n"));
             let text = (0..d.nodes.len())
                 .find(|&j| (d.nodes[j].part == Some(UiPart::Text) && kit::owner(d, j) == Some(k)) || (j == k && n.kind == ShapeKind::Text))
@@ -202,7 +216,7 @@ impl Writer<'_> {
         if matches!(n.kind, ShapeKind::Group | ShapeKind::Bone) && self.live(k) {
             // A plain group: its children keep their places inside it.
             let Some(b) = kit::piece_box(d, k) else { return Ok(()) };
-            self.open(&name, "Control", parent, place, b, anchor);
+            self.open(&name, "Control", parent, place, b, anchor, 0.0);
             let me = Self::path(parent, &name);
             for c in self.children(k) {
                 self.emit(c, &me, Place::Inside(b))?;
@@ -216,7 +230,18 @@ impl Writer<'_> {
         px.save_png(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         self.files.push(path);
         let tex = self.add_ext("Texture2D", &file);
-        self.open(&name, "TextureRect", parent, place, at, anchor);
+        // In a stack the object takes its own size; a glow or a shadow drawn past it overflows,
+        // as on the artboard, from a holder of that size.
+        let own = kit::piece_box(d, k).unwrap_or(at);
+        let past = [own.x0 - at.x0, at.x1 - own.x1, own.y0 - at.y0, at.y1 - own.y1].iter().any(|v| self.s(v.abs()) >= 1.0);
+        if matches!(place, Place::Stacked(..)) && past {
+            self.open(&name, "Control", parent, place, own, anchor, 0.0);
+            self.nodes.push_str("mouse_filter = 2\n");
+            let holder = Self::path(parent, &name);
+            self.open("Picture", "TextureRect", &holder, Place::Inside(own), at, None, 0.0);
+        } else {
+            self.open(&name, "TextureRect", parent, place, at, anchor, 0.0);
+        }
         self.nodes.push_str(&format!("mouse_filter = 2\ntexture = ExtResource(\"{tex}\")\nstretch_mode = 3\n"));
         Ok(())
     }
@@ -303,13 +328,13 @@ impl Writer<'_> {
         let n = &d.nodes[k];
         let Some(shape) = n.text.as_ref() else { return Ok(()) };
         let Some(b) = kit::text_box(d, k) else { return Ok(()) };
-        self.open(&node_name(&n.id), "Label", parent, place, b, n.anchor);
-        self.nodes.push_str(&format!("text = \"{}\"\n", quote(&shape.content)));
         let align = match n.text_style.align {
             motif_core::TextAlign::Left => 0,
             motif_core::TextAlign::Center => 1,
             motif_core::TextAlign::Right => 2,
         };
+        self.open(&node_name(&n.id), "Label", parent, place, b, n.anchor, align as f64 / 2.0);
+        self.nodes.push_str(&format!("text = \"{}\"\n", quote(&shape.content)));
         self.nodes.push_str(&format!("horizontal_alignment = {align}\nvertical_alignment = 1\n"));
         let scale = d.world_transform(k).as_coeffs()[3].abs();
         if let Some(f) = &shape.font {
@@ -360,9 +385,15 @@ impl Writer<'_> {
         let frame = n.frame.map(|f| d.world_transform(k).transform_rect_bbox(f)).or_else(|| kit::piece_box(d, k)).unwrap_or_default();
         let mut me;
         let pad = self.s(stack.pad).round();
+        // A column aligned to its right edge grows to the left as its texts get longer.
+        let lean = match (stack.dir, stack.align) {
+            (StackDir::Column, StackAlign::End) => 1.0,
+            (StackDir::Column, StackAlign::Center) => 0.5,
+            _ => 0.0,
+        };
         match fit.and_then(|f| kit::picture(d, f, self.opts).map(|p| (f, p))) {
             Some((f, (px, at))) => {
-                self.open(&name, "PanelContainer", parent, place, frame, n.anchor);
+                self.open(&name, "PanelContainer", parent, place, frame, n.anchor, lean);
                 let file = format!("{}_{}.png", self.file, d.nodes[f].id);
                 let path = self.dir.join(&file);
                 px.save_png(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -398,7 +429,7 @@ impl Writer<'_> {
             None => {
                 let kind = if stack.dir == StackDir::Column { "VBoxContainer" } else { "HBoxContainer" };
                 if pad > 0.0 {
-                    self.open(&name, "MarginContainer", parent, place, frame, n.anchor);
+                    self.open(&name, "MarginContainer", parent, place, frame, n.anchor, lean);
                     for side in ["left", "top", "right", "bottom"] {
                         self.nodes.push_str(&format!("theme_override_constants/margin_{side} = {}\n", num(pad)));
                     }
@@ -406,7 +437,7 @@ impl Writer<'_> {
                     self.nodes.push_str(&format!("\n[node name=\"Stack\" type=\"{kind}\" parent=\"{me}\"]\nlayout_mode = 2\n"));
                     me = Self::path(&me, "Stack");
                 } else {
-                    self.open(&name, kind, parent, place, frame, n.anchor);
+                    self.open(&name, kind, parent, place, frame, n.anchor, lean);
                     me = Self::path(parent, &name);
                 }
             }
@@ -480,17 +511,15 @@ pub fn write_screens(dir: &Path, theme: &str, boards: &[(String, Document)], opt
     // A board without interface pieces still makes a screen, of pictures and labels.
     let kits: Vec<Vec<KitItem>> =
         boards.iter().map(|(_, d)| if kit::has_pieces(d) { kit::render_kit(d, opts) } else { Ok(Vec::new()) }).collect::<Result<_, _>>()?;
-    let merged = kit::merge_boards(kits.clone());
+    let (merged, names) = kit::share_boards(kits.clone());
     let mut files = Vec::new();
     let has_theme = !merged.is_empty();
     if has_theme {
         files.extend(kit::write_kit(dir, theme, &merged)?);
     }
-    let mut at = 0;
-    for ((name, doc), items) in boards.iter().zip(kits) {
-        // Each piece by its own id, with the variation name the merged kit gave it.
-        let named: Vec<(KitItem, String)> = items.into_iter().enumerate().map(|(j, it)| (it, kit::type_name(&merged[at + j].id))).collect();
-        at += named.len();
+    for (((name, doc), items), types) in boards.iter().zip(kits).zip(names) {
+        // Each piece by its own id, with the variation the shared kit gave it.
+        let named: Vec<(KitItem, String)> = items.into_iter().zip(types).collect();
         let file = if boards.len() > 1 { crate::screen::file_stem(name) } else { theme.to_string() + "_screen" };
         let theme_file = has_theme.then(|| format!("{theme}.tres"));
         files.extend(write_screen(dir, &file, name, theme_file.as_deref(), doc, &named, opts)?);
@@ -579,6 +608,23 @@ mod tests {
         // The glow of the button reaches past it: drawn outside the control, not in its padding.
         let theme = scene(&dir, "ui-effects.tres");
         assert!(theme.contains("expand_margin_left"), "{theme}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_keypad_shares_its_styles() {
+        let dir = std::env::temp_dir().join(format!("motif-screen-calc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_screens(&dir, "calculator", &boards(include_str!("../../../godot-apps/calculator/calculator.msc")), CpuOptions::default()).unwrap();
+        let tscn = scene(&dir, "calculator_screen.tscn");
+        // Keys drawn alike are one theme type: the animated key lends its states to the rest.
+        assert!(node(&tscn, "k8").contains("theme_type_variation = &\"K7\""), "{tscn}");
+        assert!(node(&tscn, "kmul").contains("theme_type_variation = &\"Kdiv\""), "{tscn}");
+        assert!(!dir.join("k8_normal.png").exists());
+        // The glowing strip keeps its own size in the stack; the glow overflows from a holder.
+        assert!(node(&tscn, "led").contains("type=\"Control\""), "{tscn}");
+        let picture = node(&tscn, "Picture");
+        assert!(picture.contains("parent=\"calc/Stack/display/Stack/led\"") && picture.contains("offset_left = -6.0"), "{picture}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

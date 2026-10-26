@@ -300,9 +300,17 @@ fn caption(
         let tr = pose.world_transform(t);
         let b = tr.transform_rect_bbox(shape.bounds(&n.text_style));
         let k = b.height() / shape.bounds(&n.text_style).height().max(1e-9);
-        let (half_w, half_h) = (b.width() / 2.0, (shape.ascender + shape.descender) * n.text_style.size * k / 2.0);
+        let half_w = b.width() / 2.0;
         let c = b.center();
-        let m = [c.x - half_w - frame.x0, c.y - half_h - frame.y0, frame.x1 - c.x - half_w, frame.y1 - c.y - half_h].map(|v| to_px(v).max(0) as u32);
+        // The line in whole pixels above and below, as FreeType rounds them for Godot.
+        let px = n.text_style.size * k * opts.scale;
+        let line = (shape.ascender * px).ceil() + (shape.descender * px).ceil();
+        let (y0, y1) = ((frame.y0 * opts.scale).round(), (frame.y1 * opts.scale).round());
+        let top = (c.y * opts.scale - line / 2.0 - y0 + 1e-6).floor().max(0.0);
+        let bottom = (y1 - y0 - top - line).max(0.0);
+        // Rounded down: two halves rounded up would make the control a pixel wider than drawn.
+        let side = |v: f64| (v * opts.scale + 1e-6).floor().max(0.0) as u32;
+        let m = [side(c.x - half_w - frame.x0), top as u32, side(frame.x1 - c.x - half_w), bottom as u32];
         content.push((*state, m));
     }
     let scale = doc.world_transform(t).as_coeffs()[3].abs().max(1e-9);
@@ -638,19 +646,74 @@ const GODOT_CLASSES: [&str; 28] = [
     "VSlider",
 ];
 
-/// The pieces of several boards as one kit, in board order. A piece whose id (or Godot type)
-/// an earlier board already has gets a number: the second `knob` becomes `knob_2`.
+/// The pieces of several boards in one kit. A piece drawn exactly like one before it (the same
+/// picture, the same caption font and colour) takes its type: a keypad of a dozen keys is one style,
+/// and the states need animating on one key only. Other clashing ids are numbered.
 pub fn merge_boards(boards: Vec<Vec<KitItem>>) -> Vec<KitItem> {
+    share_boards(boards).0
+}
+
+/// [`merge_boards`], and the type each piece of each board ended up with.
+pub fn share_boards(boards: Vec<Vec<KitItem>>) -> (Vec<KitItem>, Vec<Vec<String>>) {
     let mut out: Vec<KitItem> = Vec::new();
-    for mut item in boards.into_iter().flatten() {
-        let taken = |id: &str, out: &[KitItem]| out.iter().any(|o| o.id == id || type_name(&o.id) == type_name(id));
-        if taken(&item.id, &out) {
-            let base = item.id.clone();
-            item.id = (2..).map(|k| format!("{base}_{k}")).find(|id| !taken(id, &out)).expect("some number is free");
+    let mut names = Vec::new();
+    for board in boards {
+        let mut these = Vec::new();
+        for mut item in board {
+            if let Some(o) = out.iter_mut().find(|o| same_look(o, &item)) {
+                // The one with states is the style; it keeps the first one's name.
+                if item.pictures.len() > o.pictures.len()
+                    || (item.font.is_some() && o.font.as_ref().is_some_and(|f| f.colors.len() < item.font.as_ref().unwrap().colors.len()))
+                {
+                    item.id = o.id.clone();
+                    *o = item;
+                }
+                these.push(type_name(&o.id));
+                continue;
+            }
+            let taken = |id: &str, out: &[KitItem]| out.iter().any(|o| o.id == id || type_name(&o.id) == type_name(id));
+            if taken(&item.id, &out) {
+                let base = item.id.clone();
+                item.id = (2..).map(|k| format!("{base}_{k}")).find(|id| !taken(id, &out)).expect("some number is free");
+            }
+            these.push(type_name(&item.id));
+            out.push(item);
         }
-        out.push(item);
+        names.push(these);
     }
-    out
+    (out, names)
+}
+
+/// Two pieces that look the same at rest: the same control, picture and caption. One without
+/// states matches one with them; two with states match only state by state.
+fn same_look(a: &KitItem, b: &KitItem) -> bool {
+    // Cut to what they draw: a piece whose hover glows is shot with room for the glow.
+    let trim = |x: &KitPicture| {
+        let b = opaque_bounds(&x.px)?;
+        let cut = [b[0], b[1], x.px.width() as i64 - b[2], x.px.height() as i64 - b[3]];
+        let less = |m: [u32; 4]| [0, 1, 2, 3].map(|k| m[k] as i64 - cut[k]);
+        Some((self::cut(&x.px, b)?, x.margins.map(less), less(x.expand)))
+    };
+    let pic = |x: &KitPicture, y: &KitPicture| match (trim(x), trim(y)) {
+        (Some((px, mx, ex)), Some((py, my, ey))) => px.width() == py.width() && px.data() == py.data() && mx == my && ex == ey,
+        _ => false,
+    };
+    let (Some(pa), Some(pb)) = (a.pictures.first(), b.pictures.first()) else { return false };
+    if a.base != b.base || !pic(pa, pb) {
+        return false;
+    }
+    let plain = a.pictures.len() == 1 || b.pictures.len() == 1;
+    if !plain && (a.pictures.len() != b.pictures.len() || !a.pictures.iter().zip(&b.pictures).all(|(x, y)| x.name == y.name && pic(x, y))) {
+        return false;
+    }
+    match (&a.font, &b.font) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            let normal = |f: &KitFont| f.colors.iter().find(|(n, _)| *n == "font_color").map(|c| c.1);
+            x.file == y.file && x.size == y.size && x.outline == y.outline && x.shadow == y.shadow && normal(x) == normal(y) && (plain || x.colors == y.colors)
+        }
+        _ => false,
+    }
 }
 
 /// `play_button` → `PlayButton`: the name of the piece's type variation in the theme. A name
@@ -976,6 +1039,15 @@ text title at 200 360 content "Меню" font bold font-size 30 fill #ffffff out
     fn boards_share_one_kit_without_clashing_names() {
         let a = render_kit(&kit(), CpuOptions::default()).unwrap();
         let b = render_kit(&kit(), CpuOptions::default()).unwrap();
+        // The same pieces again are the same styles.
+        let (items, names) = share_boards(vec![a.clone(), b]);
+        assert_eq!(items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["play_button", "card"]);
+        assert_eq!(names[1], ["PlayButton", "Card"]);
+        // Drawn differently, they are numbered.
+        let mut b = a.clone();
+        for p in b.iter_mut().flat_map(|i| i.pictures.iter_mut()) {
+            p.px.fill(tiny_skia::Color::WHITE);
+        }
         let ids: Vec<String> = merge_boards(vec![a, b]).into_iter().map(|i| i.id).collect();
         assert_eq!(ids, ["play_button", "card", "play_button_2", "card_2"]);
         // Ids that differ only in punctuation are one Godot type: numbered too.
@@ -984,6 +1056,7 @@ text title at 200 360 content "Меню" font bold font-size 30 fill #ffffff out
         let mut d = render_kit(&kit(), CpuOptions::default()).unwrap();
         d.truncate(1);
         d[0].id = "play-button".into();
+        d[0].pictures[0].px.fill(tiny_skia::Color::WHITE);
         let ids: Vec<String> = merge_boards(vec![c, d]).into_iter().map(|i| i.id).collect();
         assert_eq!(ids, ["play_button", "play-button_2"]);
     }

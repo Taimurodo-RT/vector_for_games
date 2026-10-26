@@ -223,7 +223,9 @@ impl TextShape {
     pub fn line_box(&self, s: &TextStyle) -> kurbo::Rect {
         let b = self.bounds(s);
         let lines = self.lines.len().max(1) as f64;
-        let h = (lines - 1.0) * s.size * s.line_height + (self.ascender + self.descender) * s.size;
+        // A font's height above and below the line in whole pixels, as FreeType (and so Godot)
+        // rounds them.
+        let h = (lines - 1.0) * s.size * s.line_height + (self.ascender * s.size).ceil() + (self.descender * s.size).ceil();
         kurbo::Rect::new(b.x0, -h / 2.0, b.x1, h / 2.0)
     }
 

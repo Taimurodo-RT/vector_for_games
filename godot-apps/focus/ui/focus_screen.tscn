@@ -1,0 +1,212 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Theme" path="focus.tres" id="1_theme"]
+[ext_resource type="Texture2D" path="focus_screen_panel.png" id="2_texture2d"]
+[ext_resource type="FontFile" path="IBMPlexSans-SemiBold.ttf" id="3_fontfile"]
+[ext_resource type="Texture2D" path="focus_screen_dial.png" id="4_texture2d"]
+[ext_resource type="FontFile" path="IBMPlexSans-Regular.ttf" id="5_fontfile"]
+
+[sub_resource type="StyleBoxTexture" id="1_panel"]
+texture = ExtResource("2_texture2d")
+texture_margin_left = 75.0
+texture_margin_top = 57.0
+texture_margin_right = 73.0
+texture_margin_bottom = 90.0
+expand_margin_left = 44.0
+expand_margin_top = 26.0
+expand_margin_right = 42.0
+expand_margin_bottom = 59.0
+content_margin_left = 26.0
+content_margin_top = 26.0
+content_margin_right = 26.0
+content_margin_bottom = 26.0
+
+[sub_resource type="FontVariation" id="2_spacing"]
+base_font = ExtResource("3_fontfile")
+spacing_glyph = 6
+
+[sub_resource type="StyleBoxTexture" id="3_panel"]
+texture = ExtResource("4_texture2d")
+texture_margin_left = 29.0
+texture_margin_top = 28.0
+texture_margin_right = 29.0
+texture_margin_bottom = 28.0
+expand_margin_left = 2.0
+expand_margin_top = 1.0
+expand_margin_right = 2.0
+expand_margin_bottom = 1.0
+content_margin_left = 22.0
+content_margin_top = 22.0
+content_margin_right = 22.0
+content_margin_bottom = 22.0
+
+[node name="focus" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("1_theme")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.054902, 0.07451, 0.12549, 1)
+
+[node name="app" type="PanelContainer" parent="."]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -176.0
+offset_top = -255.0
+offset_right = 176.0
+offset_bottom = 255.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("1_panel")
+
+[node name="Stack" type="VBoxContainer" parent="app"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="title" type="Label" parent="app/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(80.0, 22.0)
+size_flags_horizontal = 4
+text = "ФОКУС"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_fonts/font = SubResource("2_spacing")
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.521569, 0.564706, 0.666667, 1)
+
+[node name="modes" type="HBoxContainer" parent="app/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(272.0, 40.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 8
+
+[node name="work" type="Button" parent="app/Stack/modes"]
+layout_mode = 2
+custom_minimum_size = Vector2(132.0, 40.0)
+size_flags_vertical = 4
+theme_type_variation = &"Work"
+text = "Работа"
+
+[node name="rest" type="Button" parent="app/Stack/modes"]
+layout_mode = 2
+custom_minimum_size = Vector2(132.0, 40.0)
+size_flags_vertical = 4
+theme_type_variation = &"Work"
+text = "Отдых"
+
+[node name="clock" type="PanelContainer" parent="app/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(251.0, 165.0)
+size_flags_horizontal = 4
+theme_override_styles/panel = SubResource("3_panel")
+
+[node name="Stack" type="VBoxContainer" parent="app/Stack/clock"]
+layout_mode = 2
+theme_override_constants/separation = 0
+
+[node name="time" type="Label" parent="app/Stack/clock/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(207.0, 99.0)
+size_flags_horizontal = 4
+text = "25:00"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_fonts/font = ExtResource("3_fontfile")
+theme_override_font_sizes/font_size = 76
+theme_override_colors/font_color = Color(0.94902, 0.956863, 0.980392, 1)
+
+[node name="phase" type="Label" parent="app/Stack/clock/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(77.0, 22.0)
+size_flags_horizontal = 4
+text = "до отдыха"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_fonts/font = ExtResource("5_fontfile")
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.521569, 0.564706, 0.666667, 1)
+
+[node name="progress" type="ProgressBar" parent="app/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(300.0, 16.0)
+size_flags_horizontal = 4
+theme_type_variation = &"Progress"
+value = 72.0
+show_percentage = false
+
+[node name="buttons" type="HBoxContainer" parent="app/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(300.0, 54.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 12
+
+[node name="start" type="Button" parent="app/Stack/buttons"]
+layout_mode = 2
+custom_minimum_size = Vector2(176.0, 54.0)
+size_flags_vertical = 4
+theme_type_variation = &"Start"
+text = "Старт"
+
+[node name="reset" type="Button" parent="app/Stack/buttons"]
+layout_mode = 2
+custom_minimum_size = Vector2(112.0, 54.0)
+size_flags_vertical = 4
+theme_type_variation = &"Reset"
+text = "Сброс"
+
+[node name="minutes-row" type="HBoxContainer" parent="app/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(260.0, 25.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 12
+
+[node name="minutes-title" type="Label" parent="app/Stack/minutes-row"]
+layout_mode = 2
+custom_minimum_size = Vector2(85.0, 21.0)
+size_flags_vertical = 4
+text = "Работа, мин"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_fonts/font = ExtResource("5_fontfile")
+theme_override_font_sizes/font_size = 15
+theme_override_colors/font_color = Color(0.521569, 0.564706, 0.666667, 1)
+
+[node name="minutes" type="HSlider" parent="app/Stack/minutes-row"]
+layout_mode = 2
+custom_minimum_size = Vector2(130.0, 25.0)
+size_flags_vertical = 4
+theme_type_variation = &"Minutes"
+value = 50.0
+
+[node name="minutes-value" type="Label" parent="app/Stack/minutes-row"]
+layout_mode = 2
+custom_minimum_size = Vector2(22.0, 24.0)
+size_flags_vertical = 4
+text = "25"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_fonts/font = ExtResource("3_fontfile")
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.94902, 0.956863, 0.980392, 1)
+
+[node name="auto" type="CheckBox" parent="app/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(198.0, 29.0)
+size_flags_horizontal = 4
+theme_type_variation = &"Auto"
+text = "Отдых начинается сам"
+button_pressed = true
