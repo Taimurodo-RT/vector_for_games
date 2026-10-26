@@ -63,6 +63,7 @@ impl<'a> Evaluator<'a> {
                 machines: HashMap::new(),
                 world: None,
                 weights: HashMap::new(),
+                board_cell: None,
             },
             errors: Vec::new(),
         }
@@ -426,6 +427,17 @@ impl<'a> Evaluator<'a> {
                             "ui" => self.scene.doc.purpose = motif_core::Purpose::Ui,
                             "game" => self.scene.doc.purpose = motif_core::Purpose::Game,
                             _ => {}
+                        }
+                        if p.key == "cell" {
+                            let n = |v: Option<Value>| match v {
+                                Some(Value::Num(n)) if n >= 0.0 && n.fract() == 0.0 && n < 1000.0 => Some(n as u32),
+                                _ => None,
+                            };
+                            match (n(self.value(&p.values[0])), n(self.value(&p.values[1]))) {
+                                (Some(c), Some(r)) => self.scene.board_cell = Some((c, r)),
+                                _ => self.err(p.key_span, "cell: столбец и строка холста в сетке, целые от 0: cell 1 0"),
+                            }
+                            continue;
                         }
                         let Some(v) = p.values.first() else { continue };
                         match (p.key.as_str(), self.value(v)) {

@@ -184,6 +184,21 @@ const GODOT_CLASSES: [&str; 24] = [
     "VSlider",
 ];
 
+/// The pieces of several boards as one kit, in board order. A piece whose id (or Godot type)
+/// an earlier board already has gets a number: the second `knob` becomes `knob_2`.
+pub fn merge_boards(boards: Vec<Vec<KitItem>>) -> Vec<KitItem> {
+    let mut out: Vec<KitItem> = Vec::new();
+    for mut item in boards.into_iter().flatten() {
+        let taken = |id: &str, out: &[KitItem]| out.iter().any(|o| o.id == id || type_name(&o.id) == type_name(id));
+        if taken(&item.id, &out) {
+            let base = item.id.clone();
+            item.id = (2..).map(|k| format!("{base}_{k}")).find(|id| !taken(id, &out)).expect("some number is free");
+        }
+        out.push(item);
+    }
+    out
+}
+
 /// `play_button` → `PlayButton`: the name of the piece's type variation in the theme. A name
 /// Godot already uses for a control gets `Kit` after it (`button` → `ButtonKit`).
 pub fn type_name(id: &str) -> String {
@@ -309,5 +324,21 @@ mod tests {
         assert!(theme.contains("path=\"card_normal.png\""), "{theme}");
         assert!(theme.contains("expand_margin_bottom = 6.0"), "{theme}");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn boards_share_one_kit_without_clashing_names() {
+        let a = render_kit(&kit(), CpuOptions::default()).unwrap();
+        let b = render_kit(&kit(), CpuOptions::default()).unwrap();
+        let ids: Vec<String> = merge_boards(vec![a, b]).into_iter().map(|i| i.id).collect();
+        assert_eq!(ids, ["play_button", "card", "play_button_2", "card_2"]);
+        // Ids that differ only in punctuation are one Godot type: numbered too.
+        let mut c = render_kit(&kit(), CpuOptions::default()).unwrap();
+        c.truncate(1);
+        let mut d = render_kit(&kit(), CpuOptions::default()).unwrap();
+        d.truncate(1);
+        d[0].id = "play-button".into();
+        let ids: Vec<String> = merge_boards(vec![c, d]).into_iter().map(|i| i.id).collect();
+        assert_eq!(ids, ["play_button", "play-button_2"]);
     }
 }

@@ -30,6 +30,9 @@ enum Action {
     Group(String),
     Ungroup(String),
     Restack(String, bool),
+    Board(usize),
+    BoardCopy(usize),
+    BoardDelete(usize),
 }
 
 impl App {
@@ -43,17 +46,64 @@ impl App {
         egui::ScrollArea::vertical().id_salt("layers").max_height(ui.available_height() - foot_h).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.add_space(4.0);
-            // Artboard row.
-            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
-            theme::paint_icon(ui.painter(), Rect::from_center_size(pos2(r.left() + 19.0, r.center().y), vec2(14.0, 14.0)), Icon::Artboard, MUTED);
-            ui.painter().text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, &doc.artboard.name, theme::semibold(13.0), FG);
-            ui.painter().text(
-                pos2(r.right() - 10.0, r.center().y),
-                Align2::RIGHT_CENTER,
-                format!("{}×{}", fmt_num(doc.artboard.width), fmt_num(doc.artboard.height)),
-                theme::mono(11.0),
-                FAINT,
-            );
+            // The boards of the file; the active one's objects follow.
+            let specs = self.board_specs();
+            let many = specs.len() > 1;
+            for (k, (size, name)) in specs.iter().enumerate() {
+                let active = k == self.boards.active;
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), if many { Sense::click() } else { Sense::hover() });
+                if active && many {
+                    ui.painter().rect_filled(r, 0.0, theme::PANEL_2);
+                } else if resp.hovered() {
+                    ui.painter().rect_filled(r, 0.0, theme::mix(theme::PANEL_2, PANEL, 0.5));
+                }
+                let color = if active { FG } else { MUTED };
+                theme::paint_icon(
+                    ui.painter(),
+                    Rect::from_center_size(pos2(r.left() + 19.0, r.center().y), vec2(14.0, 14.0)),
+                    Icon::Artboard,
+                    if active { ACCENT } else { MUTED },
+                );
+                ui.painter().text(
+                    pos2(r.left() + 32.0, r.center().y),
+                    Align2::LEFT_CENTER,
+                    name,
+                    if active { theme::semibold(13.0) } else { theme::ui_font(13.0) },
+                    color,
+                );
+                ui.painter().text(
+                    pos2(r.right() - 10.0, r.center().y),
+                    Align2::RIGHT_CENTER,
+                    format!("{}×{}", fmt_num(size.0), fmt_num(size.1)),
+                    theme::mono(11.0),
+                    FAINT,
+                );
+                if resp.clicked() {
+                    action = Some(Action::Board(k));
+                }
+                if many {
+                    resp.context_menu(|ui| {
+                        if ui.button("Открыть").clicked() {
+                            action = Some(Action::Board(k));
+                            ui.close();
+                        }
+                        if ui.button("Копия холста").clicked() {
+                            action = Some(Action::BoardCopy(k));
+                            ui.close();
+                        }
+                        if ui.button("Удалить холст").clicked() {
+                            action = Some(Action::BoardDelete(k));
+                            ui.close();
+                        }
+                    });
+                }
+            }
+            if many {
+                ui.add_space(2.0);
+                let (line, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                ui.painter().hline(line.x_range(), line.center().y, Stroke::new(1.0, LINE));
+                ui.add_space(2.0);
+            }
             // Topmost first, like in every layer list; a group's children under it.
             for i in self.layer_order() {
                 let n = &doc.nodes[i];
@@ -279,7 +329,13 @@ impl App {
                 self.select_only(Some(id));
                 self.restack_selection(up);
             }
-            None => {}
+            Some(Action::Board(k)) => {
+                self.switch_board(k);
+                self.boards.reveal = true;
+            }
+            Some(Action::BoardCopy(k)) if self.can_edit() => self.duplicate_board(k),
+            Some(Action::BoardDelete(k)) if self.can_edit() => self.delete_board(k),
+            Some(Action::BoardCopy(_) | Action::BoardDelete(_)) | None => {}
         }
     }
 

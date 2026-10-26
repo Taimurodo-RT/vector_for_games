@@ -26,10 +26,15 @@ impl View {
     }
 
     pub fn fit(canvas: Rect, doc: &Document) -> View {
+        View::fit_rect(canvas, Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(doc.artboard.width as f32, doc.artboard.height as f32)))
+    }
+
+    /// The view that shows `area` (in artboard space) whole, centred.
+    pub fn fit_rect(canvas: Rect, area: Rect) -> View {
         let margin = 48.0;
-        let (w, h) = (doc.artboard.width as f32, doc.artboard.height as f32);
+        let (w, h) = (area.width().max(1.0), area.height().max(1.0));
         let zoom = ((canvas.width() - 2.0 * margin) / w).min((canvas.height() - 2.0 * margin) / h).clamp(0.05, 16.0);
-        View { zoom, pan: egui::vec2((canvas.width() - w * zoom) / 2.0, (canvas.height() - h * zoom) / 2.0) }
+        View { zoom, pan: (canvas.size() - area.size() * zoom) / 2.0 - area.min.to_vec2() * zoom }
     }
 }
 
@@ -60,8 +65,9 @@ impl Canvas {
         }
     }
 
-    /// Paints `doc` into `rect` and returns nothing; overlays are drawn by the caller afterwards.
-    pub fn paint(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, rect: Rect, view: View, doc: &Document, backdrop: Option<BackdropView>) {
+    /// Paints the stage into `rect` and returns nothing; overlays are drawn by the caller afterwards.
+    pub fn paint(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, rect: Rect, view: View, stage: Stage) {
+        let Stage { doc, backdrop, others } = stage;
         if self.gpu.is_none()
             && self.gpu_failed.is_none()
             && let Some(rs) = frame.wgpu_render_state()
@@ -73,7 +79,7 @@ impl Canvas {
             }
         }
         if let (Some(gpu), Some(rs)) = (self.gpu.as_mut(), frame.wgpu_render_state()) {
-            match paint_gpu(gpu, rs, ui, rect, view, doc, backdrop) {
+            match paint_gpu(gpu, rs, ui, rect, view, &stage) {
                 Ok(()) => return,
                 Err(e) => {
                     self.gpu = None;
@@ -82,6 +88,14 @@ impl Canvas {
             }
         }
         self.paint_cpu(ui, rect, view, doc, backdrop);
+        // Without the GPU only the active board is drawn; the others show as frames.
+        let painter = ui.painter_at(rect);
+        for o in others {
+            let min = view.to_screen(rect, motif_core::kurbo::Point::new(o.offset.x, o.offset.y));
+            let r = Rect::from_min_size(min, egui::vec2(o.doc.artboard.width as f32, o.doc.artboard.height as f32) * view.zoom);
+            let bg = o.doc.artboard.background;
+            painter.rect_filled(r, 0.0, Color32::from_rgba_unmultiplied(bg.r, bg.g, bg.b, 255));
+        }
     }
 
     fn paint_cpu(&mut self, ui: &mut egui::Ui, rect: Rect, view: View, doc: &Document, backdrop: Option<BackdropView>) {
@@ -109,19 +123,21 @@ impl Canvas {
     }
 }
 
+/// What the canvas draws: the open board (its pose), its backdrop and the other boards of the
+/// file around it.
+#[derive(Clone, Copy)]
+pub struct Stage<'a> {
+    pub doc: &'a Document,
+    pub backdrop: Option<BackdropView<'a>>,
+    pub others: &'a [crate::boards_ui::OtherBoard],
+}
+
 pub fn artboard_rect(canvas: Rect, view: View, doc: &Document) -> Rect {
     Rect::from_min_size(canvas.min + view.pan, egui::vec2(doc.artboard.width as f32, doc.artboard.height as f32) * view.zoom)
 }
 
-fn paint_gpu(
-    gpu: &mut Gpu,
-    rs: &egui_wgpu::RenderState,
-    ui: &mut egui::Ui,
-    rect: Rect,
-    view: View,
-    doc: &Document,
-    backdrop: Option<BackdropView>,
-) -> Result<(), String> {
+fn paint_gpu(gpu: &mut Gpu, rs: &egui_wgpu::RenderState, ui: &mut egui::Ui, rect: Rect, view: View, stage: &Stage) -> Result<(), String> {
+    let Stage { doc, backdrop, others } = *stage;
     let ppp = ui.ctx().pixels_per_point();
     let size = [((rect.width() * ppp).round() as u32).max(1), ((rect.height() * ppp).round() as u32).max(1)];
     let needs_new = gpu.texture.as_ref().is_none_or(|t| t.3 != size);
@@ -151,6 +167,9 @@ fn paint_gpu(
 
     let mut scene = vello::Scene::new();
     let to_px = Affine::scale(ppp as f64) * Affine::translate(Vec2::new(view.pan.x as f64, view.pan.y as f64)) * Affine::scale(view.zoom as f64);
+    for o in others {
+        motif_render::build_scene(&mut scene, &o.doc, to_px * Affine::translate(Vec2::new(o.offset.x, o.offset.y)), None);
+    }
     motif_render::build_scene(&mut scene, doc, to_px, backdrop);
     let params = RenderParams {
         base_color: vello::peniko::Color::from_rgba8(STAGE.r(), STAGE.g(), STAGE.b(), 255),

@@ -126,6 +126,8 @@ pub struct ExportSettings {
     scale: f64,
     antialias: bool,
     transparent: bool,
+    /// Export every board of the file, not only the open one.
+    all_boards: bool,
 }
 
 pub struct App {
@@ -162,8 +164,10 @@ pub struct App {
     /// The weight brush of skinned shapes.
     pub(crate) brush_w: crate::weights_ui::WeightBrush,
     pub(crate) graph: crate::machine_ui::Graph,
-    pub(crate) undo: Vec<String>,
-    redo: Vec<String>,
+    /// Undo steps: the edited board and the whole file before the change.
+    pub(crate) undo: Vec<(usize, String)>,
+    redo: Vec<(usize, String)>,
+    pub(crate) boards: crate::boards_ui::Boards,
     last_checkpoint: (String, Instant),
     pub(crate) tool: Tool,
     pub(crate) drag: Option<DragOp>,
@@ -233,6 +237,7 @@ impl App {
             },
             None => (EXAMPLE.to_string(), "Открыт пример. Сохраните его, чтобы работать с файлом.".into()),
         };
+        let src_file = src.clone();
         let scene = parse(&src).or_else(|_| parse(NEW_SCENE)).expect("built-in scene parses");
         let mut app = App {
             disk_mtime: path.as_ref().and_then(|p| mtime(p)),
@@ -260,6 +265,7 @@ impl App {
             graph: Default::default(),
             undo: Vec::new(),
             redo: Vec::new(),
+            boards: Default::default(),
             last_checkpoint: (String::new(), Instant::now()),
             tool: Tool::Select,
             drag: None,
@@ -289,7 +295,7 @@ impl App {
             space_used_for_pan: false,
             hex_edit: None,
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
-            export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true },
+            export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true, all_boards: false },
             pixa: crate::pixabridge::Bridge::load(),
             ctx: cc.egui_ctx.clone(),
             canvas: Canvas::new(),
@@ -302,6 +308,7 @@ impl App {
             sim: Default::default(),
             layers: Default::default(),
         };
+        app.set_file(&src_file, 0);
         app.reparse();
         app
     }
@@ -309,6 +316,7 @@ impl App {
     // ---------- script state ----------
 
     pub(crate) fn reparse(&mut self) {
+        self.split_active();
         match motif_script::parse_in(&self.src, self.path.as_ref().and_then(|p| p.parent())) {
             Ok(scene) => {
                 self.scene = scene;
@@ -341,7 +349,7 @@ impl App {
     /// Saves an undo step, merging rapid changes of the same kind (typing, dragging) into one.
     pub(crate) fn checkpoint(&mut self, kind: &str) {
         if self.last_checkpoint.0 != kind || self.last_checkpoint.1.elapsed().as_secs_f32() > 0.8 {
-            self.undo.push(self.src.clone());
+            self.undo.push((self.boards.active, self.file_text()));
             if self.undo.len() > 300 {
                 self.undo.remove(0);
             }
@@ -492,23 +500,34 @@ impl App {
     }
 
     fn undo(&mut self) {
-        if let Some(prev) = self.undo.pop() {
-            self.redo.push(std::mem::replace(&mut self.src, prev));
-            self.last_checkpoint.0.clear();
-            self.reparse();
+        if let Some((board, prev)) = self.undo.pop() {
+            self.redo.push((self.boards.active, self.file_text()));
+            self.restore(board, &prev);
         }
     }
 
     fn redo(&mut self) {
-        if let Some(next) = self.redo.pop() {
-            self.undo.push(std::mem::replace(&mut self.src, next));
-            self.last_checkpoint.0.clear();
-            self.reparse();
+        if let Some((board, next)) = self.redo.pop() {
+            self.undo.push((self.boards.active, self.file_text()));
+            self.restore(board, &next);
         }
     }
 
+    /// Brings back the file as an undo step saved it, editing the board it was edited on.
+    fn restore(&mut self, board: usize, file: &str) {
+        if board != self.boards.active {
+            self.selected = None;
+            self.also.clear();
+            self.anim = None;
+            self.run = None;
+        }
+        self.set_file(file, board);
+        self.last_checkpoint.0.clear();
+        self.reparse();
+    }
+
     fn dirty(&self) -> bool {
-        self.src != self.saved_src
+        self.file_text() != self.saved_src
     }
 
     pub(crate) fn display_doc(&self) -> Document {
@@ -702,7 +721,7 @@ impl App {
 
     fn new_scene(&mut self, template: &str) {
         self.checkpoint("file");
-        self.src = template.into();
+        self.set_file(template, 0);
         // An untouched template is not unsaved work: the next «Новая сцена» or «Открыть» goes
         // straight through.
         self.saved_src = template.into();
@@ -719,7 +738,8 @@ impl App {
         let Some(p) = rfd::FileDialog::new().add_filter("Сцена Motif", &["msc"]).pick_file() else { return };
         match std::fs::read_to_string(&p) {
             Ok(s) => {
-                self.undo.push(std::mem::replace(&mut self.src, s.clone()));
+                self.undo.push((self.boards.active, self.file_text()));
+                self.set_file(&s, 0);
                 self.saved_src = s;
                 self.disk_mtime = mtime(&p);
                 self.status = format!("Открыт {}", p.display());
@@ -741,15 +761,16 @@ impl App {
                 None => return,
             },
         };
-        match std::fs::write(&path, &self.src) {
+        let text = self.file_text();
+        match std::fs::write(&path, &text) {
             Ok(()) => {
-                self.saved_src = self.src.clone();
+                self.saved_src = text;
                 self.disk_mtime = mtime(&path);
                 self.status = format!("Сохранено: {}", path.display());
                 self.path = Some(path.clone());
                 if let Some(link) = self.pixa.link(&path).cloned() {
                     let ctx = self.ctx.clone();
-                    self.status = format!("Сохранено. {}", self.godot_to(&link.dir, link.node, &ctx));
+                    self.status = format!("Сохранено. {}", self.godot_to(&link.target, &ctx));
                 }
             }
             Err(e) => self.status = format!("Не удалось сохранить {}: {e}", path.display()),
@@ -773,47 +794,89 @@ impl App {
             return;
         }
         if let Ok(s) = std::fs::read_to_string(&path)
-            && s != self.src
+            && s != self.file_text()
         {
-            self.undo.push(std::mem::replace(&mut self.src, s.clone()));
+            self.undo.push((self.boards.active, self.file_text()));
+            let board = self.boards.active;
+            self.set_file(&s, board);
             self.saved_src = s;
             self.reparse();
             self.status = "Файл обновлён с диска".into();
         }
     }
 
-    /// The frames the export window would save: the current animation, or the scene as one frame.
-    fn export_render(&self) -> (String, Result<Vec<tiny_skia::Pixmap>, String>) {
+    /// The frames the export window would save of `doc`: the animation, or the scene as one frame.
+    fn export_render(&self, doc: &Document, anim: Option<&str>) -> Result<Vec<tiny_skia::Pixmap>, String> {
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !self.export.transparent };
-        let doc = &self.scene.doc;
-        match &self.anim {
-            Some(a) => (a.clone(), render_frames(doc, a, &FrameExport { fps: self.export.fps, render })),
-            None => ("scene".to_string(), render_cpu(doc, render).map(|p| vec![p]).ok_or_else(|| "не удалось создать изображение".to_string())),
+        match anim {
+            Some(a) => render_frames(doc, a, &FrameExport { fps: self.export.fps, render }),
+            None => render_cpu(doc, render).map(|p| vec![p]).ok_or_else(|| "не удалось создать изображение".to_string()),
         }
     }
 
+    fn file_stem(&self) -> String {
+        self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned())
+    }
+
+    /// The boards an export covers, each with the name its files get: the open board, or every
+    /// board with «Все холсты». A file with one board is named after the file.
+    fn export_boards(&self) -> Result<Vec<(String, Document)>, String> {
+        let n = self.board_count();
+        if n < 2 {
+            return Ok(vec![(self.file_stem(), self.scene.doc.clone())]);
+        }
+        let ks: Vec<usize> = if self.export.all_boards { (0..n).collect() } else { vec![self.boards.active] };
+        let mut out: Vec<(String, Document)> = Vec::new();
+        for k in ks {
+            let doc = self.board_doc(k).ok_or_else(|| format!("в скрипте холста {} ошибки", k + 1))?;
+            let base = motif_script::board_file_name(&doc.artboard.name);
+            let name = (1..).map(|i| if i == 1 { base.clone() } else { format!("{base}_{i}") }).find(|c| out.iter().all(|o| o.0 != *c)).expect("free");
+            out.push((name, doc));
+        }
+        Ok(out)
+    }
+
+    /// PNG frames: the open animation, or the scene as one frame. With every board, each board
+    /// is saved as `BOARD_0000.png`, by the open animation's frames where it has one of that name.
     fn export_frames(&mut self) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка для PNG-кадров").pick_folder() else { return };
-        let (name, frames) = self.export_render();
-        let result = frames.and_then(|frames| {
-            for (i, px) in frames.iter().enumerate() {
-                let path = dir.join(format!("{name}_{i:04}.png"));
-                px.save_png(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let several = self.board_count() > 1 && self.export.all_boards;
+        let result = self.export_boards().and_then(|boards| {
+            let mut count = 0;
+            for (board, doc) in &boards {
+                let anim = self.anim.as_deref().filter(|a| doc.animation(a).is_some());
+                let name = match (anim, several) {
+                    (Some(a), true) => format!("{board}_{a}"),
+                    (Some(a), false) => a.to_string(),
+                    (None, true) => board.clone(),
+                    (None, false) if self.board_count() > 1 => board.clone(),
+                    (None, false) => "scene".to_string(),
+                };
+                for (i, px) in self.export_render(doc, anim)?.iter().enumerate() {
+                    let path = dir.join(format!("{name}_{i:04}.png"));
+                    px.save_png(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+                    count += 1;
+                }
             }
-            Ok(frames.len())
+            Ok((count, boards.len()))
         });
         self.status = match result {
-            Ok(n) => format!("Сохранено кадров: {n} в {}", dir.display()),
+            Ok((n, 1)) => format!("Сохранено кадров: {n} в {}", dir.display()),
+            Ok((n, b)) => format!("Сохранено кадров: {n} с холстов: {b} в {}", dir.display()),
             Err(e) => format!("Экспорт не удался: {e}"),
         };
     }
 
-    /// Every UI piece of the scene in each of its states, plus a Godot theme over the pictures.
+    /// Every UI piece of the scene (of every board, with «Все холсты») in each of its states,
+    /// plus a Godot theme over the pictures.
     fn export_kit(&mut self) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка для UI-набора").pick_folder() else { return };
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
-        let theme = self.path.as_ref().and_then(|p| p.file_stem()).map_or("ui".to_string(), |s| s.to_string_lossy().into_owned());
-        let result = motif_pixel::kit::render_kit(&self.scene.doc, render)
+        let theme = self.file_stem();
+        let result = self
+            .export_boards()
+            .and_then(|boards| boards.iter().map(|(_, doc)| motif_pixel::kit::render_kit(doc, render)).collect::<Result<Vec<_>, _>>())
+            .map(motif_pixel::kit::merge_boards)
             .and_then(|items| motif_pixel::kit::write_kit(&dir, &theme, &items).map(|files| (items.len(), files.len())));
         self.status = match result {
             Ok((pieces, files)) => format!("UI-набор: деталей {pieces}, файлов {files} в {} (тема {theme}.tres)", dir.display()),
@@ -827,44 +890,86 @@ impl App {
     fn export_godot(&mut self, ctx: &egui::Context) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка в проекте Godot").pick_folder() else { return };
         let only = self.selected.clone().filter(|id| self.scene.doc.node(id).is_some());
+        // The open board by name, so a save exports the same board whichever one is open.
+        let board = (self.board_count() > 1 && !self.export.all_boards).then(|| self.scene.doc.artboard.name.clone());
+        let only = only.filter(|_| self.board_count() < 2 || board.is_some());
+        let target = crate::pixabridge::GodotTarget { dir: dir.clone(), node: only, board };
         if let Some(path) = self.path.clone() {
-            self.pixa.set_link(&path, Some((dir.clone(), only.clone())));
+            self.pixa.set_link(&path, Some(target.clone()));
         }
-        self.status = self.godot_to(&dir, only, ctx);
+        self.status = self.godot_to(&target, ctx);
     }
 
-    /// Exports into `dir` and returns the status line; with PixaTool it only starts the job.
-    fn godot_to(&mut self, dir: &std::path::Path, only: Option<String>, ctx: &egui::Context) -> String {
+    /// Exports into the target folder and returns the status line; with PixaTool it only starts
+    /// the job.
+    fn godot_to(&mut self, target: &crate::pixabridge::GodotTarget, ctx: &egui::Context) -> String {
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
-        let only = only.filter(|id| self.scene.doc.node(id).is_some());
-        let stem = self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned());
-        let name = only.clone().unwrap_or(stem);
-        let opts = motif_pixel::godot::GodotExport { fps: self.export.fps, render, only, pivot: None };
+        let dir = target.dir.as_path();
+        // One board by its name, or all of them.
+        let boards: Vec<(String, Document)> = if self.board_count() < 2 {
+            vec![(self.file_stem(), self.scene.doc.clone())]
+        } else {
+            let mut out = Vec::new();
+            for k in 0..self.board_count() {
+                let Some(doc) = self.board_doc(k) else {
+                    return format!("Экспорт в Godot не удался: в скрипте холста {} ошибки", k + 1);
+                };
+                if target.board.as_ref().is_none_or(|b| *b == doc.artboard.name) {
+                    out.push((motif_script::board_file_name(&doc.artboard.name), doc));
+                }
+            }
+            if out.is_empty() {
+                return format!("Экспорт в Godot не удался: нет холста «{}»", target.board.as_deref().unwrap_or_default());
+            }
+            out
+        };
+        let only = target.node.clone().filter(|id| boards.len() == 1 && boards[0].1.node(id).is_some());
         if self.pixa.godot && self.pixa.exe.is_some() {
             if self.pixa.job.is_some() {
                 return "Godot: PixaTool ещё занят прошлой выгрузкой".into();
             }
-            let (doc, machine) = (self.scene.doc.clone(), self.scene.doc.machines.first().cloned());
-            return match self.pixa.start_godot(doc, opts, dir.to_path_buf(), name, machine, ctx) {
+            let [(board, doc)] = boards.as_slice() else {
+                return "Godot через PixaTool выгружает один холст за раз: выберите «Открытый холст»".into();
+            };
+            let name = only.clone().unwrap_or_else(|| board.clone());
+            let opts = motif_pixel::godot::GodotExport { fps: self.export.fps, render, only, pivot: None };
+            let machine = doc.machines.first().cloned();
+            return match self.pixa.start_godot(doc.clone(), opts, dir.to_path_buf(), name, machine, ctx) {
                 Ok(()) => "Godot: снимаю кадры для PixaTool…".into(),
                 Err(e) => format!("Экспорт в Godot не удался: {e}"),
             };
         }
-        let doc = &self.scene.doc;
-        let result = motif_pixel::godot::bake_sheet(doc, &opts)
-            .and_then(|sheet| motif_pixel::godot::write_godot(dir, &name, &sheet, doc.machines.first(), !self.export.antialias).map(|f| (sheet, f.len())));
-        match result {
-            Ok((sheet, files)) => {
-                let tree = doc.machines.first().map_or(String::new(), |m| format!(", машина «{}» в AnimationTree", m.name));
-                format!("Godot: {name}.tscn, анимаций {}, кадров {} в атласе{tree} — {files} файлов в {}", sheet.anims.len(), sheet.cells.len(), dir.display())
+        let mut lines = Vec::new();
+        let mut total = 0;
+        for (board, doc) in &boards {
+            let name = only.clone().unwrap_or_else(|| board.clone());
+            let opts = motif_pixel::godot::GodotExport { fps: self.export.fps, render, only: only.clone(), pivot: None };
+            let result = motif_pixel::godot::bake_sheet(doc, &opts)
+                .and_then(|sheet| motif_pixel::godot::write_godot(dir, &name, &sheet, doc.machines.first(), !self.export.antialias).map(|f| (sheet, f.len())));
+            match result {
+                Ok((sheet, files)) => {
+                    total += files;
+                    let tree = doc.machines.first().map_or(String::new(), |m| format!(", машина «{}» в AnimationTree", m.name));
+                    lines.push(format!("{name}.tscn, анимаций {}, кадров {} в атласе{tree}", sheet.anims.len(), sheet.cells.len()));
+                }
+                Err(e) => return format!("Экспорт в Godot не удался ({name}): {e}"),
             }
-            Err(e) => format!("Экспорт в Godot не удался: {e}"),
+        }
+        match lines.as_slice() {
+            [one] => format!("Godot: {one} — {total} файлов в {}", dir.display()),
+            _ => format!(
+                "Godot: сцен {} ({}) — {total} файлов в {}",
+                lines.len(),
+                boards.iter().map(|b| b.0.as_str()).collect::<Vec<_>>().join(", "),
+                dir.display()
+            ),
         }
     }
 
     fn pixelize_frames(&mut self, ctx: &egui::Context) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка для кадров после PixaTool").pick_folder() else { return };
-        let (name, frames) = self.export_render();
+        let name = self.anim.clone().unwrap_or_else(|| "scene".to_string());
+        let frames = self.export_render(&self.scene.doc, self.anim.as_deref());
         self.status = match frames.and_then(|f| self.pixa.start(&f, &name, &dir, ctx).map(|()| f.len())) {
             Ok(n) => format!("PixaTool: обрабатываю {n} кадров…"),
             Err(e) => format!("Пикселизация не удалась: {e}"),
@@ -872,7 +977,13 @@ impl App {
     }
 
     fn export_palette(&mut self) {
-        let colors = scene_palette(&self.scene.doc);
+        let colors = match self.export_boards() {
+            Ok(boards) => motif_pixel::boards_palette(boards.iter().map(|b| &b.1)),
+            Err(e) => {
+                self.status = format!("Палитра не сохранена: {e}");
+                return;
+            }
+        };
         let Some(path) = rfd::FileDialog::new().add_filter("Палитра JASC", &["pal"]).set_file_name("palette.pal").save_file() else { return };
         self.status = match std::fs::write(&path, to_jasc(&colors)) {
             Ok(()) => format!("Палитра на {} цветов сохранена: {}", colors.len(), path.display()),
@@ -997,8 +1108,13 @@ impl App {
             }
         }
         let zoom = self.view.map_or(100.0, |v| v.zoom * 100.0);
-        if theme::button(&mut rui, &format!("{zoom:.0}%"), ButtonKind::Normal).on_hover_text("Вписать артборд (F)").clicked() {
-            self.view = None;
+        if theme::button(&mut rui, &format!("{zoom:.0}%"), ButtonKind::Normal).on_hover_text("Вписать холст (F); Shift — все холсты (Shift+F)").clicked()
+        {
+            if rui.input(|i| i.modifiers.shift) {
+                self.boards.fit_all = true;
+            } else {
+                self.view = None;
+            }
         }
         let script_kind = if self.show_script { ButtonKind::On } else { ButtonKind::Normal };
         if theme::button(&mut rui, "Скрипт", script_kind).on_hover_text("Показать или скрыть скрипт сцены (Ctrl+E)").clicked()
@@ -1432,15 +1548,7 @@ impl App {
     }
 
     fn artboard_info(&mut self, ui: &mut egui::Ui) {
-        let ab = &self.scene.doc.artboard;
-        section(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(16.0, 18.0), Sense::hover());
-                theme::paint_icon(ui.painter(), r, Icon::Artboard, MUTED);
-                ui.label(RichText::new(&ab.name).font(theme::semibold(14.0)).color(FG));
-            });
-            ui.label(RichText::new(format!("Артборд · {}×{} · фон {}", fmt_num(ab.width), fmt_num(ab.height), ab.background.to_hex())).size(11.5).color(FAINT));
-        });
+        self.board_section(ui);
         section(ui, |ui| {
             ui.label(RichText::new("Выберите объект на холсте, в слоях или кликом по его строке в скрипте.").size(12.0).color(FAINT));
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
@@ -1567,17 +1675,51 @@ impl App {
         }
         let rect = ui.available_rect_before_wrap();
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
+        // The boards of the file on their grid: when the active one moves on it, the view
+        // follows, so the boards stay where they were on screen.
+        let grid = self.board_grid();
+        let origin = grid.origins[self.boards.active.min(grid.origins.len() - 1)];
+        if let (Some(old), Some(v)) = (self.boards.origin, self.view.as_mut()) {
+            v.pan += vec2((origin.x - old.x) as f32, (origin.y - old.y) as f32) * v.zoom;
+        }
+        self.boards.origin = Some(origin);
+        let others = self.other_boards(&grid);
+        if std::mem::take(&mut self.boards.fit_all) {
+            self.view = Some(View::fit_rect(rect, self.boards_bounds(&grid)));
+        }
+        if std::mem::take(&mut self.boards.reveal)
+            && let Some(v) = self.view.as_mut()
+        {
+            // A board opened from the panel or just made: centred when it is off screen,
+            // fitted when it is too big for the canvas at this zoom.
+            let ab = &self.scene.doc.artboard;
+            let size = vec2(ab.width as f32, ab.height as f32) * v.zoom;
+            let shown = Rect::from_min_size(rect.min + v.pan, size);
+            if !rect.shrink(16.0).contains_rect(shown) {
+                *v = if size.x < rect.width() - 96.0 && size.y < rect.height() - 96.0 {
+                    View { zoom: v.zoom, pan: (rect.size() - size) / 2.0 }
+                } else {
+                    View::fit(rect, &self.scene.doc)
+                };
+            }
+        }
         let view = *self.view.get_or_insert_with(|| View::fit(rect, &self.scene.doc));
         let doc = self.display_doc();
         let ghosts = self.onion_doc();
         let backdrop = crate::importer::backdrop_view(&self.scene, &self.backdrop_img);
-        self.canvas.paint(ui, frame, rect, view, ghosts.as_ref().unwrap_or(&doc), backdrop);
+        let stage = crate::canvas::Stage { doc: ghosts.as_ref().unwrap_or(&doc), backdrop, others: &others };
+        self.canvas.paint(ui, frame, rect, view, stage);
         if self.pixel.on {
             self.paint_pixel_preview(ui, rect, view, &doc);
         }
         let board = artboard_rect(rect, view, &doc);
         let painter = ui.painter_at(rect);
-        paint_dots(&painter, rect, board, view);
+        let mut boards = vec![board];
+        boards.extend(others.iter().map(|o| {
+            let min = view.to_screen(rect, Point::new(o.offset.x, o.offset.y));
+            Rect::from_min_size(min, vec2(o.doc.artboard.width as f32, o.doc.artboard.height as f32) * view.zoom)
+        }));
+        paint_dots(&painter, rect, &boards, view);
         if self.snap.grid {
             crate::guides::paint_grid(&painter, rect, view, &doc, self.snap.grid_size);
         }
@@ -1630,8 +1772,11 @@ impl App {
             self.hovered = None;
             self.live_pointer(ui, &resp, &doc, doc_pt);
         }
+        // The boards' names and size handle, and clicks on other boards.
+        let board_ui = !pan_gesture && !live && self.boards_input(ui, &resp, rect, view, &grid);
         // The pen and point editing take the pointer themselves.
         let special = live
+            || board_ui
             || (!pan_gesture
                 && self.drag.is_none()
                 && if self.tool == Tool::Pen {
@@ -1884,13 +2029,6 @@ impl App {
         }
 
         // Overlays.
-        painter.text(
-            board.left_top() - vec2(0.0, 6.0),
-            Align2::LEFT_BOTTOM,
-            format!("{}  {}×{}", doc.artboard.name, fmt_num(doc.artboard.width), fmt_num(doc.artboard.height)),
-            theme::ui_font(12.0),
-            MUTED,
-        );
         self.paint_bones(&painter, rect, view, &doc);
         self.paint_motion(&painter, rect, view, pointer.filter(|_| self.drag.is_none() && resp.hovered()));
         self.paint_fields(&painter, rect, view, &doc);
@@ -1955,7 +2093,7 @@ impl App {
         painter.text(
             rect.right_bottom() - vec2(12.0, 10.0),
             Align2::RIGHT_BOTTOM,
-            "Колесо — масштаб · пробел + мышь — панорама · F — вписать",
+            "Колесо — масштаб · пробел + мышь — панорама · F, Shift+F — вписать холст, все",
             theme::ui_font(11.5),
             FAINT,
         );
@@ -2024,6 +2162,7 @@ impl App {
             .default_width(380.0)
             .anchor(Align2::RIGHT_TOP, vec2(-280.0, 56.0))
             .show(ctx, |ui| {
+                self.export_boards_choice(ui);
                 // An interface scene is exported as a kit first of all; game art has no kit.
                 let purpose = self.scene.doc.purpose;
                 if purpose == Purpose::Ui {
@@ -2042,7 +2181,11 @@ impl App {
                 });
                 ui.checkbox(&mut self.export.antialias, "Сглаживание краёв");
                 ui.checkbox(&mut self.export.transparent, "Прозрачный фон");
-                let what = self.anim.as_deref().map_or("кадр сцены".to_string(), |a| format!("анимация «{a}»"));
+                let what = match self.anim.as_deref() {
+                    _ if self.board_count() > 1 && self.export.all_boards => format!("холстов: {}", self.board_count()),
+                    Some(a) => format!("анимация «{a}»"),
+                    None => "кадр сцены".to_string(),
+                };
                 if theme::button(ui, &format!("Сохранить кадры… ({what})"), ButtonKind::Primary).clicked() {
                     self.export_frames();
                 }
@@ -2073,10 +2216,42 @@ impl App {
         self.show_export = open;
     }
 
+    /// Like Illustrator's «Use Artboards»: the open board or all of them, for every export below.
+    fn export_boards_choice(&mut self, ui: &mut egui::Ui) {
+        let n = self.board_count();
+        if n < 2 {
+            return;
+        }
+        theme::caption(ui, "Холсты");
+        ui.horizontal(|ui| {
+            let open = format!("Открытый «{}»", self.scene.doc.artboard.name);
+            for (all, label) in [(false, open), (true, format!("Все ({n})"))] {
+                let kind = if self.export.all_boards == all { ButtonKind::On } else { ButtonKind::Normal };
+                if theme::button(ui, &label, kind).clicked() {
+                    self.export.all_boards = all;
+                }
+            }
+        });
+        let hint = if self.export.all_boards {
+            "Кадры — ХОЛСТ_0000.png на каждый холст, UI-набор — детали всех холстов в одной теме, Godot — сцена ХОЛСТ.tscn на каждый холст, палитра — цвета всех холстов."
+        } else {
+            "Всё ниже сохраняется только с открытого холста. Другой холст открывается кликом по нему."
+        };
+        ui.label(RichText::new(hint).size(12.0).color(FAINT));
+        ui.add_space(6.0);
+        theme::rule(ui);
+        ui.add_space(4.0);
+    }
+
     fn godot_export(&mut self, ui: &mut egui::Ui) {
         theme::caption(ui, "Анимации для Godot");
-        let what =
-            self.selected.as_deref().and_then(|id| self.scene.doc.node(id)).map_or("вся сцена".to_string(), |n| format!("«{}»", n.display_name()));
+        let all = self.board_count() > 1 && self.export.all_boards;
+        let what = match self.selected.as_deref().and_then(|id| self.scene.doc.node(id)) {
+            _ if all => format!("холстов: {}", self.board_count()),
+            Some(n) => format!("«{}»", n.display_name()),
+            None if self.board_count() > 1 => format!("холст «{}»", self.scene.doc.artboard.name),
+            None => "вся сцена".to_string(),
+        };
         let busy = self.pixa.job.is_some();
         let r = ui.add_enabled_ui(!busy, |ui| theme::button(ui, &format!("Выгрузить в Godot… ({what})"), ButtonKind::Primary)).inner;
         if r.on_hover_text("Все анимации в одном атласе, SpriteFrames и готовая сцена .tscn; машина состояний — AnimationTree").clicked()
@@ -2097,12 +2272,17 @@ impl App {
             job_progress(ui, job);
         }
         if let Some(link) = self.path.as_deref().and_then(|p| self.pixa.link(p)).cloned() {
-            let what =
-                link.node.as_deref().and_then(|id| self.scene.doc.node(id)).map_or("вся сцена".to_string(), |n| format!("«{}»", n.display_name()));
+            let t = &link.target;
+            let what = match (&t.node, &t.board) {
+                (Some(id), _) => format!("«{}»", self.scene.doc.node(id).map_or(id.clone(), |n| n.display_name().to_string())),
+                (None, Some(b)) => format!("холст «{b}»"),
+                (None, None) if self.board_count() > 1 => "все холсты".to_string(),
+                (None, None) => "вся сцена".to_string(),
+            };
             let mut unlink = false;
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(format!("Обновляется при каждом сохранении: {what} → {}", crate::pixabridge::short(&link.dir))).size(12.0))
-                    .on_hover_text(link.dir.display().to_string());
+                ui.label(RichText::new(format!("Обновляется при каждом сохранении: {what} → {}", crate::pixabridge::short(&t.dir))).size(12.0))
+                    .on_hover_text(t.dir.display().to_string());
                 unlink = theme::button(ui, "Отвязать", ButtonKind::Normal).on_hover_text("Больше не выгружать при сохранении").clicked();
             });
             if unlink && let Some(path) = self.path.clone() {
@@ -2220,7 +2400,7 @@ impl App {
                     ("Ctrl+C, Ctrl+V", "Копировать и вставить; Ctrl+D — дублировать, Ctrl+A — всё"),
                     ("Ctrl+G", "Сгруппировать; Ctrl+Shift+G — разгруппировать"),
                     ("Ctrl+] Ctrl+[", "На шаг выше или ниже соседей"),
-                    ("F", "Вписать артборд"),
+                    ("F, Shift+F", "Вписать холст; все холсты"),
                     ("G", "Сетка"),
                     ("Alt при сдвиге", "Без умных направляющих"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
@@ -2357,6 +2537,9 @@ impl App {
         if plain(Key::F) || (i.modifiers.shift && i.key_pressed(Key::Num1)) {
             self.view = None;
         }
+        if i.modifiers.shift && !i.modifiers.command && i.key_pressed(Key::F) {
+            self.boards.fit_all = true;
+        }
         if plain(Key::Enter) {
             if !self.pen.is_empty() {
                 self.finish_pen(false);
@@ -2492,7 +2675,7 @@ fn slice_guides(painter: &egui::Painter, rect: Rect, view: View, doc: &Document,
     }
 }
 
-fn paint_dots(painter: &egui::Painter, rect: Rect, board: Rect, view: View) {
+fn paint_dots(painter: &egui::Painter, rect: Rect, boards: &[Rect], view: View) {
     let step = 16.0;
     let origin = rect.min + view.pan;
     let start_x = origin.x - ((origin.x - rect.left()) / step).floor() * step;
@@ -2502,7 +2685,7 @@ fn paint_dots(painter: &egui::Painter, rect: Rect, board: Rect, view: View) {
         let mut x = start_x;
         while x < rect.right() {
             let p = pos2(x, y);
-            if !board.expand(2.0).contains(p) {
+            if !boards.iter().any(|b| b.expand(2.0).contains(p)) {
                 painter.circle_filled(p, 1.0, theme::DOT);
             }
             x += step;

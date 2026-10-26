@@ -21,6 +21,7 @@
 //! [`parse`] builds the document and remembers the source span of every value, so that
 //! [`set_prop`] can write a visual edit back into the text without reformatting it.
 
+mod boards;
 mod bone;
 mod boolean;
 mod edit;
@@ -33,6 +34,10 @@ mod parser;
 mod svg;
 mod symbol;
 
+pub use boards::{
+    BOARD_GAP, BoardGrid, BoardSize, board_file_name, board_layout, boards, head_end, new_board, parse_boards, rename_artboard, set_artboard_size,
+    set_board_cell,
+};
 pub use bone::{add_bone, add_ik_target, add_weight_stroke, attach_to_bone, clear_weights, fmt_stroke, set_ik, set_skin};
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
@@ -150,6 +155,8 @@ pub struct Scene {
     pub world: Option<Span>,
     /// Where each `weights` block is written, by the id of its shape.
     pub weights: HashMap<String, WeightsSite>,
+    /// The grid cell (column, row) of this artboard among the others of its file: `cell 1 0`.
+    pub board_cell: Option<(u32, u32)>,
 }
 
 /// A `weights` block: the strokes match the shape's `skin.paint` one to one.

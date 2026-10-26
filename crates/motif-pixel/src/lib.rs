@@ -19,6 +19,11 @@ pub const PIXATOOL_MAX_COLORS: usize = 192;
 
 /// Every distinct opaque color used by the scene: background, fills, strokes and animated colors.
 pub fn scene_palette(doc: &Document) -> Vec<Color> {
+    boards_palette([doc])
+}
+
+/// [`scene_palette`] of several boards together, in board order.
+pub fn boards_palette<'a>(docs: impl IntoIterator<Item = &'a Document>) -> Vec<Color> {
     let mut out: Vec<Color> = Vec::new();
     let mut add = |c: Color| {
         let c = Color { a: 255, ..c };
@@ -26,15 +31,17 @@ pub fn scene_palette(doc: &Document) -> Vec<Color> {
             out.push(c);
         }
     };
-    add(doc.artboard.background);
-    for n in &doc.nodes {
-        n.fill.into_iter().chain(n.stroke).for_each(&mut add);
-    }
-    for a in &doc.animations {
-        for t in &a.tracks {
-            for k in &t.keys {
-                if let Value::Color(c) = k.value {
-                    add(c);
+    for doc in docs {
+        add(doc.artboard.background);
+        for n in &doc.nodes {
+            n.fill.into_iter().chain(n.stroke).for_each(&mut add);
+        }
+        for a in &doc.animations {
+            for t in &a.tracks {
+                for k in &t.keys {
+                    if let Value::Color(c) = k.value {
+                        add(c);
+                    }
                 }
             }
         }
