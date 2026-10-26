@@ -27,6 +27,9 @@ enum Action {
     Lock(String, bool),
     Hide(String, bool),
     Delete(String),
+    Group(String),
+    Ungroup(String),
+    Restack(String, bool),
 }
 
 impl App {
@@ -158,6 +161,21 @@ impl App {
                         action = Some(Action::Hide(n.id.clone(), n.visible));
                     }
                     ui.separator();
+                    let several = self.is_selected(&n.id) && self.also.len() + usize::from(self.selected.is_some()) > 1;
+                    if ui.add(egui::Button::new(if several { "Сгруппировать выделенные" } else { "Сгруппировать" }).shortcut_text("Ctrl+G")).clicked()
+                    {
+                        action = Some(Action::Group(n.id.clone()));
+                    }
+                    if n.kind == ShapeKind::Group && ui.add(egui::Button::new("Разгруппировать").shortcut_text("Ctrl+Shift+G")).clicked() {
+                        action = Some(Action::Ungroup(n.id.clone()));
+                    }
+                    if ui.add(egui::Button::new("Выше").shortcut_text("Ctrl+]")).clicked() {
+                        action = Some(Action::Restack(n.id.clone(), true));
+                    }
+                    if ui.add(egui::Button::new("Ниже").shortcut_text("Ctrl+[")).clicked() {
+                        action = Some(Action::Restack(n.id.clone(), false));
+                    }
+                    ui.separator();
                     if ui.button(egui::RichText::new("Удалить").color(theme::DANGER)).clicked() {
                         action = Some(Action::Delete(n.id.clone()));
                     }
@@ -246,6 +264,20 @@ impl App {
             Some(Action::Delete(id)) => {
                 self.select_only(Some(id));
                 self.delete_selection();
+            }
+            Some(Action::Group(id)) => {
+                if !self.is_selected(&id) {
+                    self.select_only(Some(id));
+                }
+                self.group_selection();
+            }
+            Some(Action::Ungroup(id)) => {
+                self.select_only(Some(id));
+                self.ungroup_selection();
+            }
+            Some(Action::Restack(id, up)) => {
+                self.select_only(Some(id));
+                self.restack_selection(up);
             }
             None => {}
         }
