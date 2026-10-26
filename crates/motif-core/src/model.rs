@@ -1,4 +1,4 @@
-use crate::{Blend, Cap, Color, Ease, Join, Shadow};
+use crate::{Blend, Cap, Color, Ease, Glow, Join, Noise, Shadow};
 use kurbo::{Affine, BezPath, Ellipse, ParamCurveNearest, Point, RoundedRect, Shape, Vec2};
 
 /// The whole scene: one artboard, its nodes in paint order, and its animations.
@@ -132,6 +132,14 @@ pub enum Prop {
     ShadowX,
     ShadowY,
     ShadowBlur,
+    /// How far the glow reaches.
+    Glow,
+    /// Inner shadow offset and softness.
+    InsetX,
+    InsetY,
+    InsetBlur,
+    /// Strength of the film grain, 0..1.
+    Noise,
     /// Height above the artboard: casts a shadow away from the scene light, longer and softer when higher.
     Elevation,
     /// Place on a ball: latitude, longitude (degrees) and height above the surface.
@@ -160,7 +168,7 @@ pub enum Prop {
 }
 
 impl Prop {
-    pub const ALL: [Prop; 37] = [
+    pub const ALL: [Prop; 42] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -186,6 +194,11 @@ impl Prop {
         Prop::ShadowX,
         Prop::ShadowY,
         Prop::ShadowBlur,
+        Prop::Glow,
+        Prop::InsetX,
+        Prop::InsetY,
+        Prop::InsetBlur,
+        Prop::Noise,
         Prop::Elevation,
         Prop::Lat,
         Prop::Lon,
@@ -228,6 +241,11 @@ impl Prop {
             Prop::ShadowX => "shadow-x",
             Prop::ShadowY => "shadow-y",
             Prop::ShadowBlur => "shadow-blur",
+            Prop::Glow => "glow",
+            Prop::InsetX => "inset-x",
+            Prop::InsetY => "inset-y",
+            Prop::InsetBlur => "inset-blur",
+            Prop::Noise => "noise",
             Prop::Elevation => "elevation",
             Prop::Lat => "lat",
             Prop::Lon => "lon",
@@ -340,6 +358,14 @@ pub struct Node {
     pub cap: Cap,
     pub join: Join,
     pub shadow: Option<Shadow>,
+    /// A soft halo of light around the shape (`glow 12 #ffd34d`).
+    pub glow: Option<Glow>,
+    /// A shadow cast inside the shape from its edge, as if pressed in (CSS `box-shadow: inset`).
+    pub inset: Option<Shadow>,
+    /// Gradient stroke; when set it paints the stroke instead of `stroke`.
+    pub stroke_gradient: Option<Gradient>,
+    /// Film grain over the fill (`noise 0.15`).
+    pub noise: Option<Noise>,
     pub blend: Blend,
     /// Extra strokes under the shape, widest first: thick dark outside, thin light inside.
     pub outlines: Vec<(Color, f64)>,
@@ -561,6 +587,10 @@ impl Node {
             cap: Cap::default(),
             join: Join::default(),
             shadow: None,
+            glow: None,
+            inset: None,
+            stroke_gradient: None,
+            noise: None,
             blend: Blend::default(),
             outlines: Vec::new(),
             text: None,
@@ -653,6 +683,11 @@ impl Node {
             Prop::ShadowX => Value::Num(self.shadow.map_or(0.0, |s| s.dx)),
             Prop::ShadowY => Value::Num(self.shadow.map_or(0.0, |s| s.dy)),
             Prop::ShadowBlur => Value::Num(self.shadow.map_or(0.0, |s| s.blur)),
+            Prop::Glow => Value::Num(self.glow.map_or(0.0, |g| g.size)),
+            Prop::InsetX => Value::Num(self.inset.map_or(0.0, |s| s.dx)),
+            Prop::InsetY => Value::Num(self.inset.map_or(0.0, |s| s.dy)),
+            Prop::InsetBlur => Value::Num(self.inset.map_or(0.0, |s| s.blur)),
+            Prop::Noise => Value::Num(self.noise.map_or(0.0, |n| n.amount)),
             Prop::Elevation => Value::Num(self.elevation),
             Prop::Lat => Value::Num(self.lat),
             Prop::Lon => Value::Num(self.lon),
@@ -715,6 +750,11 @@ impl Node {
             Prop::ShadowX => self.shadow.get_or_insert(Shadow::DEFAULT).dx = v,
             Prop::ShadowY => self.shadow.get_or_insert(Shadow::DEFAULT).dy = v,
             Prop::ShadowBlur => self.shadow.get_or_insert(Shadow::DEFAULT).blur = v.max(0.0),
+            Prop::Glow => self.glow.get_or_insert(Glow::DEFAULT).size = v.max(0.0),
+            Prop::InsetX => self.inset.get_or_insert(Shadow::DEFAULT).dx = v,
+            Prop::InsetY => self.inset.get_or_insert(Shadow::DEFAULT).dy = v,
+            Prop::InsetBlur => self.inset.get_or_insert(Shadow::DEFAULT).blur = v.max(0.0),
+            Prop::Noise => self.noise.get_or_insert(Noise::DEFAULT).amount = v.clamp(0.0, 1.0),
             Prop::Elevation => self.elevation = v.max(0.0),
             Prop::Lat => self.lat = v,
             Prop::Lon => self.lon = v,

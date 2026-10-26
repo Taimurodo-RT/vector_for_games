@@ -129,6 +129,10 @@
   <tr><td>Пунктир, концы, углы</td><td><code>dash 6 4</code>, <code>cap butt|round|square</code>, <code>join miter|round|bevel</code></td></tr>
   <tr><td>Слои обводки под фигурой</td><td><code>outline #1b1d24 18 #ffffff 10</code></td></tr>
   <tr><td>Тень (размытие можно опустить)</td><td><code>shadow 0 4 8 #00000055</code>, <code>shadow 4 4 #000</code></td></tr>
+  <tr><td>Внутренняя тень</td><td><code>inset 0 4 6 #000000aa</code></td></tr>
+  <tr><td>Свечение: размер, разлив, цвет</td><td><code>glow 12 #ffd34d</code>, <code>glow 16 4 #6f93ffcc</code></td></tr>
+  <tr><td>Градиентная обводка</td><td><code>stroke-gradient linear 90 #ffe9a8 #b56a1f</code></td></tr>
+  <tr><td>Шум: сила 0…1 и крупинка</td><td><code>noise 0.15</code>, <code>noise 0.2 2</code></td></tr>
   <tr><td>Размытие объекта или группы</td><td><code>blur 6</code></td></tr>
   <tr><td>Высота над артбордом</td><td><code>elevation 12</code></td></tr>
   <tr><td>Наложение</td><td><code>blend multiply</code>: screen, overlay, darken, lighten, color-dodge, color-burn, hard-light, soft-light, difference, exclusion, hue, saturation, color, luminosity</td></tr>
@@ -157,7 +161,7 @@
 }</code></pre>
 <p>Строка <code>event</code> — событие для игры: имя одним словом и одно или несколько времён в секундах, в пределах анимации (<code>event step 0 0.2</code>). У одной анимации каждое имя пишется одной строкой. Объект с именем <code>event</code> по-прежнему анимируется как <code>event.x …</code>.</p>
 <p>Время — в секундах от начала анимации. Кривая после значения действует до следующего ключа, по умолчанию это <code>ease-in-out</code>. Имена свойств в анимации:</p>
-<p><code>x y w h rot sx sy kx ky opacity r points inner fill stroke stroke_w</code>, у текста ещё <code>font-size letter-spacing reveal wave phase</code>, для эффектов <code>blur elevation shadow-x shadow-y shadow-blur</code>.</p>
+<p><code>x y w h rot sx sy kx ky opacity r points inner fill stroke stroke_w</code>, у текста ещё <code>font-size letter-spacing reveal wave phase</code>, для эффектов <code>blur elevation shadow-x shadow-y shadow-blur glow inset-x inset-y inset-blur noise</code>.</p>
 <div class="table-wrap"><table>
   <tr><th>Кривые</th><th>Запись</th></tr>
   <tr><td>Базовые</td><td><code>linear</code>, <code>ease</code>, <code>ease-in</code>, <code>ease-out</code>, <code>ease-in-out</code>, <code>hold</code>, <code>spring</code></td></tr>

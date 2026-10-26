@@ -333,6 +333,12 @@ const BUTTON_COLORS: [(&str, &str); 5] = [
     ("focus", "font_focus_color"),
 ];
 
+/// Whether `doc` has interface pieces (`ui` or `slice`): a file's other boards (a sign, a
+/// backdrop) add nothing to the kit.
+pub fn has_pieces(doc: &Document) -> bool {
+    doc.nodes.iter().any(|n| n.ui || n.slice.is_some())
+}
+
 /// Renders every interface piece of `doc` in every state.
 pub fn render_kit(doc: &Document, opts: CpuOptions) -> Result<Vec<KitItem>, String> {
     render_pieces(doc, opts, None)

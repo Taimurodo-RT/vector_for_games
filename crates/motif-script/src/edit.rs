@@ -69,9 +69,12 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
     }
 
     // A shadow written without a blur gets one after its offset.
-    if prop == Prop::ShadowBlur
-        && let Some(y) = scene.sources.get(&(node.to_string(), Prop::ShadowY))
-    {
+    let after = match prop {
+        Prop::ShadowBlur => Some(Prop::ShadowY),
+        Prop::InsetBlur => Some(Prop::InsetY),
+        _ => None,
+    };
+    if let Some(y) = after.and_then(|after| scene.sources.get(&(node.to_string(), after))) {
         return Some(if y.editable && !y.from_override {
             splice(src, Span::new(y.span.end, y.span.end), &format!(" {text}"))
         } else {
@@ -129,6 +132,19 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         Prop::ShadowX | Prop::ShadowY | Prop::ShadowBlur => {
             let color = current.shadow.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
             format!("shadow {} {} {} {color}", pick(Prop::ShadowX), pick(Prop::ShadowY), pick(Prop::ShadowBlur))
+        }
+        Prop::InsetX | Prop::InsetY | Prop::InsetBlur => {
+            let color = current.inset.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
+            format!("inset {} {} {} {color}", pick(Prop::InsetX), pick(Prop::InsetY), pick(Prop::InsetBlur))
+        }
+        Prop::Glow => {
+            let g = current.glow.unwrap_or(motif_core::Glow::DEFAULT);
+            let spread = if g.spread > 0.0 { format!(" {}", fmt_num(g.spread)) } else { String::new() };
+            format!("glow {text}{spread} {}", g.color.to_hex())
+        }
+        Prop::Noise => {
+            let size = current.noise.unwrap_or(motif_core::Noise::DEFAULT).size;
+            if size == motif_core::Noise::DEFAULT.size { format!("noise {text}") } else { format!("noise {text} {}", fmt_num(size)) }
         }
     };
     Some(splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {addition}")))
@@ -336,6 +352,11 @@ pub fn gradient_text(g: &motif_core::Gradient) -> String {
 /// plain fill). `None` when the node comes from a loop.
 pub fn set_gradient(src: &str, scene: &Scene, node: &str, gradient: Option<&motif_core::Gradient>) -> Option<String> {
     set_style(src, scene, node, "gradient", gradient.map(gradient_text).as_deref())
+}
+
+/// Returns the script with the stroke gradient of `node` set, or removed when `None`.
+pub fn set_stroke_gradient(src: &str, scene: &Scene, node: &str, gradient: Option<&motif_core::Gradient>) -> Option<String> {
+    set_style(src, scene, node, "stroke-gradient", gradient.map(|g| format!("stroke-{}", gradient_text(g))).as_deref())
 }
 
 /// Returns the script with the `clip` flag of group `node` turned on or off.

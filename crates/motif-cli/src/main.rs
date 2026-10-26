@@ -223,8 +223,10 @@ fn run() -> Result<(), String> {
             println!("{}: {} кадров через PixaTool", dir.display(), outputs.len());
         }
         "kit" => {
-            // The pieces of every board go into one theme.
-            let kits = boards.iter().map(|doc| motif_pixel::kit::render_kit(doc, render_for(doc))).collect::<Result<Vec<_>, _>>()?;
+            // The pieces of every board go into one theme; boards without pieces add nothing.
+            let with: Vec<&Document> = boards.iter().filter(|d| motif_pixel::kit::has_pieces(d)).collect();
+            let with = if with.is_empty() { boards.iter().collect() } else { with };
+            let kits = with.iter().map(|doc| motif_pixel::kit::render_kit(doc, render_for(doc))).collect::<Result<Vec<_>, _>>()?;
             let items = motif_pixel::kit::merge_boards(kits);
             let dir = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_ui")));
             let files = motif_pixel::kit::write_kit(&dir, &stem, &items)?;

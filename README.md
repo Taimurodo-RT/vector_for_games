@@ -112,6 +112,12 @@ cargo run --release -p motif-editor -- examples/bounce.msc
   мягкая по-настоящему. `elevation 12` поднимает объект над артбордом: тень сама уходит от света сцены (`light 120` в строке
   `artboard`, 90 — вниз), чем выше, тем длиннее и мягче. Всё это анимируется ключами: `blur`, `elevation`, `shadow-x`,
   `shadow-y`, `shadow-blur`. В редакторе и при экспорте картинка одна и та же. Пример — [`examples/depth.msc`](examples/depth.msc).
+* **Эффекты интерфейса.** `glow 12 #ffd34d` — свечение вокруг фигуры (у фигуры без заливки светится обводка, как неон),
+  `inset 0 4 6 #000000aa` — внутренняя тень, как `box-shadow: inset`, `stroke-gradient linear 90 #ffe9a8 #b56a1f` — обводка
+  градиентом, `noise 0.15` — зерно поверх заливки. Размер свечения, внутренняя тень и сила шума анимируются (`glow`,
+  `inset-x`, `inset-y`, `inset-blur`, `noise`): Hover может зажечь кнопку. В UI-наборе эффекты запекаются в картинки
+  состояний, в экране для Godot текст с эффектами становится картинкой, а не `Label`. Пример —
+  [`examples/ui-effects.msc`](examples/ui-effects.msc).
 * **Символы.** `symbol Coin size=28 color=#ffd23f { … }` описывает кусок сцены один раз, `use Coin c1 at 60 44 size=40`
   ставит копию со своими местом, поворотом, масштабом и параметрами. Объекты копии получают id `c1-face` и анимируются как
   обычные; `symbol Ball clip …` делает первый объект маской каждой копии. В редакторе: «Сделать символом» у группы,
@@ -237,6 +243,10 @@ anim Idle 1.2s loop {
 | Градиент (вместо заливки) | `gradient linear 90 #ffe7a3 #ff9d5c`, `gradient radial #fff #3b5bff #000` |
 | Пунктир, концы, углы линии | `dash 6 4`, `cap butt\|round\|square`, `join miter\|round\|bevel` |
 | Тень (размытие можно опустить) | `shadow 0 4 8 #00000055`, `shadow 4 4 #000` |
+| Внутренняя тень | `inset 0 4 6 #000000aa` |
+| Свечение: размер, [разлив], цвет | `glow 12 #ffd34d`, `glow 16 4 #6f93ffcc` |
+| Градиентная обводка | `stroke-gradient linear 90 #ffe9a8 #b56a1f` |
+| Шум: сила 0…1, [крупинка] | `noise 0.15`, `noise 0.2 2` |
 | Размытие объекта или группы | `blur 6` |
 | Высота над артбордом (тень от света) | `elevation 12`; свет сцены: `artboard "Имя" 480x300 light 120` |
 | Наложение | `blend multiply`, `screen`, `overlay`, `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity` |

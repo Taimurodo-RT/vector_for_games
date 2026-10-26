@@ -1,10 +1,10 @@
 //! Panel rows for the CSS-like properties: corners, skew and pivot, dashes, caps and joins,
-//! shadow and blend mode. Each row collects whole-property edits (`dash 6 4`) applied afterwards.
+//! shadow, glow, inner shadow, grain and blend mode. Each row collects whole-property edits (`dash 6 4`) applied afterwards.
 
 use crate::app::App;
 use crate::theme::{self, ButtonKind, FG, KeyState, LINE, MUTED};
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
-use motif_core::{Blend, Cap, Color, Join, Node, Shadow};
+use motif_core::{Blend, Cap, Color, Glow, Join, Node, Noise, Shadow};
 use motif_script::fmt_num;
 
 /// A property to write: the key, and the whole text with its values, or `None` to remove it.
@@ -110,6 +110,92 @@ fn shadow_text(s: &Shadow) -> String {
     }
 }
 
+/// A colour square with alpha; returns the colour when it was picked.
+fn alpha_swatch(ui: &mut egui::Ui, c: Color) -> Option<Color> {
+    let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+    let mut c32 = Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a);
+    ui.painter().rect_filled(sw, 6.0, c32);
+    ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
+    let mut out = None;
+    theme::color_popup(&resp).show(|ui| {
+        if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::OnlyBlend) {
+            let [r, g, b, a] = c32.to_srgba_unmultiplied();
+            out = Some(Color { r, g, b, a });
+        }
+    });
+    out
+}
+
+fn inset_text(s: &Shadow) -> String {
+    shadow_text(s).replacen("shadow", "inset", 1)
+}
+
+fn glow_text(g: &Glow) -> String {
+    if g.spread > 0.0 {
+        format!("glow {} {} {}", fmt_num(g.size), fmt_num(g.spread), g.color.to_hex())
+    } else {
+        format!("glow {} {}", fmt_num(g.size), g.color.to_hex())
+    }
+}
+
+fn noise_text(n: &Noise) -> String {
+    if n.size == Noise::DEFAULT.size { format!("noise {}", fmt_num(n.amount)) } else { format!("noise {} {}", fmt_num(n.amount), fmt_num(n.size)) }
+}
+
+/// Glow on or off, its colour and its spread. Returns whether the node glows, so the caller can
+/// draw its size as a keyable field (a hover that lights the button up).
+pub fn glow_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) -> bool {
+    let mut on = node.glow.is_some();
+    ui.horizontal(|ui| {
+        if ui.checkbox(&mut on, RichText::new("Свечение").size(12.5).color(FG)).changed() {
+            let base = node.stroke.or(node.fill).unwrap_or(Glow::DEFAULT.color);
+            let g = Glow { size: 12.0, color: Color { a: 0xcc, ..base }, ..Glow::DEFAULT };
+            edits.push(("glow", on.then(|| glow_text(&g))));
+        }
+        let Some(g) = node.glow.filter(|_| on) else { return };
+        if let Some(color) = alpha_swatch(ui, g.color) {
+            edits.push(("glow", Some(glow_text(&Glow { color, ..g }))));
+        }
+        let w = ui.available_width();
+        if let Some(v) = theme::num_field(ui, w, "Разлив", g.spread, 0.2, 0.0..=200.0, 1, KeyState::Hidden).changed {
+            edits.push(("glow", Some(glow_text(&Glow { spread: (v * 10.0).round() / 10.0, ..g }))));
+        }
+    });
+    on && node.glow.is_some()
+}
+
+/// Inner shadow on or off, and its colour; its offset and blur are keyable fields of the caller.
+pub fn inset_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) -> bool {
+    let mut on = node.inset.is_some();
+    ui.horizontal(|ui| {
+        if ui.checkbox(&mut on, RichText::new("Внутренняя тень").size(12.5).color(FG)).changed() {
+            let s = Shadow { dx: 0.0, dy: 3.0, blur: 6.0, color: Color { r: 0, g: 0, b: 0, a: 0x88 } };
+            edits.push(("inset", on.then(|| inset_text(&s))));
+        }
+        let Some(s) = node.inset.filter(|_| on) else { return };
+        if let Some(color) = alpha_swatch(ui, s.color) {
+            edits.push(("inset", Some(inset_text(&Shadow { color, ..s }))));
+        }
+    });
+    on && node.inset.is_some()
+}
+
+/// Grain on or off, and the size of a speck; its strength is a keyable field of the caller.
+pub fn noise_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) -> bool {
+    let mut on = node.noise.is_some();
+    ui.horizontal(|ui| {
+        if ui.checkbox(&mut on, RichText::new("Шум").size(12.5).color(FG)).changed() {
+            edits.push(("noise", on.then(|| noise_text(&Noise { amount: 0.12, ..Noise::DEFAULT }))));
+        }
+        let Some(n) = node.noise.filter(|_| on) else { return };
+        let w = ui.available_width();
+        if let Some(v) = theme::num_field(ui, w, "Крупинка", n.size, 0.05, 0.1..=50.0, 1, KeyState::Hidden).changed {
+            edits.push(("noise", Some(noise_text(&Noise { size: (v * 10.0).round() / 10.0, ..n }))));
+        }
+    });
+    on && node.noise.is_some()
+}
+
 /// Shadow on or off, and its colour. Returns whether the node has a shadow, so the caller can
 /// draw its offset and blur as keyable fields.
 pub fn shadow_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) -> bool {
@@ -121,16 +207,9 @@ pub fn shadow_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) -
         }
         let Some(s) = node.shadow.filter(|_| on) else { return };
         // Colour swatch with alpha: shadows are usually translucent.
-        let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-        let mut c32 = Color32::from_rgba_unmultiplied(s.color.r, s.color.g, s.color.b, s.color.a);
-        ui.painter().rect_filled(sw, 6.0, c32);
-        ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
-        theme::color_popup(&resp).show(|ui| {
-            if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::OnlyBlend) {
-                let [r, g, b, a] = c32.to_srgba_unmultiplied();
-                edits.push(("shadow", Some(shadow_text(&Shadow { color: Color { r, g, b, a }, ..s }))));
-            }
-        });
+        if let Some(color) = alpha_swatch(ui, s.color) {
+            edits.push(("shadow", Some(shadow_text(&Shadow { color, ..s }))));
+        }
     });
     on && node.shadow.is_some()
 }

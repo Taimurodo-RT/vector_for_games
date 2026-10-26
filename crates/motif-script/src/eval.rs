@@ -716,7 +716,7 @@ impl<'a> Evaluator<'a> {
             let vals: Vec<Option<Value>> = match p.key.as_str() {
                 "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
-                "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
+                "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
                 "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" => Vec::new(),
                 // `cross` is a keyword of the hatching.
@@ -814,6 +814,44 @@ impl<'a> Evaluator<'a> {
                         _ => self.err(p.key_span, "тень: shadow x y [размытие] #цвет, например shadow 0 4 8 #00000055"),
                     }
                 }
+                "inset" => {
+                    let color = vals.last().copied().flatten().and_then(|v| if let Value::Color(c) = v { Some(c) } else { None });
+                    let nums: Vec<f64> = (0..p.values.len() - 1).filter_map(num).collect();
+                    match (color, nums.len() == p.values.len() - 1) {
+                        (Some(color), true) => {
+                            node.inset = Some(motif_core::Shadow { dx: nums[0], dy: nums[1], blur: nums.get(2).copied().unwrap_or(0.0).max(0.0), color });
+                            record(&mut self.scene, Prop::InsetX, &p.values[0], None);
+                            record(&mut self.scene, Prop::InsetY, &p.values[1], None);
+                            if nums.len() == 3 {
+                                record(&mut self.scene, Prop::InsetBlur, &p.values[2], None);
+                            }
+                        }
+                        _ => self.err(p.key_span, "внутренняя тень: inset x y [размытие] #цвет, например inset 0 3 6 #00000088"),
+                    }
+                }
+                "glow" => {
+                    let color = vals.last().copied().flatten().and_then(|v| if let Value::Color(c) = v { Some(c) } else { None });
+                    let nums: Vec<f64> = (0..p.values.len() - 1).filter_map(num).collect();
+                    match (color, nums.len() == p.values.len() - 1) {
+                        (Some(color), true) => {
+                            node.glow = Some(motif_core::Glow { size: nums[0].max(0.0), spread: nums.get(1).copied().unwrap_or(0.0).max(0.0), color });
+                            record(&mut self.scene, Prop::Glow, &p.values[0], None);
+                        }
+                        _ => self.err(p.key_span, "свечение: glow размер [разлив] #цвет, например glow 12 #ffd34d или glow 16 4 #6f93ffcc"),
+                    }
+                }
+                "noise" => match (num(0), p.values.get(1).map(|_| num(1))) {
+                    (Some(amount), None | Some(Some(_))) => {
+                        let size = num(1).unwrap_or(motif_core::Noise::DEFAULT.size);
+                        if size <= 0.0 {
+                            bad(self);
+                            continue;
+                        }
+                        node.noise = Some(motif_core::Noise { amount: amount.clamp(0.0, 1.0), size });
+                        record(&mut self.scene, Prop::Noise, &p.values[0], None);
+                    }
+                    _ => self.err(p.key_span, "шум: noise сила [размер крупинки], например noise 0.15 или noise 0.2 2"),
+                },
                 "size" | "scale" => {
                     let (pa, pb) = if p.key == "size" { (Prop::Width, Prop::Height) } else { (Prop::ScaleX, Prop::ScaleY) };
                     match (num(0), num(1)) {
@@ -1288,12 +1326,12 @@ impl<'a> Evaluator<'a> {
                     }
                     node.clip = true;
                 }
-                "gradient" => {
+                "gradient" | "stroke-gradient" => {
                     let radial = match &p.values[0].kind {
                         ValueKind::Ref(k) if k == "linear" => false,
                         ValueKind::Ref(k) if k == "radial" => true,
                         _ => {
-                            self.err(p.values[0].span, "после gradient укажите linear или radial");
+                            self.err(p.values[0].span, format!("после {} укажите linear или radial", p.key));
                             continue;
                         }
                     };
@@ -1308,10 +1346,19 @@ impl<'a> Evaluator<'a> {
                         }
                     }
                     if !ok || colors.len() < 2 {
-                        self.err(p.key_span, "градиент: gradient linear 90 #цвет #цвет или gradient radial #цвет #цвет (от двух цветов)");
+                        self.err(p.key_span, format!("градиент: {0} linear 90 #цвет #цвет или {0} radial #цвет #цвет (от двух цветов)", p.key));
                         continue;
                     }
-                    node.gradient = Some(motif_core::Gradient { radial, angle, colors });
+                    let g = Some(motif_core::Gradient { radial, angle, colors });
+                    if p.key == "gradient" {
+                        node.gradient = g;
+                    } else {
+                        node.stroke_gradient = g;
+                        // Without `stroke … width` the gradient stroke is 2 wide.
+                        if node.stroke_width <= 0.0 {
+                            node.stroke_width = 2.0;
+                        }
+                    }
                 }
                 "d" => {
                     let ValueKind::Path(data) = &p.values[0].kind else { continue };

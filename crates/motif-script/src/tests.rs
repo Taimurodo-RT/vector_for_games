@@ -81,7 +81,14 @@ fn every_prop_round_trips_through_edit() {
     let src = "polygon p points 6\n";
     for prop in Prop::ALL {
         let s = scene(src);
-        let value = if prop.is_color() { Value::Color(Color::rgb(1, 2, 3)) } else { Value::Num(7.0) };
+        // Grain strength is 0..1.
+        let value = if prop.is_color() {
+            Value::Color(Color::rgb(1, 2, 3))
+        } else if prop == Prop::Noise {
+            Value::Num(0.5)
+        } else {
+            Value::Num(7.0)
+        };
         // How far a morph goes means nothing without shapes to flow into, a taper without depth.
         if matches!(prop, Prop::Morph | Prop::Taper) {
             assert_eq!(set_prop(src, &s, "p", prop, value), None);
@@ -1561,4 +1568,27 @@ fn boards_lie_on_a_grid() {
     assert_eq!(g.cell_at(Point::new(10.0 + gap + 5.0, 3.0)), (1, 0));
     assert_eq!(g.cell_at(Point::new(500.0, 500.0)), (3, 1), "past the grid: the next new cell");
     assert_eq!(g.cell_origin((3, 1)), Point::new(3.0 * (10.0 + gap), 10.0 + gap));
+}
+
+#[test]
+fn interface_effects_parse_and_edit() {
+    let src = "rect b size 100 40 fill #222 glow 12 3 #ffd34dcc inset 0 2 #00000088 noise 0.2 2 stroke-gradient linear 90 #fff #888\n";
+    let s = scene(src);
+    let b = s.doc.node("b").unwrap();
+    assert_eq!(b.glow, Some(motif_core::Glow { size: 12.0, spread: 3.0, color: Color { r: 0xff, g: 0xd3, b: 0x4d, a: 0xcc } }));
+    assert_eq!(b.inset.map(|i| (i.dx, i.dy, i.blur)), Some((0.0, 2.0, 0.0)));
+    assert_eq!(b.noise, Some(motif_core::Noise { amount: 0.2, size: 2.0 }));
+    assert_eq!(b.stroke_gradient.as_ref().map(|g| g.colors.len()), Some(2));
+    // A gradient stroke without `stroke` is 2 wide.
+    assert_eq!(b.stroke_width, 2.0);
+    // The glow's size is edited in place; the inset gets its blur after the offset.
+    let out = set_prop(src, &s, "b", Prop::Glow, Value::Num(20.0)).unwrap();
+    assert!(out.contains("glow 20 3 #ffd34dcc"), "{out}");
+    let out = set_prop(src, &s, "b", Prop::InsetBlur, Value::Num(5.0)).unwrap();
+    assert!(out.contains("inset 0 2 5 #00000088"), "{out}");
+    // Keys animate them, like a hover that lights the button up.
+    let anim = scene(&format!("{src}anim Hover 0.2s {{\n  b.glow 0: 0 | 0.2: 16\n  b.noise 0: 0.2 | 0.2: 0\n}}\n"));
+    assert_eq!(anim.doc.animation("Hover").unwrap().tracks.len(), 2);
+    let bad = parse("rect b size 10 10 glow #fff\nrect c size 10 10 stroke-gradient #fff #000\n").err().unwrap();
+    assert_eq!(bad.len(), 2, "{bad:?}");
 }

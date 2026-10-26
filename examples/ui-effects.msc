@@ -1,0 +1,52 @@
+// Эффекты интерфейса: свечение, внутренняя тень, градиентная обводка и шум.
+// glow размер [разлив] #цвет — ореол вокруг фигуры; размер анимируется, Hover зажигает кнопку.
+// inset x y [размытие] #цвет — тень внутрь от края: поле ввода, вдавленная кнопка.
+// stroke-gradient linear 90 #цвет #цвет — обводка градиентом, как у металлической рамки.
+// noise сила [крупинка] — зерно поверх заливки: бумага, камень, потёртый пластик.
+// Каждый холст — деталь ui: «UI-набор для Godot» запекает эффекты в картинки состояний.
+
+let night = #151a2b
+let neon = #6f93ff
+let gold = #ffd34d
+let bronze = #b56a1f
+let paper = #f4f1ea
+let ink = #0c0f18
+
+// Неоновая кнопка: свечение разгорается при наведении.
+artboard "Неон" 260x120 bg night ui
+group neon_button "Неоновая кнопка" at 130 60 ui button slice 18 {
+  rect tube size 180 52 r 26 fill #1d2747 stroke neon 3 glow 6 #6f93ff99
+  text caption "Подпись" at 0 1 content "Старт" font bold font-size 20 fill paper part text
+}
+
+anim Hover 0.2s {
+  tube.glow    0: 6 | 0.2: 18
+  tube.fill    0: #1d2747 | 0.2: #24315c
+}
+
+anim Press 0.08s {
+  tube.glow    0: 6 | 0.08: 26
+  tube.stroke  0: #6f93ff | 0.08: #a8c0ff
+}
+
+// Поле ввода: внутренняя тень вдавливает его в панель.
+artboard "Поле" 260x100 bg #283049 ui
+group field "Поле ввода" at 130 50 ui panel slice 14 {
+  rect well size 200 44 r 12 fill #1b2132 stroke ink 2 inset 0 4 6 #000000aa
+}
+
+// Рамка из металла: обводка градиентом от светлого золота к бронзе.
+artboard "Рамка" 260x160 bg night ui
+group frame "Рамка" at 130 80 ui panel slice 24 {
+  rect plate size 200 120 r 18 fill #20263a stroke gold 6 stroke-gradient linear 90 #ffe9a8 gold bronze inset 0 -3 8 #00000088
+}
+
+// Свиток: бумага с зерном и мягкой тенью.
+artboard "Свиток" 260x160 bg #39415a ui
+group scroll_panel "Свиток" at 130 78 ui panel slice 20 {
+  rect sheet size 200 116 r 10 fill #d8bf8f stroke #7a5a2e 3 noise 0.18 shadow 0 6 10 #00000066
+}
+
+// Заголовок с неоновым светом: текст со свечением становится картинкой, не Label.
+artboard "Вывеска" 260x90 bg night
+text sign "Вывеска" at 130 45 content "ОТКРЫТО" font bold font-size 34 letter-spacing 4 fill #ffe2f2 glow 10 2 #ff4fa3cc

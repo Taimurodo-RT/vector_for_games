@@ -1,10 +1,10 @@
-//! Gradient fills and clip masks in the properties panel.
+//! Gradient fills and strokes and clip masks in the properties panel.
 
 use crate::app::App;
 use crate::theme::{self, MUTED};
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
 use motif_core::{Color, Gradient, Node, ShapeKind};
-use motif_script::{set_clip, set_gradient};
+use motif_script::{set_clip, set_gradient, set_stroke_gradient};
 
 /// Fill type choices, in the order of the switch.
 const KINDS: [&str; 3] = ["Цвет", "Линейный", "Радиальный"];
@@ -13,25 +13,35 @@ impl App {
     /// The fill type switch, and for a gradient its colours and angle.
     /// Returns true when the plain colour row should be shown.
     pub(crate) fn fill_kind_ui(&mut self, ui: &mut egui::Ui, node: &Node) -> bool {
-        let current = match &node.gradient {
+        self.gradient_ui(ui, node, false)
+    }
+
+    /// The same switch for the stroke: a gradient stroke runs over the shape like a fill does.
+    pub(crate) fn stroke_kind_ui(&mut self, ui: &mut egui::Ui, node: &Node) -> bool {
+        self.gradient_ui(ui, node, true)
+    }
+
+    fn gradient_ui(&mut self, ui: &mut egui::Ui, node: &Node, stroke: bool) -> bool {
+        let (gradient, base) = if stroke { (&node.stroke_gradient, node.stroke) } else { (&node.gradient, node.fill) };
+        let current = match gradient {
             None => 0,
             Some(g) if g.radial => 2,
             Some(_) => 1,
         };
         let mut next: Option<Option<Gradient>> = None;
-        if let Some(k) = theme::segmented(ui, &KINDS, current, false)
+        if let Some(k) = ui.push_id(stroke, |ui| theme::segmented(ui, &KINDS, current, false)).inner
             && k != current
         {
-            next = Some(match (k, &node.gradient) {
+            next = Some(match (k, gradient) {
                 (0, _) => None,
                 (_, Some(g)) => Some(Gradient { radial: k == 2, ..g.clone() }),
                 (_, None) => {
-                    let base = node.fill.unwrap_or(Color::rgb(0x4f, 0xd3, 0x8c));
+                    let base = base.unwrap_or(Color::rgb(0x4f, 0xd3, 0x8c));
                     Some(Gradient { radial: k == 2, angle: 90.0, colors: vec![lighten(base, 0.45), base] })
                 }
             });
         }
-        if let Some(g) = &node.gradient {
+        if let Some(g) = gradient {
             ui.add_space(6.0);
             let mut g2 = g.clone();
             let mut changed = false;
@@ -81,14 +91,19 @@ impl App {
         if let Some(g) = next
             && self.can_edit()
         {
-            match set_gradient(&self.src, &self.scene, &node.id, g.as_ref()) {
+            let out = if stroke {
+                set_stroke_gradient(&self.src, &self.scene, &node.id, g.as_ref())
+            } else {
+                set_gradient(&self.src, &self.scene, &node.id, g.as_ref())
+            };
+            match out {
                 Some(out) => {
-                    self.apply("gradient", Some(out));
+                    self.apply(if stroke { "stroke-gradient" } else { "gradient" }, Some(out));
                 }
                 None => self.status = "Градиент объекта из цикла меняется в тексте цикла".into(),
             }
         }
-        node.gradient.is_none()
+        gradient.is_none()
     }
 
     /// The mask switch of a group: its first child clips the others.
