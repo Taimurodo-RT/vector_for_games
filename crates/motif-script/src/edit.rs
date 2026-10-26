@@ -1065,6 +1065,140 @@ fn reparse(src: &str, base: Option<&std::path::Path>) -> Result<Scene, String> {
     crate::parse_in(src, base).map_err(|e| e.first().map_or_else(|| "скрипт не читается".to_string(), |e| e.message.clone()))
 }
 
+/// The whole lines of an `anim` block, from its header to its closing brace, and the span of
+/// its name in the header.
+fn anim_block(src: &str, scene: &Scene, anim: &str) -> Option<(Span, Span)> {
+    let site = scene.anims.get(anim)?;
+    let start = src[..site.duration.start].rfind('\n').map_or(0, |i| i + 1);
+    let header = &src[start..site.duration.start];
+    let at = start + header.find(anim)?;
+    Some((whole_lines(src, Span::new(start, site.close + 1)), Span::new(at, at + anim.len())))
+}
+
+/// Whether `name` can be an animation's name: one word, not taken by another animation.
+fn anim_name_ok(scene: &Scene, name: &str) -> Result<(), String> {
+    let word = name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && name.chars().all(|c| c.is_alphanumeric() || c == '_');
+    if !word {
+        return Err(format!("«{name}» — имя анимации пишется одним словом из букв, цифр и _"));
+    }
+    if scene.doc.animation(name).is_some() {
+        return Err(format!("анимация «{name}» уже есть"));
+    }
+    Ok(())
+}
+
+/// A name like `Run2` (or `RunBack2` for `RunBack`) that no animation has yet.
+fn free_anim_name(scene: &Scene, base: &str) -> String {
+    if scene.doc.animation(base).is_none() {
+        return base.to_string();
+    }
+    (2..).map(|i| format!("{base}{i}")).find(|n| scene.doc.animation(n).is_none()).expect("names are unbounded")
+}
+
+/// Returns the script with animation `anim` called `new_name`, the machine states that play it
+/// following along.
+pub fn rename_anim(src: &str, scene: &Scene, anim: &str, new_name: &str, base: Option<&std::path::Path>) -> Result<String, String> {
+    anim_name_ok(scene, new_name)?;
+    let (_, name) = anim_block(src, scene, anim).ok_or("нет такой анимации")?;
+    // Every edit stays inside its own block, so done from the bottom up each one still finds
+    // its place in the original script; no step in between has to parse.
+    let mut steps: Vec<(usize, Option<String>)> = vec![(name.start, None)];
+    for m in scene.doc.machines.iter().filter(|m| m.states.iter().any(|s| s.anim == anim)) {
+        steps.push((scene.machines.get(&m.name).ok_or("машина без места в скрипте")?.span.start, Some(m.name.clone())));
+    }
+    steps.sort_by_key(|s| std::cmp::Reverse(s.0));
+    let mut out = src.to_string();
+    for (_, machine) in steps {
+        out = match machine {
+            None => splice(&out, name, new_name),
+            Some(m) => crate::edit_machine(&out, scene, &m, |m| {
+                for s in &mut m.states {
+                    if s.anim == anim {
+                        s.anim = new_name.to_string();
+                    }
+                }
+            })
+            .ok_or_else(|| format!("машина «{m}» не обновилась"))?,
+        };
+    }
+    reparse(&out, base)?;
+    Ok(out)
+}
+
+/// Returns the script with a copy of animation `anim` right after it, and the copy's name.
+pub fn duplicate_anim(src: &str, scene: &Scene, anim: &str) -> Option<(String, String)> {
+    let (block, name) = anim_block(src, scene, anim)?;
+    let copy = free_anim_name(scene, anim);
+    let text = format!("{}{copy}{}", &src[block.start..name.start], &src[name.end..block.end]);
+    let text = if text.ends_with('\n') { text } else { format!("\n{text}\n") };
+    Some((splice(src, Span::new(block.end, block.end), &format!("\n{text}")), copy))
+}
+
+/// Returns the script with a copy of animation `anim` that plays it backwards, right after it,
+/// and the copy's name: every key at `duration - t`, every curve mirrored so each segment looks
+/// the same in reverse, events moved likewise. A `hold` becomes a jump at the start of its
+/// segment, written as a key 0.01 s in.
+pub fn reverse_anim(src: &str, scene: &Scene, anim: &str) -> Option<(String, String)> {
+    let a = scene.doc.animation(anim)?;
+    let site = scene.anims.get(anim)?;
+    let (block, _) = anim_block(src, scene, anim)?;
+    let d = a.duration;
+    let copy = free_anim_name(scene, &format!("{anim}Back"));
+    let mut body = String::new();
+    for ts in &site.tracks {
+        let track = a.tracks.iter().find(|t| t.node == ts.node && t.prop == ts.prop)?;
+        // Keys in time order: the text of the value and the curve to the next key.
+        let mut keys: Vec<(f64, String, motif_core::Ease)> = track
+            .keys
+            .iter()
+            .filter_map(|k| {
+                let site = ts.keys.iter().find(|s| (s.time - k.time).abs() < 1e-9)?;
+                Some((k.time.min(d), src[site.value.start..site.value.end].to_string(), k.ease))
+            })
+            .collect();
+        keys.sort_by(|x, y| x.0.total_cmp(&y.0));
+        let mut out: Vec<KeyText> = Vec::new();
+        let curve = |e: motif_core::Ease| (e != motif_core::Ease::EaseInOut).then(|| e.script());
+        for i in (0..keys.len()).rev() {
+            let (t, value, _) = &keys[i];
+            let Some(prev) = i.checked_sub(1).map(|p| &keys[p]) else {
+                out.push(KeyText { time: d - t, value: value.clone(), ease: None });
+                break;
+            };
+            if prev.2 == motif_core::Ease::Hold {
+                // The original holds `prev` and jumps at `t`: backwards it jumps right away.
+                out.push(KeyText { time: d - t, value: value.clone(), ease: Some("linear".into()) });
+                if t - prev.0 > 0.015 {
+                    out.push(KeyText { time: d - t + 0.01, value: prev.1.clone(), ease: Some("hold".into()) });
+                }
+            } else {
+                out.push(KeyText { time: d - t, value: value.clone(), ease: curve(prev.2.reversed()) });
+            }
+        }
+        body.push_str(&format!("  {}.{}  {}\n", ts.node, ts.prop.path_name(), keys_line(&out)));
+    }
+    for e in &site.events {
+        let times: Vec<String> = e.times.iter().rev().map(|(t, _)| fmt_num(key_time(d - t))).collect();
+        body.push_str(&format!("  event {} {}\n", e.name, times.join(" ")));
+    }
+    let header = format!("anim {copy} {}s{} {{\n", fmt_num(d), if a.looping { " loop" } else { "" });
+    let lead = if src[..block.end].ends_with('\n') { "\n" } else { "\n\n" };
+    Some((splice(src, Span::new(block.end, block.end), &format!("{lead}{header}{body}}}\n")), copy))
+}
+
+/// Returns the script without animation `anim`. Refused while a machine state plays it.
+pub fn delete_anim(src: &str, scene: &Scene, anim: &str) -> Result<String, String> {
+    let users: Vec<String> =
+        scene.doc.machines.iter().flat_map(|m| m.states.iter().filter(|s| s.anim == anim).map(move |s| format!("{}.{}", m.name, s.name))).collect();
+    if !users.is_empty() {
+        return Err(format!("её играют состояния {}: сначала дайте им другую анимацию", users.join(", ")));
+    }
+    let (block, _) = anim_block(src, scene, anim).ok_or("нет такой анимации")?;
+    // The blank line that set it apart goes with it.
+    let end = if src[block.end..].starts_with('\n') { block.end + 1 } else { block.end };
+    Ok(splice(src, Span::new(block.start, end), ""))
+}
+
 /// The edits that add `d` to every key of the `x` and `y` tracks of `nodes`, in every animation:
 /// what keeps their motion in place when their parent moves by `-d`. Fails when a key is
 /// written as a formula.

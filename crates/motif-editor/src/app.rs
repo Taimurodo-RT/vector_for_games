@@ -189,6 +189,8 @@ pub struct App {
     pub(crate) event_drag: Option<(String, f64, f64)>,
     /// The name typed in an event flag's menu.
     pub(crate) event_name: String,
+    /// The name typed in the animation menu.
+    pub(crate) anim_name: String,
     /// The timeline shows value curves instead of key lanes.
     pub(crate) curves: bool,
     /// The property whose curve is edited in the graph.
@@ -271,6 +273,7 @@ impl App {
             key_marquee: None,
             event_drag: None,
             event_name: String::new(),
+            anim_name: String::new(),
             curves: false,
             curve_focus: None,
             curve_drag: None,
