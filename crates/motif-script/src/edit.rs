@@ -1052,3 +1052,146 @@ pub fn write_event(src: &str, scene: &Scene, anim: &str, name: &str, new_name: &
         None => Some(insert_before_close(src, site.close, &format!("  {line}\n"))),
     }
 }
+
+/// Fails when the position of `node` is written by a formula: moving it to another parent would
+/// leave the formula as it is and the node somewhere else.
+fn movable(scene: &Scene, node: &str) -> Result<(), String> {
+    let fixed = [Prop::X, Prop::Y].iter().any(|p| scene.sources.get(&(node.to_string(), *p)).is_some_and(|s| !s.editable || s.from_override));
+    if fixed { Err(format!("место «{node}» задано формулой")) } else { Ok(()) }
+}
+
+/// Re-reads the script after one step of an edit that takes several.
+fn reparse(src: &str, base: Option<&std::path::Path>) -> Result<Scene, String> {
+    crate::parse_in(src, base).map_err(|e| e.first().map_or_else(|| "скрипт не читается".to_string(), |e| e.message.clone()))
+}
+
+/// The edits that add `d` to every key of the `x` and `y` tracks of `nodes`, in every animation:
+/// what keeps their motion in place when their parent moves by `-d`. Fails when a key is
+/// written as a formula.
+fn shift_position_keys(src: &str, scene: &Scene, nodes: &[&str], d: (f64, f64)) -> Result<Vec<(Span, String)>, String> {
+    let mut edits = Vec::new();
+    for anim in scene.anims.values() {
+        for track in anim.tracks.iter().filter(|t| nodes.contains(&t.node.as_str())) {
+            let by = match track.prop {
+                Prop::X => d.0,
+                Prop::Y => d.1,
+                _ => continue,
+            };
+            if by.abs() < 1e-9 {
+                continue;
+            }
+            for k in &track.keys {
+                let text = src[k.value.start..k.value.end].trim();
+                let v: f64 = text.parse().map_err(|_| format!("ключ {}.{} = {text} — формула, его не сдвинуть", track.node, track.prop.path_name()))?;
+                edits.push((k.value, fmt_num(v + by)));
+            }
+        }
+    }
+    Ok(edits)
+}
+
+/// Returns the script with `ids` wrapped in a new group, and the group's id. The group sits
+/// where the topmost of them was, its origin in the middle of their box, and everything stays
+/// where it was on the artboard, animations included. All of them must be in the same group
+/// (or all at the top level); one inside another is taken with it.
+pub fn group_nodes(src: &str, scene: &Scene, ids: &[String], base: Option<&std::path::Path>) -> Result<(String, String), String> {
+    let doc = &scene.doc;
+    let mut picked: Vec<usize> = ids.iter().filter_map(|id| doc.index_of(id)).collect();
+    picked.sort_unstable();
+    picked.dedup();
+    let outer: Vec<usize> = picked.iter().copied().filter(|&i| !picked.iter().any(|&o| o != i && doc.is_inside(i, o))).collect();
+    let &last = outer.last().ok_or("нечего группировать")?;
+    let parent = doc.nodes[last].parent;
+    if outer.iter().any(|&i| doc.nodes[i].parent != parent) {
+        return Err("объекты лежат в разных группах: сначала перенесите их в одну".into());
+    }
+    if outer.iter().any(|&i| scene.sites.get(&doc.nodes[i].id).is_none_or(|s| s.generated)) {
+        return Err("объекты из цикла группируются в самом цикле".into());
+    }
+    let world = doc.world_bounds(last).ok_or("у объектов нет размера")?;
+    let world = outer.iter().filter_map(|&i| doc.world_bounds(i)).fold(world, |a, b| a.union(b));
+    let to_parent = parent.map_or(Affine::IDENTITY, |p| doc.world_transform(p).inverse());
+    let c = to_parent * world.center();
+    let c = ((c.x * 10.0).round() / 10.0, (c.y * 10.0).round() / 10.0);
+
+    // Keys first: their spans are still those of this script.
+    let names: Vec<&str> = outer.iter().map(|&i| doc.nodes[i].id.as_str()).collect();
+    names.iter().try_for_each(|id| movable(scene, id))?;
+    let src = splice_all(src, shift_position_keys(src, scene, &names, (-c.0, -c.1))?);
+    let scene = reparse(&src, base)?;
+    let group = free_id(&scene, "group");
+    let site = scene.sites.get(&doc.nodes[last].id).ok_or("объект пропал")?;
+    let line = whole_lines(&src, site.span);
+    let indent: String = src[line.start..].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+    let decl = format!("{indent}group {group} at {} {} {{\n{indent}}}\n", fmt_num(c.0), fmt_num(c.1));
+    let at = line.end;
+    let mut src = if at == src.len() && !src.ends_with('\n') { format!("{src}\n{decl}") } else { format!("{}{decl}{}", &src[..at], &src[at..]) };
+    for id in names {
+        let scene = reparse(&src, base)?;
+        src =
+            move_node(&src, &scene, id, &group, Place::Into).ok_or_else(|| format!("«{id}» не переносится в группу: его строка делится с другим объектом"))?;
+    }
+    reparse(&src, base)?;
+    Ok((src, group))
+}
+
+/// Returns the script with group `id` taken apart: its children go where it was, in the same
+/// order and in the same place on the artboard, animations included, and the group is removed.
+/// Also returns the children's ids. Only a group that does nothing but move its children can
+/// be taken apart: no rotation, scale, skew, opacity, effects or animation of its own.
+pub fn ungroup(src: &str, scene: &Scene, id: &str, base: Option<&std::path::Path>) -> Result<(String, Vec<String>), String> {
+    let doc = &scene.doc;
+    let g = doc.index_of(id).ok_or("нет такого объекта")?;
+    let n = &doc.nodes[g];
+    if n.kind != ShapeKind::Group {
+        return Err("это не группа".into());
+    }
+    if scene.sites.get(id).is_none_or(|s| s.generated) {
+        return Err("группа из цикла разбирается в самом цикле".into());
+    }
+    let plain = n.rotation.abs() < 1e-9
+        && (n.scale_x - 1.0).abs() < 1e-9
+        && (n.scale_y - 1.0).abs() < 1e-9
+        && n.skew_x.abs() < 1e-9
+        && n.skew_y.abs() < 1e-9
+        && (n.opacity - 1.0).abs() < 1e-9
+        && n.blur.abs() < 1e-9
+        && n.shadow.is_none()
+        && n.elevation.abs() < 1e-9
+        && n.stack.is_none();
+    if !plain {
+        return Err("у группы свой поворот, масштаб, прозрачность, эффекты или раскладка: они пропали бы".into());
+    }
+    if scene.anims.values().any(|a| a.tracks.iter().any(|t| t.node == id)) {
+        return Err("у группы своя анимация: она пропала бы".into());
+    }
+    let children: Vec<String> = (0..doc.nodes.len()).filter(|&k| doc.nodes[k].parent == Some(g)).map(|k| doc.nodes[k].id.clone()).collect();
+    if children.is_empty() {
+        return Ok((delete_node(src, scene, id).ok_or("группа не удаляется")?, children));
+    }
+    let names: Vec<&str> = children.iter().map(String::as_str).collect();
+    names.iter().try_for_each(|id| movable(scene, id))?;
+    let mut src = splice_all(src, shift_position_keys(src, scene, &names, (n.x, n.y))?);
+    // The last child first: each lands right after the group, so the order stays.
+    for child in children.iter().rev() {
+        let scene = reparse(&src, base)?;
+        src = move_node(&src, &scene, child, id, Place::After)
+            .ok_or_else(|| format!("«{child}» не выносится из группы: его строка делится с другим объектом"))?;
+    }
+    let scene = reparse(&src, base)?;
+    let src = delete_node(&src, &scene, id).ok_or("группа не удаляется")?;
+    reparse(&src, base)?;
+    Ok((src, children))
+}
+
+/// Returns the script with `id` drawn one step over (`up`) or under its neighbour in the same
+/// group: its declaration swaps places with that neighbour's. `None` at the top or bottom, or
+/// when either comes from a loop.
+pub fn restack(src: &str, scene: &Scene, id: &str, up: bool) -> Option<String> {
+    let doc = &scene.doc;
+    let i = doc.index_of(id)?;
+    let parent = doc.nodes[i].parent;
+    let sibling = |k: &usize| doc.nodes[*k].parent == parent;
+    let other = if up { (i + 1..doc.nodes.len()).find(sibling) } else { (0..i).rev().find(sibling) }?;
+    move_node(src, scene, id, &doc.nodes[other].id, if up { Place::After } else { Place::Before })
+}

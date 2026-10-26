@@ -1360,3 +1360,46 @@ fn events_are_read_checked_and_written() {
     assert!(write_event(src, &s, "Run", "step", "dust", &[0.1]).is_none(), "name taken");
     assert!(write_event(src, &s, "Run", "step", "two words", &[0.1]).is_none());
 }
+
+#[test]
+fn group_and_ungroup_keep_everything_in_place() {
+    use motif_core::kurbo::Point;
+    let src = "rect a at 10 10 size 20 20\nellipse b at 50 30 size 20 20\nrect c at 100 100 size 10 10\nanim Go 1s {\n  a.x  0: 10 | 1: 70\n  b.rot  0: 0 | 1: 90\n}\n";
+    let s = scene(src);
+    let at = |s: &Scene, id: &str, t: f64| {
+        let posed = s.doc.animations[0].pose_with(&s.doc, t, &mut motif_core::SimCache::default());
+        let i = posed.index_of(id).unwrap();
+        let p = posed.world_transform(i) * Point::ZERO;
+        ((p.x * 1000.0).round() / 1000.0, (p.y * 1000.0).round() / 1000.0)
+    };
+    let (out, g) = group_nodes(src, &s, &["b".into(), "a".into()], None).unwrap();
+    assert_eq!(g, "group1");
+    // In the middle of their box, where b (the topmost) was, under c.
+    assert!(out.contains("group group1 at 30 20 {\n  rect a at -20 -10 size 20 20\n  ellipse b at 20 10 size 20 20\n}\nrect c"), "{out}");
+    assert!(out.contains("a.x  0: -20 | 1: 40"), "keys follow the new parent: {out}");
+    let grouped = scene(&out);
+    for t in [0.0, 0.5, 1.0] {
+        for id in ["a", "b", "c"] {
+            assert_eq!(at(&grouped, id, t), at(&s, id, t), "{id} at {t}");
+        }
+    }
+    // Taken apart again: the same places and the same order.
+    let (back, kids) = ungroup(&out, &grouped, "group1", None).unwrap();
+    assert_eq!(kids, ["a", "b"]);
+    let back_s = scene(&back);
+    assert_eq!(back_s.doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+    assert!(back.contains("a.x  0: 10 | 1: 70"), "{back}");
+    for t in [0.0, 0.5, 1.0] {
+        assert_eq!(at(&back_s, "a", t), at(&s, "a", t));
+    }
+    // Things that would be lost are refused.
+    let turned = out.replace("group group1 at 30 20 {", "group group1 at 30 20 rot 10 {");
+    assert!(ungroup(&turned, &scene(&turned), "group1", None).is_err());
+    let nested = "group g at 50 50 {\n  rect a\n}\nrect b at 10 10\n";
+    assert!(group_nodes(nested, &scene(nested), &["a".into(), "b".into()], None).is_err(), "different parents");
+    // One step up and down among neighbours.
+    let up = restack(src, &s, "a", true).unwrap();
+    assert_eq!(scene(&up).doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["b", "a", "c"]);
+    assert!(restack(src, &s, "c", true).is_none());
+    assert!(restack(src, &s, "a", false).is_none());
+}
