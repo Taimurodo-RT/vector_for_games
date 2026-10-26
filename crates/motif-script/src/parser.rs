@@ -129,6 +129,19 @@ pub struct MachineLineAst {
     pub span: Span,
 }
 
+/// `upper 12 0.8 at 10 2 14 3`: one stroke of the weight brush — the bone, the brush radius,
+/// the strength (negative erases) and the points it went through, in the shape's space.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrokeAst {
+    pub bone: String,
+    pub bone_span: Span,
+    pub radius: f64,
+    pub amount: f64,
+    pub points: Vec<(f64, f64)>,
+    /// The whole line, without its line break.
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     Artboard {
@@ -188,6 +201,15 @@ pub enum Stmt {
         name: String,
         name_span: Span,
         lines: Vec<MachineLineAst>,
+        span: Span,
+        /// Offset of the block's closing brace.
+        close: usize,
+    },
+    /// `weights arm { upper 12 0.8 at 10 2 14 3 }`: weight-brush strokes over a skinned shape.
+    Weights {
+        node: String,
+        node_span: Span,
+        strokes: Vec<StrokeAst>,
         span: Span,
         /// Offset of the block's closing brace.
         close: usize,
@@ -380,8 +402,9 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
-        let (word, span) =
-            self.ident("команда: artboard, world, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine или override")?;
+        let (word, span) = self.ident(
+            "команда: artboard, world, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
+        )?;
         match word.as_str() {
             "artboard" => self.artboard(),
             "backdrop" => self.backdrop(span.start),
@@ -410,6 +433,7 @@ impl<'a> Parser<'a> {
             }
             "anim" => self.anim(span),
             "machine" => self.machine(span),
+            "weights" => self.weights(span),
             "symbol" => {
                 let (name, name_span) = self.ident("имя символа")?;
                 let mut params = Vec::new();
@@ -719,6 +743,49 @@ impl<'a> Parser<'a> {
         }
         let close = self.close_block()?;
         Ok(Stmt::Machine { name, name_span, lines, span: Span::new(span.start, close + 1), close })
+    }
+
+    fn weights(&mut self, span: Span) -> Result<Stmt, ScriptError> {
+        let (node, node_span) = self.ident("объект с костями: weights рука { … }")?;
+        self.expect(Tok::BlockOpen, "«{» в конце строки")?;
+        let mut strokes = Vec::new();
+        loop {
+            match self.peek() {
+                Some(Tok::Newline) => self.pos += 1,
+                Some(Tok::BlockClose) | None => break,
+                Some(_) => match self.stroke() {
+                    Ok(l) => strokes.push(l),
+                    Err(e) => {
+                        self.errors.push(e);
+                        self.skip_line();
+                    }
+                },
+            }
+        }
+        let close = self.close_block()?;
+        Ok(Stmt::Weights { node, node_span, strokes, span: Span::new(span.start, close + 1), close })
+    }
+
+    fn stroke(&mut self) -> Result<StrokeAst, ScriptError> {
+        let (bone, bone_span) = self.ident("кость: плечо 12 0.8 at x y …")?;
+        let (radius, _) = self.num("радиус кисти")?;
+        let (amount, _) = self.num("сила от -1 до 1")?;
+        let (kw, kw_span) = self.ident("«at» и точки мазка")?;
+        if kw != "at" {
+            return Err(self.err(kw_span, "ожидалось «at» и точки мазка: плечо 12 0.8 at 10 2 14 3"));
+        }
+        let mut points = Vec::new();
+        let mut end = kw_span.end;
+        while !self.at_line_end() {
+            let (x, _) = self.num("x точки")?;
+            let (y, ys) = self.num("y точки")?;
+            points.push((x, y));
+            end = ys.end;
+        }
+        if points.is_empty() {
+            return Err(self.err(kw_span, "у мазка нет точек"));
+        }
+        Ok(StrokeAst { bone, bone_span, radius, amount, points, span: Span::new(bone_span.start, end) })
     }
 
     fn num(&mut self, what: &str) -> Result<(f64, Span), ScriptError> {

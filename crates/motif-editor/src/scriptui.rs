@@ -85,6 +85,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("}", "chain N — сколько костей гнёт IK"),
             ("rect sleeve … skin arm hand", "фигура гнётся костями"),
             ("skin-sharp 2", "мягкий изгиб; 4 — сустав"),
+            ("weights sleeve { arm 18 1 at 0 0 20 0 }", "мазки кисти весов: кость, радиус, сила"),
         ],
     ),
     (

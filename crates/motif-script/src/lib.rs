@@ -33,7 +33,7 @@ mod parser;
 mod svg;
 mod symbol;
 
-pub use bone::{add_bone, add_ik_target, attach_to_bone, set_ik, set_skin};
+pub use bone::{add_bone, add_ik_target, add_weight_stroke, attach_to_bone, clear_weights, fmt_stroke, set_ik, set_skin};
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
     KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_key, delete_keys,
@@ -148,6 +148,18 @@ pub struct Scene {
     pub machines: HashMap<String, MachineSite>,
     /// Where the `world` line is written, when there is one.
     pub world: Option<Span>,
+    /// Where each `weights` block is written, by the id of its shape.
+    pub weights: HashMap<String, WeightsSite>,
+}
+
+/// A `weights` block: the strokes match the shape's `skin.paint` one to one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeightsSite {
+    /// From `weights` to the closing brace.
+    pub span: Span,
+    /// Offset of the closing brace.
+    pub close: usize,
+    pub strokes: Vec<Span>,
 }
 
 /// Where a `machine` block is written. The line lists match the machine's inputs, states and

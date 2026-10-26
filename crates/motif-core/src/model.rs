@@ -446,14 +446,28 @@ pub struct Skin {
     pub bind: Vec<SkinBind>,
     /// The shape's own transform into the artboard in that pose.
     pub bind_world: Affine,
+    /// Brush strokes over the distance weights, in the order they were painted.
+    pub paint: Vec<WeightStroke>,
 }
 
 impl Skin {
     pub const SHARP: f64 = 4.0;
 
     pub fn new(bones: Vec<String>) -> Self {
-        Skin { bones, sharp: Skin::SHARP, bind: Vec::new(), bind_world: Affine::IDENTITY }
+        Skin { bones, sharp: Skin::SHARP, bind: Vec::new(), bind_world: Affine::IDENTITY, paint: Vec::new() }
     }
+}
+
+/// One stroke of the weight brush: near its points the shape follows `bone` more (positive
+/// `amount`) or less (negative), fading to nothing at `radius`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeightStroke {
+    pub bone: String,
+    pub radius: f64,
+    /// −1..1: how much of the way to go towards (or away from) the bone at the stroke's centre.
+    pub amount: f64,
+    /// In the shape's own space, as it was drawn.
+    pub points: Vec<Point>,
 }
 
 /// One bone of a skin at bind time.

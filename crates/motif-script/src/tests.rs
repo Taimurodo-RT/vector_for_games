@@ -1285,3 +1285,53 @@ fn stacks_panels_and_anchors() {
     let out = set_style(src, &scene(src), "c", "anchor", None).unwrap();
     assert!(out.contains("rect c at -10 10 size 8 8\n"), "{out}");
 }
+
+#[test]
+fn weight_strokes_parse_paint_and_clear() {
+    use motif_core::WeightStroke;
+    use motif_core::kurbo::Point;
+    let src = "bone a at 0 0 len 50 {\n  bone b at 50 0 len 50\n}\nrect bar at 50 0 size 100 20 skin a b\n";
+    let s = scene(src);
+    let stroke = WeightStroke { bone: "b".into(), radius: 12.0, amount: 0.8, points: vec![Point::new(-10.04, -8.0), Point::new(-10.0, 8.0)] };
+    let out = add_weight_stroke(src, &s, "bar", &stroke).unwrap();
+    assert!(out.ends_with("\nweights bar {\n  b 12 0.8 at -10 -8 -10 8\n}\n"), "{out}");
+    let s = scene(&out);
+    let paint = &s.doc.node("bar").unwrap().skin.as_ref().unwrap().paint;
+    assert_eq!(paint.len(), 1);
+    assert_eq!(paint[0].points[0], Point::new(-10.0, -8.0));
+    // The next stroke goes into the same block.
+    let erase = WeightStroke { bone: "a".into(), radius: 6.0, amount: -1.0, points: vec![Point::new(20.0, 0.0)] };
+    let out = add_weight_stroke(&out, &s, "bar", &erase).unwrap();
+    assert!(out.contains("  b 12 0.8 at -10 -8 -10 8\n  a 6 -1 at 20 0\n}\n"), "{out}");
+    let s = scene(&out);
+    assert_eq!(s.doc.node("bar").unwrap().skin.as_ref().unwrap().paint.len(), 2);
+    // A bone outside the skin is refused by the edit and reported by the script.
+    assert!(add_weight_stroke(&out, &s, "bar", &WeightStroke { bone: "c".into(), ..erase.clone() }).is_none());
+    assert!(parse(&out.replace("  a 6", "  zz 6")).is_err());
+    // Clearing one bone keeps the others; clearing the last removes the block.
+    let one = clear_weights(&out, &s, "bar", Some("a")).unwrap();
+    assert!(one.contains("weights bar {\n  b 12") && !one.contains("a 6 -1"), "{one}");
+    let s1 = scene(&one);
+    assert_eq!(clear_weights(&one, &s1, "bar", Some("b")).unwrap(), src);
+    assert_eq!(clear_weights(&out, &s, "bar", None).unwrap(), src);
+    // Deleting the shape takes its weights along.
+    let gone = delete_node(&out, &s, "bar").unwrap();
+    assert!(!gone.contains("weights"), "{gone}");
+}
+
+#[test]
+fn weight_brush_finds_the_drawn_point_on_a_folded_knee() {
+    use motif_core::kurbo::Point;
+    let s = scene(include_str!("../../../examples/weights.msc"));
+    let mut d = s.doc.clone();
+    let shin = d.index_of("shin2").unwrap();
+    d.nodes[shin].rotation = -95.0;
+    d.rig();
+    let i = d.index_of("leg2").unwrap();
+    // Next to the bent knee the plane folds: the point outside the leg that lands on the same
+    // spot must not win over the one inside it.
+    for p in [Point::new(7.5, 22.7), Point::new(5.0, 37.0), Point::new(-5.0, 30.0), Point::new(-12.0, -40.0)] {
+        let back = d.unskin_point(i, d.skin_point(i, p).unwrap(), None).unwrap();
+        assert!((back - p).hypot() < 0.01, "{p:?} → {back:?}");
+    }
+}

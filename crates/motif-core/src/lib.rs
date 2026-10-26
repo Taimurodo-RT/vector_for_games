@@ -33,7 +33,7 @@ pub use fluid::Fluid;
 pub use kurbo;
 pub use layout::{Stack, StackAlign, StackDir, anchor_text, anchor_word};
 pub use machine::{Cond, CondOp, Input, InputKind, Listener, Machine, MachinePlayer, PointerEvent, State, Transition};
-pub use model::{Animation, Artboard, Document, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Track, Value};
+pub use model::{Animation, Artboard, Document, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Track, Value, WeightStroke};
 pub use morph::Morph;
 pub use particles::Emitter;
 pub use roll::Roll;

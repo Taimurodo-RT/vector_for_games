@@ -28,6 +28,7 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/symbols.msc
       - run: cargo run -p motif-cli -- check examples/machine.msc
       - run: cargo run -p motif-cli -- check examples/bones.msc
+      - run: cargo run -p motif-cli -- check examples/weights.msc
       - run: cargo run -p motif-cli -- check examples/tunnel.msc
       - run: cargo run -p motif-cli -- check examples/jelly.msc
       - run: cargo run -p motif-cli -- check examples/springs.msc

@@ -5,7 +5,7 @@ use crate::edit::{free_id, insert_declaration, whole_lines};
 use crate::machine::apply;
 use crate::{Scene, Span, fmt_num};
 use motif_core::kurbo::{Affine, Point};
-use motif_core::{Ik, Prop, ShapeKind, Skin};
+use motif_core::{Ik, Prop, ShapeKind, Skin, WeightStroke};
 
 /// The spaces in front of the line that `at` is on.
 fn indent_at(src: &str, at: usize) -> String {
@@ -108,6 +108,62 @@ pub fn set_skin(src: &str, scene: &Scene, node: &str, skin: Option<&Skin>) -> Op
     let list = bones.map(|s| format!("skin {}", s.bones.join(" ")));
     let sharp = bones.filter(|s| (s.sharp - Skin::SHARP).abs() > 1e-9).map(|s| format!("skin-sharp {}", fmt_num(s.sharp)));
     set_styles(src, scene, node, &[("skin", list), ("skin-sharp", sharp)])
+}
+
+/// The script line of one weight-brush stroke, without indent or line break.
+pub fn fmt_stroke(stroke: &WeightStroke) -> String {
+    let mut line = format!("{} {} {} at", stroke.bone, fmt_num(stroke.radius), fmt_num(stroke.amount));
+    for p in &stroke.points {
+        line.push_str(&format!(" {} {}", fmt_num((p.x * 10.0).round() / 10.0), fmt_num((p.y * 10.0).round() / 10.0)));
+    }
+    line
+}
+
+/// Returns the script with `stroke` painted over the weights of the skinned shape `node`: the
+/// last line of its `weights` block, or a new block at the end of the script.
+pub fn add_weight_stroke(src: &str, scene: &Scene, node: &str, stroke: &WeightStroke) -> Option<String> {
+    let skin = scene.doc.node(node)?.skin.as_ref()?;
+    if !skin.bones.contains(&stroke.bone) || stroke.points.is_empty() {
+        return None;
+    }
+    let line = fmt_stroke(stroke);
+    let Some(site) = scene.weights.get(node) else {
+        let mut out = src.to_string();
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&format!("\nweights {node} {{\n  {line}\n}}\n"));
+        return Some(out);
+    };
+    let line_start = src[..site.close].rfind('\n').map_or(0, |i| i + 1);
+    Some(if src[line_start..site.close].trim().is_empty() {
+        apply(src, vec![(Span::new(line_start, line_start), format!("  {line}\n"))])
+    } else {
+        apply(src, vec![(Span::new(site.close, site.close), format!("\n  {line}\n"))])
+    })
+}
+
+/// Returns the script without the painted strokes of `bone` on `node`, or without all of them
+/// (the whole `weights` block) when `bone` is `None`. `None` when there is nothing to remove.
+pub fn clear_weights(src: &str, scene: &Scene, node: &str, bone: Option<&str>) -> Option<String> {
+    let site = scene.weights.get(node)?;
+    let skin = scene.doc.node(node)?.skin.as_ref()?;
+    let spans: Vec<Span> = match bone {
+        Some(b) if skin.paint.iter().any(|s| s.bone != b) => {
+            skin.paint.iter().zip(&site.strokes).filter(|(s, _)| s.bone == b).map(|(_, sp)| whole_lines(src, *sp)).collect()
+        }
+        Some(b) if !skin.paint.iter().any(|s| s.bone == b) => return None,
+        _ => vec![whole_lines(src, site.span)],
+    };
+    if spans.is_empty() {
+        return None;
+    }
+    let mut out = crate::edit::remove_spans(src, spans);
+    // A block removed from the end leaves the blank line written before it.
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
+    Some(out)
 }
 
 /// Direction of the x axis of `a`, in degrees.

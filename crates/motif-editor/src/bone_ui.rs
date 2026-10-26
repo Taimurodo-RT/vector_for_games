@@ -287,7 +287,17 @@ impl App {
         if let Some(skin) = new_skin
             && self.can_edit()
         {
-            let out = motif_script::set_skin(&self.src, &self.scene, &node.id, skin.as_ref());
+            // Strokes of the bones taken off the skin go with them.
+            let kept = skin.as_ref().map(|s| s.bones.clone()).unwrap_or_default();
+            let mut src = self.src.clone();
+            for b in node.skin.iter().flat_map(|s| &s.bones).filter(|b| !kept.contains(b)) {
+                if let Ok(scene) = motif_script::parse(&src)
+                    && let Some(out) = motif_script::clear_weights(&src, &scene, &node.id, Some(b))
+                {
+                    src = out;
+                }
+            }
+            let out = motif_script::parse(&src).ok().and_then(|scene| motif_script::set_skin(&src, &scene, &node.id, skin.as_ref()));
             if !self.apply(&format!("{}.skin", node.id), out) {
                 self.status = "Объект из цикла: кости ему задаются в тексте цикла".into();
             }
