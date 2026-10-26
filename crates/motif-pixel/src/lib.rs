@@ -1,10 +1,12 @@
 //! Bridges between Motif and pixel-art tools.
 //!
 //! * PNG frame sequences that PixaTool can batch-process.
+//! * [`godot`]: every animation in one atlas with SpriteFrames, a scene and its state machine.
 //! * [`pixatool`]: drives PixaTool itself, so frames come back pixelized with no dialogs.
 //! * JASC `.pal` palettes (the format PixaTool loads, up to 192 colors).
 //! * A quick pixel preview: render at the target size without anti-aliasing, then snap to a palette.
 
+pub mod godot;
 pub mod kit;
 pub mod pixatool;
 

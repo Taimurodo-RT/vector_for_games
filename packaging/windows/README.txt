@@ -126,7 +126,12 @@ Disabled, Focus. «Экспорт → Сохранить UI-набор…» пи
 «Фон по размеру стека» у панели, «Привязка» к краю артборда — объект держится
 своего угла при любом размере (пример examples\menu.msc).
 
-motif.exe — командная строка: motif.exe check|render|frames|palette|pixel|kit
+Анимации в Godot: выделите персонажа, «Экспорт → Выгрузить в Godot…» и выберите папку
+в проекте Godot. Появятся атлас ИМЯ.png, SpriteFrames ИМЯ_frames.tres и сцена ИМЯ.tscn;
+машина состояний станет AnimationTree, её входы — переменными скрипта ИМЯ.gd
+(hero.speed = 1.0, hero.fire_jump()).
+
+motif.exe — командная строка: motif.exe check|render|frames|palette|pixel|kit|godot
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 
 В строке состояния внизу видно, чем рисует холст: «Vello на GPU» или запасной CPU-рендер.

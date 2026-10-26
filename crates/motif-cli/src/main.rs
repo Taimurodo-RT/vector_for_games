@@ -14,6 +14,7 @@ motif — скрипты сцен Motif без окна редактора
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [-o папка] [параметры рендера]
   motif palette <сцена.msc> [-o палитра.pal]
   motif kit     <сцена.msc> [-o папка] [параметры рендера]
+  motif godot   <сцена.msc> [--node ID] [--pivot X Y] [--machine ИМЯ] [--fps 12] [-o папка] [параметры рендера]
   motif pixel   <сцена.msc> --anim ИМЯ [--preset X.preset] [--pixatool Pixatool.exe] [--fps 12] [-o папка] [параметры рендера]
 
 Параметры рендера:
@@ -25,6 +26,10 @@ motif — скрипты сцен Motif без окна редактора
 frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их можно обработать в PixaTool пакетом.
 kit сохраняет элементы интерфейса (ui, slice) в каждом состоянии (анимации Hover, Press, Disabled, Focus)
 и тему Godot ИМЯ.tres, где они стоят стилями 9-slice.
+godot запекает все анимации в один атлас ИМЯ.png, пишет SpriteFrames ИМЯ_frames.tres и сцену ИМЯ.tscn
+с AnimatedSprite2D. Если в сцене есть машина состояний, в сцене будут ещё AnimationPlayer и AnimationTree
+с теми же состояниями и переходами, а входы машины станут переменными скрипта ИМЯ.gd. --node берёт
+только один объект (персонаж без фона), --pivot задаёт точку привязки спрайта в координатах артборда.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
 pixel снимает кадры и сам прогоняет их через PixaTool с пресетом, сохранённым в PixaTool кнопкой
 «Save Preset». PixaTool ищется в --pixatool, в переменной MOTIF_PIXATOOL и в папке tools рядом с Motif.";
@@ -42,6 +47,9 @@ struct Args {
     background: bool,
     preset: Option<PathBuf>,
     pixatool: Option<PathBuf>,
+    node: Option<String>,
+    pivot: Option<(f64, f64)>,
+    machine: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -63,6 +71,9 @@ fn parse_args() -> Result<Args, String> {
         background: true,
         preset: None,
         pixatool: None,
+        node: None,
+        pivot: None,
+        machine: None,
     };
     let num = |v: Option<String>, flag: &str| v.and_then(|s| s.parse::<f64>().ok()).ok_or(format!("после {flag} нужно число"));
     while let Some(arg) = it.next() {
@@ -75,6 +86,9 @@ fn parse_args() -> Result<Args, String> {
             "--width" => a.width = Some(num(it.next(), "--width")?),
             "--preset" => a.preset = Some(it.next().ok_or("после --preset нужен файл пресета")?.into()),
             "--pixatool" => a.pixatool = Some(it.next().ok_or("после --pixatool нужен путь к Pixatool.exe")?.into()),
+            "--node" => a.node = Some(it.next().ok_or("после --node нужен id объекта")?),
+            "--machine" => a.machine = Some(it.next().ok_or("после --machine нужно имя машины")?),
+            "--pivot" => a.pivot = Some((num(it.next(), "--pivot")?, num(it.next(), "--pivot")?)),
             "--no-aa" => a.antialias = false,
             "--transparent" => a.background = false,
             s if s.starts_with('-') => return Err(format!("неизвестный параметр {s}\n\n{HELP}")),
@@ -168,6 +182,31 @@ fn run() -> Result<(), String> {
                 println!("  {} ({}) — {w}×{h}, {}", item.id, motif_pixel::kit::type_name(&item.id), states.join(", "));
             }
             println!("{}: {} файлов, тема {stem}.tres", dir.display(), files.len());
+        }
+        "godot" => {
+            let opts =
+                motif_pixel::godot::GodotExport { fps: a.fps, render, only: a.node.clone(), pivot: a.pivot.map(|(x, y)| motif_core::kurbo::Point::new(x, y)) };
+            let machine = match &a.machine {
+                Some(m) => Some(doc.machine(m).ok_or(format!("нет машины «{m}»"))?),
+                None => doc.machines.first(),
+            };
+            let sheet = motif_pixel::godot::bake_sheet(&doc, &opts)?;
+            let name = a.node.clone().unwrap_or(stem);
+            let dir = a.out.unwrap_or_else(|| PathBuf::from(format!("{name}_godot")));
+            let files = motif_pixel::godot::write_godot(&dir, &name, &sheet, machine, !a.antialias)?;
+            for an in &sheet.anims {
+                println!("  {} — кадров {}{}", an.name, an.frames.len(), if an.looping { ", повтор" } else { "" });
+            }
+            let (w, h) = (sheet.atlas.width(), sheet.atlas.height());
+            let tree = machine.map_or(String::new(), |m| format!(", машина {} в AnimationTree", m.name));
+            println!(
+                "{}: {} файлов, атлас {w}×{h}, разных кадров {} по {}×{}{tree}",
+                dir.display(),
+                files.len(),
+                sheet.cells.len(),
+                sheet.size.0,
+                sheet.size.1
+            );
         }
         "palette" => {
             let colors = scene_palette(&doc);
