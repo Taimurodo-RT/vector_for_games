@@ -802,13 +802,21 @@ impl App {
 
     /// Every animation of the scene (or of the selected object) for Godot: atlas, SpriteFrames,
     /// a scene with the sprite and, with a state machine, its AnimationTree.
-    fn export_godot(&mut self) {
+    fn export_godot(&mut self, ctx: &egui::Context) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка в проекте Godot").pick_folder() else { return };
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
         let only = self.selected.clone().filter(|id| self.scene.doc.node(id).is_some());
         let stem = self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned());
         let name = only.clone().unwrap_or(stem);
         let opts = motif_pixel::godot::GodotExport { fps: self.export.fps, render, only, pivot: None };
+        if self.pixa.godot {
+            let (doc, machine) = (self.scene.doc.clone(), self.scene.doc.machines.first().cloned());
+            self.status = match self.pixa.start_godot(doc, opts, dir, name, machine, ctx) {
+                Ok(()) => "Godot: снимаю кадры для PixaTool…".into(),
+                Err(e) => format!("Экспорт в Godot не удался: {e}"),
+            };
+            return;
+        }
         let doc = &self.scene.doc;
         let result = motif_pixel::godot::bake_sheet(doc, &opts)
             .and_then(|sheet| motif_pixel::godot::write_godot(&dir, &name, &sheet, doc.machines.first(), !self.export.antialias).map(|f| (sheet, f.len())));
@@ -2022,11 +2030,24 @@ impl App {
         theme::caption(ui, "Анимации для Godot");
         let what =
             self.selected.as_deref().and_then(|id| self.scene.doc.node(id)).map_or("вся сцена".to_string(), |n| format!("«{}»", n.display_name()));
-        if theme::button(ui, &format!("Выгрузить в Godot… ({what})"), ButtonKind::Primary)
-            .on_hover_text("Все анимации в одном атласе, SpriteFrames и готовая сцена .tscn; машина состояний — AnimationTree")
-            .clicked()
+        let busy = self.pixa.job.is_some();
+        let r = ui.add_enabled_ui(!busy, |ui| theme::button(ui, &format!("Выгрузить в Godot… ({what})"), ButtonKind::Primary)).inner;
+        if r.on_hover_text("Все анимации в одном атласе, SpriteFrames и готовая сцена .tscn; машина состояний — AnimationTree").clicked()
         {
-            self.export_godot();
+            let ctx = ui.ctx().clone();
+            self.export_godot(&ctx);
+        }
+        let has_exe = self.pixa.exe.is_some();
+        let mut through = self.pixa.godot && has_exe;
+        let r = ui.add_enabled(has_exe && !busy, egui::Checkbox::new(&mut through, "Через PixaTool"));
+        let r = r.on_hover_text("Каждый кадр перед упаковкой в атлас проходит через PixaTool с пресетом из раздела PixaTool ниже");
+        let r = if has_exe { r } else { r.on_disabled_hover_text("Укажите Pixatool.exe в разделе PixaTool ниже") };
+        if r.changed() {
+            self.pixa.godot = through;
+            self.pixa.save();
+        }
+        if let Some(job) = &self.pixa.job {
+            job_progress(ui, job);
         }
         let machine = self
             .scene
@@ -2036,7 +2057,7 @@ impl App {
             .map_or(String::new(), |m| format!(" Машина «{}» станет AnimationTree, её входы — переменными скрипта сцены (speed, fire_jump()…).", m.name));
         ui.label(
             RichText::new(format!(
-                "Выделите персонажа, чтобы выгрузить его без фона: точкой привязки станет его центр. Кадры в секунду, масштаб и сглаживание — из настроек ниже.{machine}"
+                "Выделите персонажа, чтобы выгрузить его без фона: точкой привязки станет его центр. Кадры в секунду, масштаб и сглаживание — из настроек ниже. Через PixaTool спрайт выйдет в размере пикселей пресета, с фильтром Nearest.{machine}"
             ))
             .size(12.0)
             .color(FAINT),
@@ -2102,7 +2123,7 @@ impl App {
             self.pixa.save();
         }
         if let Some(job) = &self.pixa.job {
-            ui.add(egui::ProgressBar::new(job.done as f32 / job.total.max(1) as f32).text(format!("кадр {} из {}", job.done, job.total)));
+            job_progress(ui, job);
         } else if ui
             .add_enabled_ui(self.pixa.exe.is_some(), |ui| theme::button(ui, "Пикселизировать кадры…", ButtonKind::Primary))
             .inner
@@ -2591,4 +2612,10 @@ fn file_url(path: &std::path::Path) -> String {
         }
     }
     out
+}
+
+/// A running PixaTool job: frames done of how many, or that they are still being baked.
+fn job_progress(ui: &mut egui::Ui, job: &crate::pixabridge::Job) {
+    let text = if job.total == 0 { "снимаю кадры…".to_string() } else { format!("PixaTool: кадр {} из {}", job.done, job.total) };
+    ui.add(egui::ProgressBar::new(job.done as f32 / job.total.max(1) as f32).text(text));
 }

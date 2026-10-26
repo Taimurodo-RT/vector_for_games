@@ -14,7 +14,7 @@ motif — скрипты сцен Motif без окна редактора
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [-o папка] [параметры рендера]
   motif palette <сцена.msc> [-o палитра.pal]
   motif kit     <сцена.msc> [-o папка] [параметры рендера]
-  motif godot   <сцена.msc> [--node ID] [--pivot X Y] [--machine ИМЯ] [--fps 12] [-o папка] [параметры рендера]
+  motif godot   <сцена.msc> [--node ID] [--pivot X Y] [--machine ИМЯ] [--pixelize] [--preset X.preset] [--fps 12] [-o папка] [параметры рендера]
   motif pixel   <сцена.msc> --anim ИМЯ [--preset X.preset] [--pixatool Pixatool.exe] [--fps 12] [-o папка] [параметры рендера]
 
 Параметры рендера:
@@ -30,6 +30,7 @@ godot запекает все анимации в один атлас ИМЯ.png
 с AnimatedSprite2D. Если в сцене есть машина состояний, в сцене будут ещё AnimationPlayer и AnimationTree
 с теми же состояниями и переходами, а входы машины станут переменными скрипта ИМЯ.gd. --node берёт
 только один объект (персонаж без фона), --pivot задаёт точку привязки спрайта в координатах артборда.
+С --pixelize (или --preset) кадры перед упаковкой в атлас проходят через PixaTool.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
 pixel снимает кадры и сам прогоняет их через PixaTool с пресетом, сохранённым в PixaTool кнопкой
 «Save Preset». PixaTool ищется в --pixatool, в переменной MOTIF_PIXATOOL и в папке tools рядом с Motif.";
@@ -49,6 +50,7 @@ struct Args {
     pixatool: Option<PathBuf>,
     node: Option<String>,
     pivot: Option<(f64, f64)>,
+    pixelize: bool,
     machine: Option<String>,
 }
 
@@ -73,6 +75,7 @@ fn parse_args() -> Result<Args, String> {
         pixatool: None,
         node: None,
         pivot: None,
+        pixelize: false,
         machine: None,
     };
     let num = |v: Option<String>, flag: &str| v.and_then(|s| s.parse::<f64>().ok()).ok_or(format!("после {flag} нужно число"));
@@ -90,6 +93,7 @@ fn parse_args() -> Result<Args, String> {
             "--machine" => a.machine = Some(it.next().ok_or("после --machine нужно имя машины")?),
             "--pivot" => a.pivot = Some((num(it.next(), "--pivot")?, num(it.next(), "--pivot")?)),
             "--no-aa" => a.antialias = false,
+            "--pixelize" => a.pixelize = true,
             "--transparent" => a.background = false,
             s if s.starts_with('-') => return Err(format!("неизвестный параметр {s}\n\n{HELP}")),
             s if a.scene.as_os_str().is_empty() => a.scene = s.into(),
@@ -190,10 +194,22 @@ fn run() -> Result<(), String> {
                 Some(m) => Some(doc.machine(m).ok_or(format!("нет машины «{m}»"))?),
                 None => doc.machines.first(),
             };
-            let sheet = motif_pixel::godot::bake_sheet(&doc, &opts)?;
+            let pixelize = a.pixelize || a.preset.is_some();
+            let sheet = if pixelize {
+                let exe = motif_pixel::pixatool::locate(a.pixatool.as_deref()).ok_or("не найден PixaTool: укажите --pixatool и путь к Pixatool.exe")?;
+                let preset = a.preset.map(|p| std::path::absolute(p).unwrap_or_default());
+                let sheet = motif_pixel::godot::bake_sheet_with(&doc, &opts, |frames| {
+                    let n = frames.len();
+                    motif_pixel::pixatool::pixelize_frames(&exe, preset.as_deref(), frames, |k| eprint!("\rPixaTool: {k}/{n}"))
+                });
+                eprintln!();
+                sheet?
+            } else {
+                motif_pixel::godot::bake_sheet(&doc, &opts)?
+            };
             let name = a.node.clone().unwrap_or(stem);
             let dir = a.out.unwrap_or_else(|| PathBuf::from(format!("{name}_godot")));
-            let files = motif_pixel::godot::write_godot(&dir, &name, &sheet, machine, !a.antialias)?;
+            let files = motif_pixel::godot::write_godot(&dir, &name, &sheet, machine, pixelize || !a.antialias)?;
             for an in &sheet.anims {
                 println!("  {} — кадров {}{}", an.name, an.frames.len(), if an.looping { ", повтор" } else { "" });
             }
