@@ -262,6 +262,8 @@ cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --p
   выражениями, `any` — переходами из каждого состояния, «в конце» — переходом по окончании) и скрипт `ИМЯ.gd`, где входы
   машины — переменные: `hero.speed = 1.0`, `hero.fire_jump()`. Проверено в Godot 4.3: капля из `machine.msc` бегает,
   прыгает и возвращается так же, как в редакторе. Подробнее — [docs/export.html#godot](docs/export.html#godot).
+* После первой выгрузки сцена запоминает папку Godot: каждое Ctrl+S выгружает её туда снова, Godot подхватывает
+  изменения сам. «Отвязать» в окне «Экспорт» это выключает.
 * Флажок «Через PixaTool» (или `--pixelize` / `--preset X.preset`) прогоняет кадры через PixaTool перед упаковкой: в
   атлас ложится пиксель-арт в размере пикселей пресета, с фильтром Nearest и сдвигом на целых пикселях. Подробнее —
   [docs/export.html#godot-pixatool](docs/export.html#godot-pixatool).
