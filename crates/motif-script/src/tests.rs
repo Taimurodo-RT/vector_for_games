@@ -1360,3 +1360,40 @@ fn events_are_read_checked_and_written() {
     assert!(write_event(src, &s, "Run", "step", "dust", &[0.1]).is_none(), "name taken");
     assert!(write_event(src, &s, "Run", "step", "two words", &[0.1]).is_none());
 }
+
+#[test]
+fn animations_are_renamed_copied_reversed_and_deleted() {
+    let src = "rect a\nanim Open 1s {\n  a.x  0: 0 ease-in | 0.6: 80 cubic 0.3 0 0.6 1.2 | 1: 100\n  a.y  0: 0 hold | 0.5: 40\n  event click 0.2\n}\n\nanim Idle 1s loop {\n  a.r  0: 0 | 1: 5\n}\nmachine M {\n  state Shut anim Open\n  state Idle\n}\n";
+    let s = scene(src);
+    // Backwards: every moment of the copy is the original at `1 - t`.
+    let (out, back) = reverse_anim(src, &s, "Open").unwrap();
+    assert_eq!(back, "OpenBack");
+    let r = scene(&out);
+    let (a, b) = (r.doc.animation("Open").unwrap(), r.doc.animation("OpenBack").unwrap());
+    let at = |anim: &motif_core::Animation, t: f64, p: Prop| anim.keys_at(&r.doc, t).node("a").unwrap().get(p).as_num().unwrap();
+    for k in 0..=20 {
+        let t = k as f64 / 20.0;
+        assert!((at(b, t, Prop::X) - at(a, 1.0 - t, Prop::X)).abs() < 0.6, "x at {t}: {} vs {}", at(b, t, Prop::X), at(a, 1.0 - t, Prop::X));
+        // The hold jumps at the start of its segment, 0.01 s late.
+        if (t - 0.5).abs() > 0.02 {
+            assert_eq!(at(b, t, Prop::Y), at(a, 1.0 - t, Prop::Y), "y at {t}");
+        }
+    }
+    assert_eq!(b.events.iter().map(|e| (e.name.as_str(), e.time)).collect::<Vec<_>>(), [("click", 0.8)]);
+    assert!(out.contains("\n\nanim OpenBack 1s {\n"), "{out}");
+    // A plain copy, named after the original.
+    let (out, copy) = duplicate_anim(src, &s, "Idle").unwrap();
+    assert_eq!(copy, "Idle2");
+    assert!(out.contains("anim Idle2 1s loop {\n  a.r  0: 0 | 1: 5\n}\n"), "{out}");
+    // Renaming carries the states along: `state Idle` plays the new name now.
+    let out = rename_anim(src, &s, "Idle", "Rest", None).unwrap();
+    let m = scene(&out).doc.machines[0].clone();
+    assert_eq!(m.states[1].anim, "Rest");
+    assert!(rename_anim(src, &s, "Idle", "Open", None).is_err(), "taken");
+    assert!(rename_anim(src, &s, "Idle", "two words", None).is_err());
+    // A state plays it: no deleting; otherwise the block goes.
+    assert!(delete_anim(src, &s, "Open").unwrap_err().contains("M.Shut"));
+    let free = "rect a\nanim A 1s {\n  a.x  0: 0 | 1: 5\n}\n\nanim B 1s {\n}\n";
+    let out = delete_anim(free, &scene(free), "A").unwrap();
+    assert_eq!(out, "rect a\nanim B 1s {\n}\n");
+}

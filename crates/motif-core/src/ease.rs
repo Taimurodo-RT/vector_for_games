@@ -131,6 +131,22 @@ impl Ease {
         })
     }
 
+    /// The same curve played backwards: what `1 - apply(1 - u)` gives, so a segment run in
+    /// reverse looks the same. `hold`, `spring` and `steps` have no exact mirror and stay as
+    /// they are.
+    pub fn reversed(self) -> Ease {
+        let mirror = |[x1, y1, x2, y2]: [f64; 4]| [1.0 - x2, 1.0 - y2, 1.0 - x1, 1.0 - y1];
+        match self {
+            Ease::EaseIn => Ease::EaseOut,
+            Ease::EaseOut => Ease::EaseIn,
+            Ease::Named(f, Dir::In) => Ease::Named(f, Dir::Out),
+            Ease::Named(f, Dir::Out) => Ease::Named(f, Dir::In),
+            Ease::Css => Ease::Cubic(mirror([0.25, 0.1, 0.25, 1.0])),
+            Ease::Cubic(c) => Ease::Cubic(mirror(c)),
+            e => e,
+        }
+    }
+
     /// Maps linear progress `u` in 0..=1 to eased progress.
     pub fn apply(self, u: f64) -> f64 {
         match self {
@@ -235,6 +251,18 @@ fn bounce_out(x: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reversed_curves_play_the_same_backwards() {
+        for e in [Ease::Linear, Ease::Css, Ease::EaseIn, Ease::EaseOut, Ease::EaseInOut, Ease::Cubic([0.3, 0.0, 0.6, 1.2]), Ease::Named(Family::Quad, Dir::In)]
+        {
+            let r = e.reversed();
+            for k in 0..=10 {
+                let u = k as f64 / 10.0;
+                assert!((r.apply(u) - (1.0 - e.apply(1.0 - u))).abs() < 0.02, "{e:?} at {u}: {} vs {}", r.apply(u), 1.0 - e.apply(1.0 - u));
+            }
+        }
+    }
+
     use super::*;
 
     #[test]

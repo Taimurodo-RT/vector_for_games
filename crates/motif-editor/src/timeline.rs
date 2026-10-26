@@ -175,6 +175,7 @@ impl App {
             }
         }
         let Some(anim) = anim else { return };
+        self.anim_menu(ui, anim);
         // The curve picker goes first, at the right end; the rest fills what is left and is cut
         // off at it when the window is narrow.
         let rest = ui.available_rect_before_wrap();
@@ -539,6 +540,67 @@ impl App {
             let y = lanes.top();
             let head = vec![pos2(x - 5.5, y), pos2(x + 5.5, y), pos2(x + 5.5, y + 5.0), pos2(x, y + 10.0), pos2(x - 5.5, y + 5.0)];
             p.add(Shape::convex_polygon(head, DANGER, Stroke::NONE));
+        }
+    }
+
+    /// «···» by the animation picker: rename, copy, a reversed copy, delete.
+    fn anim_menu(&mut self, ui: &mut Ui, anim: &Animation) {
+        let resp = theme::button(ui, "···", ButtonKind::Normal).on_hover_text("Анимация: переименовать, копировать, обратная копия, удалить");
+        if resp.clicked() {
+            self.anim_name = anim.name.clone();
+        }
+        let base = self.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
+        let mut done: Option<Result<(String, String, String), String>> = None;
+        egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            ui.set_min_width(230.0);
+            ui.label(egui::RichText::new(format!("Анимация «{}»", anim.name)).size(12.0).color(MUTED));
+            let edit = ui.add(egui::TextEdit::singleline(&mut self.anim_name).desired_width(210.0));
+            let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (enter || ui.button("Переименовать").on_hover_text("Состояния машины, которые её играют, тоже получат новое имя").clicked())
+                && self.anim_name.trim() != anim.name
+            {
+                let name = self.anim_name.trim().to_string();
+                done = Some(
+                    motif_script::rename_anim(&self.src, &self.scene, &anim.name, &name, base.as_deref())
+                        .map(|out| (out, name.clone(), format!("Анимация теперь «{name}»"))),
+                );
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Копия").clicked() {
+                done = motif_script::duplicate_anim(&self.src, &self.scene, &anim.name)
+                    .map(|(out, copy)| Ok((out, copy.clone(), format!("Копия «{copy}»: правьте её, оригинал не изменится"))));
+                ui.close();
+            }
+            if ui.button("Обратная копия").on_hover_text("Та же анимация задом наперёд: открыть → закрыть, вдох → выдох").clicked()
+            {
+                done = motif_script::reverse_anim(&self.src, &self.scene, &anim.name)
+                    .map(|(out, copy)| Ok((out, copy.clone(), format!("«{copy}» играет «{}» задом наперёд, кривые отражены", anim.name))));
+                ui.close();
+            }
+            ui.separator();
+            if ui.button(egui::RichText::new("Удалить").color(DANGER)).clicked() {
+                done = Some(
+                    motif_script::delete_anim(&self.src, &self.scene, &anim.name).map(|out| (out, String::new(), format!("Анимация «{}» удалена", anim.name))),
+                );
+                ui.close();
+            }
+        });
+        match done {
+            Some(Ok((out, select, status))) if self.can_edit() => {
+                if self.apply("anim-menu", Some(out)) {
+                    if select.is_empty() {
+                        self.anim = None;
+                        self.last_anim = None;
+                        self.playing = false;
+                    } else {
+                        self.select_anim(select);
+                    }
+                    self.status = status;
+                }
+            }
+            Some(Err(e)) => self.status = format!("«{}»: {e}", anim.name),
+            _ => {}
         }
     }
 
