@@ -876,7 +876,7 @@ pub fn set_purpose(src: &str, purpose: motif_core::Purpose) -> Option<String> {
 
 /// Rewrites the words of the `artboard` line before its comment. The name comes first and may
 /// hold spaces, so it is kept apart from the words.
-fn edit_artboard_line(src: &str, f: impl FnOnce(&mut Vec<String>)) -> Option<String> {
+pub(crate) fn edit_artboard_line(src: &str, f: impl FnOnce(&mut Vec<String>)) -> Option<String> {
     let start = src.match_indices("artboard").find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n')?.0;
     let end = src[start..].find('\n').map_or(src.len(), |n| start + n);
     let line = &src[start..end];

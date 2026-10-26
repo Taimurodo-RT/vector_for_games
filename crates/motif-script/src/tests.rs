@@ -1440,3 +1440,67 @@ fn group_and_ungroup_keep_everything_in_place() {
     assert!(restack(src, &s, "c", true).is_none());
     assert!(restack(src, &s, "a", false).is_none());
 }
+
+#[test]
+fn boards_split_with_a_shared_head() {
+    let src = "// kit\nlet ink = #10131d\n\n// the button\nartboard \"A\" 100x50 cell 1 0\nrect a fill ink\n\nartboard \"B\" 40x40\n// not a heading\nrect b fill ink\n";
+    let (head, ranges) = boards(src);
+    assert_eq!(&src[head], "// kit\nlet ink = #10131d\n\n");
+    let texts: Vec<&str> = ranges.into_iter().map(|r| &src[r]).collect();
+    assert_eq!(texts, ["// the button\nartboard \"A\" 100x50 cell 1 0\nrect a fill ink\n\n", "artboard \"B\" 40x40\n// not a heading\nrect b fill ink\n"]);
+    assert_eq!(head_end(&format!("let x = 1\n{}", texts[1])), 10, "the board after the head");
+    assert_eq!(head_end(&format!("let x = 1\n{}", texts[0])), 10, "with its comment");
+    // One board: no head, the whole script.
+    let one = "let c = #fff\nartboard \"A\" 10x10\nrect a fill c\n";
+    let whole = 0..one.len();
+    assert_eq!(boards(one), (0..0, vec![whole]));
+    // `artboards` or an indented line opens no board.
+    assert_eq!(boards("artboard \"A\" 10x10\nlet artboards = 1\n  artboard\n").1.len(), 1);
+
+    let scenes = parse_boards(src, None).unwrap();
+    assert_eq!(scenes.len(), 2);
+    assert_eq!(scenes[0].board_cell, Some((1, 0)));
+    assert_eq!(scenes[1].board_cell, None);
+    assert_eq!(scenes[1].doc.artboard.name, "B");
+    assert_eq!(scenes[1].doc.node("b").unwrap().fill, scenes[0].doc.node("a").unwrap().fill, "the head's colors reach every board");
+    // Errors point into the whole file; one in the head is told once.
+    let errs = parse_boards(&src.replace("rect b fill ink", "rect b fill nope").replace("#10131d", "missing"), None).unwrap_err();
+    let lines: Vec<usize> = errs.iter().map(|e| e.line).collect();
+    assert!(lines.contains(&2) && lines.contains(&10), "{errs:?}");
+    assert_eq!(lines.iter().filter(|l| **l == 2).count(), 1, "{errs:?}");
+    assert!(parse("artboard \"A\" 10x10 cell -1 0\n").is_err());
+}
+
+#[test]
+fn board_lines_are_edited_in_place() {
+    let src = "// x\nartboard \"Old\" 100x50 bg #fff ui\nrect a\n";
+    assert_eq!(rename_artboard(src, "New \"one\"").unwrap(), "// x\nartboard \"New one\" 100x50 bg #fff ui\nrect a\n");
+    assert_eq!(rename_artboard("artboard 10x10\n", "A").unwrap(), "artboard \"A\" 10x10\n");
+    assert_eq!(set_artboard_size(src, 200.4, 0.0).unwrap(), "// x\nartboard \"Old\" 200x1 bg #fff ui\nrect a\n");
+    let celled = set_board_cell(src, Some((2, 1))).unwrap();
+    assert_eq!(celled, "// x\nartboard \"Old\" 100x50 bg #fff ui cell 2 1\nrect a\n");
+    assert_eq!(set_board_cell(&celled, Some((0, 3))).unwrap(), "// x\nartboard \"Old\" 100x50 bg #fff ui cell 0 3\nrect a\n");
+    assert_eq!(set_board_cell(&celled, None).unwrap(), src);
+    assert_eq!(scene(&celled).board_cell, Some((2, 1)));
+    let like = scene(src);
+    assert_eq!(new_board("Б\"2", 64.0, 32.0, (1, 0), Some(&like.doc)), "artboard \"Б2\" 64x32 bg #ffffff ui cell 1 0\n");
+    assert_eq!(new_board("C", 10.0, 10.0, (0, 2), None), "artboard \"C\" 10x10 cell 0 2\n");
+    assert_eq!(board_file_name(" Кнопка / ok "), "Кнопка___ok");
+    assert_eq!(board_file_name("  "), "board");
+}
+
+#[test]
+fn boards_lie_on_a_grid() {
+    use motif_core::kurbo::Point;
+    // Three boards, no cells: two columns, filled row by row; columns as wide as their widest.
+    let g = board_layout(&[(100.0, 50.0, None), (40.0, 80.0, None), (60.0, 30.0, None)]);
+    assert_eq!(g.cells, [(0, 0), (1, 0), (0, 1)]);
+    let gap = BOARD_GAP;
+    assert_eq!(g.origins, [Point::new(0.0, 0.0), Point::new(100.0 + gap, 0.0), Point::new(0.0, 80.0 + gap)]);
+    // Cells as written win; a taken cell goes to the next free one.
+    let g = board_layout(&[(10.0, 10.0, Some((2, 0))), (10.0, 10.0, Some((2, 0))), (10.0, 10.0, Some((0, 0)))]);
+    assert_eq!(g.cells, [(2, 0), (1, 0), (0, 0)]);
+    assert_eq!(g.cell_at(Point::new(10.0 + gap + 5.0, 3.0)), (1, 0));
+    assert_eq!(g.cell_at(Point::new(500.0, 500.0)), (3, 1), "past the grid: the next new cell");
+    assert_eq!(g.cell_origin((3, 1)), Point::new(3.0 * (10.0 + gap), 10.0 + gap));
+}

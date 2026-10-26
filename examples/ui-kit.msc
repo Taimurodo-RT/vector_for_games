@@ -1,8 +1,9 @@
-// UI-набор: элементы интерфейса игры. Поменяйте цвета и скругление ниже, и весь набор перекрасится.
+// UI-набор: элементы интерфейса игры, каждый на своём холсте. Всё, что выше первого холста, —
+// общее для всех: поменяйте цвета и скругление ниже, и весь набор перекрасится.
 // ui — элемент экспортируется отдельно; slice — поля 9-slice: углы не растягиваются, когда игра
 // меняет размер кнопки или панели. Состояния — анимации Hover, Press, Disabled: каждое — поза в конце.
-// «Экспорт → UI-набор для Godot» (или motif kit) сохраняет PNG и тему .tres для Godot.
-artboard "UI-набор" 560x360 bg #39415a ui
+// «Экспорт → Холсты: Все → UI-набор для Godot» (или motif kit) собирает детали всех холстов
+// в одну тему .tres для Godot.
 
 let main = #3b6cff
 let light = #6f93ff
@@ -13,47 +14,41 @@ let paper = #f4f1ea
 let r = 14
 
 // Кнопка с толщиной: корпус лежит на тёмном основании и нажимается вниз.
-group button "Кнопка" at 130 70 ui slice 20 {
+artboard "Кнопка" 240x100 bg #39415a ui
+group button "Кнопка" at 120 47 ui slice 20 {
   rect base at 0 5 size 180 52 r {r} fill deep stroke ink 4
   rect body size 180 52 r {r} fill main stroke ink 4
   rect shine at 0 -14 size 156 10 r 5 fill light
 }
 
-// Круглая кнопка-иконка: состояния есть, 9-slice не нужен.
-group close "Закрыть" at 290 70 ui {
-  ellipse ring size 52 52 fill #ff5c6c stroke ink 4
-  path cross d "M -9 -9 L 9 9 M -9 9 L 9 -9" fill none stroke paper 5 cap round
-}
-
-// Панель с полосой заголовка: верхнее поле slice выше, чтобы полоса не растягивалась.
-group card "Панель" at 450 120 slice 22 46 22 22 {
-  rect sheet size 160 180 r {r + 4} fill panel stroke ink 4 shadow 0 8 0 #0a0d16
-  rect header at 0 -66 size 140 30 r 9 fill main
-}
-
-// Полоса прогресса: рамка и заливка отдельными элементами.
-rect bar_frame "Рамка полосы" at 130 170 size 180 28 r 14 fill #1b2132 stroke ink 4 slice 16
-rect bar_fill "Заливка полосы" at 110 170 size 120 16 r 8 fill #5ee0a0 slice 9
-
-// Флажок: выключен и включён.
-rect check_off "Флажок" at 70 250 size 40 40 r 10 fill #1b2132 stroke ink 4 ui
-group check_on "Флажок вкл" at 130 250 ui {
-  rect box size 40 40 r 10 fill main stroke ink 4
-  path tick d "M -10 0 L -3 8 L 11 -8" fill none stroke paper 5 cap round join round
-}
-
-// Всплывающая подсказка со стрелкой вниз: стрелка в нижнем поле slice.
-path tooltip "Подсказка" at 290 255 d "M -70 -26 L 70 -26 Q 80 -26 80 -16 L 80 10 Q 80 20 70 20 L 10 20 L 0 32 L -10 20 L -70 20 Q -80 20 -80 10 L -80 -16 Q -80 -26 -70 -26 Z" fill paper stroke ink 4 slice 16 14 16 18
-
 anim Hover 0.15s {
   body.fill    0: main | 0.15: light
   shine.fill   0: light | 0.15: #a8c0ff
-  ring.fill    0: #ff5c6c | 0.15: #ff8590
 }
 
 anim Press 0.08s {
   body.y       0: 0 | 0.08: 5
   shine.y      0: -14 | 0.08: -9
+}
+
+anim Disabled 0.2s {
+  body.fill    0: main | 0.2: #59607a
+  base.fill    0: deep | 0.2: #3a3f52
+  shine.fill   0: light | 0.2: #737a94
+}
+
+// Круглая кнопка-иконка: состояния есть, 9-slice не нужен.
+artboard "Закрыть" 100x100 bg #39415a ui
+group close "Закрыть" at 50 50 ui {
+  ellipse ring size 52 52 fill #ff5c6c stroke ink 4
+  path cross d "M -9 -9 L 9 9 M -9 9 L 9 -9" fill none stroke paper 5 cap round
+}
+
+anim Hover 0.15s {
+  ring.fill    0: #ff5c6c | 0.15: #ff8590
+}
+
+anim Press 0.08s {
   ring.sx      0: 1 | 0.08: 0.9
   ring.sy      0: 1 | 0.08: 0.9
   cross.sx     0: 1 | 0.08: 0.9
@@ -61,8 +56,29 @@ anim Press 0.08s {
 }
 
 anim Disabled 0.2s {
-  body.fill    0: main | 0.2: #59607a
-  base.fill    0: deep | 0.2: #3a3f52
-  shine.fill   0: light | 0.2: #737a94
   ring.fill    0: #ff5c6c | 0.2: #59607a
 }
+
+// Панель с полосой заголовка: верхнее поле slice выше, чтобы полоса не растягивалась.
+artboard "Панель" 220x240 bg #39415a ui
+group card "Панель" at 110 116 slice 22 46 22 22 {
+  rect sheet size 160 180 r {r + 4} fill panel stroke ink 4 shadow 0 8 0 #0a0d16
+  rect header at 0 -66 size 140 30 r 9 fill main
+}
+
+// Полоса прогресса: рамка и заливка отдельными элементами.
+artboard "Полоса" 240x80 bg #39415a ui
+rect bar_frame "Рамка полосы" at 120 40 size 180 28 r 14 fill #1b2132 stroke ink 4 slice 16
+rect bar_fill "Заливка полосы" at 100 40 size 120 16 r 8 fill #5ee0a0 slice 9
+
+// Флажок: выключен и включён.
+artboard "Флажок" 160x80 bg #39415a ui
+rect check_off "Флажок" at 50 40 size 40 40 r 10 fill #1b2132 stroke ink 4 ui
+group check_on "Флажок вкл" at 110 40 ui {
+  rect box size 40 40 r 10 fill main stroke ink 4
+  path tick d "M -10 0 L -3 8 L 11 -8" fill none stroke paper 5 cap round join round
+}
+
+// Всплывающая подсказка со стрелкой вниз: стрелка в нижнем поле slice.
+artboard "Подсказка" 220x100 bg #39415a ui
+path tooltip "Подсказка" at 110 46 d "M -70 -26 L 70 -26 Q 80 -26 80 -16 L 80 10 Q 80 20 70 20 L 10 20 L 0 32 L -10 20 L -70 20 Q -80 20 -80 10 L -80 -16 Q -80 -26 -70 -26 Z" fill paper stroke ink 4 slice 16 14 16 18

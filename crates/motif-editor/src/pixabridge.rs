@@ -27,8 +27,16 @@ pub struct Job {
 #[derive(Clone, Debug, PartialEq)]
 pub struct GodotLink {
     pub scene: PathBuf,
+    pub target: GodotTarget,
+}
+
+/// Where and what a Godot export goes: the folder in the Godot project, the object exported
+/// (the whole board when `None`) and the board by name (every board when `None`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct GodotTarget {
     pub dir: PathBuf,
     pub node: Option<String>,
+    pub board: Option<String>,
 }
 
 #[derive(Default)]
@@ -67,7 +75,8 @@ impl Bridge {
                     let mut parts = v.split('\t');
                     if let (Some(scene), Some(dir)) = (parts.next(), parts.next()) {
                         let node = parts.next().filter(|n| !n.is_empty()).map(String::from);
-                        b.links.push(GodotLink { scene: scene.into(), dir: dir.into(), node });
+                        let board = parts.next().filter(|n| !n.is_empty()).map(String::from);
+                        b.links.push(GodotLink { scene: scene.into(), target: GodotTarget { dir: dir.into(), node, board } });
                     }
                 }
                 _ => {}
@@ -88,7 +97,9 @@ impl Bridge {
             text += "godot-pixatool=1\n";
         }
         for l in &self.links {
-            text += &format!("godot-link={}\t{}\t{}\n", l.scene.display(), l.dir.display(), l.node.as_deref().unwrap_or(""));
+            let t = &l.target;
+            text +=
+                &format!("godot-link={}\t{}\t{}\t{}\n", l.scene.display(), t.dir.display(), t.node.as_deref().unwrap_or(""), t.board.as_deref().unwrap_or(""));
         }
         text
     }
@@ -104,10 +115,10 @@ impl Bridge {
     }
 
     /// Keeps `scene` exported into `dir` from now on (one folder per scene), or stops with `None`.
-    pub fn set_link(&mut self, scene: &Path, target: Option<(PathBuf, Option<String>)>) {
+    pub fn set_link(&mut self, scene: &Path, target: Option<GodotTarget>) {
         self.links.retain(|l| l.scene != scene);
-        if let Some((dir, node)) = target {
-            self.links.push(GodotLink { scene: scene.to_path_buf(), dir, node });
+        if let Some(target) = target {
+            self.links.push(GodotLink { scene: scene.to_path_buf(), target });
         }
         self.save();
     }
@@ -229,11 +240,16 @@ mod tests {
     #[test]
     fn godot_links_survive_a_restart() {
         let mut b = Bridge { godot: true, ..Default::default() };
-        b.links.push(GodotLink { scene: "C:\\Игры\\hero.msc".into(), dir: "C:\\game\\characters\\hero".into(), node: Some("hero".into()) });
-        b.links.push(GodotLink { scene: "/tmp/ui.msc".into(), dir: "/tmp/game/ui".into(), node: None });
+        let target =
+            |dir: &str, node: Option<&str>, board: Option<&str>| GodotTarget { dir: dir.into(), node: node.map(String::from), board: board.map(String::from) };
+        b.links.push(GodotLink { scene: "C:\\Игры\\hero.msc".into(), target: target("C:\\game\\characters\\hero", Some("hero"), Some("Герой")) });
+        b.links.push(GodotLink { scene: "/tmp/ui.msc".into(), target: target("/tmp/game/ui", None, None) });
         let back = Bridge::parse(&b.text());
         assert!(back.godot);
         assert_eq!(back.links, b.links);
+        // A link saved before boards (three fields) is the whole file.
+        let old = Bridge::parse("godot-link=/tmp/a.msc\t/tmp/g\thero\n");
+        assert_eq!(old.links[0].target, target("/tmp/g", Some("hero"), None));
     }
 
     /// Runs only where a PixaTool copy is given: `MOTIF_TEST_PIXATOOL=…/Pixatool cargo test`.
