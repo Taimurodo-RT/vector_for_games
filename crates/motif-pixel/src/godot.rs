@@ -77,6 +77,13 @@ fn prepared(doc: &Document, only: Option<&str>) -> Result<Document, String> {
 /// Renders every frame of every animation (the scene as written when it has none), trims them
 /// to one shared box and packs them into an atlas.
 pub fn bake_sheet(doc: &Document, opts: &GodotExport) -> Result<Sheet, String> {
+    bake_sheet_with(doc, opts, Ok)
+}
+
+/// [`bake_sheet`] with a pass over the distinct frames before they are packed, such as
+/// [`crate::pixatool::pixelize_frames`]. The pass gets every frame at once and must return as
+/// many, all of one size; a smaller size (a pixelized frame) scales the sprite's offset with it.
+pub fn bake_sheet_with(doc: &Document, opts: &GodotExport, process: impl FnOnce(Vec<Pixmap>) -> Result<Vec<Pixmap>, String>) -> Result<Sheet, String> {
     if opts.fps <= 0.0 {
         return Err("fps должен быть больше нуля".into());
     }
@@ -134,6 +141,17 @@ pub fn bake_sheet(doc: &Document, opts: &GodotExport) -> Result<Sheet, String> {
         }
         anims.push(SheetAnim { name, looping, frames: ids });
     }
+    let count = cells.len();
+    let cells = process(cells)?;
+    if cells.len() != count {
+        return Err(format!("после обработки {} кадров вместо {count}", cells.len()));
+    }
+    let done = (cells[0].width(), cells[0].height());
+    if cells.iter().any(|c| (c.width(), c.height()) != done) {
+        return Err("после обработки кадры разного размера".into());
+    }
+    let ratio = (done.0 as f64 / size.0 as f64, done.1 as f64 / size.1 as f64);
+    let size = done;
 
     // A grid as close to square as fits.
     let (cw, ch) = (size.0 + GAP, size.1 + GAP);
@@ -158,7 +176,11 @@ pub fn bake_sheet(doc: &Document, opts: &GodotExport) -> Result<Sheet, String> {
         let own = opts.only.as_deref().and_then(|id| base.index_of(id)).map(|i| base.world_transform(i) * Point::ZERO);
         own.unwrap_or(Point::new(base.artboard.width / 2.0, base.artboard.height / 2.0))
     });
-    let offset = (x0 as f64 - pivot.x * s, y0 as f64 - pivot.y * s);
+    let mut offset = ((x0 as f64 - pivot.x * s) * ratio.0, (y0 as f64 - pivot.y * s) * ratio.1);
+    if ratio != (1.0, 1.0) {
+        // Resized frames are pixel art: on whole pixels, so none comes out wider than the rest.
+        offset = (offset.0.round(), offset.1.round());
+    }
     Ok(Sheet { atlas, cells: at, size, offset, fps: opts.fps, anims })
 }
 
@@ -432,6 +454,37 @@ mod tests {
         assert_eq!(sheet.size, (20, 50));
         // The origin is the ball's own: its first pose is centred on it.
         assert_eq!(sheet.offset, (-10.0, -40.0));
+    }
+
+    #[test]
+    fn a_pass_over_the_frames_runs_once_and_scales_the_offset() {
+        let opts = GodotExport { fps: 4.0, only: Some("ball".into()), ..GodotExport::default() };
+        let mut seen = 0;
+        let half = |frames: Vec<Pixmap>| {
+            seen = frames.len();
+            Ok(frames.iter().map(|f| Pixmap::new(f.width() / 2, f.height() / 2).unwrap()).collect())
+        };
+        let sheet = bake_sheet_with(&hero(), &opts, half).unwrap();
+        assert_eq!(seen, sheet.cells.len(), "only distinct frames are processed");
+        assert_eq!(sheet.size, (10, 25));
+        assert_eq!(sheet.offset, (-5.0, -20.0));
+        let odd = bake_sheet_with(&hero(), &opts, |mut f: Vec<Pixmap>| {
+            f[0] = Pixmap::new(3, 3).unwrap();
+            Ok(f)
+        });
+        assert!(odd.is_err(), "frames of different sizes are refused");
+    }
+
+    /// Runs only where a PixaTool copy is given: `MOTIF_TEST_PIXATOOL=…/Pixatool cargo test`.
+    #[test]
+    fn pixelizes_through_a_real_pixatool() {
+        let Some(exe) = std::env::var_os("MOTIF_TEST_PIXATOOL").map(PathBuf::from) else { return };
+        let opts = GodotExport { fps: 4.0, only: Some("ball".into()), ..GodotExport::default() };
+        let preset = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/px4.preset");
+        let sheet = bake_sheet_with(&hero(), &opts, |f| crate::pixatool::pixelize_frames(&exe, Some(&preset), f, |_| {})).unwrap();
+        // Pixel size 4: the 20×50 box becomes 5×12 or 5×13 pixels.
+        assert_eq!(sheet.size.0, 5);
+        assert!((12..=13).contains(&sheet.size.1), "{:?}", sheet.size);
     }
 
     #[test]

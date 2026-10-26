@@ -25,6 +25,7 @@ pub struct PixaTool {
     child: Child,
     ws: WebSocket<TcpStream>,
     next_id: u64,
+    profile: PathBuf,
 }
 
 /// `Pixatool.exe` near the Motif folder: `tools/*/win64/Pixatool.exe` (or `tools/*/Pixatool.exe`)
@@ -82,7 +83,11 @@ impl PixaTool {
     /// window is moved off screen.
     pub fn start(exe: &Path, visible: bool) -> Result<Self, String> {
         let port = TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map_err(|e| format!("нет свободного порта: {e}"))?.port();
-        let profile = std::env::temp_dir().join("motif-pixatool-profile");
+        // A profile of its own: a second PixaTool on the same profile hands over to the first
+        // and quits, so two jobs at once (pictures and a Godot export) would clash.
+        static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let profile = std::env::temp_dir().join(format!("motif-pixatool-profile-{}-{run}", std::process::id()));
         let mut cmd = Command::new(exe);
         cmd.arg(format!("--remote-debugging-port={port}"))
             .arg(format!("--user-data-dir={}", profile.display()))
@@ -112,7 +117,7 @@ impl PixaTool {
         let stream = TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
         stream.set_read_timeout(Some(Duration::from_millis(500))).ok();
         let (ws, _) = tungstenite::client(ws_url.as_str(), stream).map_err(|e| format!("PixaTool не отвечает: {e}"))?;
-        let mut tool = PixaTool { child: guard.0.take().expect("child"), ws, next_id: 1 };
+        let mut tool = PixaTool { child: guard.0.take().expect("child"), ws, next_id: 1, profile };
         // Wait for the Construct runtime and its menu, then install the remote control.
         tool.wait("typeof cr_getC2Runtime === 'function' && cr_getC2Runtime().tickcount > 5 && typeof c2_callFunction === 'function'", START_TIMEOUT)?;
         tool.eval(SCRIPT)?;
@@ -216,6 +221,7 @@ impl Drop for PixaTool {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.profile);
     }
 }
 
@@ -273,6 +279,30 @@ pub fn pixelize(exe: &Path, preset: Option<&Path>, inputs: &[PathBuf], outputs: 
         progress(i + 1);
     }
     Ok(())
+}
+
+/// Pixelizes pictures in memory through PixaTool, in order: they go through a temporary folder.
+pub fn pixelize_frames(
+    exe: &Path,
+    preset: Option<&Path>,
+    frames: Vec<tiny_skia::Pixmap>,
+    progress: impl FnMut(usize),
+) -> Result<Vec<tiny_skia::Pixmap>, String> {
+    static RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let run = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("motif-pixelize-{}-{run}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("не удалось создать {}: {e}", dir.display()))?;
+    let result = (|| {
+        let inputs: Vec<PathBuf> = (0..frames.len()).map(|i| dir.join(format!("in{i:04}.png"))).collect();
+        let outputs: Vec<PathBuf> = (0..frames.len()).map(|i| dir.join(format!("out{i:04}.png"))).collect();
+        for (px, path) in frames.iter().zip(&inputs) {
+            px.save_png(path).map_err(|e| format!("не удалось записать {}: {e}", path.display()))?;
+        }
+        pixelize(exe, preset, &inputs, &outputs, progress)?;
+        outputs.iter().map(|o| tiny_skia::Pixmap::load_png(o).map_err(|e| format!("не удалось прочитать {}: {e}", o.display()))).collect()
+    })();
+    std::fs::remove_dir_all(&dir).ok();
+    result
 }
 
 #[cfg(test)]

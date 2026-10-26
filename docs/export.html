@@ -176,11 +176,19 @@ hero.speed = velocity.length() / 100.0   <span class="c"># Idle → Run, как 
   <li>Условия переходов переводятся в выражения <code>AnimationTree</code> (<code>speed &gt; 0.5</code>, <code>jump</code>, <code>not hurt</code>), «в конце» — в переход по окончании анимации, <code>any</code> — в переходы из каждого состояния.</li>
   <li>Смешивание (<code>blend</code>) в Godot не переносится: кадры спрайта не смешиваются, состояние переключается сразу.</li>
   <li>Без сглаживания краёв у спрайта включается фильтр <b>Nearest</b>: пиксели остаются чёткими.</li>
-  <li>Для пиксель-арта выгружайте кадры через PixaTool и собирайте атлас из них — это следующий шаг экспорта.</li>
 </ul>
+<h3 id="godot-pixatool">Пиксель-арт: через PixaTool</h3>
+<p>Флажок «Через PixaTool» под кнопкой выгрузки прогоняет каждый кадр через PixaTool перед тем, как он ляжет в атлас. Берутся программа и пресет из раздела «PixaTool» того же окна (пресет сохраняется в PixaTool кнопкой «Save Preset»). PixaTool запускается сам, вне экрана; ход работы виден полосой под флажком, редактор при этом не замирает.</p>
+<ul>
+  <li>В PixaTool уходят только разные кадры, уже обрезанные по общей коробке, поэтому сетка пикселей у всех кадров одна и персонаж не дрожит.</li>
+  <li>Спрайт выходит в размере пикселей пресета: при пикселе 4 капля 125 точек шириной становится 31 пикселем. Сдвиг спрайта пересчитывается и округляется до целых пикселей, фильтр — <b>Nearest</b>. Крупнее на экране делайте масштабом узла или окна Godot, а не масштабом экспорта.</li>
+  <li>Машина состояний, скрипт и <code>AnimationTree</code> те же, что без PixaTool.</li>
+</ul>
+<figure><img src="img/godot-pixatool.png" alt="Три пиксельные капли в Godot 4, увеличенные в 4 раза: стоит, бежит, прыгает"><figcaption>Капля через PixaTool (пиксель 4), в Godot увеличена в 4 раза узлом.</figcaption></figure>
 <p>В командной строке то же делает <code>motif godot</code>:</p>
 <pre><code>motif.exe godot machine.msc --node hero --pivot 240 238 --fps 12 -o game\characters\hero</code></pre>
-<p><code>--node</code> — какой объект выгружать, <code>--pivot X Y</code> — точка привязки в координатах артборда (здесь — ноги капли), <code>--machine ИМЯ</code> — какую машину перенести, если их несколько.</p>
+<p><code>--node</code> — какой объект выгружать, <code>--pivot X Y</code> — точка привязки в координатах артборда (здесь — ноги капли), <code>--machine ИМЯ</code> — какую машину перенести, если их несколько. <code>--pixelize</code> или <code>--preset X.preset</code> пропускает кадры через PixaTool (он ищется в <code>--pixatool</code>, в <code>MOTIF_PIXATOOL</code> и в папке tools рядом с Motif):</p>
+<pre><code>motif.exe godot machine.msc --node hero --preset px4.preset -o game\characters\hero</code></pre>
 
 </div></main>
 </div>

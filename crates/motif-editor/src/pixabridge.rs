@@ -1,5 +1,8 @@
-//! «Пикселизировать кадры…»: frames of the current animation through PixaTool, in the background.
+//! PixaTool in the background: «Пикселизировать кадры…» (frames of the current animation) and
+//! the Godot export with every frame pixelized before it goes into the atlas.
 
+use motif_core::{Document, Machine};
+use motif_pixel::godot::{self, GodotExport};
 use motif_pixel::pixatool;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
@@ -8,15 +11,17 @@ use std::sync::mpsc::{Receiver, channel};
 const SETTINGS: &str = "motif.ini";
 
 pub enum Progress {
+    /// How many frames PixaTool will get, once the job knows.
+    Total(usize),
     Done(usize),
-    Finished(Result<(), String>),
+    /// The status line on success.
+    Finished(Result<String, String>),
 }
 
 pub struct Job {
     rx: Receiver<Progress>,
     pub total: usize,
     pub done: usize,
-    pub dir: PathBuf,
 }
 
 #[derive(Default)]
@@ -25,6 +30,8 @@ pub struct Bridge {
     pub exe: Option<PathBuf>,
     /// A preset saved in PixaTool with «Save Preset»; without one PixaTool's own defaults apply.
     pub preset: Option<PathBuf>,
+    /// Run the Godot export's frames through PixaTool.
+    pub godot: bool,
     pub job: Option<Job>,
 }
 
@@ -36,6 +43,7 @@ impl Bridge {
                 match line.split_once('=') {
                     Some(("pixatool", v)) if Path::new(v.trim()).is_file() => b.exe = Some(v.trim().into()),
                     Some(("pixatool-preset", v)) if Path::new(v.trim()).is_file() => b.preset = Some(v.trim().into()),
+                    Some(("godot-pixatool", v)) => b.godot = v.trim() == "1",
                     _ => {}
                 }
             }
@@ -54,6 +62,9 @@ impl Bridge {
         }
         if let Some(p) = &self.preset {
             text += &format!("pixatool-preset={}\n", p.display());
+        }
+        if self.godot {
+            text += "godot-pixatool=1\n";
         }
         let _ = std::fs::write(path, text);
     }
@@ -81,10 +92,56 @@ impl Bridge {
                 ctx.request_repaint();
             });
             std::fs::remove_dir_all(&tmp).ok();
-            let _ = tx.send(Progress::Finished(result));
+            let n = inputs.len();
+            let _ = tx.send(Progress::Finished(
+                result.map(|()| format!("PixaTool обработал кадров: {n} → {}", outputs[0].parent().unwrap_or(Path::new("")).display())),
+            ));
             ctx.request_repaint();
         });
-        self.job = Some(Job { rx, total: frames.len(), done: 0, dir: dir.to_path_buf() });
+        self.job = Some(Job { rx, total: frames.len(), done: 0 });
+        Ok(())
+    }
+
+    /// The Godot export with PixaTool between baking and packing, on another thread: the scene
+    /// is baked, its distinct frames pixelized and the atlas and scene written into `dir`.
+    pub fn start_godot(
+        &mut self,
+        doc: Document,
+        opts: GodotExport,
+        dir: PathBuf,
+        name: String,
+        machine: Option<Machine>,
+        ctx: &egui::Context,
+    ) -> Result<(), String> {
+        let exe = self.exe.clone().ok_or("укажите Pixatool.exe")?;
+        let preset = self.preset.clone();
+        let (tx, rx) = channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let send = |p| {
+                let _ = tx.send(p);
+                ctx.request_repaint();
+            };
+            let result = godot::bake_sheet_with(&doc, &opts, |frames| {
+                send(Progress::Total(frames.len()));
+                pixatool::pixelize_frames(&exe, preset.as_deref(), frames, |n| send(Progress::Done(n)))
+            })
+            .and_then(|sheet| {
+                let files = godot::write_godot(&dir, &name, &sheet, machine.as_ref(), true)?;
+                let tree = machine.as_ref().map_or(String::new(), |m| format!(", машина «{}» в AnimationTree", m.name));
+                Ok(format!(
+                    "Godot через PixaTool: {name}.tscn, анимаций {}, кадров {} по {}×{}{tree} — {} файлов в {}",
+                    sheet.anims.len(),
+                    sheet.cells.len(),
+                    sheet.size.0,
+                    sheet.size.1,
+                    files.len(),
+                    dir.display()
+                ))
+            });
+            send(Progress::Finished(result));
+        });
+        self.job = Some(Job { rx, total: 0, done: 0 });
         Ok(())
     }
 
@@ -94,17 +151,17 @@ impl Bridge {
         let mut status = None;
         while let Ok(p) = job.rx.try_recv() {
             match p {
+                Progress::Total(n) => {
+                    job.total = n;
+                    status = Some(format!("PixaTool: {n} кадров…"));
+                }
                 Progress::Done(n) => {
                     job.done = n;
                     status = Some(format!("PixaTool: кадр {n} из {}", job.total));
                 }
                 Progress::Finished(r) => {
-                    let msg = match r {
-                        Ok(()) => format!("PixaTool обработал кадров: {} → {}", job.total, job.dir.display()),
-                        Err(e) => format!("PixaTool: {e}"),
-                    };
                     self.job = None;
-                    return Some(msg);
+                    return Some(r.unwrap_or_else(|e| format!("PixaTool: {e}")));
                 }
             }
         }
@@ -147,6 +204,31 @@ mod tests {
         };
         assert!(last.starts_with("PixaTool обработал кадров: 2"), "{last}");
         assert!(dir.join("Idle_0001.png").is_file());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Runs only where a PixaTool copy is given: `MOTIF_TEST_PIXATOOL=…/Pixatool cargo test`.
+    #[test]
+    fn exports_to_godot_through_pixatool() {
+        let Some(exe) = std::env::var_os("MOTIF_TEST_PIXATOOL").map(PathBuf::from) else { return };
+        let dir = std::env::temp_dir().join(format!("motif-bridge-godot-{}", std::process::id()));
+        let src = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/machine.msc")).unwrap();
+        let doc = motif_script::parse(&src).unwrap().doc;
+        let machine = doc.machines.first().cloned();
+        let opts = GodotExport { only: Some("hero".into()), ..GodotExport::default() };
+        let mut bridge = Bridge { exe: Some(exe), ..Default::default() };
+        bridge.start_godot(doc, opts, dir.clone(), "hero".into(), machine, &egui::Context::default()).unwrap();
+        let start = std::time::Instant::now();
+        let last = loop {
+            let status = bridge.poll();
+            if bridge.job.is_none() {
+                break status.unwrap();
+            }
+            assert!(start.elapsed().as_secs() < 120, "PixaTool не закончил");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        assert!(last.starts_with("Godot через PixaTool: hero.tscn"), "{last}");
+        assert!(dir.join("hero.png").is_file() && dir.join("hero.tscn").is_file());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

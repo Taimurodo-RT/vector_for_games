@@ -130,6 +130,8 @@ Disabled, Focus. «Экспорт → Сохранить UI-набор…» пи
 в проекте Godot. Появятся атлас ИМЯ.png, SpriteFrames ИМЯ_frames.tres и сцена ИМЯ.tscn;
 машина состояний станет AnimationTree, её входы — переменными скрипта ИМЯ.gd
 (hero.speed = 1.0, hero.fire_jump()).
+Флажок «Через PixaTool» под кнопкой выгрузки сначала прогоняет кадры через
+PixaTool с пресетом из раздела PixaTool: в атлас ложится пиксель-арт.
 
 motif.exe — командная строка: motif.exe check|render|frames|palette|pixel|kit|godot
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
