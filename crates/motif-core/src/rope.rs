@@ -741,7 +741,7 @@ mod tests {
     }
 
     fn still(d: &Document, t: f64) -> Document {
-        Animation { name: "Go".into(), duration: 10.0, looping: false, tracks: Vec::new() }.pose_with(d, t, &mut SimCache::default())
+        Animation { name: "Go".into(), duration: 10.0, looping: false, tracks: Vec::new(), events: Vec::new() }.pose_with(d, t, &mut SimCache::default())
     }
 
     #[test]

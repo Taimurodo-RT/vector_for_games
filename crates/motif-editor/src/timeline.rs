@@ -471,9 +471,18 @@ impl App {
             self.playing = false;
         }
 
+        // Events, under the ruler: in Animate always (to add one), in Design when there are some.
+        let mut top = ruler.bottom() + 1.0;
+        if animate || !anim.events.is_empty() {
+            let row = Rect::from_min_max(pos2(body.left(), top), pos2(body.right(), top + ROW_H));
+            self.events_row(ui, row, NAMES_W, scale, anim, animate);
+            painter.line_segment([pos2(body.left(), row.bottom()), pos2(body.right(), row.bottom())], Stroke::new(1.0, LINE));
+            top = row.bottom() + 1.0;
+        }
+
         // Rows.
         let rows = self.timeline_rows(anim);
-        let rows_rect = Rect::from_min_max(pos2(body.left(), ruler.bottom() + 1.0), body.max);
+        let rows_rect = Rect::from_min_max(pos2(body.left(), top), body.max);
         let graph_rect = Rect::from_min_max(pos2(lanes.left(), rows_rect.top()), rows_rect.max);
         // Key marks on screen with the keys each stands for, for frame selection.
         let mut marks: Vec<(Pos2, Vec<KeyRef>)> = Vec::new();
@@ -530,6 +539,113 @@ impl App {
             let y = lanes.top();
             let head = vec![pos2(x - 5.5, y), pos2(x + 5.5, y), pos2(x + 5.5, y + 5.0), pos2(x, y + 10.0), pos2(x - 5.5, y + 5.0)];
             p.add(Shape::convex_polygon(head, DANGER, Stroke::NONE));
+        }
+    }
+
+    /// The events of the animation as flags on one row: drag a flag to move it, right-click to
+    /// rename or remove it, «+» or a double click on the row adds one.
+    fn events_row(&mut self, ui: &mut Ui, row: Rect, names_w: f32, scale: Scale, anim: &Animation, animate: bool) {
+        let p = ui.painter_at(row);
+        let names = Rect::from_min_max(row.min, pos2(row.left() + names_w, row.bottom()));
+        let lane = Rect::from_min_max(pos2(names.right() + 1.0, row.top()), row.max);
+        p.text(pos2(names.left() + 12.0, names.center().y), Align2::LEFT_CENTER, "⚑ События", theme::ui_font(12.5), MUTED);
+        let now = anim.local_time(self.time);
+        // A name no event of this animation uses yet, for a new one.
+        let fresh = || (1..).map(|i| format!("event{i}")).find(|n| !anim.events.iter().any(|e| &e.name == n)).unwrap_or_default();
+        let mut write: Option<(String, String, Vec<f64>)> = None;
+        let times_of = |name: &str| anim.events.iter().filter(|e| e.name == name).map(|e| e.time).collect::<Vec<f64>>();
+        if animate {
+            let plus = Rect::from_center_size(pos2(names.right() - 18.0, names.center().y), vec2(20.0, 18.0));
+            let r = ui.interact(plus, ui.scope_id().with("event-add"), Sense::click()).on_hover_text("Событие на месте указателя времени");
+            p.text(plus.center(), Align2::CENTER_CENTER, "+", theme::ui_font(15.0), if r.hovered() { FG } else { MUTED });
+            if r.clicked() {
+                write = Some((String::new(), fresh(), vec![now]));
+            }
+        }
+        let bg = ui.interact(lane, ui.scope_id().with("event-lane"), Sense::click());
+        if bg.double_clicked()
+            && let Some(at) = bg.interact_pointer_pos()
+        {
+            self.ensure_anim(&anim.name);
+            write = Some((String::new(), fresh(), vec![scale.t(at.x)]));
+        }
+        bg.on_hover_text("Двойной клик — событие здесь. Игра узнаёт о нём, когда анимация проходит это время");
+        for (k, e) in anim.events.iter().enumerate() {
+            let dragging = self.event_drag.as_ref().filter(|d| d.0 == e.name && (d.1 - e.time).abs() < 1e-6);
+            let t = dragging.map_or(e.time, |d| d.2);
+            let x = scale.x(t);
+            let g = p.layout_no_wrap(e.name.clone(), theme::ui_font(11.5), FG);
+            let w = g.size().x + 10.0;
+            // Near the end the label hangs to the left of its line, so it stays readable.
+            let left = if x + w > lane.right() { x - w } else { x };
+            let flag = Rect::from_min_size(pos2(left, row.top() + 4.0), vec2(w, row.height() - 8.0));
+            let hit = flag.union(Rect::from_center_size(pos2(x, row.center().y), vec2(10.0, row.height())));
+            let resp = ui.interact(hit, ui.scope_id().with(("event", k)), Sense::click_and_drag());
+            let passing = animate && self.playing && (now - e.time).abs() < 0.06;
+            let color = if passing || resp.hovered() || dragging.is_some() { ACCENT } else { theme::mix(ACCENT, PANEL, 0.35) };
+            p.line_segment([pos2(x, row.top() + 2.0), pos2(x, row.bottom() - 2.0)], Stroke::new(1.5, color));
+            p.rect(flag, 3.0, color.gamma_multiply(if passing { 0.55 } else { 0.25 }), Stroke::NONE, StrokeKind::Inside);
+            p.galley(pos2(flag.left() + 5.0, flag.center().y - g.size().y / 2.0), g, FG);
+            if resp.drag_started() {
+                self.ensure_anim(&anim.name);
+                self.event_drag = Some((e.name.clone(), e.time, e.time));
+            }
+            if resp.dragged()
+                && let Some(at) = resp.interact_pointer_pos()
+                && let Some(d) = &mut self.event_drag
+            {
+                d.2 = scale.t(at.x);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+            }
+            if resp.drag_stopped()
+                && let Some((name, from, to)) = self.event_drag.take()
+                && (to - from).abs() > 1e-6
+            {
+                let mut times = times_of(&name);
+                if let Some(slot) = times.iter_mut().find(|v| (**v - from).abs() < 1e-6) {
+                    *slot = to;
+                }
+                write = Some((name.clone(), name, times));
+            }
+            if resp.clicked() {
+                self.ensure_anim(&anim.name);
+                self.time = e.time;
+                self.playing = false;
+            }
+            if resp.secondary_clicked() {
+                self.event_name = e.name.clone();
+            }
+            let resp = resp.on_hover_text(format!("«{}» на {} с. Тяните, чтобы сдвинуть; правый клик — имя и удаление", e.name, fmt_num(e.time)));
+            // The menu holds a text field: clicks inside must not close it.
+            egui::Popup::context_menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                ui.set_min_width(200.0);
+                ui.label(egui::RichText::new("Имя события").size(12.0).color(MUTED));
+                let edit = ui.add(egui::TextEdit::singleline(&mut self.event_name).desired_width(180.0));
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if (enter || ui.button("Переименовать").clicked()) && self.event_name.trim() != e.name {
+                    write = Some((e.name.clone(), self.event_name.trim().to_string(), times_of(&e.name)));
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button("Удалить это время").clicked() {
+                    write = Some((e.name.clone(), e.name.clone(), times_of(&e.name).into_iter().filter(|v| (v - e.time).abs() > 1e-6).collect()));
+                    ui.close();
+                }
+                if times_of(&e.name).len() > 1 && ui.button(format!("Удалить «{}» целиком", e.name)).clicked() {
+                    write = Some((e.name.clone(), e.name.clone(), Vec::new()));
+                    ui.close();
+                }
+            });
+        }
+        if let Some((name, new_name, times)) = write
+            && self.can_edit()
+        {
+            match motif_script::write_event(&self.src, &self.scene, &anim.name, &name, &new_name, &times) {
+                Some(out) => {
+                    self.apply(&format!("event{}", self.undo.len()), Some(out));
+                }
+                None => self.status = format!("Имя «{new_name}» не подходит: одно слово без пробелов, и не занятое другим событием"),
+            }
         }
     }
 

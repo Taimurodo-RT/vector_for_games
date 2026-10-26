@@ -1,7 +1,7 @@
 //! Expands the statement tree into a `Document` and records where each property value came from.
 
 use crate::parser::{MachineLine, MachineLineAst, NodeAst, ParamAst, Stmt, UseAst, ValueAst, ValueKind};
-use crate::{AnimSite, Backdrop, Instance, KeySite, MachineSite, NodeSite, ParamSite, Scene, ScriptError, Source, Span, SymbolSite, TrackSite};
+use crate::{AnimSite, Backdrop, EventSite, Instance, KeySite, MachineSite, NodeSite, ParamSite, Scene, ScriptError, Source, Span, SymbolSite, TrackSite};
 use motif_core::kurbo::Shape;
 use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, ShapeKind, Track, Value};
 use std::collections::HashMap;
@@ -125,14 +125,29 @@ impl<'a> Evaluator<'a> {
         self.scene.doc.bind_skins();
         self.scene.doc.rig();
         for s in stmts {
-            if let Stmt::Anim { name, duration, looping, tracks, span, close, duration_span, loop_span } = s {
+            if let Stmt::Anim { name, duration, looping, tracks, events, span, close, duration_span, loop_span } = s {
                 self.note_block(span.start);
                 if self.scene.doc.animation(name).is_some() {
                     self.err(*span, format!("анимация «{name}» уже есть"));
                     continue;
                 }
-                let mut anim = Animation { name: name.clone(), duration: *duration, looping: *looping, tracks: Vec::new() };
-                let mut site = AnimSite { close: *close, duration: *duration_span, loop_word: *loop_span, tracks: Vec::new() };
+                let mut anim = Animation { name: name.clone(), duration: *duration, looping: *looping, tracks: Vec::new(), events: Vec::new() };
+                let mut site = AnimSite { close: *close, duration: *duration_span, loop_word: *loop_span, tracks: Vec::new(), events: Vec::new() };
+                for e in events {
+                    if site.events.iter().any(|s| s.name == e.name) {
+                        self.err(e.name_span, format!("событие «{}» уже есть в этой анимации: допишите время в ту же строку", e.name));
+                        continue;
+                    }
+                    for &(t, span) in &e.times {
+                        if t < 0.0 || t > *duration + 1e-9 {
+                            self.err(span, format!("время события вне анимации: от 0 до {}", crate::fmt_num(*duration)));
+                        } else {
+                            anim.events.push(motif_core::AnimEvent { name: e.name.clone(), time: t });
+                        }
+                    }
+                    site.events.push(EventSite { name: e.name.clone(), span: e.span, times: e.times.clone() });
+                }
+                anim.events.sort_by(|a, b| a.time.total_cmp(&b.time));
                 for t in tracks {
                     let world = t.node == "world" && self.scene.doc.index_of(&t.node).is_none();
                     if !world && self.scene.doc.index_of(&t.node).is_none() {

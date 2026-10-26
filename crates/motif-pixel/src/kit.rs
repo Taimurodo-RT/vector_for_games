@@ -273,7 +273,7 @@ mod tests {
         let deco = Node::new("deco", ShapeKind::Ellipse);
         d.nodes = vec![button, panel, deco];
         let key = |v| Keyframe { time: 0.0, value: Value::Color(v), ease: motif_core::Ease::Linear };
-        let mut hover = Animation { name: "Hover".into(), duration: 0.2, looping: false, tracks: Vec::new() };
+        let mut hover = Animation { name: "Hover".into(), duration: 0.2, looping: false, tracks: Vec::new(), events: Vec::new() };
         hover.tracks.push(Track { node: "play_button".into(), prop: Prop::Fill, keys: vec![key(Color::rgb(100, 150, 255))] });
         d.animations.push(hover);
         d

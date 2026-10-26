@@ -44,6 +44,8 @@ pub struct SheetAnim {
     pub looping: bool,
     /// Index into [`Sheet::cells`] for each frame.
     pub frames: Vec<usize>,
+    /// The animation's events by the frame they fall on.
+    pub events: Vec<(usize, String)>,
 }
 
 /// Every animation baked into one picture.
@@ -57,6 +59,14 @@ pub struct Sheet {
     pub offset: (f64, f64),
     pub fps: f64,
     pub anims: Vec<SheetAnim>,
+}
+
+/// One animation rendered at full artboard size, before trimming and packing.
+struct RawAnim {
+    name: String,
+    looping: bool,
+    frames: Vec<Pixmap>,
+    events: Vec<(usize, String)>,
 }
 
 /// The scene ready to bake: only the chosen object shown, the background off.
@@ -90,7 +100,7 @@ pub fn bake_sheet_with(doc: &Document, opts: &GodotExport, process: impl FnOnce(
     let base = prepared(doc, opts.only.as_deref())?;
     let render = CpuOptions { background: false, ..opts.render };
     // Every animation's frames, full artboard size.
-    let mut raw: Vec<(String, bool, Vec<Pixmap>)> = Vec::new();
+    let mut raw: Vec<RawAnim> = Vec::new();
     for anim in &base.animations {
         let mut count = (anim.duration * opts.fps).round() as usize;
         if !anim.looping {
@@ -103,18 +113,27 @@ pub fn bake_sheet_with(doc: &Document, opts: &GodotExport, process: impl FnOnce(
                 render_cpu(&anim.pose_with(&base, t, &mut sim), render).ok_or_else(|| "не удалось создать изображение".to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        raw.push((anim.name.clone(), anim.looping, frames));
+        // An event belongs to the frame nearest its time; on a loop the end is the next start.
+        let events = anim
+            .events
+            .iter()
+            .map(|e| {
+                let i = (e.time * opts.fps).round() as usize;
+                (if anim.looping { i % frames.len() } else { i.min(frames.len() - 1) }, e.name.clone())
+            })
+            .collect();
+        raw.push(RawAnim { name: anim.name.clone(), looping: anim.looping, frames, events });
     }
     if raw.is_empty() {
         let mut posed = base.clone();
         posed.rig();
         let px = render_cpu(&posed, render).ok_or("не удалось создать изображение")?;
-        raw.push(("default".into(), false, vec![px]));
+        raw.push(RawAnim { name: "default".into(), looping: false, frames: vec![px], events: Vec::new() });
     }
 
     // The box that holds every pose.
     let mut bounds: Option<(u32, u32, u32, u32)> = None;
-    for px in raw.iter().flat_map(|r| &r.2) {
+    for px in raw.iter().flat_map(|r| &r.frames) {
         if let Some(b) = opaque_box(px) {
             bounds = Some(match bounds {
                 None => b,
@@ -129,7 +148,7 @@ pub fn bake_sheet_with(doc: &Document, opts: &GodotExport, process: impl FnOnce(
     let mut cells: Vec<Pixmap> = Vec::new();
     let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
     let mut anims = Vec::new();
-    for (name, looping, frames) in raw {
+    for RawAnim { name, looping, frames, events } in raw {
         let mut ids = Vec::new();
         for px in frames {
             let crop = px.clone_rect(tiny_skia::IntRect::from_xywh(x0 as i32, y0 as i32, size.0, size.1).unwrap()).ok_or("пустой кадр")?;
@@ -139,7 +158,7 @@ pub fn bake_sheet_with(doc: &Document, opts: &GodotExport, process: impl FnOnce(
             });
             ids.push(id);
         }
-        anims.push(SheetAnim { name, looping, frames: ids });
+        anims.push(SheetAnim { name, looping, frames: ids, events });
     }
     let count = cells.len();
     let cells = process(cells)?;
@@ -239,9 +258,41 @@ fn expression(m: &Machine, conds: &[motif_core::Cond]) -> String {
     parts.join(" and ")
 }
 
+/// The part of the scene script that turns animation events into the `event` signal: a table of
+/// events by animation and frame, read whenever the sprite shows another frame. `None` when the
+/// animations have no events.
+fn events_gd(sheet: &Sheet) -> Option<String> {
+    if sheet.anims.iter().all(|a| a.events.is_empty()) {
+        return None;
+    }
+    let mut table = Vec::new();
+    for a in sheet.anims.iter().filter(|a| !a.events.is_empty()) {
+        let mut frames: Vec<(usize, Vec<&str>)> = Vec::new();
+        for (f, name) in &a.events {
+            match frames.iter_mut().find(|(k, _)| k == f) {
+                Some((_, names)) => names.push(name),
+                None => frames.push((*f, vec![name])),
+            }
+        }
+        frames.sort_by_key(|(f, _)| *f);
+        let entries: Vec<String> =
+            frames.iter().map(|(f, names)| format!("{f}: [{}]", names.iter().map(|n| format!("\"{}\"", quote(n))).collect::<Vec<_>>().join(", "))).collect();
+        table.push(format!("\t\"{}\": {{{}}}", quote(&a.name), entries.join(", ")));
+    }
+    Some(format!(
+        "\n## Animation events from Motif: connect to it, e.g. event.connect(func(name): if name == \"step\": $Step.play()).\nsignal event(name: String)\n\n\
+## Events by animation and frame.\nconst EVENTS := {{\n{}\n}}\n\nvar _shown := []\n\n\
+func _ready() -> void:\n\t$Sprite.frame_changed.connect(_on_frame)\n\t# Right after a switch the sprite still holds the old frame number: read once it is set.\n\t$Sprite.animation_changed.connect(_on_frame.call_deferred)\n\t_on_frame()\n\n\
+func _on_frame() -> void:\n\tvar anim := String($Sprite.animation)\n\tvar shown := [anim, $Sprite.frame]\n\tif shown == _shown:\n\t\treturn\n\t_shown = shown\n\
+\tfor name in EVENTS.get(anim, {{}}).get($Sprite.frame, []):\n\t\tevent.emit(name)\n",
+        table.join(",\n")
+    ))
+}
+
 /// Writes `<name>.png` (the atlas), `<name>_frames.tres` (SpriteFrames) and `<name>.tscn` (a
-/// scene with the sprite) into `dir`; with a state machine also `<name>.gd`, the script of its
-/// inputs. `pixel` turns texture filtering off. Returns the files written.
+/// scene with the sprite) into `dir`; with a state machine or animation events also `<name>.gd`,
+/// the script of its inputs and its `event` signal. `pixel` turns texture filtering off. Returns
+/// the files written.
 pub fn write_godot(dir: &Path, name: &str, sheet: &Sheet, machine: Option<&Machine>, pixel: bool) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let png = format!("{name}.png");
@@ -296,9 +347,21 @@ pub fn write_godot(dir: &Path, name: &str, sheet: &Sheet, machine: Option<&Machi
         s
     };
 
+    let events = events_gd(sheet);
     let Some(m) = machine.filter(|m| !m.states.is_empty()) else {
+        // Without a machine a script is needed only to hand out the events.
+        let script = match &events {
+            Some(ev) => {
+                save(format!("{name}.gd"), format!("extends Node2D\n## Exported from Motif.\n{ev}"))?;
+                (format!("[ext_resource type=\"Script\" path=\"{name}.gd\" id=\"1_script\"]\n"), "script = ExtResource(\"1_script\")\n")
+            }
+            None => (String::new(), ""),
+        };
         let tscn = format!(
-            "[gd_scene load_steps=2 format=3]\n\n[ext_resource type=\"SpriteFrames\" path=\"{frames_file}\" id=\"1_frames\"]\n\n[node name=\"{root}\" type=\"Node2D\"]\n\n[node name=\"Sprite\" type=\"AnimatedSprite2D\" parent=\".\"]\n{}",
+            "[gd_scene load_steps={} format=3]\n\n{}[ext_resource type=\"SpriteFrames\" path=\"{frames_file}\" id=\"1_frames\"]\n\n[node name=\"{root}\" type=\"Node2D\"]\n{}\n[node name=\"Sprite\" type=\"AnimatedSprite2D\" parent=\".\"]\n{}",
+            if events.is_some() { 3 } else { 2 },
+            script.0,
+            script.1,
             sprite_props(true)
         );
         save(format!("{name}.tscn"), tscn)?;
@@ -324,6 +387,9 @@ pub fn write_godot(dir: &Path, name: &str, sheet: &Sheet, machine: Option<&Machi
             "\n## Fires «{}» once: the transitions that wait for it get to see it, then it is off again.\nfunc fire_{v}() -> void:\n\t{v} = true\n\tawait get_tree().process_frame\n\tawait get_tree().process_frame\n\t{v} = false\n",
             input.name
         ));
+    }
+    if let Some(ev) = &events {
+        gd.push_str(ev);
     }
     save(format!("{name}.gd"), gd)?;
 
@@ -432,12 +498,13 @@ mod tests {
         (floor.x, floor.y, floor.width, floor.height) = (100.0, 95.0, 200.0, 10.0);
         d.nodes = vec![ball, floor];
         let key = |t, v| Keyframe { time: t, value: Value::Num(v), ease: Ease::Linear };
-        d.animations.push(Animation { name: "Idle".into(), duration: 1.0, looping: true, tracks: Vec::new() });
+        d.animations.push(Animation { name: "Idle".into(), duration: 1.0, looping: true, tracks: Vec::new(), events: Vec::new() });
         d.animations.push(Animation {
             name: "Jump".into(),
             duration: 0.5,
             looping: false,
             tracks: vec![Track { node: "ball".into(), prop: Prop::Y, keys: vec![key(0.0, 50.0), key(0.5, 20.0)] }],
+            events: Vec::new(),
         });
         d
     }
@@ -454,6 +521,27 @@ mod tests {
         assert_eq!(sheet.size, (20, 50));
         // The origin is the ball's own: its first pose is centred on it.
         assert_eq!(sheet.offset, (-10.0, -40.0));
+    }
+
+    #[test]
+    fn events_become_a_signal_by_frame() {
+        let mut doc = hero();
+        let ev = |name: &str, time| motif_core::AnimEvent { name: name.into(), time };
+        doc.animations[0].events = vec![ev("blink", 1.0)];
+        doc.animations[1].events = vec![ev("push", 0.25), ev("land", 0.5), ev("dust", 0.5)];
+        let opts = GodotExport { fps: 4.0, only: Some("ball".into()), ..GodotExport::default() };
+        let sheet = bake_sheet(&doc, &opts).unwrap();
+        assert_eq!(sheet.anims[0].events, [(0, "blink".to_string())], "the end of a loop is its start");
+        assert_eq!(sheet.anims[1].events, [(1, "push".to_string()), (2, "land".to_string()), (2, "dust".to_string())]);
+        // Without a machine the scene gets a script only for the signal.
+        let dir = std::env::temp_dir().join(format!("motif-godot-events-{}", std::process::id()));
+        write_godot(&dir, "ball", &sheet, None, false).unwrap();
+        let gd = std::fs::read_to_string(dir.join("ball.gd")).unwrap();
+        assert!(gd.contains("signal event(name: String)"), "{gd}");
+        assert!(gd.contains("\"Jump\": {1: [\"push\"], 2: [\"land\", \"dust\"]}"), "{gd}");
+        let tscn = std::fs::read_to_string(dir.join("ball.tscn")).unwrap();
+        assert!(tscn.starts_with("[gd_scene load_steps=3") && tscn.contains("script = ExtResource(\"1_script\")"), "{tscn}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -132,7 +132,7 @@ mod tests {
         (n.weight, n.sail) = (weight, sail);
         d.nodes.push(n);
         d.world = world;
-        let a = Animation { name: "Go".into(), duration: 3.0, looping: false, tracks: Vec::new() };
+        let a = Animation { name: "Go".into(), duration: 3.0, looping: false, tracks: Vec::new(), events: Vec::new() };
         let p = a.pose_with(&d, 1.0, &mut SimCache::default());
         p.nodes[0].particles.as_ref().unwrap().iter().map(|(t, _)| *t * Point::ZERO).collect()
     }

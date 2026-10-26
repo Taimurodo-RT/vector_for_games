@@ -190,7 +190,7 @@ mod tests {
     }
 
     fn still() -> Animation {
-        Animation { name: "Go".into(), duration: 10.0, looping: false, tracks: Vec::new() }
+        Animation { name: "Go".into(), duration: 10.0, looping: false, tracks: Vec::new(), events: Vec::new() }
     }
 
     #[test]
@@ -213,6 +213,7 @@ mod tests {
             duration: 2.0,
             looping: false,
             tracks: vec![Track { node: "ball".into(), prop: Prop::Yaw, keys: vec![key(0.0, 0.0), key(1.0, 90.0), key(2.0, 90.0)] }],
+            events: Vec::new(),
         };
         let grip = globe(0.0, 0.0, Roll { friction: 1.0, gravity: 0.0, ..Roll::default() });
         let (p, _, _) = at(&grip, &a, 2.0, 1);

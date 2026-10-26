@@ -26,6 +26,7 @@ anim Run 0.4s loop {
   body.h   0: 86 | 0.2: 100 | 0.4: 86
   body.w   0: 108 | 0.2: 94 | 0.4: 108
   shadow.w 0: 98 | 0.2: 72 | 0.4: 98
+  event step 0
 }
 
 anim Jump 0.7s {
@@ -34,6 +35,8 @@ anim Jump 0.7s {
   body.w         0: 116 | 0.1: 88 | 0.6: 96 | 0.7: 116
   shadow.w       0: 90 | 0.35: 40 | 0.7: 90
   shadow.opacity 0: 0.3 | 0.35: 0.1 | 0.7: 0.3
+  event push 0.1
+  event land 0.7
 }
 
 anim Hit 0.5s {

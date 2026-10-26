@@ -175,6 +175,10 @@ pub struct MachinePlayer {
     pub down: bool,
     /// The listened objects the held button was pressed on.
     pub grab: Vec<String>,
+    /// The animation events passed in the last [`advance`](Self::advance), in order.
+    pub events: Vec<String>,
+    /// The current state has just begun: its events at 0 are still to come.
+    fresh: bool,
 }
 
 impl MachinePlayer {
@@ -189,6 +193,8 @@ impl MachinePlayer {
             sim: None,
             down: false,
             grab: Vec::new(),
+            events: Vec::new(),
+            fresh: true,
         }
     }
 
@@ -251,6 +257,7 @@ impl MachinePlayer {
         self.state = state;
         self.time = 0.0;
         self.prev = None;
+        self.fresh = true;
     }
 
     fn holds(&self, m: &Machine, c: &Cond) -> bool {
@@ -284,7 +291,12 @@ impl MachinePlayer {
         }
         self.state = self.state.min(m.states.len() - 1);
         self.values.resize(m.inputs.len(), 0.0);
+        let from = if self.fresh { -1e-9 } else { self.time };
+        self.fresh = false;
         self.time += dt;
+        self.events = doc
+            .animation(&m.states[self.state].anim)
+            .map_or_else(Vec::new, |a| a.events_between(from, self.time).into_iter().map(|e| e.name.clone()).collect());
         if let Some((_, t)) = &mut self.prev {
             *t += dt;
         }
@@ -300,6 +312,7 @@ impl MachinePlayer {
             self.blend_time = 0.0;
             self.state = t.to;
             self.time = 0.0;
+            self.fresh = true;
         }
         for (v, input) in self.values.iter_mut().zip(&m.inputs) {
             if input.kind == InputKind::Trigger {
@@ -384,6 +397,7 @@ mod tests {
                 prop: Prop::X,
                 keys: vec![Keyframe { time: 0.0, value: Value::Num(x), ease: Ease::Linear }, Keyframe { time: 1.0, value: Value::Num(x), ease: Ease::Linear }],
             }],
+            events: Vec::new(),
         };
         d.animations = vec![anim("Idle", 0.0, true), anim("Run", 100.0, true), anim("Jump", 50.0, false)];
         d
@@ -407,6 +421,33 @@ mod tests {
             ],
             any_pos: None,
         }
+    }
+
+    #[test]
+    fn events_fire_as_states_play() {
+        let mut d = doc();
+        let ev = |name: &str, time| crate::AnimEvent { name: name.into(), time };
+        d.animations[1].events = vec![ev("step", 0.0), ev("step", 0.5)];
+        d.animations[2].events = vec![ev("land", 1.0)];
+        let m = machine();
+        let mut p = MachinePlayer::new(&m);
+        p.set(&m, "speed", 1.0);
+        p.advance(&m, &d, 0.1);
+        assert!(p.events.is_empty(), "Idle has none; Run only begins");
+        p.advance(&m, &d, 0.1);
+        assert_eq!(p.events, ["step"], "Run's event at 0 fires on the first step in it");
+        p.advance(&m, &d, 0.3);
+        assert!(p.events.is_empty());
+        p.advance(&m, &d, 0.2);
+        assert_eq!(p.events, ["step"], "0.5");
+        p.advance(&m, &d, 0.5);
+        assert_eq!(p.events, ["step"], "1.0 is the next pass's 0");
+        p.fire(&m, "jump");
+        p.advance(&m, &d, 0.1);
+        p.advance(&m, &d, 0.95);
+        assert!(p.events.is_empty());
+        p.advance(&m, &d, 0.1);
+        assert_eq!(p.events, ["land"]);
     }
 
     #[test]

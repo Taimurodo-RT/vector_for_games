@@ -199,6 +199,7 @@ mod tests {
             duration: 3.0,
             looping: false,
             tracks: vec![Track { node: "b".into(), prop: Prop::X, keys: vec![key(0.0, 0.0), key(0.1, 100.0)] }],
+            events: Vec::new(),
         };
         (d, a)
     }
@@ -243,6 +244,7 @@ mod tests {
             duration: 2.0,
             looping: false,
             tracks: vec![Track { node: "root".into(), prop: Prop::Rotation, keys: vec![k(0.0, 0.0), k(0.5, 60.0)] }],
+            events: Vec::new(),
         };
         (d, a)
     }
@@ -283,6 +285,7 @@ mod tests {
             duration: 2.0,
             looping: false,
             tracks: vec![Track { node: "b".into(), prop: Prop::X, keys: vec![k(0.0, 0.0), k(0.5, 400.0)] }],
+            events: Vec::new(),
         };
         (d, a)
     }

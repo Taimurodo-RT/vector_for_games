@@ -65,6 +65,17 @@ pub struct KeyAst {
     pub ease_span: Option<Span>,
 }
 
+/// `event step 0.1 0.3`: a named moment of an animation, at one or more times.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventAst {
+    pub name: String,
+    pub name_span: Span,
+    /// Each time with the span of its number.
+    pub times: Vec<(f64, Span)>,
+    /// From `event` to the last time.
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrackAst {
     pub node: String,
@@ -189,6 +200,7 @@ pub enum Stmt {
         duration: f64,
         looping: bool,
         tracks: Vec<TrackAst>,
+        events: Vec<EventAst>,
         span: Span,
         /// Offset of the block's closing brace (where new tracks are inserted).
         close: usize,
@@ -707,10 +719,19 @@ impl<'a> Parser<'a> {
         }
         self.expect(Tok::BlockOpen, "«{» в конце строки")?;
         let mut tracks = Vec::new();
+        let mut events = Vec::new();
         loop {
             match self.peek() {
                 Some(Tok::Newline) => self.pos += 1,
                 Some(Tok::BlockClose) | None => break,
+                // `event.x` would be a track of an object called «event».
+                Some(Tok::Ident(w)) if w == "event" && !matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Dot)) => match self.event() {
+                    Ok(e) => events.push(e),
+                    Err(e) => {
+                        self.errors.push(e);
+                        self.skip_line();
+                    }
+                },
                 Some(_) => match self.track() {
                     Ok(t) => tracks.push(t),
                     Err(e) => {
@@ -721,7 +742,25 @@ impl<'a> Parser<'a> {
             }
         }
         let close = self.close_block()?;
-        Ok(Stmt::Anim { name, duration, looping, tracks, span, close, duration_span, loop_span })
+        Ok(Stmt::Anim { name, duration, looping, tracks, events, span, close, duration_span, loop_span })
+    }
+
+    fn event(&mut self) -> Result<EventAst, ScriptError> {
+        let start = self.peek_span().start;
+        self.pos += 1;
+        let (name, name_span) = self.ident("имя события: event шаг 0.1 0.3")?;
+        let mut times = Vec::new();
+        while matches!(self.peek(), Some(Tok::Num(_) | Tok::Seconds(_))) {
+            times.push(self.num("время события")?);
+        }
+        if !self.at_line_end() && !matches!(self.peek(), Some(Tok::BlockClose)) {
+            return Err(self.err(self.peek_span(), "после имени события — времена в секундах: event шаг 0.1 0.3"));
+        }
+        let end = times.last().map_or(name_span.end, |(_, s)| s.end);
+        if times.is_empty() {
+            return Err(self.err(name_span, "у события нет времени: event шаг 0.1 0.3"));
+        }
+        Ok(EventAst { name, name_span, times, span: Span::new(start, end) })
     }
 
     fn machine(&mut self, span: Span) -> Result<Stmt, ScriptError> {

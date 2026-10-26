@@ -38,6 +38,8 @@ pub struct Run {
     pub player: MachinePlayer,
     /// The transition taken last and how long it stays lit.
     flash: Option<(usize, f32)>,
+    /// Animation events heard lately, newest last, with how long each stays on screen.
+    heard: Vec<(String, f32)>,
 }
 
 fn valid_name(s: &str) -> bool {
@@ -148,7 +150,7 @@ impl App {
                 format!("Машина «{}» играет: наводите и нажимайте мышью на холсте, входы меняются сами", m.name)
             };
             self.set_mode_animate(false);
-            self.run = Some(Run { player, flash: None });
+            self.run = Some(Run { player, flash: None, heard: Vec::new() });
         }
     }
 
@@ -183,6 +185,13 @@ impl App {
                 run.flash = None;
             }
         }
+        for (_, t) in &mut run.heard {
+            *t -= dt;
+        }
+        run.heard.retain(|(_, t)| *t > 0.0);
+        run.heard.extend(run.player.events.iter().map(|e| (e.clone(), 1.5)));
+        let extra = run.heard.len().saturating_sub(6);
+        run.heard.drain(..extra);
     }
 
     /// Keeps the picked machine, state and transition valid after the script changed.
@@ -330,7 +339,7 @@ impl App {
         }
         if theme::button(ui, "Сброс", ButtonKind::Normal).on_hover_text("С начального состояния, входы по умолчанию").clicked() && running
         {
-            self.run = Some(Run { player: MachinePlayer::new(&m), flash: None });
+            self.run = Some(Run { player: MachinePlayer::new(&m), flash: None, heard: Vec::new() });
         }
         let hint = if running && !m.listeners.is_empty() {
             "Играет: мышь на холсте и входы справа"
@@ -388,6 +397,22 @@ impl App {
         if self.graph.hovered {
             let scroll = ui.input(|i| i.smooth_scroll_delta);
             self.graph.pan += scroll;
+        }
+
+        // Events the running machine has just played, as the game would hear them.
+        // Over the boxes, in the bottom right corner, newest at the bottom.
+        if let Some(run) = &self.run {
+            let top = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.scope_id().with("heard"))).with_clip_rect(rect);
+            let mut y = rect.bottom() - 12.0;
+            for (name, left) in run.heard.iter().rev() {
+                let fade = (*left / 0.5).clamp(0.0, 1.0);
+                let g = top.layout_no_wrap(format!("⚑ {name}"), theme::ui_font(12.0), FG.gamma_multiply(fade));
+                let size = g.size() + vec2(16.0, 8.0);
+                let r = Rect::from_min_size(pos2(rect.right() - 12.0 - size.x, y - size.y), size);
+                top.rect(r, 10.0, theme::mix(ACCENT, theme::BG, 0.7).gamma_multiply(fade), Stroke::new(1.0, ACCENT.gamma_multiply(fade)), StrokeKind::Inside);
+                top.galley(r.min + vec2(8.0, 4.0), g, FG.gamma_multiply(fade));
+                y = r.top() - 4.0;
+            }
         }
 
         // Boxes, with the one being moved at its new place.

@@ -994,9 +994,46 @@ pub struct Animation {
     pub duration: f64,
     pub looping: bool,
     pub tracks: Vec<Track>,
+    /// Named moments the game hears about: a footstep, the frame a hit lands.
+    pub events: Vec<AnimEvent>,
+}
+
+/// `event step 0.15 0.35` in an animation: the game is told «step» when playback passes 0.15 s
+/// and 0.35 s.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnimEvent {
+    pub name: String,
+    pub time: f64,
 }
 
 impl Animation {
+    /// The events playback passes going from `from` to `to` seconds after the animation
+    /// started, in order: each one whose time `t` (or, looping, `t` plus whole durations)
+    /// satisfies `from < t <= to`. Start from a little below 0 to include events at 0.
+    pub fn events_between(&self, from: f64, to: f64) -> Vec<&AnimEvent> {
+        let mut out: Vec<(f64, &AnimEvent)> = Vec::new();
+        if to <= from {
+            return Vec::new();
+        }
+        for e in &self.events {
+            if self.looping && self.duration > 0.0 {
+                // The first pass of this event after `from`.
+                let mut at = e.time + ((from - e.time) / self.duration).floor() * self.duration;
+                while at <= from {
+                    at += self.duration;
+                }
+                while at <= to {
+                    out.push((at, e));
+                    at += self.duration;
+                }
+            } else if e.time > from && e.time <= to && e.time <= self.duration + 1e-9 {
+                out.push((e.time, e));
+            }
+        }
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        out.into_iter().map(|(_, e)| e).collect()
+    }
+
     /// Wraps or clamps an unbounded playback time into the animation's range.
     pub fn local_time(&self, t: f64) -> f64 {
         if self.duration <= 0.0 {
@@ -1073,8 +1110,23 @@ mod tests {
     }
 
     #[test]
+    fn events_fire_once_per_pass() {
+        let ev = |name: &str, time| AnimEvent { name: name.into(), time };
+        let run =
+            Animation { name: "Run".into(), duration: 0.4, looping: true, tracks: vec![], events: vec![ev("step", 0.1), ev("step2", 0.3), ev("start", 0.0)] };
+        let names = |v: Vec<&AnimEvent>| v.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(run.events_between(-1e-9, 0.15)), ["start", "step"]);
+        assert_eq!(names(run.events_between(0.15, 0.3)), ["step2"]);
+        // Across the loop: the end of one pass, then the start of the next, in order.
+        assert_eq!(names(run.events_between(0.35, 0.95)), ["start", "step", "step2", "start", "step"]);
+        assert!(run.events_between(0.3, 0.3).is_empty());
+        let once = Animation { looping: false, ..run };
+        assert_eq!(names(once.events_between(0.0, 5.0)), ["step", "step2"], "no repeats, and 0 only from the start");
+    }
+
+    #[test]
     fn looping_time_wraps() {
-        let anim = Animation { name: "a".into(), duration: 2.0, looping: true, tracks: vec![] };
+        let anim = Animation { name: "a".into(), duration: 2.0, looping: true, tracks: vec![], events: Vec::new() };
         assert!((anim.local_time(5.0) - 1.0).abs() < 1e-9);
         let once = Animation { looping: false, ..anim };
         assert_eq!(once.local_time(5.0), 2.0);
