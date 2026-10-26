@@ -218,6 +218,14 @@ impl App {
             }
         }
 
+        let path_kind = if self.motion_path { ButtonKind::On } else { ButtonKind::Normal };
+        if theme::button(ui, "Путь", path_kind)
+            .on_hover_text("Траектория выделенного объекта: точка на каждый кадр, кружки — ключи положения. Тяните кружок, чтобы сдвинуть ключ; клик по линии переводит время")
+            .clicked()
+        {
+            self.motion_path = !self.motion_path;
+        }
+
         // Timecode: 0.42 / 1.20 с · кадр 25
         let t = if self.anim.is_some() { anim.local_time(self.time) } else { 0.0 };
         let mut job = LayoutJob::default();

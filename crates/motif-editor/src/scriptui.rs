@@ -70,6 +70,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("  ball.w 0: 70 cubic 0.2 0 0.4 1.3 | 1: 90", "кривая из ручек «Графиков»; > 1 — перелёт"),
             ("  event step 0.1 0.3", "событие для игры в эти секунды"),
             ("}", "Shift, рамка, Alt+тянуть, Ctrl+C/V — несколько ключей"),
+            ("«Путь» на таймлайне", "траектория: тяните кружок ключа, клик по линии — время"),
             ("x y w h rot sx sy opacity fill stroke stroke_w", "что можно анимировать"),
             ("blur elevation shadow-x shadow-y shadow-blur", "и эффекты тоже"),
             ("ellipse blob … morph star heart", "перетекает в контуры целей"),
