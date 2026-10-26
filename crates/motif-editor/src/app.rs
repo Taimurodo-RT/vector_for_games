@@ -906,6 +906,30 @@ impl App {
         };
     }
 
+    /// Each board (or the open one) as a Godot scene of controls, over the kit theme of all of
+    /// them.
+    fn export_screens(&mut self) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Папка в проекте Godot").pick_folder() else { return };
+        let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
+        let theme = self.file_stem();
+        let result = self.export_boards().and_then(|boards| {
+            let n = boards.len();
+            motif_pixel::screen::write_screens(&dir, &theme, &boards, render).map(|files| (n, files))
+        });
+        self.status = match result {
+            Ok((n, files)) => {
+                let scenes: Vec<String> = files
+                    .iter()
+                    .filter(|f| f.extension().is_some_and(|e| e == "tscn"))
+                    .filter_map(|f| f.file_name().map(|s| s.to_string_lossy().into_owned()))
+                    .collect();
+                let shown = if n == 1 { scenes.join(", ") } else { format!("экранов {}", scenes.len()) };
+                format!("Экран для Godot: {shown}, тема {theme}.tres, файлов {} в {}", files.len(), dir.display())
+            }
+            Err(e) => format!("Экран не сохранён: {e}"),
+        };
+    }
+
     /// Every animation of the scene (or of the selected object) for Godot: atlas, SpriteFrames,
     /// a scene with the sprite and, with a state machine, its AnimationTree. A saved scene stays
     /// linked to the folder and is exported there again on every save.
@@ -2351,8 +2375,14 @@ impl App {
         {
             self.export_kit();
         }
+        if theme::button(ui, "Экран для Godot…", ButtonKind::Normal)
+            .on_hover_text("Холст — сцена .tscn из Control-узлов: детали ui — кнопки, полосы, флажки из темы набора, стеки — VBox/HBox, привязки — якоря, тексты — Label, остальное — картинки")
+            .clicked()
+        {
+            self.export_screens();
+        }
         ui.label(
-            RichText::new("Масштаб и сглаживание — те же, что для кадров. Тему подключают в Godot как theme, детали — через Theme Type Variation.")
+            RichText::new("Масштаб и сглаживание — те же, что для кадров. Тему подключают в Godot как theme, детали — через Theme Type Variation. Экран кладёт тему рядом и сам её подключает: меню или HUD открывается в Godot готовой сценой.")
                 .size(12.0)
                 .color(FAINT),
         );
