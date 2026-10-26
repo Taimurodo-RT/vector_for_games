@@ -178,6 +178,9 @@ pub struct App {
     pub(crate) point_edit: Option<PointEdit>,
     /// Onion skin: faint poses before (red) and after (green) the current time while paused.
     pub(crate) onion: bool,
+    /// Motion paths of the selected objects in Animate.
+    pub(crate) motion_path: bool,
+    pub(crate) motion: std::cell::RefCell<(u64, Vec<crate::motion_ui::MotionPath>)>,
     /// Keys picked in the timeline; the last one is shown in the curve picker.
     pub(crate) sel_keys: Vec<KeyRef>,
     pub(crate) key_drag: Option<KeyDrag>,
@@ -267,6 +270,8 @@ impl App {
             point_edit: None,
             brush_w: Default::default(),
             onion: false,
+            motion_path: true,
+            motion: Default::default(),
             sel_keys: Vec::new(),
             key_drag: None,
             key_clip: (String::new(), Vec::new()),
@@ -1639,6 +1644,13 @@ impl App {
                 } else {
                     false
                 });
+        // A key handle or the line of a motion path under the pointer.
+        let path_hit = pointer
+            .filter(|&p| !special && !pan_gesture && self.drag.is_none() && resp.hovered() && hit_handle(p).is_none())
+            .and_then(|p| self.motion_hit(rect, view, p));
+        if path_hit.is_some() {
+            self.hovered = None;
+        }
         if !special
             && let Some(p) = pointer
             && resp.hovered()
@@ -1652,6 +1664,8 @@ impl App {
                 match hit_handle(p) {
                     Some(Handle::Rotate) => egui::CursorIcon::None,
                     Some(Handle::Corner) => egui::CursorIcon::ResizeNwSe,
+                    None if path_hit.as_ref().is_some_and(|h| h.key) => egui::CursorIcon::Grab,
+                    None if path_hit.is_some() => egui::CursorIcon::PointingHand,
                     None if self.hovered.is_some() => egui::CursorIcon::Move,
                     None => egui::CursorIcon::Default,
                 }
@@ -1686,6 +1700,8 @@ impl App {
                         Some(DragOp::Rotate { node: id, center, start_angle: a, start_rot: n.rotation })
                     }
                 }
+            } else if !shift && let Some(hit) = self.motion_hit(rect, view, p) {
+                Some(self.motion_drag(hit, dp))
             } else if self.tool == Tool::Select
                 && !shift
                 && let Some(op) = self.bone_drag(&doc, rect, view, p, dp)
@@ -1853,6 +1869,8 @@ impl App {
                 && let Some(p) = doc_pt
             {
                 self.create_shape(kind, p, p, false);
+            } else if !shift && let Some(hit) = &path_hit {
+                self.motion_seek(hit);
             } else if !doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_some() {
                 let hit = pointer
                     .and_then(|p| crate::bone_ui::pick_bone(&doc, rect, view, p))
@@ -1874,6 +1892,7 @@ impl App {
             MUTED,
         );
         self.paint_bones(&painter, rect, view, &doc);
+        self.paint_motion(&painter, rect, view, pointer.filter(|_| self.drag.is_none() && resp.hovered()));
         self.paint_fields(&painter, rect, view, &doc);
         if let Some(h) = &self.hovered
             && self.selected.as_ref() != Some(h)
