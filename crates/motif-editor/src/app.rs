@@ -2199,6 +2199,8 @@ impl App {
                     ("Delete", "Удалить объект, выбранный ключ или (курсор над графом машины) состояние и переход"),
                     ("Shift+клик", "Добавить к выделению; рамка по пустому месту — выделить"),
                     ("Ctrl+C, Ctrl+V", "Копировать и вставить; Ctrl+D — дублировать, Ctrl+A — всё"),
+                    ("Ctrl+G", "Сгруппировать; Ctrl+Shift+G — разгруппировать"),
+                    ("Ctrl+] Ctrl+[", "На шаг выше или ниже соседей"),
                     ("F", "Вписать артборд"),
                     ("G", "Сетка"),
                     ("Alt при сдвиге", "Без умных направляющих"),
@@ -2279,6 +2281,18 @@ impl App {
         }
         if cmd(Key::D) {
             self.duplicate();
+        }
+        if cmd(Key::G) {
+            self.group_selection();
+        }
+        if i.modifiers.command && i.modifiers.shift && i.key_pressed(Key::G) {
+            self.ungroup_selection();
+        }
+        if cmd(Key::CloseBracket) {
+            self.restack_selection(true);
+        }
+        if cmd(Key::OpenBracket) {
+            self.restack_selection(false);
         }
         if cmd(Key::A) {
             self.select_all();

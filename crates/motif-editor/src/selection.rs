@@ -143,6 +143,60 @@ impl App {
         self.sel_keys.clear();
     }
 
+    /// Ctrl+G: the selected objects into a new group, which becomes the selection.
+    pub(crate) fn group_selection(&mut self) {
+        let ids = self.selection();
+        if ids.is_empty() || !self.can_edit() {
+            return;
+        }
+        let base = self.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
+        match motif_script::group_nodes(&self.src, &self.scene, &ids, base.as_deref()) {
+            Ok((out, group)) => {
+                self.apply("group", Some(out));
+                self.select_only(Some(group.clone()));
+                self.status = format!("Сгруппировано в «{group}»: объекты на месте, анимации тоже. Ctrl+Shift+G — разгруппировать");
+            }
+            Err(e) => self.status = format!("Не сгруппировать: {e}"),
+        }
+    }
+
+    /// Ctrl+Shift+G: the selected group taken apart, its children selected.
+    pub(crate) fn ungroup_selection(&mut self) {
+        let Some(id) = self.selected.clone() else { return };
+        if !self.can_edit() {
+            return;
+        }
+        let base = self.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
+        match motif_script::ungroup(&self.src, &self.scene, &id, base.as_deref()) {
+            Ok((out, kids)) => {
+                self.apply("ungroup", Some(out));
+                self.status = format!("Группа «{id}» разобрана: объектов {}", kids.len());
+                self.select_list(kids);
+            }
+            Err(e) => self.status = format!("Не разгруппировать «{id}»: {e}"),
+        }
+    }
+
+    /// Ctrl+] and Ctrl+[: the selected object one step over or under its neighbour.
+    pub(crate) fn restack_selection(&mut self, up: bool) {
+        let Some(id) = self.selected.clone() else { return };
+        if !self.can_edit() {
+            return;
+        }
+        match motif_script::restack(&self.src, &self.scene, &id, up) {
+            Some(out) => {
+                self.apply("restack", Some(out));
+            }
+            None => {
+                self.status = if up {
+                    "Выше некуда: объект уже над соседями".into()
+                } else {
+                    "Ниже некуда: объект уже под соседями".into()
+                }
+            }
+        }
+    }
+
     /// Deletes every selected object with its keys. Returns how many were removed.
     pub(crate) fn delete_selected_nodes(&mut self) -> usize {
         let mut removed = 0;
@@ -261,6 +315,7 @@ impl App {
             });
         });
         let mut bool_op = None;
+        let mut group = false;
         crate::app::fold(ui, "Булевы операции", |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
@@ -279,7 +334,11 @@ impl App {
             ui.label(egui::RichText::new("Фигуры заменяются одним контуром со стилем нижней.").size(11.5).color(theme::FAINT));
         });
         crate::app::section(ui, |ui| {
-            let hint = "Shift+клик или рамка — добавить к выделению. Ctrl+C / Ctrl+V — копировать и вставить, Ctrl+D — дублировать, Delete — удалить.";
+            if theme::button(ui, "Сгруппировать", theme::ButtonKind::Primary).on_hover_text("Ctrl+G: в новую группу, всё остаётся на месте").clicked()
+            {
+                group = true;
+            }
+            let hint = "Shift+клик или рамка — добавить к выделению. Ctrl+G — сгруппировать, Ctrl+C / Ctrl+V — копировать и вставить, Ctrl+D — дублировать, Delete — удалить.";
             ui.label(egui::RichText::new(hint).size(12.0).color(theme::MUTED));
         });
         if let Some(how) = pick {
@@ -287,6 +346,9 @@ impl App {
         }
         if let Some(op) = bool_op {
             self.boolean(op);
+        }
+        if group {
+            self.group_selection();
         }
     }
 
