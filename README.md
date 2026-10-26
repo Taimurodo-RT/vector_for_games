@@ -3,7 +3,7 @@
 Локальный редактор векторной анимации для игр, в духе Rive. Сцену можно написать коротким скриптом, увидеть сразу на холсте и
 доделать мышью: правки с холста записываются обратно в текст скрипта.
 
-Сейчас в репозитории первая версия редактора и командная строка `motif`. Рантайм для Godot 4.7 (.NET) идёт следующим этапом.
+Сейчас в репозитории редактор и командная строка `motif`; анимации и машины состояний выгружаются в Godot готовыми сценами. Рантайм для Godot 4.7 (.NET) без запекания в кадры — следующий этап.
 
 ![Окно редактора: скрипт, холст, слои и таймлайн](docs/editor.png)
 
@@ -246,7 +246,22 @@ cargo run --release -p motif-cli -- frames examples/bounce.msc --anim Idle --fps
 cargo run --release -p motif-cli -- palette examples/bounce.msc -o out/scene.pal
 cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --preset my.preset --no-aa -o out/idle_px
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
+cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
 ```
+
+## Анимации в Godot
+
+«Экспорт → Выгрузить в Godot…» (или `motif godot`) переносит персонажа в проект Godot целиком:
+
+* `ИМЯ.png` — атлас всех кадров всех анимаций. Кадры одного размера (коробка вокруг каждой позы, спрайт не прыгает),
+  одинаковые кадры хранятся один раз.
+* `ИМЯ_frames.tres` — `SpriteFrames` с анимациями из Motif, их скоростью и повтором.
+* `ИМЯ.tscn` — готовая сцена: `Node2D` и `AnimatedSprite2D`, точка привязки — центр выделенного объекта (или
+  `--pivot X Y`).
+* С машиной состояний — ещё `AnimationPlayer`, `AnimationTree` с теми же состояниями и переходами (условия становятся
+  выражениями, `any` — переходами из каждого состояния, «в конце» — переходом по окончании) и скрипт `ИМЯ.gd`, где входы
+  машины — переменные: `hero.speed = 1.0`, `hero.fire_jump()`. Проверено в Godot 4.3: капля из `machine.msc` бегает,
+  прыгает и возвращается так же, как в редакторе. Подробнее — [docs/export.html#godot](docs/export.html#godot).
 
 ## UI-наборы для Godot
 

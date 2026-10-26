@@ -800,6 +800,27 @@ impl App {
         };
     }
 
+    /// Every animation of the scene (or of the selected object) for Godot: atlas, SpriteFrames,
+    /// a scene with the sprite and, with a state machine, its AnimationTree.
+    fn export_godot(&mut self) {
+        let Some(dir) = rfd::FileDialog::new().set_title("Папка в проекте Godot").pick_folder() else { return };
+        let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: false };
+        let only = self.selected.clone().filter(|id| self.scene.doc.node(id).is_some());
+        let stem = self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned());
+        let name = only.clone().unwrap_or(stem);
+        let opts = motif_pixel::godot::GodotExport { fps: self.export.fps, render, only, pivot: None };
+        let doc = &self.scene.doc;
+        let result = motif_pixel::godot::bake_sheet(doc, &opts)
+            .and_then(|sheet| motif_pixel::godot::write_godot(&dir, &name, &sheet, doc.machines.first(), !self.export.antialias).map(|f| (sheet, f.len())));
+        self.status = match result {
+            Ok((sheet, files)) => {
+                let tree = doc.machines.first().map_or(String::new(), |m| format!(", машина «{}» в AnimationTree", m.name));
+                format!("Godot: {name}.tscn, анимаций {}, кадров {} в атласе{tree} — {files} файлов в {}", sheet.anims.len(), sheet.cells.len(), dir.display())
+            }
+            Err(e) => format!("Экспорт в Godot не удался: {e}"),
+        };
+    }
+
     fn pixelize_frames(&mut self, ctx: &egui::Context) {
         let Some(dir) = rfd::FileDialog::new().set_title("Папка для кадров после PixaTool").pick_folder() else { return };
         let (name, frames) = self.export_render();
@@ -1952,6 +1973,8 @@ impl App {
                 let purpose = self.scene.doc.purpose;
                 if purpose == Purpose::Ui {
                     self.kit_export(ui);
+                } else {
+                    self.godot_export(ui);
                 }
                 theme::caption(ui, "Кадры PNG для PixaTool");
                 egui::Grid::new("export").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
@@ -1993,6 +2016,34 @@ impl App {
                 self.pixatool_section(ui);
             });
         self.show_export = open;
+    }
+
+    fn godot_export(&mut self, ui: &mut egui::Ui) {
+        theme::caption(ui, "Анимации для Godot");
+        let what =
+            self.selected.as_deref().and_then(|id| self.scene.doc.node(id)).map_or("вся сцена".to_string(), |n| format!("«{}»", n.display_name()));
+        if theme::button(ui, &format!("Выгрузить в Godot… ({what})"), ButtonKind::Primary)
+            .on_hover_text("Все анимации в одном атласе, SpriteFrames и готовая сцена .tscn; машина состояний — AnimationTree")
+            .clicked()
+        {
+            self.export_godot();
+        }
+        let machine = self
+            .scene
+            .doc
+            .machines
+            .first()
+            .map_or(String::new(), |m| format!(" Машина «{}» станет AnimationTree, её входы — переменными скрипта сцены (speed, fire_jump()…).", m.name));
+        ui.label(
+            RichText::new(format!(
+                "Выделите персонажа, чтобы выгрузить его без фона: точкой привязки станет его центр. Кадры в секунду, масштаб и сглаживание — из настроек ниже.{machine}"
+            ))
+            .size(12.0)
+            .color(FAINT),
+        );
+        ui.add_space(6.0);
+        theme::rule(ui);
+        ui.add_space(4.0);
     }
 
     fn kit_export(&mut self, ui: &mut egui::Ui) {
