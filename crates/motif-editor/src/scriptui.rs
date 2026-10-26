@@ -65,7 +65,8 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
         &[
             ("anim Idle 1.2s loop {", "имя, длительность, повтор"),
             ("  ball.y 0: 120 ease-in | 0.6: 278", "время: значение кривая | …"),
-            ("}", ""),
+            ("  ball.w 0: 70 cubic 0.2 0 0.4 1.3 | 1: 90", "кривая из ручек «Графиков»; > 1 — перелёт"),
+            ("}", "Shift, рамка, Alt+тянуть, Ctrl+C/V — несколько ключей"),
             ("x y w h rot sx sy opacity fill stroke stroke_w", "что можно анимировать"),
             ("blur elevation shadow-x shadow-y shadow-blur", "и эффекты тоже"),
             ("ellipse blob … morph star heart", "перетекает в контуры целей"),

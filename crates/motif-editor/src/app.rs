@@ -84,11 +84,34 @@ pub struct MoveItem {
 }
 
 /// A key picked in the timeline: node, property and time.
-#[derive(Clone, Debug, PartialEq)]
-pub struct KeyRef {
-    pub node: String,
-    pub prop: Prop,
-    pub time: f64,
+pub type KeyRef = motif_script::KeyAt;
+
+/// Keys being dragged in the timeline: the grabbed key and the time it is pulled to. The other
+/// selected keys follow; `stretch` (Alt) scales their times instead of shifting them.
+#[derive(Clone, Debug)]
+pub struct KeyDrag {
+    pub grabbed: KeyRef,
+    pub to: f64,
+    pub stretch: bool,
+    /// Keys moved with it: the selection, or the keys of an object at one time.
+    pub keys: Vec<KeyRef>,
+}
+
+impl KeyDrag {
+    /// Where a key at `t` goes while dragging.
+    pub fn map(&self) -> impl Fn(f64) -> f64 + use<> {
+        let from = self.grabbed.time;
+        let to = self.to;
+        let (lo, hi) = self.keys.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), k| (lo.min(k.time), hi.max(k.time)));
+        // Stretching pulls the grabbed end and pins the opposite end of the selection.
+        let pivot = if (from - lo).abs() < 0.005 { hi } else { lo };
+        let stretch = self.stretch && (from - pivot).abs() > 0.005;
+        move |t| if stretch { (pivot + (t - pivot) * (to - pivot) / (from - pivot)).max(0.0) } else { (t + to - from).max(0.0) }
+    }
+
+    pub fn moves(&self, k: &KeyRef) -> bool {
+        self.keys.iter().any(|x| x.node == k.node && x.prop == k.prop && (x.time - k.time).abs() < 0.005)
+    }
 }
 
 pub struct PixelPreview {
@@ -151,9 +174,18 @@ pub struct App {
     pub(crate) point_edit: Option<PointEdit>,
     /// Onion skin: faint poses before (red) and after (green) the current time while paused.
     pub(crate) onion: bool,
-    pub(crate) sel_key: Option<KeyRef>,
-    /// A key being dragged in the timeline and its new time.
-    pub(crate) key_drag: Option<(KeyRef, f64)>,
+    /// Keys picked in the timeline; the last one is shown in the curve picker.
+    pub(crate) sel_keys: Vec<KeyRef>,
+    pub(crate) key_drag: Option<KeyDrag>,
+    /// Copied keys: their text on the system clipboard and the keys.
+    pub(crate) key_clip: (String, Vec<motif_script::KeyCopy>),
+    /// Where a frame-select drag in the timeline started.
+    pub(crate) key_marquee: Option<egui::Pos2>,
+    /// The timeline shows value curves instead of key lanes.
+    pub(crate) curves: bool,
+    /// The property whose curve is edited in the graph.
+    pub(crate) curve_focus: Option<(String, Prop)>,
+    pub(crate) curve_drag: Option<crate::timeline::CurveDrag>,
     pub(crate) show_script: bool,
     show_export: bool,
     /// A file action waiting for an answer about unsaved changes.
@@ -221,8 +253,13 @@ impl App {
             pen_dragging: false,
             point_edit: None,
             onion: false,
-            sel_key: None,
+            sel_keys: Vec::new(),
             key_drag: None,
+            key_clip: (String::new(), Vec::new()),
+            key_marquee: None,
+            curves: false,
+            curve_focus: None,
+            curve_drag: None,
             show_script: true,
             show_export: false,
             show_help: false,
@@ -263,11 +300,8 @@ impl App {
                 {
                     self.anim = None;
                 }
-                if let Some(k) = &self.sel_key
-                    && !self.key_exists(k)
-                {
-                    self.sel_key = None;
-                }
+                let keys = std::mem::take(&mut self.sel_keys);
+                self.sel_keys = keys.into_iter().filter(|k| self.key_exists(k)).collect();
                 self.prune_selection();
                 self.prune_machine();
             }
@@ -390,7 +424,7 @@ impl App {
             }
             self.anim = None;
             self.playing = false;
-            self.sel_key = None;
+            self.sel_keys.clear();
         }
     }
 
@@ -428,7 +462,7 @@ impl App {
         self.run = None;
         if self.anim.as_deref() != Some(name.as_str()) {
             self.time = 0.0;
-            self.sel_key = None;
+            self.sel_keys.clear();
         }
         self.last_anim = Some(name.clone());
         self.anim = Some(name);
@@ -547,14 +581,17 @@ impl App {
     }
 
     pub(crate) fn delete_selection(&mut self) {
-        if let Some(k) = self.sel_key.clone()
+        if !self.sel_keys.is_empty()
             && let Some(anim) = self.anim.clone()
         {
-            let out = delete_key(&self.src, &self.scene, &anim, &k.node, k.prop, k.time);
+            let keys = std::mem::take(&mut self.sel_keys);
+            let out = motif_script::delete_keys(&self.src, &self.scene, &anim, &keys);
             if self.apply("key", out) {
-                self.status = format!("Ключ {}.{} на {} с удалён", k.node, k.prop.path_name(), fmt_num(k.time));
+                self.status = match keys.as_slice() {
+                    [k] => format!("Ключ {}.{} на {} с удалён", k.node, k.prop.path_name(), fmt_num(k.time)),
+                    _ => format!("Удалено ключей: {}", keys.len()),
+                };
             }
-            self.sel_key = None;
             return;
         }
         let Some(id) = self.selected.clone() else { return };
@@ -1574,7 +1611,7 @@ impl App {
                         } else if !self.is_selected(&id) {
                             self.select_only(Some(id.clone()));
                         }
-                        self.sel_key = None;
+                        self.sel_keys.clear();
                         let items = self
                             .selection()
                             .into_iter()
@@ -2070,6 +2107,12 @@ impl App {
         }
         for e in &i.events {
             match e {
+                egui::Event::Copy if self.keys_picked() => self.copy_keys(ctx),
+                egui::Event::Cut if self.keys_picked() => {
+                    self.copy_keys(ctx);
+                    self.delete_selection();
+                }
+                egui::Event::Paste(text) if self.anim.is_some() && !self.key_clip.1.is_empty() && text.trim() == self.key_clip.0.trim() => self.paste_keys(),
                 egui::Event::Copy => {
                     self.copy_selection(ctx);
                 }
