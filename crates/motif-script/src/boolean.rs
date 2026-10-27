@@ -31,7 +31,8 @@ impl BoolOp {
 }
 
 /// Style properties the result takes over from the bottom shape, as written there.
-const STYLE_KEYS: [&str; 10] = ["fill", "stroke", "gradient", "opacity", "dash", "cap", "join", "shadow", "blend", "hidden"];
+const STYLE_KEYS: [&str; 14] =
+    ["fill", "stroke", "gradient", "stroke-gradient", "opacity", "dash", "cap", "join", "shadow", "inset", "glow", "noise", "blend", "hidden"];
 
 /// Closes every subpath, so open lines take part as the area they enclose.
 fn closed(path: &BezPath) -> BezPath {

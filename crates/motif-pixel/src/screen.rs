@@ -32,6 +32,18 @@ fn num(v: f64) -> String {
     if r.fract() == 0.0 { format!("{r:.1}") } else { format!("{r}") }
 }
 
+/// A text a `Label` draws as it is: with a gradient, a glow, an inner shadow or grain it stays a
+/// picture.
+fn plain_text(n: &motif_core::Node) -> bool {
+    n.kind == ShapeKind::Text
+        && n.part.is_none()
+        && n.gradient.is_none()
+        && n.stroke_gradient.is_none()
+        && n.glow.is_none()
+        && n.inset.is_none()
+        && n.noise.is_none()
+}
+
 /// Where a control sits: on the screen (with the anchor of its object), in a group without a
 /// stack (from the group's corner), or in a stack (the container places it).
 #[derive(Clone, Copy)]
@@ -152,9 +164,7 @@ impl Writer<'_> {
     /// Whether the node or anything inside it is interface: then it is kept as controls.
     fn live(&self, k: usize) -> bool {
         let d = self.doc;
-        (0..d.nodes.len())
-            .filter(|&j| j == k || d.is_inside(j, k))
-            .any(|j| self.pieces[j].is_some() || d.nodes[j].stack.is_some() || (d.nodes[j].kind == ShapeKind::Text && d.nodes[j].part.is_none()))
+        (0..d.nodes.len()).filter(|&j| j == k || d.is_inside(j, k)).any(|j| self.pieces[j].is_some() || d.nodes[j].stack.is_some() || plain_text(&d.nodes[j]))
     }
 
     fn children(&self, k: usize) -> Vec<usize> {
@@ -186,7 +196,7 @@ impl Writer<'_> {
             self.nodes.push_str(&state);
             return Ok(());
         }
-        if n.kind == ShapeKind::Text && n.part.is_none() {
+        if plain_text(n) {
             return self.label(k, parent, place);
         }
         if matches!(n.kind, ShapeKind::Group | ShapeKind::Bone) && self.live(k) {
@@ -468,7 +478,8 @@ pub fn write_screen(
 /// `dir`. `boards` are the boards' names and documents. Returns the files written.
 pub fn write_screens(dir: &Path, theme: &str, boards: &[(String, Document)], opts: CpuOptions) -> Result<Vec<PathBuf>, String> {
     // A board without interface pieces still makes a screen, of pictures and labels.
-    let kits: Vec<Vec<KitItem>> = boards.iter().map(|(_, d)| kit::render_kit(d, opts)).collect::<Result<_, _>>()?;
+    let kits: Vec<Vec<KitItem>> =
+        boards.iter().map(|(_, d)| if kit::has_pieces(d) { kit::render_kit(d, opts) } else { Ok(Vec::new()) }).collect::<Result<_, _>>()?;
     let merged = kit::merge_boards(kits.clone());
     let mut files = Vec::new();
     let has_theme = !merged.is_empty();
@@ -552,6 +563,22 @@ mod tests {
         let scroller = node(&scroll, "scroller");
         assert!(scroller.contains("page = 31.3") && scroller.contains("value = 15.6"), "{scroller}");
         assert!(node(&scene(&dir, "Слайдер.tscn"), "volume").contains("value = 50.0"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn effects_are_baked() {
+        let dir = std::env::temp_dir().join(format!("motif-screen-fx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A board without pieces (the sign) still makes a screen next to the kit.
+        let files = write_screens(&dir, "ui-effects", &boards(include_str!("../../../examples/ui-effects.msc")), CpuOptions::default()).unwrap();
+        assert!(files.iter().any(|f| f.ends_with("ui-effects.tres")), "{files:?}");
+        // A glowing text is a picture: a Label could not draw the glow.
+        let sign = scene(&dir, "Вывеска.tscn");
+        assert!(node(&sign, "sign").contains("type=\"TextureRect\""), "{sign}");
+        // The glow of the button reaches past it: drawn outside the control, not in its padding.
+        let theme = scene(&dir, "ui-effects.tres");
+        assert!(theme.contains("expand_margin_left"), "{theme}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

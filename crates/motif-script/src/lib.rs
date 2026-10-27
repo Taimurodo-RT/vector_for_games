@@ -45,7 +45,7 @@ pub use edit::{
     KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_anim, delete_key,
     delete_keys, delete_node, duplicate_anim, fmt_value, gradient_text, group_nodes, move_key, move_node, paste_keys, paste_nodes, path_to_d, rename_anim,
     rename_node, restack, retime_keys, reverse_anim, set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_gradient, set_key, set_key_ease,
-    set_keys_ease, set_light, set_path, set_prop, set_purpose, set_style, set_world, ungroup, world_text, write_event, write_tracks,
+    set_keys_ease, set_light, set_path, set_prop, set_purpose, set_stroke_gradient, set_style, set_world, ungroup, world_text, write_event, write_tracks,
 };
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,

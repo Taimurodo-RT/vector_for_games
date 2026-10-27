@@ -897,7 +897,12 @@ impl App {
         let theme = self.file_stem();
         let result = self
             .export_boards()
-            .and_then(|boards| boards.iter().map(|(_, doc)| motif_pixel::kit::render_kit(doc, render)).collect::<Result<Vec<_>, _>>())
+            .and_then(|boards| {
+                // Boards without pieces add nothing; with none at all the kit says what is missing.
+                let with: Vec<&Document> = boards.iter().map(|(_, d)| d).filter(|d| motif_pixel::kit::has_pieces(d)).collect();
+                let with = if with.is_empty() { boards.iter().map(|(_, d)| d).collect() } else { with };
+                with.into_iter().map(|doc| motif_pixel::kit::render_kit(doc, render)).collect::<Result<Vec<_>, _>>()
+            })
             .map(motif_pixel::kit::merge_boards)
             .and_then(|items| motif_pixel::kit::write_kit(&dir, &theme, &items).map(|files| (items.len(), files.len())));
         self.status = match result {
@@ -1471,8 +1476,11 @@ impl App {
                     }
                 });
                 fold(ui, "Обводка", |ui| {
-                    self.paint_row(ui, &id, Prop::StrokeColor, node.stroke, &mut changes, &mut diamonds);
-                    if node.stroke.is_some() {
+                    if self.stroke_kind_ui(ui, &node) {
+                        ui.add_space(6.0);
+                        self.paint_row(ui, &id, Prop::StrokeColor, node.stroke, &mut changes, &mut diamonds);
+                    }
+                    if node.stroke.is_some() || node.stroke_gradient.is_some() {
                         let w = ui.available_width();
                         let out = theme::num_field(ui, w, "Толщина", node.stroke_width, 0.1, 0.0..=1000.0, 1, self.key_state(&id, Prop::StrokeWidth));
                         if let Some(v) = out.changed {
@@ -1496,10 +1504,14 @@ impl App {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                     let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
                         let v = node.get(prop).as_num().unwrap_or(0.0);
-                        let range = if matches!(prop, Prop::ShadowX | Prop::ShadowY) { -1000.0..=1000.0 } else { 0.0..=500.0 };
-                        let out = theme::num_field(ui, half, label, v, 0.2, range, 1, self.key_state(&id, prop));
+                        let (range, speed, step) = match prop {
+                            Prop::ShadowX | Prop::ShadowY | Prop::InsetX | Prop::InsetY => (-1000.0..=1000.0, 0.2, 10.0),
+                            Prop::Noise => (0.0..=1.0, 0.005, 100.0),
+                            _ => (0.0..=500.0, 0.2, 10.0),
+                        };
+                        let out = theme::num_field(ui, half, label, v, speed, range, if step > 10.0 { 2 } else { 1 }, self.key_state(&id, prop));
                         if let Some(nv) = out.changed {
-                            fx_changes.push((prop, Value::Num((nv * 10.0).round() / 10.0)));
+                            fx_changes.push((prop, Value::Num((nv * step).round() / step)));
                         }
                         if out.diamond {
                             fx_diamonds.push(prop);
@@ -1522,9 +1534,22 @@ impl App {
                         });
                         ui.horizontal(|ui| fx(ui, "Мягкость", Prop::ShadowBlur));
                     }
+                    if crate::style_ui::glow_rows(ui, &node, &mut styles) {
+                        ui.horizontal(|ui| fx(ui, "Размер", Prop::Glow));
+                    }
+                    if crate::style_ui::inset_rows(ui, &node, &mut styles) {
+                        ui.horizontal(|ui| {
+                            fx(ui, "Сдвиг X", Prop::InsetX);
+                            fx(ui, "Сдвиг Y", Prop::InsetY);
+                        });
+                        ui.horizontal(|ui| fx(ui, "Мягкость ", Prop::InsetBlur));
+                    }
+                    if crate::style_ui::noise_rows(ui, &node, &mut styles) {
+                        ui.horizontal(|ui| fx(ui, "Сила", Prop::Noise));
+                    }
                     ui.label(
                         RichText::new(
-                            "«Высота» поднимает объект над артбордом: тень уходит от света сцены, длиннее и мягче. Размытие 0 — жёсткая тень для пиксель-арта.",
+                            "«Высота» поднимает объект над артбордом: тень уходит от света сцены, длиннее и мягче. Размытие 0 — жёсткая тень для пиксель-арта. Свечение — ореол вокруг, внутренняя тень вдавливает фигуру, шум — зерно поверх заливки. Размер свечения и сила шума анимируются: Hover может зажечь кнопку.",
                         )
                         .size(11.5)
                         .color(FAINT),

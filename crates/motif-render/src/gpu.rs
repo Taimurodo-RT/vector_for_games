@@ -1,5 +1,5 @@
 use crate::{BackdropView, Op, Paint, display_ops, faded};
-use motif_core::kurbo::{Affine, Rect};
+use motif_core::kurbo::{Affine, BezPath, PathEl, Rect};
 use motif_core::{Blend, Cap, Color, Document, Join};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -115,7 +115,7 @@ fn draw_blur(scene: &mut Scene, ops: &[Op], radius: f64, view: Affine) {
     let [a, b, c, d, e, f] = view.as_coeffs();
     let linear = Affine::new([a, b, c, d, 0.0, 0.0]);
     let mut h = DefaultHasher::new();
-    format!("{ops:?}").hash(&mut h);
+    hash_ops(ops, &mut h);
     for v in [radius, a, b, c, d] {
         v.to_bits().hash(&mut h);
     }
@@ -140,6 +140,44 @@ fn draw_blur(scene: &mut Scene, ops: &[Op], radius: f64, view: Affine) {
     if let Some((data, transform)) = image {
         let brush = peniko::ImageBrush::new(data).with_quality(peniko::ImageQuality::Medium);
         scene.draw_image(&brush, Affine::translate((e, f)) * transform);
+    }
+}
+
+/// Hashes what a blurred layer draws, number by number: formatting the ops to text took longer
+/// than drawing them once a glow sat on a line of text.
+fn hash_ops(ops: &[Op], h: &mut DefaultHasher) {
+    let path = |p: &BezPath, h: &mut DefaultHasher| {
+        for el in p.elements() {
+            match *el {
+                PathEl::MoveTo(a) => (0u8, a.x.to_bits(), a.y.to_bits()).hash(h),
+                PathEl::LineTo(a) => (1u8, a.x.to_bits(), a.y.to_bits()).hash(h),
+                PathEl::QuadTo(a, b) => (2u8, a.x.to_bits(), a.y.to_bits(), b.x.to_bits(), b.y.to_bits()).hash(h),
+                PathEl::CurveTo(a, b, c) => (3u8, [a.x, a.y, b.x, b.y, c.x, c.y].map(f64::to_bits)).hash(h),
+                PathEl::ClosePath => 4u8.hash(h),
+            }
+        }
+    };
+    let affine = |t: &Affine, h: &mut DefaultHasher| t.as_coeffs().map(f64::to_bits).hash(h);
+    for op in ops {
+        match op {
+            Op::Draw(item) => {
+                0u8.hash(h);
+                path(&item.path, h);
+                affine(&item.transform, h);
+                // Paint, line and the rest are small: their text is cheap.
+                format!("{:?}{:?}{:?}{}{:?}{}", item.fill, item.stroke, item.line, item.opacity, item.blend, item.even_odd).hash(h);
+            }
+            Op::PushClip { path: p, transform, even_odd } => {
+                (1u8, *even_odd).hash(h);
+                path(p, h);
+                affine(transform, h);
+            }
+            Op::Pop => 2u8.hash(h),
+            Op::Blur { ops, radius } => {
+                (3u8, radius.to_bits()).hash(h);
+                hash_ops(ops, h);
+            }
+        }
     }
 }
 
