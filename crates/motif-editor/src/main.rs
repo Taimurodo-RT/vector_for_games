@@ -16,6 +16,7 @@ mod importer;
 mod kit_ui;
 mod layers;
 mod layout_ui;
+mod library_ui;
 mod machine_ui;
 mod morph_ui;
 mod motion_ui;

@@ -1,0 +1,85 @@
+// Магазин: сверху заголовок и кошелёк, ниже ряд карточек товаров с ценой на кнопке.
+// Карточка — столбик со своим фоном (fit): картинка товара, название, описание, кнопка.
+// Монета на кнопке нарисована в её картинке, число — подпись (part text): игра пишет цену.
+artboard "Магазин" 640x360 bg #1a1730 ui
+
+let good = #4fd18f
+let good_deep = #23845a
+let panel = #283049
+let raised = #333c5a
+let well = #1b2132
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let gold = #ffc94d
+let bad = #ff5c6c
+let light = #6f93ff
+
+rect shop_back "Фон" at 320 180 size 640 360 fill #1a1730 gradient linear 90 #2d2550 #141226
+
+group header "Шапка" at 0 36 anchor center top stack row center gap 260 {
+  text shop_title "Заголовок" content "ЛАВКА" font bold font-size 26 letter-spacing 4 fill paper outline ink 6
+  group wallet "Кошелёк" stack row center gap 8 pad 8 {
+    rect wallet_bg "Фон" r 14 fill panel stroke ink 4 fit
+    ellipse wallet_coin "Монета" size 22 22 fill gold stroke ink 3
+    text wallet_sum "Сумма" content "1 250" font bold font-size 18 fill paper
+  }
+}
+
+group goods "Товары" at 0 24 anchor center middle stack row gap 16 {
+  group card1 "Карточка: зелье" stack column center gap 6 pad 14 {
+    rect card1_bg "Фон" r 16 fill panel stroke ink 4 fit shadow 0 6 0 #0a0d16
+    group card1_art "Зелье" {
+      ellipse card1_pad size 76 76 fill well
+      ellipse card1_potion at 0 6 size 38 38 fill bad stroke ink 3
+      rect card1_neck at 0 -16 size 14 14 r 3 fill paper stroke ink 3
+    }
+    text card1_name "Название" content "Зелье жизни" font bold font-size 16 fill paper
+    text card1_note "Описание" content "+50 здоровья" font-size 13 fill muted
+    group buy1 "Купить" ui button slice 14 {
+      rect buy1_base at 0 4 size 140 38 r 12 fill good_deep stroke ink 4
+      rect buy1_body size 140 38 r 12 fill good stroke ink 4
+      ellipse buy1_coin at -32 0 size 18 18 fill gold stroke ink 3
+      text buy1_price "Цена" at 8 1 content "120" font bold font-size 17 fill ink part text
+    }
+  }
+  group card2 "Карточка: щит" stack column center gap 6 pad 14 {
+    rect card2_bg "Фон" r 16 fill panel stroke ink 4 fit shadow 0 6 0 #0a0d16
+    group card2_art "Щит" {
+      ellipse card2_pad size 76 76 fill well
+      path card2_shield d "M -18 -18 L 18 -18 L 18 0 Q 18 15 0 22 Q -18 15 -18 0 Z" fill light stroke ink 3 join round
+    }
+    text card2_name "Название" content "Щит стража" font bold font-size 16 fill paper
+    text card2_note "Описание" content "Броня +8" font-size 13 fill muted
+    group buy2 "Купить" ui button slice 14 {
+      rect buy2_base at 0 4 size 140 38 r 12 fill good_deep stroke ink 4
+      rect buy2_body size 140 38 r 12 fill good stroke ink 4
+      ellipse buy2_coin at -32 0 size 18 18 fill gold stroke ink 3
+      text buy2_price "Цена" at 8 1 content "450" font bold font-size 17 fill ink part text
+    }
+  }
+  group card3 "Карточка: камень" stack column center gap 6 pad 14 {
+    rect card3_bg "Фон" r 16 fill panel stroke ink 4 fit shadow 0 6 0 #0a0d16
+    group card3_art "Камень" {
+      ellipse card3_pad size 76 76 fill well
+      path card3_gem d "M 0 -20 L 17 -3 L 0 20 L -17 -3 Z" fill #6fe3ff stroke ink 3 join round
+    }
+    text card3_name "Название" content "Звёздный камень" font bold font-size 16 fill paper
+    text card3_note "Описание" content "Открывает порталы" font-size 13 fill muted
+    group buy3 "Купить" ui button slice 14 {
+      rect buy3_base at 0 4 size 140 38 r 12 fill good_deep stroke ink 4
+      rect buy3_body size 140 38 r 12 fill good stroke ink 4
+      ellipse buy3_coin at -32 0 size 18 18 fill gold stroke ink 3
+      text buy3_price "Цена" at 8 1 content "990" font bold font-size 17 fill ink part text
+    }
+  }
+}
+
+anim Hover 0.15s {
+  buy1_body.fill 0: good | 0.15: #7be3ad
+}
+anim Press 0.08s {
+  buy1_body.y  0: 0 | 0.08: 4
+  buy1_coin.y  0: 0 | 0.08: 4
+  buy1_price.y 0: 1 | 0.08: 5
+}
