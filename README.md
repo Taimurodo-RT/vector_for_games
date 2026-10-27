@@ -270,6 +270,7 @@ cargo run --release -p motif-cli -- frames examples/bounce.msc --anim Idle --fps
 cargo run --release -p motif-cli -- palette examples/bounce.msc -o out/scene.pal
 cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --preset my.preset --no-aa -o out/idle_px
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
+cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
 cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопка -o out/button.png
 ```
@@ -336,6 +337,11 @@ UI-набор…» (или `motif kit`) собирает детали всех �
   `.tres`: каждая деталь — вариация своего типа Godot со `StyleBoxTexture` и полями 9-slice. Тени и
   обводки за рамкой детали уходят в `expand_margin`, поэтому кнопка в Godot остаётся своего размера. Тема проверена в
   Godot 4.3. Подробнее — [docs/export.html#ui-kit](docs/export.html#ui-kit).
+* «Экспорт → Экран для Godot…» (или `motif screen`) делает из холста сцену `ХОЛСТ.tscn` из `Control`-узлов: детали
+  `ui` — кнопки, полосы и флажки своих типов с вариациями из темы (значения и галочки — как нарисованы), стеки —
+  `VBoxContainer`/`HBoxContainer` в `PanelContainer` с фоном 9-slice, привязки — якоря, тексты — `Label`, остальное —
+  картинки `TextureRect`. Тема пишется рядом и назначена корню; меню из `examples/menu.msc` в Godot 4.3 совпадает
+  с холстом до пикселя. Подробнее — [docs/export.html#screens](docs/export.html#screens).
 
 ## Пикселизация: PixaTool
 

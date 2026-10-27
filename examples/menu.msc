@@ -3,31 +3,33 @@
 // Поменяйте размер артборда — кнопка останется в углу, меню в центре.
 // Наведите на «Играть» после «▶ Проверить»: кнопка растёт, соседи
 // разъезжаются сами — стек пересчитывается каждый кадр.
+// «Экспорт → Экран для Godot» (или motif screen) превращает холст в сцену из Control-узлов:
+// стек — VBoxContainer, кнопки — Button с подписью шрифтом Godot, «закрыть» — в правом углу.
 artboard "Меню" 480x360 bg #14161f ui
 
 let panel = #1f2333
 let ink = #e8ecf5
 let accent = #ffb23e
 
-group menu "Меню" at 0 10 anchor center middle stack column gap 10 pad 18 ui {
+group menu "Меню" at 0 10 anchor center middle stack column gap 10 pad 18 {
   rect bg "Фон" r 18 fill panel stroke #2d3348 2 fit
   text title "Заголовок" content "ПАУЗА" font bold font-size 26 letter-spacing 4 fill ink
-  group play "Играть" {
+  group play "Играть" ui button {
     rect play-face "Кнопка" size 200 44 r 12 fill accent
-    text play-label "Надпись" content "Играть" font-size 18 fill #1b1406
+    text play-label "Надпись" content "Играть" font-size 18 fill #1b1406 part text
   }
-  group options "Настройки" {
+  group options "Настройки" ui button {
     rect options-face "Кнопка" size 200 44 r 12 fill #2d3348
-    text options-label "Надпись" content "Настройки" font-size 18 fill ink
+    text options-label "Надпись" content "Настройки" font-size 18 fill ink part text
   }
-  group quit "Выход" {
+  group quit "Выход" ui button {
     rect quit-face "Кнопка" size 200 44 r 12 fill #2d3348
-    text quit-label "Надпись" content "Выход" font-size 18 fill ink
+    text quit-label "Надпись" content "Выход" font-size 18 fill ink part text
   }
 }
 
 // at считается от правого верхнего угла артборда.
-group close "Закрыть" at -28 28 anchor right ui {
+group close "Закрыть" at -28 28 anchor right ui button {
   ellipse close-face "Круг" size 32 fill #2d3348
   path close-x "Крестик" d "M -6 -6 L 6 6 M 6 -6 L -6 6" fill none stroke ink 2.5 cap round
 }

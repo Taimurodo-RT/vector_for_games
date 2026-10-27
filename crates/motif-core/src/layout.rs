@@ -191,6 +191,8 @@ impl Document {
         let shift = kurbo::Affine::translate(-(Vec2::new(n.x, n.y) + n.offset));
         let own = match (n.frame, n.path()) {
             (Some(f), _) => Some(f),
+            // A text takes the room of its lines, not of the ink of its letters.
+            (None, _) if n.text.is_some() => n.text.as_ref().map(|t| t.line_box(&n.text_style)),
             (None, Some(p)) => Some(p.bounding_box()),
             (None, None) => None,
         }

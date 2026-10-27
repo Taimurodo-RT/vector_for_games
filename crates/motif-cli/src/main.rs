@@ -15,6 +15,7 @@ motif — скрипты сцен Motif без окна редактора
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [-o папка] [параметры рендера]
   motif palette <сцена.msc> [-o палитра.pal]
   motif kit     <сцена.msc> [-o папка] [параметры рендера]
+  motif screen  <сцена.msc> [-o папка] [параметры рендера]
   motif godot   <сцена.msc> [--node ID] [--pivot X Y] [--machine ИМЯ] [--pixelize] [--preset X.preset] [--fps 12] [-o папка] [параметры рендера]
   motif pixel   <сцена.msc> --anim ИМЯ [--preset X.preset] [--pixatool Pixatool.exe] [--fps 12] [-o папка] [параметры рендера]
 
@@ -33,6 +34,9 @@ motif — скрипты сцен Motif без окна редактора
 frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их можно обработать в PixaTool пакетом.
 kit сохраняет элементы интерфейса (ui, slice) в каждом состоянии (анимации Hover, Press, Disabled, Focus)
 и тему Godot ИМЯ.tres, где они стоят стилями 9-slice.
+screen делает из каждого холста сцену Godot ХОЛСТ.tscn из Control-узлов: детали интерфейса — их типы
+из темы набора (она пишется рядом), стеки — VBoxContainer/HBoxContainer, привязки — якоря, тексты — Label,
+остальное — картинки TextureRect.
 godot запекает все анимации в один атлас ИМЯ.png, пишет SpriteFrames ИМЯ_frames.tres и сцену ИМЯ.tscn
 с AnimatedSprite2D. Если в сцене есть машина состояний, в сцене будут ещё AnimationPlayer и AnimationTree
 с теми же состояниями и переходами, а входы машины станут переменными скрипта ИМЯ.gd. --node берёт
@@ -231,6 +235,16 @@ fn run() -> Result<(), String> {
                 println!("  {} ({} от {}) — {size}{}{font}", item.id, motif_pixel::kit::type_name(&item.id), item.base, pictures.join(", "));
             }
             println!("{}: {} файлов, тема {stem}.tres", dir.display(), files.len());
+        }
+        "screen" => {
+            let dir = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_ui")));
+            let named: Vec<(String, Document)> = boards.iter().map(|d| (d.artboard.name.clone(), d.clone())).collect();
+            let opts = render_for(&boards[0]);
+            let files = motif_pixel::screen::write_screens(&dir, &stem, &named, opts)?;
+            for f in files.iter().filter(|f| f.extension().is_some_and(|e| e == "tscn")) {
+                println!("  {}", f.display());
+            }
+            println!("{}: {} файлов", dir.display(), files.len());
         }
         "godot" => {
             // With --node or --machine only the boards that have them; each board is a scene of its own.
