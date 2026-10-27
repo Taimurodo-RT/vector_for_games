@@ -18,7 +18,9 @@ try {
     Invoke-WebRequest -UseBasicParsing "$base/version.txt" -OutFile "$tmp\version.txt"
     $latest = (Get-Content "$tmp\version.txt" -Raw).Trim()
     Write-Host "Последняя версия:   $latest"
-    if ($latest -eq $current) {
+    # Папка godot-apps появилась в сборке позже: без неё качаем сборку и при той же версии.
+    $apps = Join-Path $dir 'godot-apps'
+    if ($latest -eq $current -and (Test-Path $apps)) {
         Write-Host ''
         Write-Host 'У вас уже последняя версия.' -ForegroundColor Green
         return
@@ -46,14 +48,17 @@ try {
     }
     # update.bat сейчас выполняется, поэтому его заменяем, только если его нет.
     if (-not (Test-Path (Join-Path $dir 'update.bat'))) { Copy-Item "$tmp\new\update.bat" $dir }
-    # Примеры: новые добавляются, изменённые вами остаются как есть.
-    $examples = Join-Path $dir 'examples'
-    New-Item -ItemType Directory -Force $examples | Out-Null
-    $src = (Resolve-Path "$tmp\new\examples").Path
-    foreach ($f in Get-ChildItem $src -File -Recurse -ErrorAction SilentlyContinue) {
-        $dst = Join-Path $examples $f.FullName.Substring($src.Length + 1)
-        New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
-        if (-not (Test-Path $dst)) { Copy-Item $f.FullName $dst }
+    # Примеры и приложения Godot: новые файлы добавляются, изменённые вами остаются как есть.
+    foreach ($name in 'examples', 'godot-apps') {
+        if (-not (Test-Path "$tmp\new\$name")) { continue }
+        $into = Join-Path $dir $name
+        New-Item -ItemType Directory -Force $into | Out-Null
+        $src = (Resolve-Path "$tmp\new\$name").Path
+        foreach ($f in Get-ChildItem $src -File -Recurse -ErrorAction SilentlyContinue) {
+            $dst = Join-Path $into $f.FullName.Substring($src.Length + 1)
+            New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
+            if (-not (Test-Path $dst)) { Copy-Item $f.FullName $dst }
+        }
     }
     Copy-Item "$tmp\version.txt" $versionFile -Force
 
