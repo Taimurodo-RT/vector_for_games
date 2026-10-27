@@ -288,6 +288,8 @@ fn alone(doc: &Document, i: usize, hide: &[usize]) -> Document {
             d.nodes[k].visible = false;
         }
     }
+    // The node shot is drawn even when the drawing hides it: the check of an unticked box.
+    d.nodes[i].visible = true;
     d
 }
 
@@ -323,12 +325,12 @@ pub fn control_box(doc: &Document, i: usize) -> Option<Rect> {
             let (b, ink) = (piece_box(doc, i)?, ink_box_except(doc, i, &[])?);
             Some(Rect::new(b.x0, ink.y0, b.x1, ink.y1))
         }
-        UiRole::Check | UiRole::Label => {
+        UiRole::Check | UiRole::Switch | UiRole::Label => {
             let text = part(UiPart::Text).or((n.kind == ShapeKind::Text).then_some(i));
             let line = text.and_then(|t| text_box(doc, t));
             let skip: Vec<usize> = text.into_iter().collect();
             // The boxes of a checkbox are icons, drawn whole from the control's corner.
-            let rest = if n.ui_role == UiRole::Check { ink_box_except(doc, i, &skip) } else { piece_box_except(doc, i, &skip) };
+            let rest = if n.ui_role.toggles() { ink_box_except(doc, i, &skip) } else { piece_box_except(doc, i, &skip) };
             match (rest, line) {
                 (Some(a), Some(b)) => Some(a.union(b)),
                 (a, b) => a.or(b),
@@ -624,14 +626,29 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
                 }
                 items.push(it);
             }
-            UiRole::Check => {
-                let mut it = item("CheckBox");
-                for (p, names) in [(UiPart::Unchecked, ["unchecked", "unchecked_disabled"]), (UiPart::Checked, ["checked", "checked_disabled"])] {
+            role if role.toggles() => {
+                // A switch draws its picture right of the caption, a check box left of it.
+                let switch = role == UiRole::Switch;
+                let mut it = item(if switch { "CheckButton" } else { "CheckBox" });
+                for p in [UiPart::Unchecked, UiPart::Checked] {
                     let k = part(p).ok_or(format!("«{}»: нет part {}", n.id, p.keyword()))?;
                     if let Some(shot) = part_shot(k, None)? {
                         let shots = add(&mut it, shot, p.keyword());
-                        it.slots.push(Slot::Icon { prop: names[0], picture: pick(&shots, "normal").unwrap_or(0) });
-                        it.slots.push(Slot::Icon { prop: names[1], picture: pick(&shots, "disabled").unwrap_or(0) });
+                        let (normal, disabled) = (pick(&shots, "normal").unwrap_or(0), pick(&shots, "disabled").unwrap_or(0));
+                        // In a ButtonGroup a check box draws its radio icons: the same pictures.
+                        let props: &[(&'static str, usize)] = match (switch, p) {
+                            (true, _) => &[],
+                            (false, UiPart::Checked) => &[("radio_checked", normal), ("radio_checked_disabled", disabled)],
+                            _ => &[("radio_unchecked", normal), ("radio_unchecked_disabled", disabled)],
+                        };
+                        let own: [(&'static str, usize); 2] = if p == UiPart::Checked {
+                            [("checked", normal), ("checked_disabled", disabled)]
+                        } else {
+                            [("unchecked", normal), ("unchecked_disabled", disabled)]
+                        };
+                        for &(prop, picture) in own.iter().chain(props) {
+                            it.slots.push(Slot::Icon { prop, picture });
+                        }
                     }
                 }
                 let frame = ink_box_except(normal, i, &text.into_iter().collect::<Vec<_>>()).unwrap_or_default();
@@ -647,10 +664,18 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
                 {
                     // The gap between the box and the caption.
                     let icon = part(UiPart::Unchecked).and_then(|k| ink_box_except(normal, k, &[]));
-                    if let (Some(icon), Some(tb)) = (icon, text_box(normal, t)) {
-                        it.slots.push(Slot::Constant { prop: "h_separation", value: ((tb.x0 - icon.x1) * opts.scale).round().max(0.0) as i64 });
+                    let px = |v: f64| (v * opts.scale).round().max(0.0);
+                    let tb = text_box(normal, t);
+                    if let (Some(icon), Some(tb)) = (icon, tb) {
+                        let gap = if switch { icon.x0 - tb.x1 } else { tb.x0 - icon.x1 };
+                        it.slots.push(Slot::Constant { prop: "h_separation", value: px(gap) as i64 });
                     }
-                    let left = icon.map_or(0, |b| ((b.x0 - full.x0) * opts.scale).round().max(0.0) as u32);
+                    // A check box starts with its box, a switch with its caption and ends with its picture.
+                    let (left, right) = if switch {
+                        (tb.map_or(0, |b| px(b.x0 - full.x0) as u32), icon.map_or(0, |b| px(full.x1 - b.x1) as u32))
+                    } else {
+                        (icon.map_or(0, |b| px(b.x0 - full.x0) as u32), 0)
+                    };
                     // Top and bottom as drawn; Godot centres the box and the caption in what is left.
                     // The box picture is cut to what it draws: it can be taller than the caption.
                     let [_, top, _, bottom] = content.first().map_or([0; 4], |c| c.1);
@@ -660,7 +685,7 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
                     });
                     let room = ((full.height() * opts.scale).round() as u32).saturating_sub(tall.unwrap_or(0)) / 2;
                     let pad = top.min(bottom).min(room);
-                    state_styles(&mut it, &bgs, Some([left, pad, 0, pad]));
+                    state_styles(&mut it, &bgs, Some([left, pad, right, pad]));
                     it.font = Some(font);
                 } else {
                     state_styles(&mut it, &bgs, None);
@@ -683,13 +708,50 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
                 }
                 items.push(it);
             }
+            UiRole::Input => {
+                // A text field: its frame in each state, the placeholder as the caption.
+                let Some(frame) = piece_box_except(normal, i, &all) else { continue };
+                let shot = shoot(&poses, i, &all, frame, frame, n.slice, opts)?;
+                let mut it = item("LineEdit");
+                let pics = add(&mut it, shot, "");
+                let corners = it.pictures[0].margins.map(|m| [0, 1, 2, 3].map(|k| m[k].saturating_sub(it.pictures[0].expand[k])));
+                let cap = text.and_then(|t| caption(&poses, t, frame, &[("normal", "font_placeholder_color"), ("disabled", "font_uneditable_color")], opts));
+                // Typing starts where the placeholder does (past an icon drawn in the frame) and
+                // runs up to the right corner, however short the placeholder is.
+                let content = cap.as_ref().and_then(|(_, c)| c.first()).map(|s| {
+                    let m = snug(s.1, corners);
+                    [s.1[0], m[1], corners.map_or(m[2], |c| m[2].min(c[2])), m[3]]
+                });
+                // Focus is drawn over the field: without a picture of its own Godot's outline stays.
+                for (state, prop) in [("normal", "normal"), ("focus", "focus"), ("disabled", "read_only")] {
+                    if state == "normal" || pics.iter().any(|s| s.0 == state) {
+                        it.slots.push(Slot::Style { prop, picture: pick(&pics, state), content });
+                    }
+                }
+                if let Some((mut font, _)) = cap {
+                    // What is typed has the placeholder's colour without its see-through.
+                    if let Some(c) = font.colors.iter().find(|c| c.0 == "font_placeholder_color").map(|c| c.1) {
+                        let solid = Color { a: 255, ..c };
+                        font.colors.extend([("font_color", solid), ("caret_color", solid)]);
+                    }
+                    it.font = Some(font);
+                }
+                items.push(it);
+            }
             role => {
                 // Buttons and panels: one picture per state, the caption drawn by Godot.
                 let hide: Vec<usize> = all.clone();
                 let Some(frame) = piece_box_except(normal, i, &hide) else { continue };
                 let shot = shoot(&poses, i, &hide, frame, frame, n.slice, opts)?;
-                let button = role == UiRole::Button || (role == UiRole::Auto && (shot.states.len() > 1 || text.is_some()));
-                let mut it = item(if button { "Button" } else { "PanelContainer" });
+                let option = role == UiRole::Option;
+                let button = option || role == UiRole::Button || (role == UiRole::Auto && (shot.states.len() > 1 || text.is_some()));
+                let mut it = item(if option {
+                    "OptionButton"
+                } else if button {
+                    "Button"
+                } else {
+                    "PanelContainer"
+                });
                 let pics = add(&mut it, shot, "");
                 if !button {
                     it.slots.push(Slot::Style { prop: "panel", picture: pick(&pics, "normal"), content: None });
@@ -700,7 +762,32 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
                 // The padding around the caption goes no further than the nine-slice corners, so the
                 // button can be narrower than drawn; what differs between sides (and states) stays.
                 let corners = it.pictures[0].margins.map(|m| [0, 1, 2, 3].map(|k| m[k].saturating_sub(it.pictures[0].expand[k])));
-                let content_of = |state: &str| cap.as_ref().and_then(|(_, c)| c.iter().find(|s| s.0 == state).or(c.first())).map(|s| snug(s.1, corners));
+                // A drop-down's arrow: Godot draws it right, `arrow_margin` from the edge, the
+                // caption ending `h_separation` before it.
+                let arrow = part(UiPart::Arrow).filter(|_| option).and_then(|k| ink_box_except(normal, k, &[]).map(|b| (k, b)));
+                let mut right = None;
+                if let Some((k, b)) = arrow {
+                    let px = |v: f64| (v * opts.scale).round().max(0.0);
+                    if let Some(shot) = part_shot(k, Some(b))? {
+                        let shots = add(&mut it, shot, "arrow");
+                        it.slots.push(Slot::Icon { prop: "arrow", picture: pick(&shots, "normal").unwrap_or(0) });
+                    }
+                    let margin = px(frame.x1 - b.x1);
+                    it.slots.push(Slot::Constant { prop: "arrow_margin", value: margin as i64 });
+                    if let Some(tb) = text.and_then(|t| text_box(normal, t)) {
+                        it.slots.push(Slot::Constant { prop: "h_separation", value: px(b.x0 - tb.x1) as i64 });
+                    }
+                    right = Some(margin as u32);
+                }
+                let content_of = |state: &str| {
+                    cap.as_ref().and_then(|(_, c)| c.iter().find(|s| s.0 == state).or(c.first())).map(|s| {
+                        let mut m = snug(s.1, corners);
+                        if let Some(r) = right {
+                            m[2] = r;
+                        }
+                        m
+                    })
+                };
                 for (state, prop) in STYLE_STATES {
                     // Focus is drawn over the button: without a picture of its own Godot's outline stays.
                     if state == "focus" && !pics.iter().any(|s| s.0 == "focus") {

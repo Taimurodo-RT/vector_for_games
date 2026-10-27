@@ -1112,6 +1112,7 @@ fn a_slider_drawn_by_its_value_animation() {
     let errors = |src: &str| parse(src).unwrap_err().into_iter().map(|e| e.message).collect::<Vec<_>>();
     assert_eq!(errors("group a ui slider {\n  rect b\n}\n"), ["для ui slider внутри не хватает: part track, part grabber"]);
     assert_eq!(errors("rect a size 10 10 dial turn\n"), ["dial и value — у слайдера, который рисует анимация Value: ui slider dial turn"]);
+    assert_eq!(errors("rect a size 10 10 ui button radio difficulty\n"), ["radio — у флажка: ui check radio difficulty"]);
     assert_eq!(errors("group a ui slider dial sideways {\n  rect b\n}\nanim Value 1s {\n  b.x 0: 0 | 1: 10\n}\n").len(), 1);
     assert_eq!(errors("group a ui slider value 2 {\n  rect b\n}\nanim Value 1s {\n  b.x 0: 0 | 1: 10\n}\n").len(), 1);
 }
@@ -1617,9 +1618,34 @@ fn the_interface_check_reads_and_moves_the_kit() {
     let boards = crate::parse_boards(include_str!("../../../examples/ui-kit.msc"), None).unwrap_or_else(|e| panic!("{e:?}"));
     let doc = |name: &str| boards.iter().find(|s| s.doc.artboard.name == name).map(|s| s.doc.clone()).unwrap();
     // Values and check marks come from the drawing.
-    let check = UiCheck::new(&doc("Флажок"));
+    let toggles = doc("Переключатели");
+    let mut check = UiCheck::new(&toggles);
     assert_eq!(check.control("sound").map(|c| (c.role, c.checked)), Some((UiRole::Check, Some(true))));
-    let bar = doc("Полоса");
+    assert_eq!(check.control("music").map(|c| (c.role, c.checked)), Some((UiRole::Switch, Some(true))));
+    let on = |c: &UiCheck| ["easy", "normal", "hard"].map(|r| c.control(r).and_then(|c| c.checked) == Some(true));
+    assert_eq!(on(&check), [true, false, false]);
+    let click = |c: &mut UiCheck, d: &motif_core::Document, x: f64, y: f64| {
+        let at = Some(motif_core::kurbo::Point::new(x, y));
+        c.pointer(d, at, true);
+        c.pointer(d, at, false)
+    };
+    // A switch toggles; a radio button turns on and the others of its group off, and stays on.
+    click(&mut check, &toggles, 460.0, 80.0);
+    assert_eq!(check.control("music").and_then(|c| c.checked), Some(false));
+    click(&mut check, &toggles, 200.0, 150.0);
+    assert_eq!(on(&check), [false, true, false]);
+    click(&mut check, &toggles, 200.0, 150.0);
+    assert_eq!(on(&check), [false, true, false]);
+    // A click puts the typing into a field, and a click elsewhere takes it out.
+    let fields = doc("Поля");
+    let mut check = UiCheck::new(&fields);
+    assert_eq!(check.control("quality").map(|c| c.role), Some(UiRole::Option));
+    let said = click(&mut check, &fields, 170.0, 80.0);
+    assert_eq!(said.map(|s| s.0), Some("name_field".to_string()));
+    assert!(check.control("name_field").is_some_and(|c| c.focused));
+    click(&mut check, &fields, 170.0, 170.0);
+    assert!(check.control("name_field").is_some_and(|c| !c.focused));
+    let bar = doc("Полосы");
     let check = UiCheck::new(&bar);
     let health = check.control("health").and_then(|c| c.value).unwrap();
     assert!(health > 0.5 && health < 0.9, "{health}");
@@ -1631,7 +1657,7 @@ fn the_interface_check_reads_and_moves_the_kit() {
     let fill = |d: &motif_core::Document| d.world_bounds(d.index_of("bar_fill").unwrap()).unwrap();
     let (a, b) = (fill(&orig), fill(&same));
     assert!((a.x0 - b.x0).abs() < 1e-6 && (a.x1 - b.x1).abs() < 1e-6, "{a:?} {b:?}");
-    for (board, id) in [("Слайдер", "volume"), ("Прокрутка", "scroller")] {
+    for (board, id) in [("Полосы", "volume"), ("Полосы", "scroller"), ("Полосы", "rating")] {
         let c = UiCheck::new(&doc(board));
         let v = c.control(id).and_then(|c| c.value);
         assert!(v.is_some_and(|v| (0.0..=1.0).contains(&v)), "{board}: {v:?}");

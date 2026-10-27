@@ -67,6 +67,8 @@ struct Writer<'a> {
     n_sub: usize,
     fonts: Vec<String>,
     files: Vec<PathBuf>,
+    /// The ButtonGroup of each group of radio buttons.
+    radios: Vec<(String, String)>,
 }
 
 impl Writer<'_> {
@@ -203,14 +205,34 @@ impl Writer<'_> {
             let text = (0..d.nodes.len())
                 .find(|&j| (d.nodes[j].part == Some(UiPart::Text) && kit::owner(d, j) == Some(k)) || (j == k && n.kind == ShapeKind::Text))
                 .and_then(|j| d.nodes[j].text.as_ref().map(|t| t.content.clone()));
-            if let Some(t) = text.filter(|_| matches!(item.base, "Button" | "CheckBox" | "Label")) {
-                self.nodes.push_str(&format!("text = \"{}\"\n", quote(&t)));
+            match (item.base, text) {
+                ("Button" | "CheckBox" | "CheckButton" | "Label", Some(t)) => self.nodes.push_str(&format!("text = \"{}\"\n", quote(&t))),
+                ("LineEdit", Some(t)) => self.nodes.push_str(&format!("placeholder_text = \"{}\"\n", quote(&t))),
+                // The caption is the chosen item of the list.
+                ("OptionButton", Some(t)) => {
+                    self.nodes.push_str(&format!("selected = 0\nitem_count = 1\npopup/item_0/text = \"{}\"\npopup/item_0/id = 0\n", quote(&t)))
+                }
+                _ => {}
             }
             if item.base == "Label" {
                 self.nodes.push_str("horizontal_alignment = 1\nvertical_alignment = 1\n");
             }
             let state = self.state(k, item, b);
             self.nodes.push_str(&state);
+            // Radio buttons of one group share a ButtonGroup: Godot then draws them round.
+            if let Some(group) = n.radio.as_ref().filter(|_| item.base == "CheckBox") {
+                let sub = match self.radios.iter().find(|(g, _)| g == group) {
+                    Some((_, sub)) => sub.clone(),
+                    None => {
+                        self.n_sub += 1;
+                        let sub = format!("{}_radio", self.n_sub);
+                        self.subs.push_str(&format!("\n[sub_resource type=\"ButtonGroup\" id=\"{sub}\"]\n"));
+                        self.radios.push((group.clone(), sub.clone()));
+                        sub
+                    }
+                };
+                self.nodes.push_str(&format!("button_group = SubResource(\"{sub}\")\n"));
+            }
             return Ok(());
         }
         if plain_text(n) {
@@ -503,6 +525,7 @@ pub fn write_screen(
         n_sub: 0,
         fonts: Vec::new(),
         files: Vec::new(),
+        radios: Vec::new(),
     };
     let theme_id = theme.map(|t| w.add_ext("Theme", t));
     let root = node_name(title);
@@ -609,15 +632,27 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("motif-screen-kit-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         write_screens(&dir, "ui-kit", &boards(include_str!("../../../examples/ui-kit.msc")), CpuOptions::default()).unwrap();
-        // The fill picture is 140 of 180 px wide and its corners take 36: (140 − 36) / (180 − 36).
-        let bar = scene(&dir, "Полоса.tscn");
-        assert!(node(&bar, "health").contains("value = 72.0"), "{bar}");
-        assert!(node(&scene(&dir, "Флажок.tscn"), "sound").contains("button_pressed = true"));
+        // The value is how far the drawn fill reaches along the bar, past its corners.
+        let bars = scene(&dir, "Полосы.tscn");
+        assert!(node(&bars, "health").contains("value = 72.0"), "{bars}");
         // The thumb is 50 of the 160 px track, 25 px down it.
-        let scroll = scene(&dir, "Прокрутка.tscn");
-        let scroller = node(&scroll, "scroller");
+        let scroller = node(&bars, "scroller");
         assert!(scroller.contains("page = 31.3") && scroller.contains("value = 15.6"), "{scroller}");
-        assert!(node(&scene(&dir, "Слайдер.tscn"), "volume").contains("value = 50.0"));
+        assert!(node(&bars, "volume").contains("value = 50.0"));
+        let toggles = scene(&dir, "Переключатели.tscn");
+        assert!(node(&toggles, "sound").contains("type=\"CheckBox\"") && node(&toggles, "sound").contains("button_pressed = true"));
+        let music = node(&toggles, "music");
+        assert!(music.contains("type=\"CheckButton\"") && music.contains("text = \"Музыка\"") && music.contains("button_pressed = true"), "{music}");
+        // The three radio buttons share one ButtonGroup; only the first is on.
+        assert_eq!(toggles.matches("[sub_resource type=\"ButtonGroup\"").count(), 1, "{toggles}");
+        let radio = |name: &str| node(&toggles, name).to_string();
+        assert!(["easy", "normal", "hard"].iter().all(|r| radio(r).contains("button_group = SubResource(")), "{toggles}");
+        assert!(radio("easy").contains("button_pressed = true") && !radio("hard").contains("button_pressed"), "{toggles}");
+        let fields = scene(&dir, "Поля.tscn");
+        let name = node(&fields, "name_field");
+        assert!(name.contains("type=\"LineEdit\"") && name.contains("placeholder_text = \"Имя героя\""), "{name}");
+        let quality = node(&fields, "quality");
+        assert!(quality.contains("type=\"OptionButton\"") && quality.contains("popup/item_0/text = \"Качество: высокое\""), "{quality}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

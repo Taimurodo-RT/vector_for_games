@@ -703,6 +703,7 @@ impl<'a> Evaluator<'a> {
         let mut part_span = None;
         let mut role_span = None;
         let mut dial_span: Option<Span> = None;
+        let mut radio_span: Option<Span> = None;
         let mut ik: Option<(String, Span)> = None;
         let (mut chain, mut flip) = (2, false);
         let mut skin: Option<Vec<(String, Span)>> = None;
@@ -734,7 +735,7 @@ impl<'a> Evaluator<'a> {
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
-                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" => Vec::new(),
+                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" => Vec::new(),
                 // `dial turn 300`: the way is a word, the arc a number (or `{arc}`).
                 "dial" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(_)) { None } else { self.value(v) }).collect(),
                 // `cross` is a keyword of the hatching.
@@ -1222,7 +1223,7 @@ impl<'a> Evaluator<'a> {
                             ValueKind::Ref(w) if motif_core::UiRole::from_keyword(w).is_some() => {
                                 node.ui_role = motif_core::UiRole::from_keyword(w).unwrap_or_default();
                             }
-                            _ => self.err(v.span, "чем станет деталь в Godot: ui button, panel, progress, check, slider, scroll или label"),
+                            _ => self.err(v.span, "чем станет деталь в Godot: ui button, panel, progress, check, switch, slider, scroll, label, input или option"),
                         }
                     }
                 }
@@ -1231,7 +1232,7 @@ impl<'a> Evaluator<'a> {
                         node.part = motif_core::UiPart::from_keyword(w);
                         part_span = Some(p.key_span);
                     }
-                    _ => self.err(p.values[0].span, "роль детали: part background, fill, unchecked, checked, track, grabber или text"),
+                    _ => self.err(p.values[0].span, "роль детали: part background, fill, unchecked, checked, track, grabber, arrow или text"),
                 },
                 "dial" => {
                     dial_span = Some(p.key_span);
@@ -1256,6 +1257,13 @@ impl<'a> Evaluator<'a> {
                         dial_span.get_or_insert(p.key_span);
                     }
                     _ => self.err(p.key_span, "value — где стоит слайдер с анимацией Value: от 0 до 1"),
+                },
+                "radio" => match &p.values[0].kind {
+                    ValueKind::Ref(w) => {
+                        node.radio = Some(w.clone());
+                        radio_span = Some(p.key_span);
+                    }
+                    _ => self.err(p.values[0].span, "radio — имя группы радио-кнопок, одним словом: radio difficulty"),
                 },
                 "locked" => node.locked = true,
                 "rough" | "boil" | "hatch" | "grain" | "bands" | "seed" if n.kind.is_container() => {
@@ -1613,6 +1621,11 @@ impl<'a> Evaluator<'a> {
             && !(node.ui && node.ui_role == motif_core::UiRole::Slider)
         {
             self.err(span, "dial и value — у слайдера, который рисует анимация Value: ui slider dial turn");
+        }
+        if let Some(span) = radio_span
+            && !(node.ui && node.ui_role == motif_core::UiRole::Check)
+        {
+            self.err(span, "radio — у флажка: ui check radio difficulty");
         }
         if let Some((ball, span)) = on {
             node.on = Some(format!("{}{ball}", self.prefix));

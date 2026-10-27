@@ -1,137 +1,470 @@
-// UI-набор: элементы интерфейса игры, каждый на своём холсте. Всё, что выше первого холста, —
-// общее для всех: поменяйте цвета и скругление ниже, и весь набор перекрасится.
-// ui — элемент экспортируется отдельно; slice — поля 9-slice: углы не растягиваются, когда игра
-// меняет размер кнопки или панели. Состояния — анимации Hover, Press, Disabled: каждое — поза в конце.
-// Слово после ui — чем элемент станет в Godot: ui progress, ui check, ui slider, ui scroll, ui label.
-// part — деталь такого элемента: part fill, part grabber… part text — подпись: её не запекаем,
-// Godot пишет её шрифтом из темы, а цвет берёт из каждого состояния.
-// «Экспорт → Холсты: Все → UI-набор для Godot» (или motif kit) собирает детали всех холстов
-// в одну тему .tres для Godot.
-
-let main = #3b6cff
+// UI-набор: элементы интерфейса игры по разделам, как в веб-наборах — кнопки, переключатели, поля,
+// полосы, панели, навигация и текст, каждый раздел на своём холсте. Всё, что выше первого холста,
+// общее: поменяйте цвета и скругление ниже, и весь набор перекрасится.
+// ui — деталь экспортируется отдельно; slice — поля 9-slice: углы не растягиваются, когда игра
+// меняет размер. Состояния — анимации Hover, Press, Disabled, Focus: каждое — поза в конце.
+// Слово после ui — чем деталь станет в Godot: button, panel, progress, check, switch, slider,
+// scroll, label, input, option. part — деталь такого элемента: part fill, part grabber, part arrow…
+// part text — подпись: её не запекаем, Godot пишет её шрифтом из темы, цвет берёт из состояний.
+// Подписи разделов (серые) — не детали: они только объясняют холст.
+// «Экспорт → Холсты: Все → UI-набор для Godot» (или motif kit) собирает всё в одну тему .tres;
+// «▶ Проверить» оживляет детали на холсте, как в игре.
+let primary = #3b6cff
 let light = #6f93ff
 let deep = #2441a8
 let panel = #283049
+let raised = #333c5a
+let well = #1b2132
 let ink = #10131d
 let paper = #f4f1ea
+let muted = #a3a8b8
+let good = #4fd18f
+let good_deep = #23845a
+let gold = #ffc94d
+let bad = #ff5c6c
+let bad_deep = #a8303d
+let off = #59607a
+let off_deep = #3a3f52
+let back = #39415a
 let r = 14
 
-// Кнопка с толщиной: корпус лежит на тёмном основании и нажимается вниз.
-artboard "Кнопка" 240x100 bg #39415a ui
-group button "Кнопка" at 120 47 ui button slice 20 {
+// Кнопки: у каждой корпус лежит на тёмном основании и нажимается вниз; Hover светлеет,
+// Disabled сереет. Одинаково нарисованные кнопки в теме Godot становятся одним стилем.
+artboard "Кнопки" 640x340 bg back ui
+text buttons_note "Подпись раздела" at 24 22 content "Кнопки: основная, вторичная, опасная, успех, контурная, прозрачная, маленькая и со значками" font-size 13 fill muted align left
+group button "Основная" at 120 77 ui button slice 20 {
   rect base at 0 5 size 180 52 r {r} fill deep stroke ink 4
-  rect body size 180 52 r {r} fill main stroke ink 4
+  rect body size 180 52 r {r} fill primary stroke ink 4
   rect shine at 0 -14 size 156 10 r 5 fill light
   text caption "Подпись" at 0 2 content "Играть" font bold font-size 20 fill paper part text
 }
-
-anim Hover 0.15s {
-  body.fill    0: main | 0.15: light
-  shine.fill   0: light | 0.15: #a8c0ff
+group secondary "Вторичная" at 320 77 ui button slice 20 {
+  rect sec_base at 0 5 size 180 52 r {r} fill #1f2638 stroke ink 4
+  rect sec_body size 180 52 r {r} fill raised stroke ink 4
+  text sec_caption "Подпись" at 0 2 content "Настройки" font bold font-size 20 fill paper part text
 }
-
-anim Press 0.08s {
-  body.y       0: 0 | 0.08: 5
-  shine.y      0: -14 | 0.08: -9
-  caption.y    0: 2 | 0.08: 7
+group danger "Опасная" at 520 77 ui button slice 20 {
+  rect bad_base at 0 5 size 180 52 r {r} fill bad_deep stroke ink 4
+  rect bad_body size 180 52 r {r} fill bad stroke ink 4
+  text bad_caption "Подпись" at 0 2 content "Удалить" font bold font-size 20 fill paper part text
 }
-
-anim Disabled 0.2s {
-  body.fill    0: main | 0.2: #59607a
-  base.fill    0: deep | 0.2: #3a3f52
-  shine.fill   0: light | 0.2: #737a94
-  caption.fill 0: paper | 0.2: #a3a8b8
+group success "Успех" at 120 167 ui button slice 20 {
+  rect good_base at 0 5 size 180 52 r {r} fill good_deep stroke ink 4
+  rect good_body size 180 52 r {r} fill good stroke ink 4
+  text good_caption "Подпись" at 0 2 content "Купить" font bold font-size 20 fill ink part text
 }
-
+group outline "Контурная" at 320 167 ui button slice 20 {
+  rect line_body size 180 52 r {r} fill back stroke light 4
+  text line_caption "Подпись" at 0 1 content "Отмена" font bold font-size 20 fill light part text
+}
+group ghost "Прозрачная" at 520 167 ui button slice 20 {
+  rect ghost_body size 180 52 r {r} fill raised opacity 0
+  text ghost_caption "Подпись" at 0 1 content "Назад" font bold font-size 20 fill paper part text
+}
+group small "Маленькая" at 84 259 ui button slice 16 {
+  rect small_base at 0 4 size 104 36 r 18 fill deep stroke ink 4
+  rect small_body size 104 36 r 18 fill primary stroke ink 4
+  text small_caption "Подпись" at 0 1 content "Ещё" font bold font-size 16 fill paper part text
+}
 // Круглая кнопка-иконка: состояния есть, 9-slice не нужен.
-artboard "Закрыть" 100x100 bg #39415a ui
-group close "Закрыть" at 50 50 ui {
-  ellipse ring size 52 52 fill #ff5c6c stroke ink 4
+group close "Закрыть" at 190 259 ui {
+  ellipse ring size 52 52 fill bad stroke ink 4
   path cross d "M -9 -9 L 9 9 M -9 9 L 9 -9" fill none stroke paper 5 cap round
 }
-
+group play "Пуск" at 270 259 ui {
+  rect play_base at 0 4 size 52 52 r 14 fill deep stroke ink 4
+  rect play_body size 52 52 r 14 fill primary stroke ink 4
+  path play_icon at 2 0 d "M -7 -11 L 11 0 L -7 11 Z" fill paper
+}
+group pause "Пауза" at 342 259 ui {
+  rect pause_base at 0 4 size 52 52 r 14 fill #1f2638 stroke ink 4
+  rect pause_body size 52 52 r 14 fill raised stroke ink 4
+  rect pause_left at -6 0 size 6 20 r 2 fill paper
+  rect pause_right at 6 0 size 6 20 r 2 fill paper
+}
+group add "Добавить" at 414 259 ui {
+  rect add_base at 0 4 size 52 52 r 26 fill good_deep stroke ink 4
+  rect add_body size 52 52 r 26 fill good stroke ink 4
+  rect add_h size 22 6 r 3 fill ink
+  rect add_v size 6 22 r 3 fill ink
+}
+group back_btn "Назад-значок" at 486 259 ui {
+  rect back_body size 52 52 r 14 fill back stroke light 4
+  path back_icon at -2 0 d "M 5 -10 L -5 0 L 5 10" fill none stroke light 5 cap round join round
+}
 anim Hover 0.15s {
-  ring.fill    0: #ff5c6c | 0.15: #ff8590
+  body.fill         0: primary | 0.15: light
+  shine.fill        0: light | 0.15: #a8c0ff
+  sec_body.fill     0: raised | 0.15: #414b6e
+  bad_body.fill     0: bad | 0.15: #ff8590
+  good_body.fill    0: good | 0.15: #7be3ad
+  line_body.fill    0: back | 0.15: #434c6a
+  ghost_body.opacity 0: 0 | 0.15: 1
+  small_body.fill   0: primary | 0.15: light
+  ring.fill         0: bad | 0.15: #ff8590
+  play_body.fill    0: primary | 0.15: light
+  pause_body.fill   0: raised | 0.15: #414b6e
+  add_body.fill     0: good | 0.15: #7be3ad
+  back_body.fill    0: back | 0.15: #434c6a
 }
-
 anim Press 0.08s {
-  ring.sx      0: 1 | 0.08: 0.9
-  ring.sy      0: 1 | 0.08: 0.9
-  cross.sx     0: 1 | 0.08: 0.9
-  cross.sy     0: 1 | 0.08: 0.9
+  body.y            0: 0 | 0.08: 5
+  shine.y           0: -14 | 0.08: -9
+  caption.y         0: 2 | 0.08: 7
+  sec_body.y        0: 0 | 0.08: 5
+  sec_caption.y     0: 2 | 0.08: 7
+  bad_body.y        0: 0 | 0.08: 5
+  bad_caption.y     0: 2 | 0.08: 7
+  good_body.y       0: 0 | 0.08: 5
+  good_caption.y    0: 2 | 0.08: 7
+  line_body.fill    0: back | 0.08: #2e3550
+  ghost_body.opacity 0: 0 | 0.08: 1
+  ghost_body.fill   0: raised | 0.08: panel
+  small_body.y      0: 0 | 0.08: 4
+  small_caption.y   0: 1 | 0.08: 5
+  ring.sx           0: 1 | 0.08: 0.9
+  ring.sy           0: 1 | 0.08: 0.9
+  cross.sx          0: 1 | 0.08: 0.9
+  cross.sy          0: 1 | 0.08: 0.9
+  play_body.y       0: 0 | 0.08: 4
+  play_icon.y       0: 0 | 0.08: 4
+  pause_body.y      0: 0 | 0.08: 4
+  pause_left.y      0: 0 | 0.08: 4
+  pause_right.y     0: 0 | 0.08: 4
+  add_body.y        0: 0 | 0.08: 4
+  add_h.y           0: 0 | 0.08: 4
+  add_v.y           0: 0 | 0.08: 4
+  back_body.fill    0: back | 0.08: #2e3550
 }
-
 anim Disabled 0.2s {
-  ring.fill    0: #ff5c6c | 0.2: #59607a
+  body.fill         0: primary | 0.2: off
+  base.fill         0: deep | 0.2: off_deep
+  shine.fill        0: light | 0.2: #737a94
+  caption.fill      0: paper | 0.2: muted
+  sec_body.fill     0: raised | 0.2: off
+  sec_caption.fill  0: paper | 0.2: muted
+  bad_body.fill     0: bad | 0.2: off
+  bad_base.fill     0: bad_deep | 0.2: off_deep
+  bad_caption.fill  0: paper | 0.2: muted
+  good_body.fill    0: good | 0.2: off
+  good_base.fill    0: good_deep | 0.2: off_deep
+  good_caption.fill 0: ink | 0.2: muted
+  line_body.stroke  0: light | 0.2: off
+  line_caption.fill 0: light | 0.2: off
+  ghost_caption.fill 0: paper | 0.2: off
+  small_body.fill   0: primary | 0.2: off
+  small_base.fill   0: deep | 0.2: off_deep
+  ring.fill         0: bad | 0.2: off
+  play_body.fill    0: primary | 0.2: off
+  play_base.fill    0: deep | 0.2: off_deep
+  pause_body.fill   0: raised | 0.2: off
+  add_body.fill     0: good | 0.2: off
+  add_base.fill     0: good_deep | 0.2: off_deep
+  back_body.stroke  0: light | 0.2: off
+  back_icon.stroke  0: light | 0.2: off
 }
 
-// Панель с полосой заголовка: верхнее поле slice выше, чтобы полоса не растягивалась.
-artboard "Панель" 220x240 bg #39415a ui
-group card "Панель" at 110 116 slice 22 46 22 22 {
-  rect sheet size 160 180 r {r + 4} fill panel stroke ink 4 shadow 0 8 0 #0a0d16
-  rect header at 0 -66 size 140 30 r 9 fill main
-}
-
-// Полоса прогресса: ProgressBar. Заливка лежит внутри рамки с отступом — он сохранится в Godot,
-// а заливка растёт от левого края, сколько бы ни было value.
-artboard "Полоса" 240x80 bg #39415a ui
-group health "Полоса здоровья" at 120 40 ui progress {
-  rect bar_frame "Рамка" size 180 28 r 14 fill #1b2132 stroke ink 4 slice 16 part background
-  rect bar_fill "Заливка" at -20 0 size 120 16 r 8 fill #5ee0a0 slice 8 part fill
-}
-
-// Флажок: CheckBox. Выключенный и включённый лежат друг на друге: включённый сверху.
-artboard "Флажок" 200x80 bg #39415a ui
-group sound "Флажок" at 100 40 ui check {
-  rect check_off "Выключен" at -60 0 size 40 40 r 10 fill #1b2132 stroke ink 4 part unchecked
+// Переключатели: флажок (CheckBox), переключатель (CheckButton) и радио-кнопки. Выключенный
+// и включённый лежат друг на друге: включённый сверху; у выключенной детали он спрятан (hidden).
+// Радио — те же флажки: в группе кнопок (ButtonGroup) Godot рисует их теми же картинками.
+artboard "Переключатели" 560x240 bg back ui
+text toggles_note "Подпись раздела" at 24 22 content "Флажок, переключатель и радио-кнопки" font-size 13 fill muted align left
+group sound "Флажок" at 100 80 ui check {
+  rect check_off "Выключен" at -60 0 size 40 40 r 10 fill well stroke ink 4 part unchecked
   group check_on "Включён" at -60 0 part checked {
-    rect box size 40 40 r 10 fill main stroke ink 4
+    rect box size 40 40 r 10 fill primary stroke ink 4
     path tick d "M -10 0 L -3 8 L 11 -8" fill none stroke paper 5 cap round join round
   }
   text check_label "Подпись" at -28 0 content "Звук" font bold font-size 20 fill paper align left part text
 }
-
+group music "Тумблер" at 380 80 ui switch {
+  text music_label "Подпись" at -116 0 content "Музыка" font bold font-size 20 fill paper align left part text
+  group switch_off "Выключен" at 80 0 part unchecked {
+    rect switch_track size 64 36 r 18 fill well stroke ink 4
+    ellipse switch_knob at -14 0 size 24 24 fill muted
+  }
+  group switch_on "Включён" at 80 0 part checked {
+    rect switch_track_on size 64 36 r 18 fill good stroke ink 4
+    ellipse switch_knob_on at 14 0 size 24 24 fill paper
+  }
+}
+group easy "Радио: лёгкий" at 100 150 ui check radio difficulty {
+  ellipse radio_off "Выключен" at -60 0 size 36 36 fill well stroke ink 4 part unchecked
+  group radio_on "Включён" at -60 0 part checked {
+    ellipse radio_ring size 36 36 fill well stroke primary 4
+    ellipse radio_dot size 16 16 fill light
+  }
+  text radio_label "Подпись" at -30 0 content "Лёгкий" font bold font-size 18 fill paper align left part text
+}
+group normal "Радио: средний" at 260 150 ui check radio difficulty {
+  ellipse radio_off2 "Выключен" at -60 0 size 36 36 fill well stroke ink 4 part unchecked
+  group radio_on2 "Включён" at -60 0 part checked hidden {
+    ellipse radio_ring2 size 36 36 fill well stroke primary 4
+    ellipse radio_dot2 size 16 16 fill light
+  }
+  text radio_label2 "Подпись" at -30 0 content "Средний" font bold font-size 18 fill paper align left part text
+}
+group hard "Радио: сложный" at 420 150 ui check radio difficulty {
+  ellipse radio_off3 "Выключен" at -60 0 size 36 36 fill well stroke ink 4 part unchecked
+  group radio_on3 "Включён" at -60 0 part checked hidden {
+    ellipse radio_ring3 size 36 36 fill well stroke primary 4
+    ellipse radio_dot3 size 16 16 fill light
+  }
+  text radio_label3 "Подпись" at -30 0 content "Сложный" font bold font-size 18 fill paper align left part text
+}
 anim Disabled 0.2s {
-  box.fill     0: main | 0.2: #59607a
-  check_label.fill 0: paper | 0.2: #a3a8b8
+  box.fill          0: primary | 0.2: off
+  check_label.fill  0: paper | 0.2: muted
+  switch_track_on.fill 0: good | 0.2: off
+  music_label.fill  0: paper | 0.2: muted
+  radio_ring.stroke 0: primary | 0.2: off
+  radio_dot.fill    0: light | 0.2: off
+  radio_label.fill  0: paper | 0.2: muted
+  radio_ring2.stroke 0: primary | 0.2: off
+  radio_dot2.fill   0: light | 0.2: off
+  radio_label2.fill 0: paper | 0.2: muted
+  radio_ring3.stroke 0: primary | 0.2: off
+  radio_dot3.fill   0: light | 0.2: off
+  radio_label3.fill 0: paper | 0.2: muted
 }
 
-// Слайдер: HSlider. Дорожка, пройденная часть и ползунок; Hover подсвечивает их.
-artboard "Слайдер" 260x80 bg #39415a ui
-group volume "Громкость" at 130 40 ui slider {
-  rect rail "Дорожка" size 200 12 r 6 fill #1b2132 stroke ink 4 slice 6 part track
-  rect level "Пройдено" at -50 0 size 100 12 r 6 fill main stroke ink 4 slice 6 part fill
+// Поля: ввод текста (LineEdit) — подсказка полупрозрачная, набранный текст будет того же цвета
+// без прозрачности; Focus — рамка, пока в поле печатают. Выпадающий список (OptionButton) —
+// кнопка со стрелкой part arrow. Счётчик — две кнопки и надпись между ними.
+artboard "Поля" 600x280 bg back ui
+text fields_note "Подпись раздела" at 24 22 content "Поле ввода, поиск, выпадающий список и счётчик" font-size 13 fill muted align left
+group name_field "Поле ввода" at 170 80 ui input slice 16 {
+  rect field_frame size 280 48 r 12 fill well stroke ink 4
+  text field_hint "Подсказка" at -122 0 content "Имя героя" font-size 18 fill paper opacity 0.45 align left part text
+}
+group search "Поиск" at 450 80 ui input slice 44 24 24 24 {
+  rect search_frame size 240 48 r 24 fill well stroke ink 4
+  ellipse search_lens at -90 -2 size 16 16 fill none stroke muted 4
+  path search_handle at -90 -2 d "M 6 6 L 11 11" fill none stroke muted 3 cap round
+  text search_hint "Подсказка" at -72 0 content "Поиск" font-size 18 fill paper opacity 0.45 align left part text
+}
+group quality "Список" at 170 170 ui option slice 18 {
+  rect option_base at 0 5 size 280 48 r 12 fill #1f2638 stroke ink 4
+  rect option_body size 280 48 r 12 fill raised stroke ink 4
+  text option_caption "Подпись" at -122 2 content "Качество: высокое" font bold font-size 18 fill paper align left part text
+  path option_arrow "Стрелка" at 116 2 d "M -7 -4 L 0 4 L 7 -4" fill none stroke paper 4 cap round join round part arrow
+}
+group minus "Меньше" at 376 170 ui button {
+  rect minus_base at 0 4 size 44 44 r 12 fill #1f2638 stroke ink 4
+  rect minus_body size 44 44 r 12 fill raised stroke ink 4
+  rect minus_bar size 16 4 r 2 fill paper
+}
+text count "Число" at 438 170 content "3" font bold font-size 24 fill paper ui label
+group plus "Больше" at 500 170 ui button {
+  rect plus_base at 0 4 size 44 44 r 12 fill #1f2638 stroke ink 4
+  rect plus_body size 44 44 r 12 fill raised stroke ink 4
+  rect plus_h size 16 4 r 2 fill paper
+  rect plus_v size 4 16 r 2 fill paper
+}
+anim Hover 0.15s {
+  field_frame.stroke  0: ink | 0.15: #4a5578
+  search_frame.stroke 0: ink | 0.15: #4a5578
+  option_body.fill    0: raised | 0.15: #414b6e
+  minus_body.fill     0: raised | 0.15: #414b6e
+  plus_body.fill      0: raised | 0.15: #414b6e
+}
+anim Press 0.08s {
+  option_body.y       0: 0 | 0.08: 5
+  option_caption.y    0: 2 | 0.08: 7
+  option_arrow.y      0: 2 | 0.08: 7
+  minus_body.y        0: 0 | 0.08: 4
+  minus_bar.y         0: 0 | 0.08: 4
+  plus_body.y         0: 0 | 0.08: 4
+  plus_h.y            0: 0 | 0.08: 4
+  plus_v.y            0: 0 | 0.08: 4
+}
+anim Focus 0.15s {
+  field_frame.stroke  0: ink | 0.15: light
+  search_frame.stroke 0: ink | 0.15: light
+}
+anim Disabled 0.2s {
+  field_frame.fill    0: well | 0.2: off_deep
+  field_hint.fill     0: paper | 0.2: muted
+  search_frame.fill   0: well | 0.2: off_deep
+  option_body.fill    0: raised | 0.2: off
+  option_caption.fill 0: paper | 0.2: muted
+  minus_body.fill     0: raised | 0.2: off
+  plus_body.fill      0: raised | 0.2: off
+}
+
+// Полосы: здоровье, мана и опыт (ProgressBar) — заливка лежит внутри рамки с отступом, он
+// сохранится в Godot, а заливка растёт от начала. Слайдер (HSlider), прокрутка (VScrollBar),
+// а звёзды рейтинга и круговая загрузка — слайдеры с анимацией Value: значение проигрывает её.
+artboard "Полосы" 600x340 bg back ui
+text bars_note "Подпись раздела" at 24 22 content "Полосы, слайдер, прокрутка, рейтинг и круговая загрузка" font-size 13 fill muted align left
+group health "Здоровье" at 130 72 ui progress {
+  rect bar_frame "Рамка" size 180 28 r 14 fill well stroke ink 4 slice 16 part background
+  rect bar_fill "Заливка" at -20 0 size 120 16 r 8 fill good slice 8 part fill
+}
+group mana "Мана" at 130 122 ui progress {
+  rect mana_frame "Рамка" size 180 20 r 10 fill well stroke ink 4 slice 12 part background
+  rect mana_fill "Заливка" at -30 0 size 104 8 r 4 fill light slice 4 part fill
+}
+group xp "Опыт" at 130 166 ui progress {
+  rect xp_frame "Рамка" size 180 20 r 6 fill well stroke ink 4 slice 8 part background
+  rect xp_fill "Заливка" at -44 0 size 76 8 r 2 fill gold slice 4 part fill
+}
+group volume "Громкость" at 130 228 ui slider {
+  rect rail "Дорожка" size 200 12 r 6 fill well stroke ink 4 slice 6 part track
+  rect level "Пройдено" at -50 0 size 100 12 r 6 fill primary stroke ink 4 slice 6 part fill
   ellipse knob "Ползунок" size 28 28 fill paper stroke ink 4 part grabber
 }
-
-anim Hover 0.15s {
-  level.fill   0: main | 0.15: light
-  knob.fill    0: paper | 0.15: #ffffff
+group scroller "Прокрутка" at 290 170 ui scroll {
+  rect gutter "Дорожка" size 16 160 r 8 fill well stroke ink 4 slice 8 part track
+  rect thumb "Ползунок" at 0 -30 size 10 50 r 5 fill light slice 5 part grabber
 }
-
+group rating "Рейтинг" at 440 90 ui slider dial across value 0.6 {
+  rect rating_pad size 200 44 r 22 fill well
+  // Нарисовано так, как стоит value 0.6. Звезда зажигается на середине своей пятой части шкалы:
+  // значение у края не попадает между кадрами.
+  for i in 0..3 {
+    star rating_star{i} at {-72 + i * 36} 0 size 30 30 fill gold stroke ink 2
+  }
+  for i in 3..5 {
+    star rating_star{i} at {-72 + i * 36} 0 size 30 30 fill off stroke ink 2
+  }
+}
+group loading "Загрузка" at 440 220 ui slider dial turn 360 value 0.65 {
+  ellipse loading_ring size 100 100 fill well stroke ink 4
+  for i in 0..8 {
+    group loading_tick{i} rot {i * 30 + 15} {
+      rect loading_seg{i} at 0 -36 size 8 16 r 4 fill light
+    }
+  }
+  for i in 8..12 {
+    group loading_tick{i} rot {i * 30 + 15} {
+      rect loading_seg{i} at 0 -36 size 8 16 r 4 fill off
+    }
+  }
+}
+anim Value 1s {
+  rating_star0.fill 0: off linear | 0.08: off linear | 0.10: gold
+  rating_star1.fill 0: off linear | 0.28: off linear | 0.30: gold
+  rating_star2.fill 0: off linear | 0.48: off linear | 0.50: gold
+  rating_star3.fill 0: off linear | 0.68: off linear | 0.70: gold
+  rating_star4.fill 0: off linear | 0.88: off linear | 0.90: gold
+  loading_seg0.fill 0: off linear | 0.027: off linear | 0.042: light
+  loading_seg1.fill 0: off linear | 0.110: off linear | 0.125: light
+  loading_seg2.fill 0: off linear | 0.193: off linear | 0.208: light
+  loading_seg3.fill 0: off linear | 0.277: off linear | 0.292: light
+  loading_seg4.fill 0: off linear | 0.360: off linear | 0.375: light
+  loading_seg5.fill 0: off linear | 0.443: off linear | 0.458: light
+  loading_seg6.fill 0: off linear | 0.527: off linear | 0.542: light
+  loading_seg7.fill 0: off linear | 0.610: off linear | 0.625: light
+  loading_seg8.fill 0: off linear | 0.693: off linear | 0.708: light
+  loading_seg9.fill 0: off linear | 0.777: off linear | 0.792: light
+  loading_seg10.fill 0: off linear | 0.860: off linear | 0.875: light
+  loading_seg11.fill 0: off linear | 0.943: off linear | 0.958: light
+}
+anim Hover 0.15s {
+  level.fill   0: primary | 0.15: light
+  knob.fill    0: paper | 0.15: #ffffff
+  thumb.fill   0: light | 0.15: #a8c0ff
+  rating_pad.fill 0: well | 0.15: #232b42
+}
+anim Press 0.08s {
+  thumb.fill   0: light | 0.08: paper
+}
 anim Disabled 0.2s {
   knob.fill    0: paper | 0.2: #737a94
 }
 
-// Полоса прокрутки: VScrollBar. Ползунок тянется вдоль полосы по 9-slice.
-artboard "Прокрутка" 80x200 bg #39415a ui
-group scroller "Прокрутка" at 40 100 ui scroll {
-  rect gutter "Дорожка" size 16 160 r 8 fill #1b2132 stroke ink 4 slice 8 part track
-  rect thumb "Ползунок" at 0 -30 size 10 50 r 5 fill light slice 5 part grabber
+// Панели: карточка с заголовком, окно, уведомление, слот инвентаря (кнопка: наводится и
+// выбирается), подсказка со стрелкой, значки NEW и −20%, клавиша «E». У панелей верхнее поле slice
+// выше, чтобы полоса заголовка не растягивалась.
+artboard "Панели" 760x400 bg back ui
+text panels_note "Подпись раздела" at 24 22 content "Карточка, окно, уведомление, слот, подсказка, значки и клавиша" font-size 13 fill muted align left
+group card "Карточка" at 110 160 slice 22 46 22 22 {
+  rect sheet size 160 180 r {r + 4} fill panel stroke ink 4 shadow 0 8 0 #0a0d16
+  rect header at 0 -66 size 140 30 r 9 fill primary
 }
-
+group dialog "Окно" at 340 160 ui panel slice 26 56 26 26 {
+  rect dialog_sheet size 260 180 r 20 fill panel stroke ink 4 shadow 0 10 0 #0a0d16
+  rect dialog_bar at 0 -64 size 252 48 r 18 fill raised
+  rect dialog_seam at 0 -46 size 252 12 fill raised
+  rect dialog_rule at 0 -38 size 252 4 fill ink
+}
+group toast "Уведомление" at 620 92 ui panel slice 18 18 18 18 {
+  rect toast_body size 200 56 r 14 fill raised stroke ink 4 shadow 0 6 0 #0a0d16
+  rect toast_stripe at -86 0 size 8 36 r 4 fill good
+}
+group slot "Слот" at 576 196 ui button slice 14 {
+  rect slot_frame size 64 64 r 12 fill well stroke ink 4
+  rect slot_glow size 52 52 r 8 fill none stroke light 4 opacity 0
+}
+group slot_used "Слот занят" at 664 196 ui {
+  rect slot_frame2 size 64 64 r 12 fill well stroke ink 4
+  rect slot_glow2 size 52 52 r 8 fill none stroke light 4 opacity 0
+  ellipse slot_gem size 28 28 fill #ff6fb5 stroke ink 4
+}
+path tooltip "Подсказка" at 110 334 d "M -70 -26 L 70 -26 Q 80 -26 80 -16 L 80 10 Q 80 20 70 20 L 10 20 L 0 32 L -10 20 L -70 20 Q -80 20 -80 10 L -80 -16 Q -80 -26 -70 -26 Z" fill paper stroke ink 4 slice 16 14 16 18
+group badge "Значок NEW" at 300 296 ui label slice 12 {
+  rect badge_pill size 64 28 r 14 fill bad stroke ink 4
+  text badge_text "Подпись" at 0 1 content "NEW" font bold font-size 14 fill paper part text
+}
+group sale "Значок скидки" at 390 296 ui label slice 8 {
+  rect sale_tag size 64 28 r 6 fill gold stroke ink 4
+  text sale_text "Подпись" at 0 1 content "−20%" font bold font-size 14 fill ink part text
+}
+group key "Клавиша" at 300 352 ui label slice 10 {
+  rect key_base at 0 4 size 36 36 r 8 fill #1f2638 stroke ink 4
+  rect key_cap size 36 36 r 8 fill paper stroke ink 4
+  text key_text "Подпись" at 0 1 content "E" font bold font-size 18 fill ink part text
+}
+text key_hint "Подсказка клавиши" at 330 352 content "Взять" font bold font-size 18 fill paper align left ui label
 anim Hover 0.15s {
-  thumb.fill   0: light | 0.15: #a8c0ff
+  slot_glow.opacity  0: 0 | 0.15: 1
+  slot_frame.fill    0: well | 0.15: #232b42
 }
-
 anim Press 0.08s {
-  thumb.fill   0: light | 0.08: paper
+  slot_glow.opacity  0: 0 | 0.08: 1
+  slot_glow.stroke   0: light | 0.08: gold
 }
 
-// Заголовок: Label. Шрифт, размер, цвет, обводка и тень уходят в тему — текст задаёт игра.
-artboard "Заголовок" 240x80 bg #39415a ui
-text title "Заголовок" at 120 40 content "Настройки" font bold font-size 28 fill paper outline ink 6 shadow 0 3 0 #0a0d16 ui label
+// Навигация: вкладки (выбранная — своя деталь), точки страниц и кнопка «назад».
+artboard "Навигация" 560x200 bg back ui
+text nav_note "Подпись раздела" at 24 22 content "Вкладки и точки страниц" font-size 13 fill muted align left
+group tab_on "Вкладка выбрана" at 94 80 ui button slice 14 {
+  rect tab_on_body size 132 44 r 12 fill primary stroke ink 4
+  text tab_on_text "Подпись" at 0 1 content "Герой" font bold font-size 18 fill paper part text
+}
+group tab "Вкладка" at 234 80 ui button slice 14 {
+  rect tab_body size 132 44 r 12 fill panel stroke ink 4
+  text tab_text "Подпись" at 0 1 content "Снаряжение" font bold font-size 18 fill muted part text
+}
+group tab2 "Вкладка 2" at 374 80 ui button slice 14 {
+  rect tab_body2 size 132 44 r 12 fill panel stroke ink 4
+  text tab_text2 "Подпись" at 0 1 content "Умения" font bold font-size 18 fill muted part text
+}
+group pages "Точки страниц" at 280 150 {
+  ellipse dot_on "Страница выбрана" at -30 0 size 16 16 fill paper stroke ink 4 ui
+  ellipse dot "Страница" at -6 0 size 12 12 fill off stroke ink 2 ui
+  ellipse dot2 "Страница 2" at 14 0 size 12 12 fill off stroke ink 2 ui
+  ellipse dot3 "Страница 3" at 34 0 size 12 12 fill off stroke ink 2 ui
+}
+anim Hover 0.15s {
+  tab_on_body.fill 0: primary | 0.15: light
+  tab_body.fill    0: panel | 0.15: raised
+  tab_text.fill    0: muted | 0.15: paper
+  tab_body2.fill   0: panel | 0.15: raised
+  tab_text2.fill   0: muted | 0.15: paper
+}
+anim Press 0.08s {
+  tab_body.fill    0: panel | 0.08: #222941
+  tab_body2.fill   0: panel | 0.08: #222941
+}
 
-// Всплывающая подсказка со стрелкой вниз: стрелка в нижнем поле slice.
-artboard "Подсказка" 220x100 bg #39415a ui
-path tooltip "Подсказка" at 110 46 d "M -70 -26 L 70 -26 Q 80 -26 80 -16 L 80 10 Q 80 20 70 20 L 10 20 L 0 32 L -10 20 L -70 20 Q -80 20 -80 10 L -80 -16 Q -80 -26 -70 -26 Z" fill paper stroke ink 4 slice 16 14 16 18
+// Текст: Label — шрифт, размер, цвет, обводка и тень уходят в тему, слова задаёт игра.
+artboard "Текст" 560x220 bg back ui
+text text_note "Подпись раздела" at 24 22 content "Заголовок, подзаголовок, обычный текст, подсказка и счёт" font-size 13 fill muted align left
+text title "Заголовок" at 140 70 content "Настройки" font bold font-size 28 fill paper outline ink 6 shadow 0 3 0 #0a0d16 ui label
+text heading "Подзаголовок" at 140 120 content "Звук и музыка" font bold font-size 20 fill paper ui label
+text body_text "Текст" at 140 156 content "Громкость эффектов и голоса" font-size 16 fill paper ui label
+text hint "Подсказка" at 140 186 content "Можно поменять в любой момент" font-size 13 fill muted ui label
+text score "Счёт" at 420 100 content "12 450" font bold font-size 40 fill gold outline ink 8 shadow 0 4 0 #0a0d16 ui label
+text score_label "Подпись счёта" at 420 150 content "ОЧКИ" font bold font-size 14 fill muted letter-spacing 3 ui label

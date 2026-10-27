@@ -19,6 +19,12 @@ pub enum UiRole {
     Scroll,
     /// `Label`: the color, size, font, outline and shadow of a text.
     Label,
+    /// `CheckButton`: a switch, `part unchecked` and `part checked` drawn right of the caption.
+    Switch,
+    /// `LineEdit`: a text field; its `part text` is the placeholder.
+    Input,
+    /// `OptionButton`: a drop-down; `part arrow` is its arrow.
+    Option,
 }
 
 /// One part of a composite piece (`part grabber`).
@@ -32,6 +38,8 @@ pub enum UiPart {
     Grabber,
     /// The caption: drawn by Godot with the theme's font, not baked into the picture.
     Text,
+    /// The arrow of a drop-down.
+    Arrow,
 }
 
 /// How the pointer moves a dial: a slider drawn by its `Value` animation (`dial turn 300`).
@@ -83,7 +91,19 @@ impl Default for Dial {
 }
 
 impl UiRole {
-    pub const ALL: [UiRole; 8] = [UiRole::Auto, UiRole::Button, UiRole::Panel, UiRole::Progress, UiRole::Check, UiRole::Slider, UiRole::Scroll, UiRole::Label];
+    pub const ALL: [UiRole; 11] = [
+        UiRole::Auto,
+        UiRole::Button,
+        UiRole::Panel,
+        UiRole::Progress,
+        UiRole::Check,
+        UiRole::Switch,
+        UiRole::Slider,
+        UiRole::Scroll,
+        UiRole::Label,
+        UiRole::Input,
+        UiRole::Option,
+    ];
 
     /// The word after `ui`; empty for [`UiRole::Auto`].
     pub fn keyword(self) -> &'static str {
@@ -96,6 +116,9 @@ impl UiRole {
             UiRole::Slider => "slider",
             UiRole::Scroll => "scroll",
             UiRole::Label => "label",
+            UiRole::Switch => "switch",
+            UiRole::Input => "input",
+            UiRole::Option => "option",
         }
     }
 
@@ -112,15 +135,22 @@ impl UiRole {
             UiRole::Check => &[UiPart::Unchecked, UiPart::Checked, UiPart::Text],
             UiRole::Slider => &[UiPart::Track, UiPart::Grabber, UiPart::Fill],
             UiRole::Scroll => &[UiPart::Track, UiPart::Grabber],
-            UiRole::Label => &[UiPart::Text],
+            UiRole::Label | UiRole::Input => &[UiPart::Text],
+            UiRole::Switch => &[UiPart::Unchecked, UiPart::Checked, UiPart::Text],
+            UiRole::Option => &[UiPart::Arrow, UiPart::Text],
         }
+    }
+
+    /// Whether it is a check box or a switch: a pair of pictures for off and on.
+    pub fn toggles(self) -> bool {
+        matches!(self, UiRole::Check | UiRole::Switch)
     }
 
     /// The parts the piece cannot do without.
     pub fn required(self) -> &'static [UiPart] {
         match self {
             UiRole::Progress => &[UiPart::Background, UiPart::Fill],
-            UiRole::Check => &[UiPart::Unchecked, UiPart::Checked],
+            UiRole::Check | UiRole::Switch => &[UiPart::Unchecked, UiPart::Checked],
             UiRole::Slider | UiRole::Scroll => &[UiPart::Track, UiPart::Grabber],
             _ => &[],
         }
@@ -128,7 +158,8 @@ impl UiRole {
 }
 
 impl UiPart {
-    pub const ALL: [UiPart; 7] = [UiPart::Background, UiPart::Fill, UiPart::Unchecked, UiPart::Checked, UiPart::Track, UiPart::Grabber, UiPart::Text];
+    pub const ALL: [UiPart; 8] =
+        [UiPart::Background, UiPart::Fill, UiPart::Unchecked, UiPart::Checked, UiPart::Track, UiPart::Grabber, UiPart::Text, UiPart::Arrow];
 
     pub fn keyword(self) -> &'static str {
         match self {
@@ -139,6 +170,7 @@ impl UiPart {
             UiPart::Track => "track",
             UiPart::Grabber => "grabber",
             UiPart::Text => "text",
+            UiPart::Arrow => "arrow",
         }
     }
 

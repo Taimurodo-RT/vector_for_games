@@ -191,7 +191,7 @@ impl Document {
             let n = &self.nodes[k];
             if n.ui {
                 return match n.ui_role {
-                    crate::UiRole::Check => (true, true),
+                    r if r.toggles() => (true, true),
                     crate::UiRole::Slider => (false, true),
                     _ => (false, false),
                 };

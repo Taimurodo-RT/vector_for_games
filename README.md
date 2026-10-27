@@ -282,7 +282,7 @@ cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --pr
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
 cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
-cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопка -o out/button.png
+cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопки -o out/buttons.png
 ```
 
 В файле с несколькими холстами `--board ИМЯ` (или номер с 1) берёт один, без него команды работают со всеми: `check`
@@ -317,8 +317,11 @@ cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кноп
 ## UI-наборы для Godot
 
 Интерфейс игры рисуется в Motif обычными фигурами и уходит в Godot готовой темой. «Файл → Новый UI-набор» открывает
-заготовку ([`examples/ui-kit.msc`](examples/ui-kit.msc)): кнопку в четырёх состояниях, «закрыть», панель, полосу,
-флажок, слайдер, прокрутку, заголовок и подсказку — каждую на своём холсте, с общими цветами в начале файла. «Экспорт → Холсты: Все → Сохранить
+заготовку ([`examples/ui-kit.msc`](examples/ui-kit.msc)) из семи холстов: кнопки (основная, вторичная, опасная, успех,
+контурная, прозрачная, маленькая, круглые со значками), переключатели (флажок, тумблер `ui switch`, радио-кнопки
+`ui check radio difficulty`), поля (ввод `ui input`, поиск, выпадающий список `ui option`, счётчик), полосы (здоровье,
+мана, опыт, слайдер, прокрутка, рейтинг и круговая загрузка), панели (карточка, окно, уведомление, слоты, подсказка,
+значки, клавиша), навигация (вкладки, точки страниц) и текст — с общими цветами в начале файла. «Экспорт → Холсты: Все → Сохранить
 UI-набор…» (или `motif kit`) собирает детали всех холстов в одну тему; одинаковые id с разных холстов получают номер
 (`knob_2`).
 

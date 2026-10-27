@@ -16,6 +16,9 @@ fn role_label(r: UiRole) -> &'static str {
         UiRole::Slider => "слайдер",
         UiRole::Scroll => "прокрутка",
         UiRole::Label => "надпись",
+        UiRole::Switch => "тумблер",
+        UiRole::Input => "поле ввода",
+        UiRole::Option => "список",
     }
 }
 
@@ -98,7 +101,7 @@ impl App {
             section(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(name).font(crate::theme::semibold(12.5)).color(FG));
-                    ui.label(RichText::new(role_label(c.role)).size(11.5).color(FAINT));
+                    ui.label(RichText::new(if c.radio.is_some() { "радио" } else { role_label(c.role) }).size(11.5).color(FAINT));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let state = if c.interactive() { c.state_word() } else { "" };
                         ui.label(RichText::new(state).size(11.5).color(MUTED));
