@@ -167,6 +167,7 @@ impl App {
         self.anim = None;
         self.last_anim = None;
         self.run = None;
+        self.check = None;
         self.playing = false;
         self.time = 0.0;
         self.sel_keys.clear();
@@ -189,6 +190,7 @@ impl App {
             self.also.clear();
             self.anim = None;
             self.run = None;
+            self.check = None;
         }
         self.reparse();
     }

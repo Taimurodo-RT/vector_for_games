@@ -128,6 +128,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("part fill · track · grabber · checked · text", "часть такой детали; part text рисует Godot"),
             ("slice 20 · slice 16 12 · slice 22 46 22 22", "поля 9-slice, которые не тянутся"),
             ("anim Hover · Press · Disabled · Focus", "состояния: последний кадр анимации"),
+            ("▶ Проверить", "детали работают мышью, как в Godot; значения справа"),
         ],
     ),
     (

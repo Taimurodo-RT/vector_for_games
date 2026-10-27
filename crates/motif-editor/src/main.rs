@@ -8,6 +8,7 @@ mod body_ui;
 mod bone_ui;
 mod brush_ui;
 mod canvas;
+mod check_ui;
 mod field_ui;
 mod guides;
 mod highlight;

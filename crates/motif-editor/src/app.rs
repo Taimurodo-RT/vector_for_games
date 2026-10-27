@@ -163,6 +163,8 @@ pub struct App {
     pub(crate) machine_pick: Option<motif_script::MachineItem>,
     /// The machine playing on the canvas.
     pub(crate) run: Option<crate::machine_ui::Run>,
+    /// The interface check: the `ui` pieces working under the mouse.
+    pub(crate) check: Option<motif_core::UiCheck>,
     /// The pointer listener being put together in the machine panel: object, event, input.
     pub(crate) listen_draft: (String, motif_core::PointerEvent, String),
     /// The weight brush of skinned shapes.
@@ -267,6 +269,7 @@ impl App {
             machine: None,
             machine_pick: None,
             run: None,
+            check: None,
             listen_draft: (String::new(), motif_core::PointerEvent::Hover, String::new()),
             graph: Default::default(),
             undo: Vec::new(),
@@ -341,6 +344,7 @@ impl App {
                 self.sel_keys = keys.into_iter().filter(|k| self.key_exists(k)).collect();
                 self.prune_selection();
                 self.prune_machine();
+                self.refresh_check();
             }
             Err(errors) => self.errors = errors,
         }
@@ -513,6 +517,7 @@ impl App {
 
     pub(crate) fn select_anim(&mut self, name: String) {
         self.run = None;
+        self.check = None;
         if self.anim.as_deref() != Some(name.as_str()) {
             self.time = 0.0;
             self.sel_keys.clear();
@@ -542,6 +547,7 @@ impl App {
             self.also.clear();
             self.anim = None;
             self.run = None;
+            self.check = None;
         }
         self.set_file(file, board);
         self.last_checkpoint.0.clear();
@@ -558,6 +564,9 @@ impl App {
             (None, Some(a)) => self.pose_anim(a, self.time),
             (None, None) => self.scene.doc.clone(),
         };
+        if let Some(c) = &self.check {
+            doc = c.pose(&self.scene.doc, &doc);
+        }
         if let Some(e) = &self.point_edit
             && let Some(o) = &e.live
             && let Some(i) = doc.index_of(&e.node)
@@ -1149,13 +1158,16 @@ impl App {
         if self.pixel.on {
             rui.add(egui::DragValue::new(&mut self.pixel.width).range(8..=1024).suffix(" px"));
         }
-        if self.shown_machine().is_some_and(|m| !m.listeners.is_empty()) {
-            let kind = if self.run.is_some() { ButtonKind::On } else { ButtonKind::Normal };
-            if theme::button(&mut rui, if self.run.is_some() { "■ Проверка" } else { "▶ Проверить" }, kind)
-                .on_hover_text("Живой предпросмотр: машина состояний играет, а мышь на холсте наводит, нажимает и кликает по объектам")
+        if self.has_ui() || self.shown_machine().is_some_and(|m| !m.listeners.is_empty()) {
+            let on = self.run.is_some() || self.check.is_some();
+            let kind = if on { ButtonKind::On } else { ButtonKind::Normal };
+            if theme::button(&mut rui, if on { "■ Проверка" } else { "▶ Проверить" }, kind)
+                .on_hover_text(
+                    "Проверка вживую: детали ui работают под мышью как в Godot (наведение, нажатие, флажки, слайдеры), машина состояний слушает мышь. Справа — список деталей и их значения",
+                )
                 .clicked()
             {
-                self.toggle_run();
+                self.toggle_check();
             }
         }
         let zoom = self.view.map_or(100.0, |v| v.zoom * 100.0);
@@ -1318,6 +1330,10 @@ impl App {
 
     fn props_panel(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| {
+            if self.check.is_some() {
+                self.check_panel(ui);
+                return;
+            }
             let Some(id) = self.selected.clone() else {
                 self.artboard_info(ui);
                 return;
@@ -1849,10 +1865,11 @@ impl App {
         let (space, middle, alt, shift) = ui.input(|i| (i.key_down(Key::Space), i.pointer.middle_down(), i.modifiers.alt, i.modifiers.shift));
         let pan_gesture = space || middle || (alt && self.point_edit.is_none()) || self.tool == Tool::Hand;
         // A running machine that listens to the pointer takes it: the canvas is a live preview.
-        let live = !pan_gesture && self.drag.is_none() && self.running().is_some_and(|(m, _)| !m.listeners.is_empty());
+        let live = !pan_gesture && self.drag.is_none() && (self.check.is_some() || self.running().is_some_and(|(m, _)| !m.listeners.is_empty()));
         if live {
             self.hovered = None;
             self.live_pointer(ui, &resp, &doc, doc_pt);
+            self.check_pointer(ui, &resp, &doc, doc_pt);
         }
         // The boards' names and size handle, and clicks on other boards.
         let board_ui = !pan_gesture && !live && self.eyedrop.is_none() && self.boards_input(ui, &resp, rect, view, &grid);
@@ -2900,8 +2917,13 @@ impl eframe::App for App {
             self.status = status;
         }
         self.shortcuts(&ctx);
-        if self.run.is_some() {
-            self.advance_run(dt.min(0.1));
+        if let Some(c) = &mut self.check {
+            c.advance(&self.scene.doc, dt.min(0.1) as f64);
+        }
+        if self.run.is_some() || self.check.is_some() {
+            if self.run.is_some() {
+                self.advance_run(dt.min(0.1));
+            }
             ctx.request_repaint();
         } else if self.playing {
             self.time += dt.min(0.1) as f64;

@@ -1592,3 +1592,36 @@ fn interface_effects_parse_and_edit() {
     let bad = parse("rect b size 10 10 glow #fff\nrect c size 10 10 stroke-gradient #fff #000\n").err().unwrap();
     assert_eq!(bad.len(), 2, "{bad:?}");
 }
+
+#[test]
+fn the_interface_check_reads_and_moves_the_kit() {
+    use motif_core::{UiCheck, UiRole};
+    let boards = crate::parse_boards(include_str!("../../../examples/ui-kit.msc"), None).unwrap_or_else(|e| panic!("{e:?}"));
+    let doc = |name: &str| boards.iter().find(|s| s.doc.artboard.name == name).map(|s| s.doc.clone()).unwrap();
+    // Values and check marks come from the drawing.
+    let check = UiCheck::new(&doc("Флажок"));
+    assert_eq!(check.control("sound").map(|c| (c.role, c.checked)), Some((UiRole::Check, Some(true))));
+    let bar = doc("Полоса");
+    let check = UiCheck::new(&bar);
+    let health = check.control("health").and_then(|c| c.value).unwrap();
+    assert!(health > 0.5 && health < 0.9, "{health}");
+    // Drawn at its value, the bar looks as written: setting what was read changes nothing.
+    let mut same = check.pose(&bar, &bar);
+    same.rig();
+    let mut orig = bar.clone();
+    orig.rig();
+    let fill = |d: &motif_core::Document| d.world_bounds(d.index_of("bar_fill").unwrap()).unwrap();
+    let (a, b) = (fill(&orig), fill(&same));
+    assert!((a.x0 - b.x0).abs() < 1e-6 && (a.x1 - b.x1).abs() < 1e-6, "{a:?} {b:?}");
+    for (board, id) in [("Слайдер", "volume"), ("Прокрутка", "scroller")] {
+        let c = UiCheck::new(&doc(board));
+        let v = c.control(id).and_then(|c| c.value);
+        assert!(v.is_some_and(|v| (0.0..=1.0).contains(&v)), "{board}: {v:?}");
+    } // Keys drawn like an animated one hover and press like it, as their shared style does in Godot.
+    let calc = crate::parse_boards(include_str!("../../../godot-apps/calculator/calculator.msc"), None).unwrap_or_else(|e| panic!("{e:?}"));
+    let check = UiCheck::new(&calc[0].doc);
+    let buttons: Vec<&str> = check.controls.iter().filter(|c| c.role == UiRole::Button).map(|c| c.node.as_str()).collect();
+    for key in ["k7", "k8", "k1", "k0", "kac", "kdiv", "kmul", "keq"] {
+        assert!(buttons.contains(&key), "{key} in {buttons:?}");
+    }
+}
