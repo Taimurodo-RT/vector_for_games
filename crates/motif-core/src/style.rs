@@ -120,6 +120,33 @@ impl Join {
     }
 }
 
+/// A glow: a soft halo of light around the shape, behind it (no offset, unlike a shadow).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glow {
+    /// How far the light reaches past the edge, in artboard units (the blur radius).
+    pub size: f64,
+    /// How far the halo is grown before it is softened: a brighter, wider core.
+    pub spread: f64,
+    pub color: Color,
+}
+
+impl Glow {
+    pub const DEFAULT: Glow = Glow { size: 0.0, spread: 0.0, color: Color { r: 0xff, g: 0xd3, b: 0x4d, a: 0xcc } };
+}
+
+/// Film grain over the fill: light and dark specks that make flat colour look printed or worn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Noise {
+    /// 0..1, how strong the specks are.
+    pub amount: f64,
+    /// The side of one speck, in artboard units.
+    pub size: f64,
+}
+
+impl Noise {
+    pub const DEFAULT: Noise = Noise { amount: 0.0, size: 1.0 };
+}
+
 /// `box-shadow` / `drop-shadow`: an offset, softened copy of the shape under it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {

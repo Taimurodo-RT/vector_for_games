@@ -112,6 +112,12 @@ cargo run --release -p motif-editor -- examples/bounce.msc
   мягкая по-настоящему. `elevation 12` поднимает объект над артбордом: тень сама уходит от света сцены (`light 120` в строке
   `artboard`, 90 — вниз), чем выше, тем длиннее и мягче. Всё это анимируется ключами: `blur`, `elevation`, `shadow-x`,
   `shadow-y`, `shadow-blur`. В редакторе и при экспорте картинка одна и та же. Пример — [`examples/depth.msc`](examples/depth.msc).
+* **Эффекты интерфейса.** `glow 12 #ffd34d` — свечение вокруг фигуры (у фигуры без заливки светится обводка, как неон),
+  `inset 0 4 6 #000000aa` — внутренняя тень, как `box-shadow: inset`, `stroke-gradient linear 90 #ffe9a8 #b56a1f` — обводка
+  градиентом, `noise 0.15` — зерно поверх заливки. Размер свечения, внутренняя тень и сила шума анимируются (`glow`,
+  `inset-x`, `inset-y`, `inset-blur`, `noise`): Hover может зажечь кнопку. В UI-наборе эффекты запекаются в картинки
+  состояний, в экране для Godot текст с эффектами становится картинкой, а не `Label`. Пример —
+  [`examples/ui-effects.msc`](examples/ui-effects.msc).
 * **Символы.** `symbol Coin size=28 color=#ffd23f { … }` описывает кусок сцены один раз, `use Coin c1 at 60 44 size=40`
   ставит копию со своими местом, поворотом, масштабом и параметрами. Объекты копии получают id `c1-face` и анимируются как
   обычные; `symbol Ball clip …` делает первый объект маской каждой копии. В редакторе: «Сделать символом» у группы,
@@ -237,6 +243,10 @@ anim Idle 1.2s loop {
 | Градиент (вместо заливки) | `gradient linear 90 #ffe7a3 #ff9d5c`, `gradient radial #fff #3b5bff #000` |
 | Пунктир, концы, углы линии | `dash 6 4`, `cap butt\|round\|square`, `join miter\|round\|bevel` |
 | Тень (размытие можно опустить) | `shadow 0 4 8 #00000055`, `shadow 4 4 #000` |
+| Внутренняя тень | `inset 0 4 6 #000000aa` |
+| Свечение: размер, [разлив], цвет | `glow 12 #ffd34d`, `glow 16 4 #6f93ffcc` |
+| Градиентная обводка | `stroke-gradient linear 90 #ffe9a8 #b56a1f` |
+| Шум: сила 0…1, [крупинка] | `noise 0.15`, `noise 0.2 2` |
 | Размытие объекта или группы | `blur 6` |
 | Высота над артбордом (тень от света) | `elevation 12`; свет сцены: `artboard "Имя" 480x300 light 120` |
 | Наложение | `blend multiply`, `screen`, `overlay`, `darken`, `lighten`, `color-dodge`, `color-burn`, `hard-light`, `soft-light`, `difference`, `exclusion`, `hue`, `saturation`, `color`, `luminosity` |
@@ -270,6 +280,7 @@ cargo run --release -p motif-cli -- frames examples/bounce.msc --anim Idle --fps
 cargo run --release -p motif-cli -- palette examples/bounce.msc -o out/scene.pal
 cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --preset my.preset --no-aa -o out/idle_px
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
+cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
 cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопка -o out/button.png
 ```
@@ -336,6 +347,14 @@ UI-набор…» (или `motif kit`) собирает детали всех �
   `.tres`: каждая деталь — вариация своего типа Godot со `StyleBoxTexture` и полями 9-slice. Тени и
   обводки за рамкой детали уходят в `expand_margin`, поэтому кнопка в Godot остаётся своего размера. Тема проверена в
   Godot 4.3. Подробнее — [docs/export.html#ui-kit](docs/export.html#ui-kit).
+* «Экспорт → Экран для Godot…» (или `motif screen`) делает из холста сцену `ХОЛСТ.tscn` из `Control`-узлов: детали
+  `ui` — кнопки, полосы и флажки своих типов с вариациями из темы (значения и галочки — как нарисованы), стеки —
+  `VBoxContainer`/`HBoxContainer` в `PanelContainer` с фоном 9-slice, привязки — якоря, тексты — `Label`, остальное —
+  картинки `TextureRect`. Тема пишется рядом и назначена корню; меню из `examples/menu.msc` в Godot 4.3 совпадает
+  с холстом до пикселя. Подробнее — [docs/export.html#screens](docs/export.html#screens).
+* `godot-apps/` — два приложения Godot с интерфейсом из Motif: калькулятор и таймер «Фокус». Рисунок в `ИМЯ.msc`,
+  `motif screen` собирает из него `ui/`, а `main.gd` — только логика по id узлов. Одинаково нарисованные клавиши
+  становятся одним типом темы. Подробнее — [godot-apps/README.md](godot-apps/README.md).
 
 ## Пикселизация: PixaTool
 

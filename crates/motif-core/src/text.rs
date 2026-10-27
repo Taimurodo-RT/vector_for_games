@@ -218,6 +218,17 @@ impl TextShape {
         out
     }
 
+    /// The box a layout gives the text, as game engines and browsers measure it: each line as
+    /// tall as the font from ascender to descender, lines a `line-height` apart.
+    pub fn line_box(&self, s: &TextStyle) -> kurbo::Rect {
+        let b = self.bounds(s);
+        let lines = self.lines.len().max(1) as f64;
+        // A font's height above and below the line in whole pixels, as FreeType (and so Godot)
+        // rounds them.
+        let h = (lines - 1.0) * s.size * s.line_height + (self.ascender * s.size).ceil() + (self.descender * s.size).ceil();
+        kurbo::Rect::new(b.x0, -h / 2.0, b.x1, h / 2.0)
+    }
+
     /// The box the laid-out text fills, for selecting it by clicking between letters.
     pub fn bounds(&self, s: &TextStyle) -> kurbo::Rect {
         let lh = s.size * s.line_height;

@@ -30,6 +30,7 @@ pub const STATES: [(&str, &[&str]); 5] = [
 const REACH: f64 = 200.0;
 
 /// One picture of a piece: a state of it, or of one of its parts.
+#[derive(Clone)]
 pub struct KitPicture {
     /// What the file is called after the piece's id: `normal`, `fill`, `grabber_hover`.
     pub name: String,
@@ -41,6 +42,7 @@ pub struct KitPicture {
 }
 
 /// One theme property of a piece.
+#[derive(Clone)]
 pub enum Slot {
     /// `styles/<prop>`: a picture as a nine-slice `StyleBoxTexture`, or nothing (`StyleBoxEmpty`).
     /// `content` keeps the caption where it was drawn: left, top, right, bottom in pixels.
@@ -52,6 +54,7 @@ pub enum Slot {
 }
 
 /// The caption of a piece, drawn by Godot: its font, size and colors.
+#[derive(Clone)]
 pub struct KitFont {
     /// The font file, saved next to the theme.
     pub file: String,
@@ -67,6 +70,7 @@ pub struct KitFont {
 }
 
 /// One interface piece, rendered, with the Godot control it styles.
+#[derive(Clone)]
 pub struct KitItem {
     pub id: String,
     /// The Godot class the type variation is based on: `Button`, `ProgressBar`, `HSlider`…
@@ -101,7 +105,7 @@ pub fn piece_box(doc: &Document, i: usize) -> Option<Rect> {
 }
 
 /// [`piece_box`] leaving out the nodes in `skip` and what is inside them.
-fn piece_box_except(doc: &Document, i: usize, skip: &[usize]) -> Option<Rect> {
+pub(crate) fn piece_box_except(doc: &Document, i: usize, skip: &[usize]) -> Option<Rect> {
     // Inside a masking group only the mask counts: the rest is cut to it.
     let masked = |k: usize| {
         let mut cur = doc.nodes[k].parent;
@@ -126,6 +130,16 @@ fn piece_box_except(doc: &Document, i: usize, skip: &[usize]) -> Option<Rect> {
         .reduce(|a, b| a.union(b))
 }
 
+/// [`piece_box_except`] with the strokes: where it draws, as an icon is cut.
+fn ink_box_except(doc: &Document, i: usize, skip: &[usize]) -> Option<Rect> {
+    let b = piece_box_except(doc, i, skip)?;
+    let reach = (0..doc.nodes.len())
+        .filter(|&k| (k == i || doc.is_inside(k, i)) && !skip.iter().any(|&s| k == s || doc.is_inside(k, s)) && doc.nodes[k].stroke.is_some())
+        .map(|k| doc.nodes[k].stroke_width / 2.0 * doc.world_transform(k).determinant().abs().sqrt())
+        .fold(0.0, f64::max);
+    Some(b.inflate(reach, reach))
+}
+
 /// The scene with only node `i` (and the groups around it) showing, without the nodes in `hide`.
 fn alone(doc: &Document, i: usize, hide: &[usize]) -> Document {
     let mut d = doc.clone();
@@ -138,8 +152,53 @@ fn alone(doc: &Document, i: usize, hide: &[usize]) -> Document {
     d
 }
 
+/// Node `i` and what is inside it alone, rendered on the artboard's pixel grid and cut to what
+/// it draws: the picture and where it lies on the artboard.
+pub fn picture(doc: &Document, i: usize, opts: CpuOptions) -> Option<(Pixmap, Rect)> {
+    let opts = CpuOptions { background: false, ..opts };
+    let k = opts.scale;
+    let r = piece_box(doc, i)?.inflate(REACH, REACH);
+    let region = Rect::new((r.x0 * k).floor() / k, (r.y0 * k).floor() / k, (r.x1 * k).ceil() / k, (r.y1 * k).ceil() / k);
+    let px = render_region(&alone(doc, i, &[]), region, opts)?;
+    let b = opaque_bounds(&px)?;
+    let out = cut(&px, b)?;
+    let at = Rect::new(region.x0 + b[0] as f64 / k, region.y0 + b[1] as f64 / k, region.x0 + b[2] as f64 / k, region.y0 + b[3] as f64 / k);
+    Some((out, at))
+}
+
+/// The rect the Godot control of piece `i` gets on the artboard: the piece without its caption
+/// (a checkbox and a label keep theirs), the background of a progress bar, the track of a scroll
+/// bar.
+pub fn control_box(doc: &Document, i: usize) -> Option<Rect> {
+    let n = &doc.nodes[i];
+    let parts: Vec<(UiPart, usize)> = (0..doc.nodes.len()).filter_map(|k| doc.nodes[k].part.filter(|_| owner(doc, k) == Some(i)).map(|p| (p, k))).collect();
+    let part = |p: UiPart| parts.iter().find(|(q, _)| *q == p).map(|(_, k)| *k);
+    let all: Vec<usize> = parts.iter().map(|(_, k)| *k).collect();
+    match n.ui_role {
+        UiRole::Progress => piece_box(doc, part(UiPart::Background)?),
+        UiRole::Scroll => piece_box(doc, part(UiPart::Track)?),
+        // As tall as the grabber icon drawn whole, or Godot grows the slider down to fit it.
+        UiRole::Slider => {
+            let (b, ink) = (piece_box(doc, i)?, ink_box_except(doc, i, &[])?);
+            Some(Rect::new(b.x0, ink.y0, b.x1, ink.y1))
+        }
+        UiRole::Check | UiRole::Label => {
+            let text = part(UiPart::Text).or((n.kind == ShapeKind::Text).then_some(i));
+            let line = text.and_then(|t| text_box(doc, t));
+            let skip: Vec<usize> = text.into_iter().collect();
+            // The boxes of a checkbox are icons, drawn whole from the control's corner.
+            let rest = if n.ui_role == UiRole::Check { ink_box_except(doc, i, &skip) } else { piece_box_except(doc, i, &skip) };
+            match (rest, line) {
+                (Some(a), Some(b)) => Some(a.union(b)),
+                (a, b) => a.or(b),
+            }
+        }
+        _ => piece_box_except(doc, i, &all),
+    }
+}
+
 /// The piece (`ui`) node `k` is a part of: its nearest ancestor with `ui`.
-fn owner(doc: &Document, k: usize) -> Option<usize> {
+pub(crate) fn owner(doc: &Document, k: usize) -> Option<usize> {
     let mut up = doc.nodes[k].parent;
     while let Some(p) = up {
         if doc.nodes[p].ui {
@@ -195,15 +254,20 @@ fn shoot(
     let states = pics.into_iter().map(|(s, p)| cut(&p, crop).map(|c| (s, c)).ok_or("пустой элемент интерфейса".to_string())).collect::<Result<Vec<_>, _>>()?;
     let expand = [box_px[0] - crop[0], box_px[1] - crop[1], crop[2] - box_px[2], crop[3] - box_px[3]].map(|v| v.max(0) as u32);
     let inset = [inner.x0 - frame.x0, inner.y0 - frame.y0, frame.x1 - inner.x1, frame.y1 - inner.y1].map(|v| to_px(v).max(0) as u32);
-    let margins = (slice.is_some() || inset.iter().any(|&v| v > 0))
-        .then(|| [0, 1, 2, 3].map(|k| (slice.map_or(0.0, |s| s[k]) * opts.scale).round().max(0.0) as u32 + inset[k] + expand[k]));
+    let margins = (slice.is_some() || inset.iter().any(|&v| v > 0)).then(|| {
+        // A corner never reaches past the middle of the box: Godot would make the control
+        // taller than drawn to fit two of them.
+        let half = [(box_px[2] - box_px[0]) / 2, (box_px[3] - box_px[1]) / 2].map(|v| v.max(0) as u32);
+        [0, 1, 2, 3].map(|k| ((slice.map_or(0.0, |s| s[k]) * opts.scale).round().max(0.0) as u32 + inset[k]).min(half[k % 2]) + expand[k])
+    });
     Ok(Shot { states, margins, expand })
 }
 
-/// Where a text is laid out (its line box, not the ink of its letters), on the artboard.
-fn text_box(doc: &Document, t: usize) -> Option<Rect> {
+/// Where a text is laid out (its lines, as Godot measures a label; not the ink of its
+/// letters), on the artboard.
+pub(crate) fn text_box(doc: &Document, t: usize) -> Option<Rect> {
     let n = &doc.nodes[t];
-    Some(doc.world_transform(t).transform_rect_bbox(n.text.as_ref()?.bounds(&n.text_style)))
+    Some(doc.world_transform(t).transform_rect_bbox(n.text.as_ref()?.line_box(&n.text_style)))
 }
 
 /// Content margins `[l, t, r, b]` in one state.
@@ -236,9 +300,17 @@ fn caption(
         let tr = pose.world_transform(t);
         let b = tr.transform_rect_bbox(shape.bounds(&n.text_style));
         let k = b.height() / shape.bounds(&n.text_style).height().max(1e-9);
-        let (half_w, half_h) = (b.width() / 2.0, (shape.ascender + shape.descender) * n.text_style.size * k / 2.0);
+        let half_w = b.width() / 2.0;
         let c = b.center();
-        let m = [c.x - half_w - frame.x0, c.y - half_h - frame.y0, frame.x1 - c.x - half_w, frame.y1 - c.y - half_h].map(|v| to_px(v).max(0) as u32);
+        // The line in whole pixels above and below, as FreeType rounds them for Godot.
+        let px = n.text_style.size * k * opts.scale;
+        let line = (shape.ascender * px).ceil() + (shape.descender * px).ceil();
+        let (y0, y1) = ((frame.y0 * opts.scale).round(), (frame.y1 * opts.scale).round());
+        let top = (c.y * opts.scale - line / 2.0 - y0 + 1e-6).floor().max(0.0);
+        let bottom = (y1 - y0 - top - line).max(0.0);
+        // Rounded down: two halves rounded up would make the control a pixel wider than drawn.
+        let side = |v: f64| (v * opts.scale + 1e-6).floor().max(0.0) as u32;
+        let m = [side(c.x - half_w - frame.x0), top as u32, side(frame.x1 - c.x - half_w), bottom as u32];
         content.push((*state, m));
     }
     let scale = doc.world_transform(t).as_coeffs()[3].abs().max(1e-9);
@@ -268,6 +340,12 @@ const BUTTON_COLORS: [(&str, &str); 5] = [
     ("disabled", "font_disabled_color"),
     ("focus", "font_focus_color"),
 ];
+
+/// Whether `doc` has interface pieces (`ui` or `slice`): a file's other boards (a sign, a
+/// backdrop) add nothing to the kit.
+pub fn has_pieces(doc: &Document) -> bool {
+    doc.nodes.iter().any(|n| n.ui || n.slice.is_some())
+}
 
 /// Renders every interface piece of `doc` in every state.
 pub fn render_kit(doc: &Document, opts: CpuOptions) -> Result<Vec<KitItem>, String> {
@@ -411,7 +489,7 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
                         it.slots.push(Slot::Icon { prop: names[1], picture: pick(&shots, "disabled").unwrap_or(0) });
                     }
                 }
-                let frame = piece_box_except(normal, i, &text.into_iter().collect::<Vec<_>>()).unwrap_or_default();
+                let frame = ink_box_except(normal, i, &text.into_iter().collect::<Vec<_>>()).unwrap_or_default();
                 let full = text.and_then(|t| text_box(normal, t)).map_or(frame, |b| frame.union(b));
                 // Whatever else the piece draws is its background in every state.
                 let rest = piece_box_except(normal, i, &all);
@@ -423,14 +501,20 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
                     && let Some((font, content)) = caption(&poses, t, full, &BUTTON_COLORS, opts)
                 {
                     // The gap between the box and the caption.
-                    let icon = part(UiPart::Unchecked).and_then(|k| piece_box(normal, k));
+                    let icon = part(UiPart::Unchecked).and_then(|k| ink_box_except(normal, k, &[]));
                     if let (Some(icon), Some(tb)) = (icon, text_box(normal, t)) {
                         it.slots.push(Slot::Constant { prop: "h_separation", value: ((tb.x0 - icon.x1) * opts.scale).round().max(0.0) as i64 });
                     }
                     let left = icon.map_or(0, |b| ((b.x0 - full.x0) * opts.scale).round().max(0.0) as u32);
                     // Top and bottom as drawn; Godot centres the box and the caption in what is left.
+                    // The box picture is cut to what it draws: it can be taller than the caption.
                     let [_, top, _, bottom] = content.first().map_or([0; 4], |c| c.1);
-                    let pad = top.min(bottom);
+                    let tall = it.slots.iter().find_map(|s| match s {
+                        Slot::Icon { prop: "unchecked", picture } => Some(it.pictures[*picture].px.height()),
+                        _ => None,
+                    });
+                    let room = ((full.height() * opts.scale).round() as u32).saturating_sub(tall.unwrap_or(0)) / 2;
+                    let pad = top.min(bottom).min(room);
                     state_styles(&mut it, &bgs, Some([left, pad, 0, pad]));
                     it.font = Some(font);
                 } else {
@@ -562,19 +646,74 @@ const GODOT_CLASSES: [&str; 28] = [
     "VSlider",
 ];
 
-/// The pieces of several boards as one kit, in board order. A piece whose id (or Godot type)
-/// an earlier board already has gets a number: the second `knob` becomes `knob_2`.
+/// The pieces of several boards in one kit. A piece drawn exactly like one before it (the same
+/// picture, the same caption font and colour) takes its type: a keypad of a dozen keys is one style,
+/// and the states need animating on one key only. Other clashing ids are numbered.
 pub fn merge_boards(boards: Vec<Vec<KitItem>>) -> Vec<KitItem> {
+    share_boards(boards).0
+}
+
+/// [`merge_boards`], and the type each piece of each board ended up with.
+pub fn share_boards(boards: Vec<Vec<KitItem>>) -> (Vec<KitItem>, Vec<Vec<String>>) {
     let mut out: Vec<KitItem> = Vec::new();
-    for mut item in boards.into_iter().flatten() {
-        let taken = |id: &str, out: &[KitItem]| out.iter().any(|o| o.id == id || type_name(&o.id) == type_name(id));
-        if taken(&item.id, &out) {
-            let base = item.id.clone();
-            item.id = (2..).map(|k| format!("{base}_{k}")).find(|id| !taken(id, &out)).expect("some number is free");
+    let mut names = Vec::new();
+    for board in boards {
+        let mut these = Vec::new();
+        for mut item in board {
+            if let Some(o) = out.iter_mut().find(|o| same_look(o, &item)) {
+                // The one with states is the style; it keeps the first one's name.
+                if item.pictures.len() > o.pictures.len()
+                    || (item.font.is_some() && o.font.as_ref().is_some_and(|f| f.colors.len() < item.font.as_ref().unwrap().colors.len()))
+                {
+                    item.id = o.id.clone();
+                    *o = item;
+                }
+                these.push(type_name(&o.id));
+                continue;
+            }
+            let taken = |id: &str, out: &[KitItem]| out.iter().any(|o| o.id == id || type_name(&o.id) == type_name(id));
+            if taken(&item.id, &out) {
+                let base = item.id.clone();
+                item.id = (2..).map(|k| format!("{base}_{k}")).find(|id| !taken(id, &out)).expect("some number is free");
+            }
+            these.push(type_name(&item.id));
+            out.push(item);
         }
-        out.push(item);
+        names.push(these);
     }
-    out
+    (out, names)
+}
+
+/// Two pieces that look the same at rest: the same control, picture and caption. One without
+/// states matches one with them; two with states match only state by state.
+fn same_look(a: &KitItem, b: &KitItem) -> bool {
+    // Cut to what they draw: a piece whose hover glows is shot with room for the glow.
+    let trim = |x: &KitPicture| {
+        let b = opaque_bounds(&x.px)?;
+        let cut = [b[0], b[1], x.px.width() as i64 - b[2], x.px.height() as i64 - b[3]];
+        let less = |m: [u32; 4]| [0, 1, 2, 3].map(|k| m[k] as i64 - cut[k]);
+        Some((self::cut(&x.px, b)?, x.margins.map(less), less(x.expand)))
+    };
+    let pic = |x: &KitPicture, y: &KitPicture| match (trim(x), trim(y)) {
+        (Some((px, mx, ex)), Some((py, my, ey))) => px.width() == py.width() && px.data() == py.data() && mx == my && ex == ey,
+        _ => false,
+    };
+    let (Some(pa), Some(pb)) = (a.pictures.first(), b.pictures.first()) else { return false };
+    if a.base != b.base || !pic(pa, pb) {
+        return false;
+    }
+    let plain = a.pictures.len() == 1 || b.pictures.len() == 1;
+    if !plain && (a.pictures.len() != b.pictures.len() || !a.pictures.iter().zip(&b.pictures).all(|(x, y)| x.name == y.name && pic(x, y))) {
+        return false;
+    }
+    match (&a.font, &b.font) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            let normal = |f: &KitFont| f.colors.iter().find(|(n, _)| *n == "font_color").map(|c| c.1);
+            x.file == y.file && x.size == y.size && x.outline == y.outline && x.shadow == y.shadow && normal(x) == normal(y) && (plain || x.colors == y.colors)
+        }
+        _ => false,
+    }
 }
 
 /// `play_button` → `PlayButton`: the name of the piece's type variation in the theme. A name
@@ -640,7 +779,12 @@ pub fn write_kit(dir: &Path, theme: &str, items: &[KitItem]) -> Result<Vec<PathB
                         }
                         None => subs.push_str(&format!("\n[sub_resource type=\"StyleBoxEmpty\" id=\"{n_sub}_style\"]\n")),
                     }
-                    if let Some(c) = content {
+                    // Without its own padding a picture pads by its corners, not counting the
+                    // shadow or glow drawn outside the control.
+                    let pad = content.or_else(|| {
+                        picture.and_then(|p| item.pictures[p].margins.map(|m| [0, 1, 2, 3].map(|k| m[k].saturating_sub(item.pictures[p].expand[k]))))
+                    });
+                    if let Some(c) = pad {
                         for (side, v) in SIDES.iter().zip(c) {
                             subs.push_str(&format!("content_margin_{side} = {v}.0\n"));
                         }
@@ -864,6 +1008,10 @@ text title at 200 360 content "Меню" font bold font-size 30 fill #ffffff out
         let fill = &hp.pictures[1];
         assert_eq!((fill.px.width(), fill.px.height()), (140, 28));
         assert_eq!(fill.margins, Some([18, 14, 18, 14]));
+        // Corners never meet past the middle, or Godot makes the bar taller than drawn.
+        let bg = &hp.pictures[0];
+        let [l, t, r, b] = bg.margins.unwrap();
+        assert!(l + r <= bg.px.width() && t + b <= bg.px.height(), "{:?} in {}x{}", bg.margins, bg.px.width(), bg.px.height());
         let sound = &items[1];
         assert_eq!(names(sound), ["unchecked", "checked"]);
         assert!(props(sound).contains(&"icons/checked".to_string()));
@@ -891,6 +1039,15 @@ text title at 200 360 content "Меню" font bold font-size 30 fill #ffffff out
     fn boards_share_one_kit_without_clashing_names() {
         let a = render_kit(&kit(), CpuOptions::default()).unwrap();
         let b = render_kit(&kit(), CpuOptions::default()).unwrap();
+        // The same pieces again are the same styles.
+        let (items, names) = share_boards(vec![a.clone(), b]);
+        assert_eq!(items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["play_button", "card"]);
+        assert_eq!(names[1], ["PlayButton", "Card"]);
+        // Drawn differently, they are numbered.
+        let mut b = a.clone();
+        for p in b.iter_mut().flat_map(|i| i.pictures.iter_mut()) {
+            p.px.fill(tiny_skia::Color::WHITE);
+        }
         let ids: Vec<String> = merge_boards(vec![a, b]).into_iter().map(|i| i.id).collect();
         assert_eq!(ids, ["play_button", "card", "play_button_2", "card_2"]);
         // Ids that differ only in punctuation are one Godot type: numbered too.
@@ -899,6 +1056,7 @@ text title at 200 360 content "Меню" font bold font-size 30 fill #ffffff out
         let mut d = render_kit(&kit(), CpuOptions::default()).unwrap();
         d.truncate(1);
         d[0].id = "play-button".into();
+        d[0].pictures[0].px.fill(tiny_skia::Color::WHITE);
         let ids: Vec<String> = merge_boards(vec![c, d]).into_iter().map(|i| i.id).collect();
         assert_eq!(ids, ["play_button", "play-button_2"]);
     }

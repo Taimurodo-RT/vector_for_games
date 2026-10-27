@@ -353,4 +353,46 @@ mod tests {
         assert_eq!(red(50, 20), 0);
         assert!(red(5, 20) > 250);
     }
+
+    #[test]
+    fn interface_effects() {
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 200.0, height: 100.0, background: Color::BLACK });
+        // A glow lights the dark around the shape, evenly on all sides, and fades out.
+        let lamp = square(&mut doc, 50.0, 50.0, 40.0);
+        lamp.fill = Some(Color::rgb(0, 0, 255));
+        lamp.glow = Some(motif_core::Glow { size: 10.0, spread: 0.0, color: Color::rgb(255, 255, 0) });
+        // An inner shadow darkens the inside along the top edge (offset down), not the middle.
+        let well = square(&mut doc, 150.0, 50.0, 60.0);
+        well.fill = Some(Color::WHITE);
+        well.inset = Some(motif_core::Shadow { dx: 0.0, dy: 6.0, blur: 4.0, color: Color::BLACK });
+        let px = render_cpu(&doc, CpuOptions::default()).unwrap();
+        let at = |x, y| px.pixel(x, y).unwrap().demultiply();
+        assert!(at(25, 50).red() > 30 && at(75, 50).red() > 30 && at(50, 25).red() > 30, "{:?}", at(25, 50));
+        assert!((at(25, 50).red() as i32 - at(74, 50).red() as i32).abs() <= 3);
+        assert!(at(5, 50).red() < 10);
+        assert_eq!((at(50, 50).red(), at(50, 50).blue()), (0, 255));
+        assert!(at(150, 22).red() < 120, "{:?}", at(150, 22));
+        assert!(at(150, 60).red() > 250);
+        assert!(at(150, 78).red() > 240, "the shadow falls from the top: {:?}", at(150, 78));
+
+        // A gradient stroke runs over the shape: light at the top, dark at the bottom.
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 100.0, height: 100.0, background: Color::BLACK });
+        let frame = square(&mut doc, 50.0, 50.0, 60.0);
+        frame.stroke_width = 6.0;
+        frame.stroke_gradient = Some(motif_core::Gradient { radial: false, angle: 90.0, colors: vec![Color::WHITE, Color::rgb(0, 0, 255)] });
+        // Grain: specks lighter and darker than the fill, the same in every render.
+        let grain = square(&mut doc, 50.0, 50.0, 30.0);
+        grain.fill = Some(Color::rgb(128, 128, 128));
+        grain.noise = Some(motif_core::Noise { amount: 0.5, size: 1.0 });
+        let px = render_cpu(&doc, CpuOptions::default()).unwrap();
+        let at = |x, y| px.pixel(x, y).unwrap().demultiply();
+        assert!(at(50, 20).red() > 200 && at(50, 80).red() < 60, "{:?} {:?}", at(50, 20), at(50, 80));
+        assert!(at(50, 80).blue() > 150);
+        // Inside the frame there is no stroke.
+        assert!(at(30, 30).red() < 5);
+        let reds: Vec<u8> = (36..64).map(|x| at(x, 50).red()).collect();
+        assert!(reds.iter().any(|&r| r > 150) && reds.iter().any(|&r| r < 100), "{reds:?}");
+        let again = render_cpu(&doc, CpuOptions::default()).unwrap();
+        assert_eq!(px.data(), again.data());
+    }
 }

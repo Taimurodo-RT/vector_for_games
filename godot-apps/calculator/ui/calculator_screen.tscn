@@ -1,0 +1,286 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Theme" path="calculator.tres" id="1_theme"]
+[ext_resource type="Texture2D" path="calculator_screen_body.png" id="2_texture2d"]
+[ext_resource type="Texture2D" path="calculator_screen_screen.png" id="3_texture2d"]
+[ext_resource type="Texture2D" path="calculator_screen_led.png" id="4_texture2d"]
+[ext_resource type="FontFile" path="IBMPlexSans-Regular.ttf" id="5_fontfile"]
+[ext_resource type="FontFile" path="IBMPlexSans-SemiBold.ttf" id="6_fontfile"]
+
+[sub_resource type="StyleBoxTexture" id="1_panel"]
+texture = ExtResource("2_texture2d")
+texture_margin_left = 75.0
+texture_margin_top = 57.0
+texture_margin_right = 73.0
+texture_margin_bottom = 93.0
+expand_margin_left = 44.0
+expand_margin_top = 26.0
+expand_margin_right = 42.0
+expand_margin_bottom = 62.0
+content_margin_left = 18.0
+content_margin_top = 18.0
+content_margin_right = 18.0
+content_margin_bottom = 18.0
+
+[sub_resource type="StyleBoxTexture" id="2_panel"]
+texture = ExtResource("3_texture2d")
+texture_margin_left = 20.0
+texture_margin_top = 20.0
+texture_margin_right = 20.0
+texture_margin_bottom = 20.0
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 14.0
+content_margin_top = 14.0
+content_margin_right = 14.0
+content_margin_bottom = 14.0
+
+[node name="calculator" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("1_theme")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.05098, 0.058824, 0.086275, 1)
+
+[node name="calc" type="PanelContainer" parent="."]
+layout_mode = 1
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -161.0
+offset_top = -241.0
+offset_right = 161.0
+offset_bottom = 241.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("1_panel")
+
+[node name="Stack" type="VBoxContainer" parent="calc"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="display" type="PanelContainer" parent="calc/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(286.0, 116.0)
+size_flags_horizontal = 4
+theme_override_styles/panel = SubResource("2_panel")
+
+[node name="Stack" type="VBoxContainer" parent="calc/Stack/display"]
+layout_mode = 2
+theme_override_constants/separation = 0
+
+[node name="led" type="Control" parent="calc/Stack/display/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(258.0, 3.0)
+size_flags_horizontal = 8
+mouse_filter = 2
+
+[node name="Picture" type="TextureRect" parent="calc/Stack/display/Stack/led"]
+layout_mode = 1
+offset_left = -6.0
+offset_top = -7.0
+offset_right = 264.0
+offset_bottom = 10.0
+mouse_filter = 2
+texture = ExtResource("4_texture2d")
+stretch_mode = 3
+
+[node name="expr" type="Label" parent="calc/Stack/display/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(67.0, 24.0)
+size_flags_horizontal = 8
+text = "12 × 3 ="
+horizontal_alignment = 2
+vertical_alignment = 1
+theme_override_fonts/font = ExtResource("5_fontfile")
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.490196, 0.52549, 0.611765, 1)
+
+[node name="result" type="Label" parent="calc/Stack/display/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(55.0, 61.0)
+size_flags_horizontal = 8
+text = "36"
+horizontal_alignment = 2
+vertical_alignment = 1
+theme_override_fonts/font = ExtResource("6_fontfile")
+theme_override_font_sizes/font_size = 46
+theme_override_colors/font_color = Color(0.933333, 0.945098, 0.968627, 1)
+
+[node name="row1" type="HBoxContainer" parent="calc/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(286.0, 56.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 10
+
+[node name="kac" type="Button" parent="calc/Stack/row1"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Kac"
+text = "AC"
+
+[node name="ksign" type="Button" parent="calc/Stack/row1"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Kac"
+text = "±"
+
+[node name="kpct" type="Button" parent="calc/Stack/row1"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Kac"
+text = "%"
+
+[node name="kdiv" type="Button" parent="calc/Stack/row1"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Kdiv"
+text = "÷"
+
+[node name="row2" type="HBoxContainer" parent="calc/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(286.0, 56.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 10
+
+[node name="k7" type="Button" parent="calc/Stack/row2"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "7"
+
+[node name="k8" type="Button" parent="calc/Stack/row2"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "8"
+
+[node name="k9" type="Button" parent="calc/Stack/row2"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "9"
+
+[node name="kmul" type="Button" parent="calc/Stack/row2"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Kdiv"
+text = "×"
+
+[node name="row3" type="HBoxContainer" parent="calc/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(286.0, 56.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 10
+
+[node name="k4" type="Button" parent="calc/Stack/row3"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "4"
+
+[node name="k5" type="Button" parent="calc/Stack/row3"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "5"
+
+[node name="k6" type="Button" parent="calc/Stack/row3"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "6"
+
+[node name="ksub" type="Button" parent="calc/Stack/row3"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Kdiv"
+text = "−"
+
+[node name="row4" type="HBoxContainer" parent="calc/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(286.0, 56.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 10
+
+[node name="k1" type="Button" parent="calc/Stack/row4"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "1"
+
+[node name="k2" type="Button" parent="calc/Stack/row4"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "2"
+
+[node name="k3" type="Button" parent="calc/Stack/row4"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = "3"
+
+[node name="kadd" type="Button" parent="calc/Stack/row4"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Kdiv"
+text = "+"
+
+[node name="row5" type="HBoxContainer" parent="calc/Stack"]
+layout_mode = 2
+custom_minimum_size = Vector2(286.0, 56.0)
+size_flags_horizontal = 4
+theme_override_constants/separation = 10
+
+[node name="k0" type="Button" parent="calc/Stack/row5"]
+layout_mode = 2
+custom_minimum_size = Vector2(138.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K0"
+text = "0"
+
+[node name="kdot" type="Button" parent="calc/Stack/row5"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"K7"
+text = ","
+
+[node name="keq" type="Button" parent="calc/Stack/row5"]
+layout_mode = 2
+custom_minimum_size = Vector2(64.0, 56.0)
+size_flags_vertical = 4
+theme_type_variation = &"Keq"
+text = "="

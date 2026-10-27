@@ -1,0 +1,356 @@
+[gd_resource type="Theme" load_steps=43 format=3]
+
+[ext_resource type="Texture2D" path="kac_normal.png" id="1_tex"]
+[ext_resource type="Texture2D" path="kac_hover.png" id="2_tex"]
+[ext_resource type="Texture2D" path="kac_pressed.png" id="3_tex"]
+[ext_resource type="FontFile" path="IBMPlexSans-SemiBold.ttf" id="font_1"]
+[ext_resource type="Texture2D" path="kdiv_normal.png" id="5_tex"]
+[ext_resource type="Texture2D" path="kdiv_hover.png" id="6_tex"]
+[ext_resource type="Texture2D" path="kdiv_pressed.png" id="7_tex"]
+[ext_resource type="Texture2D" path="k7_normal.png" id="8_tex"]
+[ext_resource type="Texture2D" path="k7_hover.png" id="9_tex"]
+[ext_resource type="Texture2D" path="k7_pressed.png" id="10_tex"]
+[ext_resource type="FontFile" path="IBMPlexSans-Regular.ttf" id="font_2"]
+[ext_resource type="Texture2D" path="k0_normal.png" id="12_tex"]
+[ext_resource type="Texture2D" path="k0_hover.png" id="13_tex"]
+[ext_resource type="Texture2D" path="k0_pressed.png" id="14_tex"]
+[ext_resource type="Texture2D" path="keq_normal.png" id="15_tex"]
+[ext_resource type="Texture2D" path="keq_hover.png" id="16_tex"]
+[ext_resource type="Texture2D" path="keq_pressed.png" id="17_tex"]
+
+[sub_resource type="StyleBoxTexture" id="1_style"]
+texture = ExtResource("1_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 15.0
+
+[sub_resource type="StyleBoxTexture" id="2_style"]
+texture = ExtResource("2_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 15.0
+
+[sub_resource type="StyleBoxTexture" id="3_style"]
+texture = ExtResource("3_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 15.0
+
+[sub_resource type="StyleBoxTexture" id="4_style"]
+texture = ExtResource("3_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 15.0
+
+[sub_resource type="StyleBoxTexture" id="5_style"]
+texture = ExtResource("1_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 15.0
+
+[sub_resource type="StyleBoxTexture" id="6_style"]
+texture = ExtResource("5_tex")
+expand_margin_left = 14.0
+expand_margin_top = 14.0
+expand_margin_right = 13.0
+expand_margin_bottom = 14.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="7_style"]
+texture = ExtResource("6_tex")
+expand_margin_left = 14.0
+expand_margin_top = 14.0
+expand_margin_right = 13.0
+expand_margin_bottom = 14.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="8_style"]
+texture = ExtResource("7_tex")
+expand_margin_left = 14.0
+expand_margin_top = 14.0
+expand_margin_right = 13.0
+expand_margin_bottom = 14.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="9_style"]
+texture = ExtResource("7_tex")
+expand_margin_left = 14.0
+expand_margin_top = 14.0
+expand_margin_right = 13.0
+expand_margin_bottom = 14.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="10_style"]
+texture = ExtResource("5_tex")
+expand_margin_left = 14.0
+expand_margin_top = 14.0
+expand_margin_right = 13.0
+expand_margin_bottom = 14.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="11_style"]
+texture = ExtResource("8_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 24.0
+content_margin_top = 10.0
+content_margin_right = 24.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="12_style"]
+texture = ExtResource("9_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 24.0
+content_margin_top = 10.0
+content_margin_right = 24.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="13_style"]
+texture = ExtResource("10_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 24.0
+content_margin_top = 10.0
+content_margin_right = 24.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="14_style"]
+texture = ExtResource("10_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 24.0
+content_margin_top = 10.0
+content_margin_right = 24.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="15_style"]
+texture = ExtResource("8_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 24.0
+content_margin_top = 10.0
+content_margin_right = 24.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="16_style"]
+texture = ExtResource("12_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 61.0
+content_margin_top = 10.0
+content_margin_right = 61.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="17_style"]
+texture = ExtResource("13_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 61.0
+content_margin_top = 10.0
+content_margin_right = 61.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="18_style"]
+texture = ExtResource("14_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 61.0
+content_margin_top = 10.0
+content_margin_right = 61.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="19_style"]
+texture = ExtResource("14_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 61.0
+content_margin_top = 10.0
+content_margin_right = 61.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="20_style"]
+texture = ExtResource("12_tex")
+expand_margin_left = 1.0
+expand_margin_top = 1.0
+expand_margin_right = 1.0
+expand_margin_bottom = 1.0
+content_margin_left = 61.0
+content_margin_top = 10.0
+content_margin_right = 61.0
+content_margin_bottom = 11.0
+
+[sub_resource type="StyleBoxTexture" id="21_style"]
+texture = ExtResource("15_tex")
+expand_margin_left = 25.0
+expand_margin_top = 28.0
+expand_margin_right = 26.0
+expand_margin_bottom = 26.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="22_style"]
+texture = ExtResource("16_tex")
+expand_margin_left = 25.0
+expand_margin_top = 28.0
+expand_margin_right = 26.0
+expand_margin_bottom = 26.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="23_style"]
+texture = ExtResource("17_tex")
+expand_margin_left = 25.0
+expand_margin_top = 28.0
+expand_margin_right = 26.0
+expand_margin_bottom = 26.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="24_style"]
+texture = ExtResource("17_tex")
+expand_margin_left = 25.0
+expand_margin_top = 28.0
+expand_margin_right = 26.0
+expand_margin_bottom = 26.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[sub_resource type="StyleBoxTexture" id="25_style"]
+texture = ExtResource("15_tex")
+expand_margin_left = 25.0
+expand_margin_top = 28.0
+expand_margin_right = 26.0
+expand_margin_bottom = 26.0
+content_margin_left = 23.0
+content_margin_top = 8.0
+content_margin_right = 23.0
+content_margin_bottom = 8.0
+
+[resource]
+Kac/base_type = &"Button"
+Kac/styles/normal = SubResource("1_style")
+Kac/styles/hover = SubResource("2_style")
+Kac/styles/pressed = SubResource("3_style")
+Kac/styles/hover_pressed = SubResource("4_style")
+Kac/styles/disabled = SubResource("5_style")
+Kac/fonts/font = ExtResource("font_1")
+Kac/font_sizes/font_size = 20
+Kac/colors/font_color = Color(0.933333, 0.945098, 0.968627, 1)
+Kac/colors/font_hover_color = Color(0.933333, 0.945098, 0.968627, 1)
+Kac/colors/font_pressed_color = Color(0.933333, 0.945098, 0.968627, 1)
+Kac/colors/font_hover_pressed_color = Color(0.933333, 0.945098, 0.968627, 1)
+Kdiv/base_type = &"Button"
+Kdiv/styles/normal = SubResource("6_style")
+Kdiv/styles/hover = SubResource("7_style")
+Kdiv/styles/pressed = SubResource("8_style")
+Kdiv/styles/hover_pressed = SubResource("9_style")
+Kdiv/styles/disabled = SubResource("10_style")
+Kdiv/fonts/font = ExtResource("font_1")
+Kdiv/font_sizes/font_size = 30
+Kdiv/colors/font_color = Color(0.141176, 0.082353, 0.011765, 1)
+Kdiv/colors/font_hover_color = Color(0.141176, 0.082353, 0.011765, 1)
+Kdiv/colors/font_pressed_color = Color(0.141176, 0.082353, 0.011765, 1)
+Kdiv/colors/font_hover_pressed_color = Color(0.141176, 0.082353, 0.011765, 1)
+K7/base_type = &"Button"
+K7/styles/normal = SubResource("11_style")
+K7/styles/hover = SubResource("12_style")
+K7/styles/pressed = SubResource("13_style")
+K7/styles/hover_pressed = SubResource("14_style")
+K7/styles/disabled = SubResource("15_style")
+K7/fonts/font = ExtResource("font_2")
+K7/font_sizes/font_size = 26
+K7/colors/font_color = Color(0.933333, 0.945098, 0.968627, 1)
+K7/colors/font_hover_color = Color(0.933333, 0.945098, 0.968627, 1)
+K7/colors/font_pressed_color = Color(0.933333, 0.945098, 0.968627, 1)
+K7/colors/font_hover_pressed_color = Color(0.933333, 0.945098, 0.968627, 1)
+K0/base_type = &"Button"
+K0/styles/normal = SubResource("16_style")
+K0/styles/hover = SubResource("17_style")
+K0/styles/pressed = SubResource("18_style")
+K0/styles/hover_pressed = SubResource("19_style")
+K0/styles/disabled = SubResource("20_style")
+K0/fonts/font = ExtResource("font_2")
+K0/font_sizes/font_size = 26
+K0/colors/font_color = Color(0.933333, 0.945098, 0.968627, 1)
+K0/colors/font_hover_color = Color(0.933333, 0.945098, 0.968627, 1)
+K0/colors/font_pressed_color = Color(0.933333, 0.945098, 0.968627, 1)
+K0/colors/font_hover_pressed_color = Color(0.933333, 0.945098, 0.968627, 1)
+Keq/base_type = &"Button"
+Keq/styles/normal = SubResource("21_style")
+Keq/styles/hover = SubResource("22_style")
+Keq/styles/pressed = SubResource("23_style")
+Keq/styles/hover_pressed = SubResource("24_style")
+Keq/styles/disabled = SubResource("25_style")
+Keq/fonts/font = ExtResource("font_1")
+Keq/font_sizes/font_size = 30
+Keq/colors/font_color = Color(0.141176, 0.082353, 0.011765, 1)
+Keq/colors/font_hover_color = Color(0.141176, 0.082353, 0.011765, 1)
+Keq/colors/font_pressed_color = Color(0.141176, 0.082353, 0.011765, 1)
+Keq/colors/font_hover_pressed_color = Color(0.141176, 0.082353, 0.011765, 1)
