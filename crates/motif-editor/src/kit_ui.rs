@@ -4,7 +4,7 @@ use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
-use motif_core::{Node, ShapeKind};
+use motif_core::{Node, ShapeKind, UiPart, UiRole};
 use motif_script::fmt_num;
 
 /// `slice` written as short as it reads: one value, two (sides, top-bottom) or four.
@@ -20,6 +20,45 @@ pub fn slice_text(s: [f64; 4]) -> String {
     format!("slice {}", v.iter().map(|x| fmt_num(*x)).collect::<Vec<_>>().join(" "))
 }
 
+/// What a piece becomes in Godot, as the menu names it.
+fn role_name(r: UiRole) -> &'static str {
+    match r {
+        UiRole::Auto => "Кнопка или панель",
+        UiRole::Button => "Кнопка — Button",
+        UiRole::Panel => "Панель — PanelContainer",
+        UiRole::Progress => "Полоса — ProgressBar",
+        UiRole::Check => "Флажок — CheckBox",
+        UiRole::Slider => "Слайдер — HSlider/VSlider",
+        UiRole::Scroll => "Прокрутка — ScrollBar",
+        UiRole::Label => "Надпись — Label",
+    }
+}
+
+fn part_name(p: UiPart) -> &'static str {
+    match p {
+        UiPart::Background => "Фон",
+        UiPart::Fill => "Заливка",
+        UiPart::Unchecked => "Выключен",
+        UiPart::Checked => "Включён",
+        UiPart::Track => "Дорожка",
+        UiPart::Grabber => "Ползунок",
+        UiPart::Text => "Подпись — шрифтом Godot",
+    }
+}
+
+/// What the parts of a kind of piece are for, under the menu.
+fn role_hint(r: UiRole) -> &'static str {
+    match r {
+        UiRole::Auto => "С состояниями или подписью — кнопка, без них — панель.",
+        UiRole::Button | UiRole::Panel => "Подпись (text с деталью «Подпись») не запекается: Godot пишет её шрифтом темы, цвет — по состояниям.",
+        UiRole::Progress => "Внутри нужны детали «Фон» и «Заливка»; заливка растёт от начала полосы.",
+        UiRole::Check => "Внутри нужны «Выключен» и «Включён» — картинки галочки; подпись — по желанию.",
+        UiRole::Slider => "Внутри нужны «Дорожка» и «Ползунок»; «Заливка» — пройденная часть, по желанию.",
+        UiRole::Scroll => "Внутри нужны «Дорожка» и «Ползунок»; ползунок тянется вдоль полосы.",
+        UiRole::Label => "Шрифт, размер, цвет, обводка и тень текста — в тему Label.",
+    }
+}
+
 impl App {
     /// Both flags are written through `styles`: `ui` alone makes a fixed-size piece,
     /// `slice` a stretchable one. Returns true when the states button was pressed.
@@ -29,8 +68,43 @@ impl App {
         }
         let mut add_states = false;
         let missing: Vec<&str> = ["Hover", "Press"].into_iter().filter(|n| self.scene.doc.animation(n).is_none()).collect();
+        // The piece this node is inside, if any: then it can be one of its parts.
+        let doc = &self.scene.doc;
+        let mut up = node.parent;
+        while let Some(k) = up.filter(|k| !doc.nodes[*k].ui) {
+            up = doc.nodes[k].parent;
+        }
+        let owner = up.map(|k| &doc.nodes[k]);
         fold(ui, "Интерфейс", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            if let Some(o) = owner.filter(|o| !o.ui_role.parts().is_empty() || node.part.is_some()) {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Деталь").size(12.5).color(FG));
+                    egui::ComboBox::from_id_salt(("ui-part", &node.id))
+                        .width(ui.available_width() - 8.0)
+                        .selected_text(node.part.map_or("нет", part_name))
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(node.part.is_none(), "нет").clicked() {
+                                styles.push(("part", None));
+                            }
+                            for &p in o.ui_role.parts() {
+                                if ui.selectable_label(node.part == Some(p), part_name(p)).clicked() {
+                                    styles.push(("part", Some(format!("part {}", p.keyword()))));
+                                }
+                            }
+                        });
+                });
+                if let Some(p) = node.part {
+                    let whose = o.name.as_deref().unwrap_or(&o.id);
+                    let hint = if p == UiPart::Text {
+                        format!("Подпись «{whose}» не запекается: Godot пишет её шрифтом из темы, цвет — из каждого состояния.")
+                    } else {
+                        format!("Часть «{whose}»: снимается отдельной картинкой.")
+                    };
+                    ui.label(RichText::new(hint).size(11.5).color(FAINT));
+                    return;
+                }
+            }
             let mut on = node.ui || node.slice.is_some();
             if ui.checkbox(&mut on, RichText::new("Деталь интерфейса").size(12.5).color(FG)).changed() {
                 styles.push(("ui", on.then(|| "ui".to_string())));
@@ -46,6 +120,21 @@ impl App {
                 );
                 return;
             }
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("В Godot").size(12.5).color(FG));
+                egui::ComboBox::from_id_salt(("ui-role", &node.id)).width(ui.available_width() - 8.0).selected_text(role_name(node.ui_role)).show_ui(
+                    ui,
+                    |ui| {
+                        for r in UiRole::ALL {
+                            if ui.selectable_label(node.ui_role == r, role_name(r)).clicked() && r != node.ui_role {
+                                let word = r.keyword();
+                                styles.push(("ui", Some(if word.is_empty() { "ui".to_string() } else { format!("ui {word}") })));
+                            }
+                        }
+                    },
+                );
+            });
+            ui.label(RichText::new(role_hint(node.ui_role)).size(11.5).color(FAINT));
             let mut stretch = node.slice.is_some();
             if ui.checkbox(&mut stretch, RichText::new("Тянется (9-slice)").size(12.5).color(FG)).changed() {
                 // A quarter of the shorter side; groups have no size of their own.

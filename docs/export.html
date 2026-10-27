@@ -124,36 +124,53 @@ motif.exe render  ui-kit.msc --board Кнопка -o кнопка.png</code></pr
 </table></div>
 
 <h2 id="ui-kit">UI-наборы для Godot</h2>
-<p>Кнопки, панели, рамки, полосы здоровья и подсказки рисуются в Motif как обычные фигуры, а в игру уходят готовой темой Godot. Начните с «Файл → Новый UI-набор»: это заготовка с кнопкой в четырёх состояниях, круглой кнопкой «закрыть», панелью, полосой, флажком и подсказкой — каждая деталь на своём <a href="tools.html#boards">холсте</a>, цвета общие в начале файла. «Экспорт → Холсты: Все» собирает детали всех холстов в одну тему. Она открывается в режиме UI (<code>artboard … ui</code>, переключатель «Всё / UI / Игра» сверху): экспорт UI-набора стоит в окне «Экспорт» первым, а лишние для интерфейса разделы спрятаны. Кнопка «Добавить состояния Hover и Press» в разделе «Интерфейс» заводит пустые анимации состояний и включает Animate.</p>
+<p>Кнопки, панели, рамки, полосы здоровья и подсказки рисуются в Motif как обычные фигуры, а в игру уходят готовой темой Godot. Начните с «Файл → Новый UI-набор»: это заготовка с кнопкой в четырёх состояниях, круглой кнопкой «закрыть», панелью, полосой прогресса, флажком, слайдером, полосой прокрутки, заголовком и подсказкой — каждая деталь на своём <a href="tools.html#boards">холсте</a>, цвета общие в начале файла. «Экспорт → Холсты: Все» собирает детали всех холстов в одну тему. Она открывается в режиме UI (<code>artboard … ui</code>, переключатель «Всё / UI / Игра» сверху): экспорт UI-набора стоит в окне «Экспорт» первым, а лишние для интерфейса разделы спрятаны. Кнопка «Добавить состояния Hover и Press» в разделе «Интерфейс» заводит пустые анимации состояний и включает Animate.</p>
 <div class="side">
   <figure><img src="img/kit-panel.png" alt="Раздел Интерфейс и линии 9-slice на холсте"></figure>
   <div>
     <ul>
       <li><b>Деталь интерфейса</b> (<code>ui</code>) — объект или группа экспортируется отдельной картинкой. Так помечают иконки и всё, что не тянется.</li>
+      <li><b>В Godot</b> (слово после <code>ui</code>) — каким элементом Godot станет деталь: <code>ui button</code>, <code>panel</code>, <code>progress</code>, <code>check</code>, <code>slider</code>, <code>scroll</code>, <code>label</code>. Просто <code>ui</code> — кнопка, если есть состояния или подпись, иначе панель.</li>
+      <li><b>Деталь</b> (<code>part</code>) — роль объекта внутри такого элемента: <code>part fill</code>, <code>part grabber</code>… Каждая часть снимается отдельной картинкой со своими полями 9-slice.</li>
+      <li><b>Подпись</b> (<code>part text</code> у <code>text</code>) не запекается в картинку: Godot пишет её шрифтом из темы. В тему уходят файл шрифта, размер и цвет текста в каждом состоянии, а сдвиг подписи при нажатии — в поля содержимого.</li>
       <li><b>Тянется (9-slice)</b> (<code>slice</code>) — поля слева, сверху, справа и снизу не растягиваются: углы и рамка остаются как нарисованы, тянется середина. На холсте поля видны розовым пунктиром.</li>
       <li><b>Состояния</b> — анимации с именами <code>Hover</code>, <code>Press</code>, <code>Disabled</code>, <code>Focus</code>. Состояние — последний кадр анимации, поэтому та же анимация в игре и в редакторе показывает переход. Если анимация не меняет деталь, картинка не сохраняется.</li>
       <li>Тени, свечение и обводки выходят за рамку детали — Motif сам добавляет нужный запас (<code>expand_margin</code>), и кнопка в Godot остаётся своего размера.</li>
     </ul>
   </div>
 </div>
-<pre><code>group button "Кнопка" at 130 70 ui slice 20 {
+<pre><code>group button "Кнопка" at 130 70 ui button slice 20 {
   rect base at 0 5 size 180 52 r 14 fill #2441a8
   rect body size 180 52 r 14 fill #3b6cff stroke #10131d 4
+  text caption at 0 2 content "Играть" font bold font-size 20 fill #f4f1ea part text
 }
 anim Hover 0.15s {
   body.fill 0: #3b6cff | 0.15: #6f93ff
 }
 anim Press 0.08s {
   body.y 0: 0 | 0.08: 5
+  caption.y 0: 2 | 0.08: 7
 }</code></pre>
-<p>«Экспорт → Сохранить UI-набор…» (или <code>motif kit</code>) пишет в папку PNG по деталям и состояниям (<code>button_normal.png</code>, <code>button_hover.png</code>…) и тему <code>ИМЯ.tres</code>. Деталь с состояниями становится вариацией типа <code>Button</code>, без них — <code>PanelContainer</code>. Имя вариации — id детали в PascalCase; если оно совпадает с классом Godot, добавляется <code>Kit</code> (<code>button</code> → <code>ButtonKit</code>).</p>
-<figure><img src="img/kit-render.png" alt="Картинки UI-набора: кнопка в четырёх состояниях, закрыть, флажки, панель, подсказка, полоса"></figure>
+<p>Какие детали нужны каждому элементу:</p>
+<table>
+  <tr><th>Скрипт</th><th>В Godot</th><th>Детали</th><th>Что попадает в тему</th></tr>
+  <tr><td><code>ui button</code></td><td><code>Button</code></td><td><code>part text</code> — по желанию</td><td>стили <code>normal hover pressed hover_pressed disabled</code> (и <code>focus</code>, если есть анимация Focus), шрифт, размер и цвета текста по состояниям</td></tr>
+  <tr><td><code>ui panel</code></td><td><code>PanelContainer</code></td><td>—</td><td>стиль <code>panel</code></td></tr>
+  <tr><td><code>ui progress</code></td><td><code>ProgressBar</code></td><td><code>part background</code>, <code>part fill</code></td><td>стили <code>background</code> и <code>fill</code>; отступ заливки от рамки сохраняется, заливка растёт от начала</td></tr>
+  <tr><td><code>ui check</code></td><td><code>CheckBox</code></td><td><code>part unchecked</code>, <code>part checked</code>, <code>part text</code> — по желанию</td><td>иконки <code>unchecked checked</code> и их <code>_disabled</code>, зазор до подписи <code>h_separation</code>, шрифт и цвета</td></tr>
+  <tr><td><code>ui slider</code></td><td><code>HSlider</code> / <code>VSlider</code></td><td><code>part track</code>, <code>part grabber</code>, <code>part fill</code> — по желанию</td><td>стили <code>slider grabber_area grabber_area_highlight</code>, иконки <code>grabber grabber_highlight grabber_disabled</code></td></tr>
+  <tr><td><code>ui scroll</code></td><td><code>HScrollBar</code> / <code>VScrollBar</code></td><td><code>part track</code>, <code>part grabber</code></td><td>стили <code>scroll scroll_focus grabber grabber_highlight grabber_pressed</code></td></tr>
+  <tr><td><code>ui label</code></td><td><code>Label</code></td><td>сам <code>text</code> или группа с <code>part text</code></td><td>шрифт, размер, цвет, обводка (<code>outline</code>) и тень (<code>shadow</code>)</td></tr>
+</table>
+<p>Горизонтальный слайдер или вертикальный, решает форма дорожки. Hover подсвечивает ползунок и заливку, Press — ползунок полосы прокрутки, Disabled — иконки флажка и ползунка.</p>
+<p>«Экспорт → Сохранить UI-набор…» (или <code>motif kit</code>) пишет в папку PNG по деталям и состояниям (<code>button_normal.png</code>, <code>button_hover.png</code>, <code>volume_grabber.png</code>…), файлы шрифтов подписей и тему <code>ИМЯ.tres</code>. Каждая деталь — вариация своего типа Godot из таблицы выше. Имя вариации — id детали в PascalCase; если оно совпадает с классом Godot, добавляется <code>Kit</code> (<code>button</code> → <code>ButtonKit</code>).</p>
+<figure><img src="img/kit-render.png" alt="Картинки UI-набора без подписей: кнопка в четырёх состояниях, закрыть, флажок, ползунки, панель, подсказка, полосы"></figure>
 <ol>
   <li>Положите папку набора в проект Godot, например в <code>res://ui/</code>.</li>
   <li>Назначьте <code>ui.tres</code> свойству <b>Theme</b> корневого <code>Control</code> — тема перейдёт на всех потомков.</li>
-  <li>У кнопки или панели в инспекторе выберите <b>Theme Type Variation</b>: <code>ButtonKit</code>, <code>Card</code>, <code>Tooltip</code>…</li>
+  <li>У кнопки, полосы, флажка или надписи в инспекторе выберите <b>Theme Type Variation</b>: <code>ButtonKit</code>, <code>Health</code>, <code>Sound</code>, <code>Title</code>… Текст задаёт сама игра: <code>text</code> кнопки или надписи. У <code>ProgressBar</code> снимите <b>Show Percentage</b>, если число не нужно.</li>
 </ol>
-<figure><img src="img/kit-godot.png" alt="Тот же набор в Godot 4: кнопки в состояниях, панель, подсказка и рамка полосы растянуты по 9-slice"></figure>
+<figure><img src="img/kit-godot.png" alt="Тот же набор в Godot 4.3: кнопки с подписями шрифтом Godot в обычном, нажатом и выключенном состояниях, полосы прогресса на 65 и 5 процентов, флажки, слайдер, полоса прокрутки, заголовок с обводкой и тенью, панель"></figure>
 <p>Пример <code>modern-button.msc</code> — веб-кнопка с Uiverse.io, повторённая по её CSS: как переводить <code>padding</code>, <code>box-shadow</code>, <code>overflow: hidden</code>, <code>:hover</code> и <code>:active</code> в фигуры, маску и анимации.</p>
 <p>Масштаб и сглаживание берутся из окна экспорта: для пиксельного интерфейса снимите набор без сглаживания и с целым масштабом.</p>
 

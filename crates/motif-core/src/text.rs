@@ -42,10 +42,26 @@ pub struct Glyph {
     pub blank: bool,
 }
 
+/// The font a text was read from, kept so a game can draw the same letters (the UI kit's theme).
+#[derive(Clone, Debug)]
+pub struct FontFile {
+    /// The file name it goes by: `IBMPlexSans-SemiBold.ttf`, `мой.ttf`.
+    pub name: String,
+    pub data: std::sync::Arc<Vec<u8>>,
+}
+
+impl PartialEq for FontFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && (std::sync::Arc::ptr_eq(&self.data, &other.data) || self.data == other.data)
+    }
+}
+
 /// Text read from a font, ready to lay out.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextShape {
     pub content: String,
+    /// Where the letters come from; `None` for text made in code without a file.
+    pub font: Option<FontFile>,
     pub lines: Vec<Vec<Glyph>>,
     /// Above and below the baseline, in em.
     pub ascender: f64,
@@ -130,7 +146,7 @@ impl TextShape {
                 out
             })
             .collect();
-        Ok(TextShape { content: content.to_string(), lines, ascender: face.ascender() as f64 * k, descender: -(face.descender() as f64) * k })
+        Ok(TextShape { content: content.to_string(), font: None, lines, ascender: face.ascender() as f64 * k, descender: -(face.descender() as f64) * k })
     }
 }
 

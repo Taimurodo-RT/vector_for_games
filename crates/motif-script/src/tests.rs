@@ -1068,6 +1068,30 @@ fn ui_pieces_parse_and_edit() {
 }
 
 #[test]
+fn ui_roles_and_parts() {
+    let src = "group hp ui progress {\n  rect frame size 80 10 part background\n  rect juice size 40 6 part fill\n}\ngroup ok ui {\n  rect body size 80 30\n  text label content \"OK\" font bold part text\n}\n";
+    let s = scene(src);
+    let n = |id: &str| s.doc.node(id).unwrap().clone();
+    assert_eq!((n("hp").ui, n("hp").ui_role), (true, motif_core::UiRole::Progress));
+    assert_eq!(n("juice").part, Some(motif_core::UiPart::Fill), "fill is a property too, but here the word of part");
+    assert_eq!(n("ok").ui_role, motif_core::UiRole::Auto);
+    let font = n("label").text.unwrap().font.clone().unwrap();
+    assert_eq!(font.name, "IBMPlexSans-SemiBold.ttf");
+    assert_eq!(font.data.as_slice(), motif_core::text::BOLD_FONT);
+    let out = set_style(src, &s, "hp", "ui", Some("ui slider")).unwrap();
+    assert!(out.contains("group hp ui slider {"), "{out}");
+    let errors = |src: &str| parse(src).unwrap_err().into_iter().map(|e| e.message).collect::<Vec<_>>();
+    assert_eq!(errors("group a ui gauge {\n  rect b\n}\n").len(), 1);
+    assert_eq!(errors("rect a part fill\n"), ["part — деталь составного элемента: положите её в группу с ui, например ui progress"]);
+    assert_eq!(
+        errors("group a ui progress {\n  rect b part background\n  rect c part grabber\n}\n"),
+        ["для ui progress внутри не хватает: part fill", "у «ui progress» детали: background, fill"]
+    );
+    assert_eq!(errors("group a ui {\n  rect b part text\n}\n"), ["part text — подпись: это должен быть text"]);
+    assert_eq!(errors("group a ui check {\n  rect b part wheel\n  rect c part checked\n  rect d part unchecked\n}\n").len(), 1);
+}
+
+#[test]
 fn brushes_parse_key_and_edit() {
     let src = "rect rock size 80 60 fill #888888 rough 3 40 boil 8 seed 4 hatch 45 6 1.5 #222222 cross grain 0.2 3 bands 3\nellipse sun rough 2\nanim A 1s {\n  sun.rough 0: 2 | 1: 6\n}\n";
     let s = scene(src);

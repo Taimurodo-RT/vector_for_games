@@ -269,7 +269,9 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "links" => (1, 1),
         "morph" => (1, 9),
         "extrude" => (1, 2),
-        "ui" | "locked" | "fit" => (0, 0),
+        "locked" | "fit" => (0, 0),
+        "ui" => (0, 1),
+        "part" => (1, 1),
         "stack" | "anchor" => (1, 2),
         "gap" | "pad" => (1, 1),
         "slice" => (1, 4),
@@ -653,6 +655,13 @@ impl<'a> Parser<'a> {
                         "после skin нужны id костей, например skin arm forearm"
                     };
                     return Err(self.err(key_span, hint));
+                }
+            }
+            // The part a piece plays in its control: a plain word, even one that is also a property (`part fill`).
+            if key == "part" {
+                match self.next() {
+                    Some(Token { tok: Tok::Ident(s), span }) => values.push(ValueAst { kind: ValueKind::Ref(s), span }),
+                    _ => return Err(self.err(key_span, "после part нужна роль детали, например part fill или part text")),
                 }
             }
             // A font file in quotes, or `font bold`.

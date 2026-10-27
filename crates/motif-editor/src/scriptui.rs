@@ -119,6 +119,8 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
         "Интерфейс",
         &[
             ("group button … ui { … }", "деталь UI-набора для Godot"),
+            ("ui button · panel · progress · check · slider · scroll · label", "чем деталь станет в Godot"),
+            ("part fill · track · grabber · checked · text", "часть такой детали; part text рисует Godot"),
             ("slice 20 · slice 16 12 · slice 22 46 22 22", "поля 9-slice, которые не тянутся"),
             ("anim Hover · Press · Disabled · Focus", "состояния: последний кадр анимации"),
         ],

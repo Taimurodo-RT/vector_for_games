@@ -27,6 +27,10 @@ pub struct Evaluator<'a> {
     rig_refs: Vec<(usize, String, Span)>,
     /// Balls named by `on`, checked once every object exists.
     ball_refs: Vec<(usize, String, Span)>,
+    /// Nodes with `part`, checked against the piece they belong to once the scene is built.
+    part_refs: Vec<(usize, Span)>,
+    /// Pieces with `ui`, checked for the parts their kind cannot do without.
+    role_refs: Vec<(usize, Span)>,
     /// Objects named by `tie` (any object) and ropes named by `hang` and `links` (`true`).
     rope_refs: Vec<(usize, String, Span, bool)>,
     morph_refs: Vec<(usize, String, Span)>,
@@ -45,6 +49,8 @@ impl<'a> Evaluator<'a> {
             depth: 0,
             rig_refs: Vec::new(),
             ball_refs: Vec::new(),
+            part_refs: Vec::new(),
+            role_refs: Vec::new(),
             rope_refs: Vec::new(),
             morph_refs: Vec::new(),
             scene: Scene {
@@ -247,6 +253,41 @@ impl<'a> Evaluator<'a> {
                     errors.push((span, format!("«{id}» — не верёвка: сделайте её верёвкой, rope")))
                 }
                 Some(_) => {}
+            }
+        }
+        for (i, span) in std::mem::take(&mut self.part_refs) {
+            let part = doc.nodes[i].part.unwrap_or(motif_core::UiPart::Text);
+            match ui_owner(doc, i) {
+                None => errors.push((span, "part — деталь составного элемента: положите её в группу с ui, например ui progress".to_string())),
+                Some(k) if !doc.nodes[k].ui_role.parts().contains(&part) => {
+                    let role = doc.nodes[k].ui_role;
+                    let allowed: Vec<_> = role.parts().iter().map(|p| p.keyword()).collect();
+                    let name = if role.keyword().is_empty() { "ui".to_string() } else { format!("ui {}", role.keyword()) };
+                    errors.push((
+                        span,
+                        if allowed.is_empty() {
+                            format!("у «{name}» нет деталей part")
+                        } else {
+                            format!("у «{name}» детали: {}", allowed.join(", "))
+                        },
+                    ))
+                }
+                Some(_) if part == motif_core::UiPart::Text && doc.nodes[i].kind != ShapeKind::Text => {
+                    errors.push((span, "part text — подпись: это должен быть text".to_string()))
+                }
+                Some(_) => {}
+            }
+        }
+        for (i, span) in std::mem::take(&mut self.role_refs) {
+            let role = doc.nodes[i].ui_role;
+            let missing: Vec<_> = role
+                .required()
+                .iter()
+                .filter(|want| !doc.nodes.iter().enumerate().any(|(k, n)| n.part == Some(**want) && ui_owner(doc, k) == Some(i)))
+                .map(|p| format!("part {}", p.keyword()))
+                .collect();
+            if !missing.is_empty() {
+                errors.push((span, format!("для ui {} внутри не хватает: {}", role.keyword(), missing.join(", "))));
             }
         }
         for (i, id, span) in std::mem::take(&mut self.morph_refs) {
@@ -628,6 +669,8 @@ impl<'a> Evaluator<'a> {
         };
         let mut content = String::new();
         let mut font: Option<String> = None;
+        let mut part_span = None;
+        let mut role_span = None;
         let mut ik: Option<(String, Span)> = None;
         let (mut chain, mut flip) = (2, false);
         let mut skin: Option<Vec<(String, Span)>> = None;
@@ -659,7 +702,7 @@ impl<'a> Evaluator<'a> {
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
-                "cap" | "join" | "blend" | "stack" | "anchor" => Vec::new(),
+                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" => Vec::new(),
                 // `cross` is a keyword of the hatching.
                 "hatch" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(t) if t == "cross") { None } else { self.value(v) }).collect(),
                 _ => p.values.iter().map(|v| self.value(v)).collect(),
@@ -1099,7 +1142,25 @@ impl<'a> Evaluator<'a> {
                     _ => self.err(p.key_span, "«sail» — сколько ветра ловит объект: 1 обычно, 0 не замечает ветра"),
                 },
                 "solid" => node.solid = true,
-                "ui" => node.ui = true,
+                "ui" => {
+                    node.ui = true;
+                    role_span = Some(p.key_span);
+                    if let Some(v) = p.values.first() {
+                        match &v.kind {
+                            ValueKind::Ref(w) if motif_core::UiRole::from_keyword(w).is_some() => {
+                                node.ui_role = motif_core::UiRole::from_keyword(w).unwrap_or_default();
+                            }
+                            _ => self.err(v.span, "чем станет деталь в Godot: ui button, panel, progress, check, slider, scroll или label"),
+                        }
+                    }
+                }
+                "part" => match &p.values[0].kind {
+                    ValueKind::Ref(w) if motif_core::UiPart::from_keyword(w).is_some() => {
+                        node.part = motif_core::UiPart::from_keyword(w);
+                        part_span = Some(p.key_span);
+                    }
+                    _ => self.err(p.values[0].span, "роль детали: part background, fill, unchecked, checked, track, grabber или text"),
+                },
                 "locked" => node.locked = true,
                 "rough" | "boil" | "hatch" | "grain" | "bands" | "seed" if n.kind.is_container() => {
                     self.err(p.key_span, format!("«{}» бывает у фигур: кисть рисует контур", p.key))
@@ -1332,8 +1393,12 @@ impl<'a> Evaluator<'a> {
             }
         }
         if n.kind == ShapeKind::Text {
-            match crate::fonts::load(font.as_deref(), self.base.as_deref()).and_then(|bytes| motif_core::TextShape::new(&content, &bytes)) {
-                Ok(shape) => {
+            let loaded = crate::fonts::load(font.as_deref(), self.base.as_deref());
+            match loaded.clone().and_then(|bytes| motif_core::TextShape::new(&content, &bytes)) {
+                Ok(mut shape) => {
+                    if let Ok(data) = loaded {
+                        shape.font = Some(motif_core::FontFile { name: crate::fonts::file_name(font.as_deref()), data });
+                    }
                     let b = shape.bounds(&node.text_style);
                     (node.width, node.height) = (b.width(), b.height());
                     node.text = Some(std::sync::Arc::new(shape));
@@ -1433,6 +1498,12 @@ impl<'a> Evaluator<'a> {
             m.targets = ids.iter().map(|(t, _)| format!("{}{t}", self.prefix)).collect();
             self.morph_refs.extend(ids.into_iter().map(|(t, span)| (index, format!("{}{t}", self.prefix), span)));
         }
+        if let Some(span) = part_span {
+            self.part_refs.push((index, span));
+        }
+        if let Some(span) = role_span {
+            self.role_refs.push((index, span));
+        }
         if let Some((ball, span)) = on {
             node.on = Some(format!("{}{ball}", self.prefix));
             self.ball_refs.push((index, format!("{}{ball}", self.prefix), span));
@@ -1514,4 +1585,16 @@ impl<'a> Evaluator<'a> {
             },
         }
     }
+}
+
+/// The piece (`ui`) a node is a part of: its nearest ancestor with `ui`.
+fn ui_owner(doc: &motif_core::Document, i: usize) -> Option<usize> {
+    let mut up = doc.nodes[i].parent;
+    while let Some(k) = up {
+        if doc.nodes[k].ui {
+            return Some(k);
+        }
+        up = doc.nodes[k].parent;
+    }
+    None
 }

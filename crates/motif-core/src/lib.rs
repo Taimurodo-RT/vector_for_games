@@ -22,6 +22,7 @@ mod spring;
 mod squash;
 mod style;
 pub mod text;
+mod uikind;
 mod world;
 
 pub use body::{Body, Face, silhouette};
@@ -43,5 +44,6 @@ pub use soft::Soft;
 pub use spring::{SPRUNG, Spring};
 pub use squash::Squash;
 pub use style::{Blend, Cap, Join, Shadow};
-pub use text::{TextAlign, TextShape, TextStyle};
+pub use text::{FontFile, TextAlign, TextShape, TextStyle};
+pub use uikind::{UiPart, UiRole};
 pub use world::{GRAVITY, World, own_gravity, sail, weight};

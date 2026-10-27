@@ -2,6 +2,9 @@
 // общее для всех: поменяйте цвета и скругление ниже, и весь набор перекрасится.
 // ui — элемент экспортируется отдельно; slice — поля 9-slice: углы не растягиваются, когда игра
 // меняет размер кнопки или панели. Состояния — анимации Hover, Press, Disabled: каждое — поза в конце.
+// Слово после ui — чем элемент станет в Godot: ui progress, ui check, ui slider, ui scroll, ui label.
+// part — деталь такого элемента: part fill, part grabber… part text — подпись: её не запекаем,
+// Godot пишет её шрифтом из темы, а цвет берёт из каждого состояния.
 // «Экспорт → Холсты: Все → UI-набор для Godot» (или motif kit) собирает детали всех холстов
 // в одну тему .tres для Godot.
 
@@ -15,10 +18,11 @@ let r = 14
 
 // Кнопка с толщиной: корпус лежит на тёмном основании и нажимается вниз.
 artboard "Кнопка" 240x100 bg #39415a ui
-group button "Кнопка" at 120 47 ui slice 20 {
+group button "Кнопка" at 120 47 ui button slice 20 {
   rect base at 0 5 size 180 52 r {r} fill deep stroke ink 4
   rect body size 180 52 r {r} fill main stroke ink 4
   rect shine at 0 -14 size 156 10 r 5 fill light
+  text caption "Подпись" at 0 2 content "Играть" font bold font-size 20 fill paper part text
 }
 
 anim Hover 0.15s {
@@ -29,12 +33,14 @@ anim Hover 0.15s {
 anim Press 0.08s {
   body.y       0: 0 | 0.08: 5
   shine.y      0: -14 | 0.08: -9
+  caption.y    0: 2 | 0.08: 7
 }
 
 anim Disabled 0.2s {
   body.fill    0: main | 0.2: #59607a
   base.fill    0: deep | 0.2: #3a3f52
   shine.fill   0: light | 0.2: #737a94
+  caption.fill 0: paper | 0.2: #a3a8b8
 }
 
 // Круглая кнопка-иконка: состояния есть, 9-slice не нужен.
@@ -66,18 +72,65 @@ group card "Панель" at 110 116 slice 22 46 22 22 {
   rect header at 0 -66 size 140 30 r 9 fill main
 }
 
-// Полоса прогресса: рамка и заливка отдельными элементами.
+// Полоса прогресса: ProgressBar. Заливка лежит внутри рамки с отступом — он сохранится в Godot,
+// а заливка растёт от левого края, сколько бы ни было value.
 artboard "Полоса" 240x80 bg #39415a ui
-rect bar_frame "Рамка полосы" at 120 40 size 180 28 r 14 fill #1b2132 stroke ink 4 slice 16
-rect bar_fill "Заливка полосы" at 100 40 size 120 16 r 8 fill #5ee0a0 slice 9
-
-// Флажок: выключен и включён.
-artboard "Флажок" 160x80 bg #39415a ui
-rect check_off "Флажок" at 50 40 size 40 40 r 10 fill #1b2132 stroke ink 4 ui
-group check_on "Флажок вкл" at 110 40 ui {
-  rect box size 40 40 r 10 fill main stroke ink 4
-  path tick d "M -10 0 L -3 8 L 11 -8" fill none stroke paper 5 cap round join round
+group health "Полоса здоровья" at 120 40 ui progress {
+  rect bar_frame "Рамка" size 180 28 r 14 fill #1b2132 stroke ink 4 slice 16 part background
+  rect bar_fill "Заливка" at -20 0 size 120 16 r 8 fill #5ee0a0 slice 8 part fill
 }
+
+// Флажок: CheckBox. Выключенный и включённый лежат друг на друге: включённый сверху.
+artboard "Флажок" 200x80 bg #39415a ui
+group sound "Флажок" at 100 40 ui check {
+  rect check_off "Выключен" at -60 0 size 40 40 r 10 fill #1b2132 stroke ink 4 part unchecked
+  group check_on "Включён" at -60 0 part checked {
+    rect box size 40 40 r 10 fill main stroke ink 4
+    path tick d "M -10 0 L -3 8 L 11 -8" fill none stroke paper 5 cap round join round
+  }
+  text check_label "Подпись" at -28 0 content "Звук" font bold font-size 20 fill paper align left part text
+}
+
+anim Disabled 0.2s {
+  box.fill     0: main | 0.2: #59607a
+  check_label.fill 0: paper | 0.2: #a3a8b8
+}
+
+// Слайдер: HSlider. Дорожка, пройденная часть и ползунок; Hover подсвечивает их.
+artboard "Слайдер" 260x80 bg #39415a ui
+group volume "Громкость" at 130 40 ui slider {
+  rect rail "Дорожка" size 200 12 r 6 fill #1b2132 stroke ink 3 slice 6 part track
+  rect level "Пройдено" at -50 0 size 100 12 r 6 fill main stroke ink 3 slice 6 part fill
+  ellipse knob "Ползунок" size 28 28 fill paper stroke ink 4 part grabber
+}
+
+anim Hover 0.15s {
+  level.fill   0: main | 0.15: light
+  knob.fill    0: paper | 0.15: #ffffff
+}
+
+anim Disabled 0.2s {
+  knob.fill    0: paper | 0.2: #737a94
+}
+
+// Полоса прокрутки: VScrollBar. Ползунок тянется вдоль полосы по 9-slice.
+artboard "Прокрутка" 80x200 bg #39415a ui
+group scroller "Прокрутка" at 40 100 ui scroll {
+  rect gutter "Дорожка" size 16 160 r 8 fill #1b2132 stroke ink 3 slice 8 part track
+  rect thumb "Ползунок" at 0 -30 size 10 50 r 5 fill light slice 5 part grabber
+}
+
+anim Hover 0.15s {
+  thumb.fill   0: light | 0.15: #a8c0ff
+}
+
+anim Press 0.08s {
+  thumb.fill   0: light | 0.08: paper
+}
+
+// Заголовок: Label. Шрифт, размер, цвет, обводка и тень уходят в тему — текст задаёт игра.
+artboard "Заголовок" 240x80 bg #39415a ui
+text title "Заголовок" at 120 40 content "Настройки" font bold font-size 28 fill paper outline ink 6 shadow 0 3 0 #0a0d16 ui label
 
 // Всплывающая подсказка со стрелкой вниз: стрелка в нижнем поле slice.
 artboard "Подсказка" 220x100 bg #39415a ui

@@ -225,9 +225,10 @@ fn run() -> Result<(), String> {
             let dir = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_ui")));
             let files = motif_pixel::kit::write_kit(&dir, &stem, &items)?;
             for item in &items {
-                let states: Vec<&str> = item.states.iter().map(|s| s.0).collect();
-                let (w, h) = (item.states[0].1.width(), item.states[0].1.height());
-                println!("  {} ({}) — {w}×{h}, {}", item.id, motif_pixel::kit::type_name(&item.id), states.join(", "));
+                let pictures: Vec<&str> = item.pictures.iter().map(|p| p.name.as_str()).collect();
+                let size = item.pictures.first().map_or("без картинок".to_string(), |p| format!("{}×{}, ", p.px.width(), p.px.height()));
+                let font = item.font.as_ref().map_or(String::new(), |f| format!(", текст {} {}px", f.file, f.size));
+                println!("  {} ({} от {}) — {size}{}{font}", item.id, motif_pixel::kit::type_name(&item.id), item.base, pictures.join(", "));
             }
             println!("{}: {} файлов, тема {stem}.tres", dir.display(), files.len());
         }
