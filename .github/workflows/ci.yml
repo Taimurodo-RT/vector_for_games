@@ -48,6 +48,8 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/modern-button.msc
       - run: cargo run -p motif-cli -- check examples/fields.msc
       - run: cargo run -p motif-cli -- check examples/ui-effects.msc
+      - shell: bash
+        run: for f in examples/screens/*.msc; do cargo run -q -p motif-cli -- check "$f" || exit 1; done
       - run: cargo run -p motif-cli -- screen godot-apps/calculator/calculator.msc -o target/apps-check/calculator
       - run: cargo run -p motif-cli -- screen godot-apps/focus/focus.msc -o target/apps-check/focus
 

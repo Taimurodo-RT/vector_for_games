@@ -1,0 +1,67 @@
+// Пауза: игра затемнена, по центру окно с кнопками, «закрыть» — в правом верхнем углу.
+// Затемнение — прямоугольник во весь холст: в Godot это картинка под окном. Сама игра
+// здесь только для вида — в игре под паузой будет настоящая сцена.
+artboard "Пауза" 640x360 bg #5b8bd9 ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let deep = #2441a8
+let panel = #283049
+let raised = #333c5a
+let lift = #3e4870
+let base = #1f2638
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let bad = #ff5c6c
+
+// Игра под паузой.
+rect sky "Небо" at 320 180 size 640 360 fill #5b8bd9 gradient linear 90 #8ab4f2 #4a74c4
+rect ground "Земля" at 320 330 size 640 60 fill #3f8f4f
+rect ledge "Платформа" at 470 228 size 140 20 r 6 fill #8a5a3b stroke ink 3
+ellipse hero "Герой" at 160 280 size 40 40 fill #ffb23e stroke ink 3
+rect dim "Затемнение" at 320 180 size 640 360 fill #0a0d18 opacity 0.62
+
+group pause_menu "Окно паузы" anchor center middle stack column center gap 10 pad 24 {
+  rect pause_bg "Фон" r 20 fill panel stroke ink 4 fit shadow 0 8 0 #0a0d16
+  text pause_title "Заголовок" content "ПАУЗА" font bold font-size 26 letter-spacing 6 fill paper
+  group resume "Продолжить" ui button slice 16 {
+    rect resume_base at 0 4 size 200 40 r 12 fill deep stroke ink 4
+    rect resume_body size 200 40 r 12 fill primary stroke ink 4
+    text resume_text "Подпись" at 0 1 content "Продолжить" font bold font-size 18 fill paper part text
+  }
+  group restart "Заново" ui button slice 16 {
+    rect restart_base at 0 4 size 200 40 r 12 fill base stroke ink 4
+    rect restart_body size 200 40 r 12 fill raised stroke ink 4
+    text restart_text "Подпись" at 0 1 content "Начать заново" font bold font-size 18 fill paper part text
+  }
+  group options "Настройки" ui button slice 16 {
+    rect options_base at 0 4 size 200 40 r 12 fill base stroke ink 4
+    rect options_body size 200 40 r 12 fill raised stroke ink 4
+    text options_text "Подпись" at 0 1 content "Настройки" font bold font-size 18 fill paper part text
+  }
+  group to_menu "В меню" ui button slice 16 {
+    rect to_menu_base at 0 4 size 200 40 r 12 fill base stroke ink 4
+    rect to_menu_body size 200 40 r 12 fill raised stroke ink 4
+    text to_menu_text "Подпись" at 0 1 content "В главное меню" font bold font-size 18 fill paper part text
+  }
+}
+
+group close "Закрыть" at -36 36 anchor right top ui {
+  ellipse close_ring size 40 40 fill bad stroke ink 4
+  path close_cross d "M -7 -7 L 7 7 M -7 7 L 7 -7" fill none stroke paper 4 cap round
+}
+
+anim Hover 0.15s {
+  resume_body.fill  0: primary | 0.15: light
+  restart_body.fill 0: raised | 0.15: lift
+  close_ring.fill   0: bad | 0.15: #ff7f8b
+}
+anim Press 0.08s {
+  resume_body.y  0: 0 | 0.08: 4
+  resume_text.y  0: 1 | 0.08: 5
+  restart_body.y 0: 0 | 0.08: 4
+  restart_text.y 0: 1 | 0.08: 5
+  close_ring.w   0: 40 | 0.08: 36
+  close_ring.h   0: 40 | 0.08: 36
+}

@@ -1,0 +1,60 @@
+// Диалог: внизу окно реплики с портретом и именем, справа — варианты ответа.
+// Окно реплики — группа без стека: портрет, табличка имени и две строки текста стоят
+// на своих местах. Ответы — столбик кнопок: в Godot это VBoxContainer, игра меняет их text.
+artboard "Диалог" 640x360 bg #2a3a5e ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let deep = #2441a8
+let panel = #283049
+let raised = #333c5a
+let lift = #3e4870
+let base = #1f2638
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let gold = #ffc94d
+
+// Место действия.
+rect room "Комната" at 320 180 size 640 360 fill #2a3a5e gradient linear 90 #3a4d78 #1d2944
+rect window "Окно" at 140 110 size 90 110 r 8 fill #8fb7ee stroke ink 4
+rect window_bar "Рама" at 140 110 size 4 110 fill ink
+rect floor "Пол" at 320 320 size 640 80 fill #22304d
+ellipse npc "Хранитель" at 330 196 size 70 90 fill #8a6ad8 stroke ink 4
+ellipse npc_eye "Глаз" at 342 180 size 10 12 fill paper
+
+// Ответы.
+group answers "Ответы" at -132 -186 anchor right bottom stack column gap 8 {
+  group answer1 "Ответ 1" ui button slice 14 {
+    rect answer1_base at 0 3 size 220 36 r 10 fill base stroke ink 4
+    rect answer1_body size 220 36 r 10 fill raised stroke ink 4
+    text answer1_text "Подпись" at 0 1 content "Расскажи о башне" font bold font-size 15 fill paper part text
+  }
+  group answer2 "Ответ 2" ui button slice 14 {
+    rect answer2_base at 0 3 size 220 36 r 10 fill base stroke ink 4
+    rect answer2_body size 220 36 r 10 fill raised stroke ink 4
+    text answer2_text "Подпись" at 0 1 content "Мне пора" font bold font-size 15 fill paper part text
+  }
+}
+
+// Окно реплики.
+group speech "Реплика" at 0 -78 anchor center bottom {
+  rect speech_bg "Фон" size 600 120 r 18 fill panel stroke ink 4 shadow 0 6 0 #0a0d16
+  ellipse speaker_ring "Рамка портрета" at -244 6 size 76 76 fill raised stroke ink 4
+  ellipse speaker_face "Портрет" at -244 10 size 46 56 fill #8a6ad8 stroke ink 3
+  group name_plate "Имя" at -150 -60 stack row pad 8 {
+    rect name_bg "Табличка" r 10 fill gold stroke ink 4 fit
+    text speaker_name "Имя" content "Хранитель" font bold font-size 15 fill ink
+  }
+  text line1 "Строка 1" at -190 -10 content "Путник, ты пришёл вовремя. Башня проснулась," font-size 17 fill paper align left
+  text line2 "Строка 2" at -190 18 content "и только у тебя есть ключ от её двери." font-size 17 fill paper align left
+  path next "Дальше" at 270 40 d "M -7 -4 L 0 4 L 7 -4" fill none stroke gold 3 cap round join round
+}
+
+anim Hover 0.15s {
+  answer1_body.fill 0: raised | 0.15: lift
+}
+anim Press 0.08s {
+  answer1_body.y 0: 0 | 0.08: 3
+  answer1_text.y 0: 1 | 0.08: 4
+}

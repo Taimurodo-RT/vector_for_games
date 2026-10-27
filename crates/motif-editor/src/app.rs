@@ -10,8 +10,8 @@ use motif_script::{Scene, ScriptError, add_node, delete_key, delete_node, fmt_nu
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 
-const NEW_UI_KIT: &str = include_str!("../../../examples/ui-kit.msc");
-const NEW_SCENE: &str = "artboard \"Сцена\" 320x240 bg #f4f1ff game\n\nrect bg at 160 200 size 280 16 r 8 fill #2a2e39\nellipse hero at 160 120 size 64 fill #ff5a36 stroke #1b1d24 3\n\nanim Idle 1s loop {\n  hero.y 0: 120 ease-in-out | 0.5: 100 ease-in-out | 1: 120\n}\n";
+pub(crate) const NEW_UI_KIT: &str = include_str!("../../../examples/ui-kit.msc");
+pub(crate) const NEW_SCENE: &str = "artboard \"Сцена\" 320x240 bg #f4f1ff game\n\nrect bg at 160 200 size 280 16 r 8 fill #2a2e39\nellipse hero at 160 120 size 64 fill #ff5a36 stroke #1b1d24 3\n\nanim Idle 1s loop {\n  hero.y 0: 120 ease-in-out | 0.5: 100 ease-in-out | 1: 120\n}\n";
 const EXAMPLE: &str = include_str!("../../../examples/bounce.msc");
 /// Frame length used by `,` and `.` and shown in the timecode.
 pub const FPS: f64 = 60.0;
@@ -148,6 +148,8 @@ pub struct App {
     pub(crate) eyedrop: Option<crate::palette_ui::Eyedrop>,
     /// The «Растяжение 9-slice» window, when open.
     pub(crate) stretch: Option<crate::stretch_ui::Stretch>,
+    /// The «Новое…» library of templates, when open.
+    pub(crate) library: Option<crate::library_ui::Library>,
     pub(crate) hovered: Option<String>,
     view: Option<View>,
     pub(crate) anim: Option<String>,
@@ -258,6 +260,7 @@ impl App {
             clipboard: (String::new(), Vec::new()),
             edit_group: None,
             stretch: None,
+            library: None,
             eyedrop: None,
             hovered: None,
             view: None,
@@ -714,7 +717,7 @@ impl App {
     }
 
     /// Runs a file action, first asking what to do with unsaved changes.
-    fn file_action(&mut self, action: FileAction) {
+    pub(crate) fn file_action(&mut self, action: FileAction) {
         if self.dirty() {
             self.pending_file = Some(action);
         } else {
@@ -1091,6 +1094,13 @@ impl App {
             let file = ui.add(egui::Button::new(RichText::new("Файл").color(MUTED)).frame(false));
             egui::Popup::menu(&file).show(|ui| {
                 ui.set_min_width(220.0);
+                if ui
+                    .add(egui::Button::new("Новое…").shortcut_text("Ctrl+N"))
+                    .on_hover_text("Библиотека шаблонов: пустая сцена, UI-набор и экраны игры — меню, пауза, настройки, HUD, диалог, инвентарь, магазин, победа, поражение, выбор уровня, загрузка")
+                    .clicked()
+                {
+                    self.library = Some(crate::library_ui::Library::new());
+                }
                 if ui.add(egui::Button::new("Новая сцена")).clicked() {
                     self.file_action(FileAction::New(NEW_SCENE));
                 }
@@ -2527,6 +2537,7 @@ impl App {
                     ("G", "Сетка"),
                     ("Alt при сдвиге", "Без умных направляющих"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
+                    ("Ctrl+N", "Новое: пустая сцена, UI-набор или шаблон экрана игры"),
                     ("Ctrl+E", "Свернуть или развернуть скрипт"),
                     ("F1", "Шпаргалка по синтаксису скрипта"),
                 ];
@@ -2560,6 +2571,10 @@ impl App {
     // ---------- keyboard ----------
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        // The library window takes the keys: Enter creates, Escape closes.
+        if self.library.is_some() {
+            return;
+        }
         let typing = ctx.text_edit_focused();
         let i = ctx.input(|i| i.clone());
         let cmd = |k: Key| i.modifiers.command && !i.modifiers.shift && i.key_pressed(k);
@@ -2571,6 +2586,9 @@ impl App {
         }
         if cmd(Key::O) {
             self.file_action(FileAction::Open);
+        }
+        if cmd(Key::N) && self.library.is_none() {
+            self.library = Some(crate::library_ui::Library::new());
         }
         if cmd(Key::E) {
             self.show_script = !self.show_script;
@@ -2906,7 +2924,7 @@ fn parse_paint(text: &str) -> Option<Value> {
 /// `update.bat` next to the editor, as in the Windows build folder.
 /// What «Файл» was asked to do when the scene had unsaved changes.
 #[derive(Clone, Copy)]
-enum FileAction {
+pub(crate) enum FileAction {
     New(&'static str),
     Open,
 }
@@ -2968,6 +2986,7 @@ impl eframe::App for App {
         self.unsaved_window(&ctx);
         self.syntax_window(&ctx);
         self.stretch_window(&ctx);
+        self.library_window(&ctx);
     }
 }
 
