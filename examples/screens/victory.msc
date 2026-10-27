@@ -1,0 +1,61 @@
+// Победа: лучи за окном, три звезды, счёт и две кнопки — «Ещё раз» и «Дальше».
+// Звёзды — рисунок: заработанные золотые, остальные тёмные (поменяйте fill у третьей).
+// Лучи — одна фигура: в Godot они картинка под окном.
+artboard "Победа" 640x360 bg #1d2340 ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let deep = #2441a8
+let good = #4fd18f
+let good_deep = #23845a
+let panel = #283049
+let raised = #333c5a
+let lift = #3e4870
+let base = #1f2638
+let well = #1b2132
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let gold = #ffc94d
+let off = #59607a
+
+group rays "Лучи" at 320 170 opacity 0.12 {
+  for i in 0..12 {
+    path ray{i} rot {i * 30} d "M -14 -40 L 14 -40 L 34 -260 L -34 -260 Z" fill #fff1b8
+  }
+}
+
+group result "Окно победы" anchor center middle stack column center gap 10 pad 22 {
+  rect result_bg "Фон" r 22 fill panel stroke ink 4 fit shadow 0 8 0 #0a0d16
+  text result_title "Заголовок" content "ПОБЕДА!" font bold font-size 34 letter-spacing 3 fill gold outline ink 8 shadow 0 4 0 #0a0d16
+  group stars "Звёзды" stack row center gap 6 {
+    star star1 "Звезда 1" size 44 44 fill gold stroke ink 4
+    star star2 "Звезда 2" size 56 56 fill gold stroke ink 4
+    star star3 "Звезда 3" size 44 44 fill off stroke ink 4
+  }
+  text result_score "Счёт" content "12 450" font bold font-size 30 fill paper outline ink 6
+  text result_best "Рекорд" content "Новый рекорд!" font bold font-size 14 fill good
+  group buttons "Кнопки" stack row gap 12 {
+    group again "Ещё раз" ui button slice 16 {
+      rect again_base at 0 4 size 150 42 r 12 fill base stroke ink 4
+      rect again_body size 150 42 r 12 fill raised stroke ink 4
+      text again_text "Подпись" at 0 1 content "Ещё раз" font bold font-size 18 fill paper part text
+    }
+    group next "Дальше" ui button slice 16 {
+      rect next_base at 0 4 size 150 42 r 12 fill good_deep stroke ink 4
+      rect next_body size 150 42 r 12 fill good stroke ink 4
+      text next_text "Подпись" at 0 1 content "Дальше" font bold font-size 18 fill ink part text
+    }
+  }
+}
+
+anim Hover 0.15s {
+  again_body.fill 0: raised | 0.15: lift
+  next_body.fill  0: good | 0.15: #7be3ad
+}
+anim Press 0.08s {
+  again_body.y 0: 0 | 0.08: 4
+  again_text.y 0: 1 | 0.08: 5
+  next_body.y  0: 0 | 0.08: 4
+  next_text.y  0: 1 | 0.08: 5
+}

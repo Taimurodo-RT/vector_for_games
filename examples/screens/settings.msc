@@ -1,0 +1,88 @@
+// Настройки: окно со строками «название — элемент»: громкость музыки и звуков (слайдеры),
+// полный экран (тумблер), качество (выпадающий список) и кнопки «Назад» и «Применить».
+// Каждая строка — группа без стека: подпись прижата к левому краю, элемент — к правому,
+// поэтому все строки одной ширины и элементы стоят ровным столбиком, и в Godot тоже.
+artboard "Настройки" 640x360 bg #1a2034 ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let deep = #2441a8
+let panel = #283049
+let raised = #333c5a
+let lift = #3e4870
+let base = #1f2638
+let well = #1b2132
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let good = #4fd18f
+
+group settings "Окно настроек" anchor center middle stack column center gap 10 pad 20 {
+  rect settings_bg "Фон" r 20 fill panel stroke ink 4 fit shadow 0 8 0 #0a0d16
+  text settings_title "Заголовок" content "НАСТРОЙКИ" font bold font-size 22 letter-spacing 4 fill paper
+  group music_row "Строка: музыка" {
+    text music_label "Подпись" at -180 0 content "Музыка" font-size 17 fill paper align left
+    group music "Музыка" at 100 0 ui slider {
+      rect music_rail "Дорожка" size 160 12 r 6 fill well stroke ink 4 slice 6 part track
+      rect music_level "Пройдено" at -30 0 size 100 12 r 6 fill primary stroke ink 4 slice 6 part fill
+      ellipse music_knob "Ползунок" at 20 0 size 26 26 fill paper stroke ink 4 part grabber
+    }
+  }
+  group sound_row "Строка: звуки" {
+    text sound_label "Подпись" at -180 0 content "Звуки" font-size 17 fill paper align left
+    group sound "Звуки" at 100 0 ui slider {
+      rect sound_rail "Дорожка" size 160 12 r 6 fill well stroke ink 4 slice 6 part track
+      rect sound_level "Пройдено" at -10 0 size 140 12 r 6 fill primary stroke ink 4 slice 6 part fill
+      ellipse sound_knob "Ползунок" at 50 0 size 26 26 fill paper stroke ink 4 part grabber
+    }
+  }
+  group screen_row "Строка: экран" {
+    text screen_label "Подпись" at -180 0 content "Во весь экран" font-size 17 fill paper align left
+    group fullscreen "Во весь экран" at 148 0 ui switch {
+      group fullscreen_off "Выключен" part unchecked {
+        rect fs_track size 64 36 r 18 fill well stroke ink 4
+        ellipse fs_knob at -14 0 size 24 24 fill muted
+      }
+      group fullscreen_on "Включён" part checked {
+        rect fs_track_on size 64 36 r 18 fill good stroke ink 4
+        ellipse fs_knob_on at 14 0 size 24 24 fill paper
+      }
+    }
+  }
+  group quality_row "Строка: качество" {
+    text quality_label "Подпись" at -180 0 content "Качество" font-size 17 fill paper align left
+    group quality "Качество" at 100 0 ui option slice 14 {
+      rect quality_base at 0 3 size 160 40 r 10 fill base stroke ink 4
+      rect quality_body size 160 40 r 10 fill raised stroke ink 4
+      text quality_text "Подпись" at -64 0 content "Высокое" font bold font-size 16 fill paper align left part text
+      path quality_arrow "Стрелка" at 60 0 d "M -6 -3 L 0 3 L 6 -3" fill none stroke paper 3 cap round join round part arrow
+    }
+  }
+  group buttons "Кнопки" stack row gap 12 {
+    group back "Назад" ui button slice 16 {
+      rect back_base at 0 4 size 164 40 r 12 fill base stroke ink 4
+      rect back_body size 164 40 r 12 fill raised stroke ink 4
+      text back_text "Подпись" at 0 1 content "Назад" font bold font-size 18 fill paper part text
+    }
+    group apply "Применить" ui button slice 16 {
+      rect apply_base at 0 4 size 164 40 r 12 fill deep stroke ink 4
+      rect apply_body size 164 40 r 12 fill primary stroke ink 4
+      text apply_text "Подпись" at 0 1 content "Применить" font bold font-size 18 fill paper part text
+    }
+  }
+}
+
+anim Hover 0.15s {
+  apply_body.fill   0: primary | 0.15: light
+  back_body.fill    0: raised | 0.15: lift
+  quality_body.fill 0: raised | 0.15: lift
+  music_level.fill  0: primary | 0.15: light
+  sound_level.fill  0: primary | 0.15: light
+}
+anim Press 0.08s {
+  apply_body.y   0: 0 | 0.08: 3
+  apply_text.y   0: 1 | 0.08: 4
+  back_body.y    0: 0 | 0.08: 3
+  back_text.y    0: 1 | 0.08: 4
+  quality_body.y 0: 0 | 0.08: 3
+}

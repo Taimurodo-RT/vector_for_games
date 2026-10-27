@@ -1,0 +1,50 @@
+// Поражение: экран краснеет, по центру надпись, итог забега и кнопки «Заново» и «В меню».
+// Красная виньетка — рисунок под окном; в Godot это картинка во весь экран.
+artboard "Поражение" 640x360 bg #1a0f16 ui
+
+let bad = #ff5c6c
+let bad_deep = #a8303d
+let panel = #2b2233
+let raised = #3d3247
+let lift = #4a3e57
+let base = #221a29
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #b3a6b8
+
+rect vignette "Виньетка" at 320 180 size 640 360 fill #1a0f16 gradient radial #4a1622 #12080d
+
+group defeat "Окно поражения" anchor center middle stack column center gap 10 pad 24 {
+  rect defeat_bg "Фон" r 22 fill panel stroke ink 4 fit shadow 0 8 0 #0a0508
+  group skull "Значок" {
+    ellipse skull_head size 56 50 fill paper stroke ink 4
+    ellipse skull_eye1 at -11 -2 size 12 14 fill ink
+    ellipse skull_eye2 at 11 -2 size 12 14 fill ink
+    rect skull_jaw at 0 26 size 30 14 r 4 fill paper stroke ink 4
+  }
+  text defeat_title "Заголовок" content "ВЫ ПРОИГРАЛИ" font bold font-size 30 letter-spacing 3 fill bad outline ink 8 shadow 0 4 0 #0a0508
+  text defeat_stats "Итог" content "Уровень 3 · 2 140 очков · 04:12" font-size 15 fill muted
+  group buttons "Кнопки" stack row gap 12 {
+    group retry "Заново" ui button slice 16 {
+      rect retry_base at 0 4 size 150 42 r 12 fill bad_deep stroke ink 4
+      rect retry_body size 150 42 r 12 fill bad stroke ink 4
+      text retry_text "Подпись" at 0 1 content "Заново" font bold font-size 18 fill paper part text
+    }
+    group to_menu "В меню" ui button slice 16 {
+      rect to_menu_base at 0 4 size 150 42 r 12 fill base stroke ink 4
+      rect to_menu_body size 150 42 r 12 fill raised stroke ink 4
+      text to_menu_text "Подпись" at 0 1 content "В меню" font bold font-size 18 fill paper part text
+    }
+  }
+}
+
+anim Hover 0.15s {
+  retry_body.fill   0: bad | 0.15: #ff7f8b
+  to_menu_body.fill 0: raised | 0.15: lift
+}
+anim Press 0.08s {
+  retry_body.y   0: 0 | 0.08: 4
+  retry_text.y   0: 1 | 0.08: 5
+  to_menu_body.y 0: 0 | 0.08: 4
+  to_menu_text.y 0: 1 | 0.08: 5
+}

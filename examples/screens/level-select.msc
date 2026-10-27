@@ -1,0 +1,102 @@
+// Выбор уровня: сетка 5×2 кнопок с номером и звёздами, закрытые уровни — с замком.
+// Пройденные кнопки нарисованы одинаково — в теме это один стиль, номер — подпись
+// (part text), её пишет игра. Звёзды под номером — часть картинки кнопки.
+artboard "Выбор уровня" 640x360 bg #1b2a3f ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let deep = #2441a8
+let panel = #283049
+let raised = #333c5a
+let lift = #3e4870
+let base = #1f2638
+let well = #1b2132
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let gold = #ffc94d
+let off = #59607a
+
+rect map_back "Фон" at 320 180 size 640 360 fill #1b2a3f gradient linear 90 #26405e #142033
+
+text levels_title "Заголовок" at 0 40 anchor center top content "МИР 1 · ЛЕС" font bold font-size 26 letter-spacing 3 fill paper outline ink 6
+
+group back "Назад" at 40 40 anchor left top ui button {
+  rect back_body size 44 44 r 12 fill panel stroke ink 4
+  path back_arrow d "M 4 -9 L -5 0 L 4 9" fill none stroke paper 4 cap round join round
+}
+
+group levels "Уровни" at 0 30 anchor center middle stack column gap 14 {
+  group levels_row1 "Ряд 1" stack row gap 14 {
+    group level1 "Уровень 1" ui button slice 16 {
+      rect level1_base at 0 4 size 76 76 r 16 fill deep stroke ink 4
+      rect level1_body size 76 76 r 16 fill primary stroke ink 4
+      text level1_num "Номер" at 0 -6 content "1" font bold font-size 26 fill paper part text
+      star level1_s1 at -18 22 size 16 16 fill gold stroke ink 2
+      star level1_s2 at 0 22 size 16 16 fill gold stroke ink 2
+      star level1_s3 at 18 22 size 16 16 fill gold stroke ink 2
+    }
+    group level2 "Уровень 2" ui button slice 16 {
+      rect level2_base at 0 4 size 76 76 r 16 fill deep stroke ink 4
+      rect level2_body size 76 76 r 16 fill primary stroke ink 4
+      text level2_num "Номер" at 0 -6 content "2" font bold font-size 26 fill paper part text
+      star level2_s1 at -18 22 size 16 16 fill gold stroke ink 2
+      star level2_s2 at 0 22 size 16 16 fill gold stroke ink 2
+      star level2_s3 at 18 22 size 16 16 fill gold stroke ink 2
+    }
+    group level3 "Уровень 3" ui button slice 16 {
+      rect level3_base at 0 4 size 76 76 r 16 fill deep stroke ink 4
+      rect level3_body size 76 76 r 16 fill primary stroke ink 4
+      text level3_num "Номер" at 0 -6 content "3" font bold font-size 26 fill paper part text
+      star level3_s1 at -18 22 size 16 16 fill gold stroke ink 2
+      star level3_s2 at 0 22 size 16 16 fill gold stroke ink 2
+      star level3_s3 at 18 22 size 16 16 fill gold stroke ink 2
+    }
+    group level4 "Уровень 4" ui button slice 16 {
+      rect level4_base at 0 4 size 76 76 r 16 fill deep stroke ink 4
+      rect level4_body size 76 76 r 16 fill primary stroke ink 4
+      text level4_num "Номер" at 0 -6 content "4" font bold font-size 26 fill paper part text
+      star level4_s1 at -18 22 size 16 16 fill gold stroke ink 2
+      star level4_s2 at 0 22 size 16 16 fill gold stroke ink 2
+      star level4_s3 at 18 22 size 16 16 fill gold stroke ink 2
+    }
+    group level5 "Уровень 5" ui button slice 16 {
+      rect level5_base at 0 4 size 76 76 r 16 fill deep stroke ink 4
+      rect level5_body size 76 76 r 16 fill primary stroke ink 4
+      text level5_num "Номер" at 0 -6 content "5" font bold font-size 26 fill paper part text
+      star level5_s1 at -18 22 size 16 16 fill gold stroke ink 2
+      star level5_s2 at 0 22 size 16 16 fill gold stroke ink 2
+      star level5_s3 at 18 22 size 16 16 fill gold stroke ink 2
+    }
+  }
+  group levels_row2 "Ряд 2" stack row gap 14 {
+    group level6 "Уровень 6 — текущий" ui button slice 16 {
+      rect level6_base at 0 4 size 76 76 r 16 fill #a8792a stroke ink 4
+      rect level6_body size 76 76 r 16 fill gold stroke ink 4
+      text level6_num "Номер" at 0 -6 content "6" font bold font-size 26 fill ink part text
+      star level6_s1 at -18 22 size 16 16 fill off stroke ink 2
+      star level6_s2 at 0 22 size 16 16 fill off stroke ink 2
+      star level6_s3 at 18 22 size 16 16 fill off stroke ink 2
+    }
+    for i in 7..11 {
+      group level{i} "Закрыт" ui button {
+        rect level{i}_base at 0 4 size 76 76 r 16 fill base stroke ink 4
+        rect level{i}_body size 76 76 r 16 fill well stroke ink 4
+        rect level{i}_lock at 0 4 size 24 20 r 4 fill off
+        path level{i}_shackle at 0 -6 d "M -7 2 L -7 -3 Q -7 -10 0 -10 Q 7 -10 7 -3 L 7 2" fill none stroke off 4
+      }
+    }
+  }
+}
+
+anim Hover 0.15s {
+  level1_body.fill 0: primary | 0.15: light
+  level6_body.fill 0: gold | 0.15: #ffd978
+  back_body.fill   0: panel | 0.15: raised
+}
+anim Press 0.08s {
+  level1_body.y 0: 0 | 0.08: 4
+  level1_num.y  0: -6 | 0.08: -2
+  level6_body.y 0: 0 | 0.08: 4
+  level6_num.y  0: -6 | 0.08: -2
+}
