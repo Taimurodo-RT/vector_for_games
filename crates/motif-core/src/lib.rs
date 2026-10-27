@@ -46,6 +46,6 @@ pub use spring::{SPRUNG, Spring};
 pub use squash::Squash;
 pub use style::{Blend, Cap, Glow, Join, Noise, Shadow};
 pub use text::{FontFile, TextAlign, TextShape, TextStyle};
-pub use uicheck::{Control, UiCheck};
-pub use uikind::{UiPart, UiRole};
+pub use uicheck::{Control, DialRun, UiCheck, dial_pose, dial_run, dial_states, is_dial};
+pub use uikind::{Dial, DialDrag, UiPart, UiRole};
 pub use world::{GRAVITY, World, own_gravity, sail, weight};

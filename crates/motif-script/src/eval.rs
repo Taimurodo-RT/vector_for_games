@@ -191,6 +191,7 @@ impl<'a> Evaluator<'a> {
                 self.scene.anims.insert(name.clone(), site);
             }
         }
+        self.check_roles();
         // Machines play animations, so they come last.
         for s in stmts {
             if let Stmt::Machine { name, name_span, lines, span, close } = s {
@@ -201,6 +202,32 @@ impl<'a> Evaluator<'a> {
                 }
                 self.machine(name, lines, *span, *close);
             }
+        }
+    }
+
+    /// Every `ui` control has the parts it cannot do without. After the animations: a slider
+    /// its Value animation draws needs none.
+    fn check_roles(&mut self) {
+        let doc = &self.scene.doc;
+        let mut errors = Vec::new();
+        for (i, span) in std::mem::take(&mut self.role_refs) {
+            let role = doc.nodes[i].ui_role;
+            // A dial is drawn by its Value animation: it needs no track or grabber.
+            if motif_core::is_dial(doc, i) {
+                continue;
+            }
+            let missing: Vec<_> = role
+                .required()
+                .iter()
+                .filter(|want| !doc.nodes.iter().enumerate().any(|(k, n)| n.part == Some(**want) && ui_owner(doc, k) == Some(i)))
+                .map(|p| format!("part {}", p.keyword()))
+                .collect();
+            if !missing.is_empty() {
+                errors.push((span, format!("для ui {} внутри не хватает: {}", role.keyword(), missing.join(", "))));
+            }
+        }
+        for (span, msg) in errors {
+            self.err(span, msg);
         }
     }
 
@@ -278,18 +305,6 @@ impl<'a> Evaluator<'a> {
                     errors.push((span, "part text — подпись: это должен быть text".to_string()))
                 }
                 Some(_) => {}
-            }
-        }
-        for (i, span) in std::mem::take(&mut self.role_refs) {
-            let role = doc.nodes[i].ui_role;
-            let missing: Vec<_> = role
-                .required()
-                .iter()
-                .filter(|want| !doc.nodes.iter().enumerate().any(|(k, n)| n.part == Some(**want) && ui_owner(doc, k) == Some(i)))
-                .map(|p| format!("part {}", p.keyword()))
-                .collect();
-            if !missing.is_empty() {
-                errors.push((span, format!("для ui {} внутри не хватает: {}", role.keyword(), missing.join(", "))));
             }
         }
         for (i, id, span) in std::mem::take(&mut self.morph_refs) {
@@ -687,6 +702,7 @@ impl<'a> Evaluator<'a> {
         let mut font: Option<String> = None;
         let mut part_span = None;
         let mut role_span = None;
+        let mut dial_span: Option<Span> = None;
         let mut ik: Option<(String, Span)> = None;
         let (mut chain, mut flip) = (2, false);
         let mut skin: Option<Vec<(String, Span)>> = None;
@@ -719,6 +735,8 @@ impl<'a> Evaluator<'a> {
                 "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
                 "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" => Vec::new(),
+                // `dial turn 300`: the way is a word, the arc a number (or `{arc}`).
+                "dial" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(_)) { None } else { self.value(v) }).collect(),
                 // `cross` is a keyword of the hatching.
                 "hatch" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(t) if t == "cross") { None } else { self.value(v) }).collect(),
                 _ => p.values.iter().map(|v| self.value(v)).collect(),
@@ -1215,6 +1233,30 @@ impl<'a> Evaluator<'a> {
                     }
                     _ => self.err(p.values[0].span, "роль детали: part background, fill, unchecked, checked, track, grabber или text"),
                 },
+                "dial" => {
+                    dial_span = Some(p.key_span);
+                    for (k, v) in p.values.iter().enumerate() {
+                        match (&v.kind, num(k)) {
+                            (ValueKind::Ref(w), _) if motif_core::DialDrag::from_keyword(w).is_some() => {
+                                node.dial.drag = motif_core::DialDrag::from_keyword(w).unwrap_or_default();
+                            }
+                            (_, Some(a)) if a > 0.0 && a <= 360.0 => {
+                                node.dial.arc = a;
+                                if node.dial.drag == motif_core::DialDrag::Auto {
+                                    node.dial.drag = motif_core::DialDrag::Turn;
+                                }
+                            }
+                            _ => self.err(v.span, "как тянуть слайдер: dial across (вбок), dial up (вверх) или dial turn 300 (по кругу, дуга в градусах)"),
+                        }
+                    }
+                }
+                "value" => match num(0) {
+                    Some(v) if (0.0..=1.0).contains(&v) => {
+                        node.dial.value = v;
+                        dial_span.get_or_insert(p.key_span);
+                    }
+                    _ => self.err(p.key_span, "value — где стоит слайдер с анимацией Value: от 0 до 1"),
+                },
                 "locked" => node.locked = true,
                 "rough" | "boil" | "hatch" | "grain" | "bands" | "seed" if n.kind.is_container() => {
                     self.err(p.key_span, format!("«{}» бывает у фигур: кисть рисует контур", p.key))
@@ -1566,6 +1608,11 @@ impl<'a> Evaluator<'a> {
         }
         if let Some(span) = role_span {
             self.role_refs.push((index, span));
+        }
+        if let Some(span) = dial_span
+            && !(node.ui && node.ui_role == motif_core::UiRole::Slider)
+        {
+            self.err(span, "dial и value — у слайдера, который рисует анимация Value: ui slider dial turn");
         }
         if let Some((ball, span)) = on {
             node.on = Some(format!("{}{ball}", self.prefix));

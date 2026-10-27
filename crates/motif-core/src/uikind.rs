@@ -34,6 +34,54 @@ pub enum UiPart {
     Text,
 }
 
+/// How the pointer moves a dial: a slider drawn by its `Value` animation (`dial turn 300`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DialDrag {
+    /// Sideways when the piece is wide, up when it is tall, around when it is round.
+    #[default]
+    Auto,
+    /// Left to right.
+    Across,
+    /// Bottom to top.
+    Up,
+    /// Around its middle, clockwise.
+    Turn,
+}
+
+impl DialDrag {
+    pub const ALL: [DialDrag; 4] = [DialDrag::Auto, DialDrag::Across, DialDrag::Up, DialDrag::Turn];
+
+    /// The word after `dial`; empty for [`DialDrag::Auto`].
+    pub fn keyword(self) -> &'static str {
+        match self {
+            DialDrag::Auto => "",
+            DialDrag::Across => "across",
+            DialDrag::Up => "up",
+            DialDrag::Turn => "turn",
+        }
+    }
+
+    pub fn from_keyword(w: &str) -> Option<DialDrag> {
+        DialDrag::ALL.into_iter().find(|d| *d != DialDrag::Auto && d.keyword() == w)
+    }
+}
+
+/// A slider drawn by its `Value` animation: the value 0..1 plays it from the start to the end.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dial {
+    pub drag: DialDrag,
+    /// Turning: the arc from the lowest value to the highest, in degrees, centred on the top.
+    pub arc: f64,
+    /// Where it stands as drawn (`value 0.4`).
+    pub value: f64,
+}
+
+impl Default for Dial {
+    fn default() -> Dial {
+        Dial { drag: DialDrag::Auto, arc: 270.0, value: 0.0 }
+    }
+}
+
 impl UiRole {
     pub const ALL: [UiRole; 8] = [UiRole::Auto, UiRole::Button, UiRole::Panel, UiRole::Progress, UiRole::Check, UiRole::Slider, UiRole::Scroll, UiRole::Label];
 

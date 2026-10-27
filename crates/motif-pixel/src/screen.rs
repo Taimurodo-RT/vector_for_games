@@ -195,6 +195,9 @@ impl Writer<'_> {
         }
         if let Some((item, ty)) = self.pieces[k].clone() {
             let b = kit::control_box(d, k).unwrap_or_default();
+            if let Some(dial) = &item.dial {
+                return self.dial(k, item, dial, parent, place, b);
+            }
             self.open(&name, item.base, parent, place, b, anchor, 0.0);
             self.nodes.push_str(&format!("theme_type_variation = &\"{ty}\"\n"));
             let text = (0..d.nodes.len())
@@ -243,6 +246,26 @@ impl Writer<'_> {
             self.open(&name, "TextureRect", parent, place, at, anchor, 0.0);
         }
         self.nodes.push_str(&format!("mouse_filter = 2\ntexture = ExtResource(\"{tex}\")\nstretch_mode = 3\n"));
+        Ok(())
+    }
+
+    /// A dial: a `Range` with `motif_dial.gd` drawing the frames of its Value animation.
+    fn dial(&mut self, k: usize, item: &KitItem, dial: &kit::KitDial, parent: &str, place: Place, b: Rect) -> Result<(), String> {
+        let n = &self.doc.nodes[k];
+        let script = match self.ext.lines().find(|l| l.contains(&format!("path=\"{}\"", kit::DIAL_SCRIPT_FILE))) {
+            Some(l) => l.split("id=\"").nth(1).map(|s| s.trim_end_matches("\"]").to_string()).unwrap_or_default(),
+            None => {
+                self.files.push(kit::write_dial_script(self.dir)?);
+                self.add_ext("Script", kit::DIAL_SCRIPT_FILE)
+            }
+        };
+        let file = format!("{}_dial.png", n.id);
+        let path = self.dir.join(&file);
+        item.pictures[0].px.save_png(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        self.files.push(path);
+        let frames = self.add_ext("Texture2D", &file);
+        self.open(&node_name(&n.id), "Range", parent, place, b, n.anchor, 0.0);
+        self.nodes.push_str(&format!("script = ExtResource(\"{script}\")\n{}", kit::dial_props(dial, &frames, n.dial.value)));
         Ok(())
     }
 
@@ -524,6 +547,9 @@ pub fn write_screens(dir: &Path, theme: &str, boards: &[(String, Document)], opt
         let theme_file = has_theme.then(|| format!("{theme}.tres"));
         files.extend(write_screen(dir, &file, name, theme_file.as_deref(), doc, &named, opts)?);
     }
+    // The kit and the screens both write a dial's frames and script.
+    let mut seen = std::collections::HashSet::new();
+    files.retain(|f| seen.insert(f.clone()));
     Ok(files)
 }
 
@@ -625,6 +651,35 @@ mod tests {
         assert!(node(&tscn, "led").contains("type=\"Control\""), "{tscn}");
         let picture = node(&tscn, "Picture");
         assert!(picture.contains("parent=\"calc/Stack/display/Stack/led\"") && picture.contains("offset_left = -6.0"), "{picture}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dials_become_ranges_drawing_their_frames() {
+        let dir = std::env::temp_dir().join(format!("motif-screen-dials-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let files = write_screens(&dir, "dials", &boards(include_str!("../../../examples/dials.msc")), CpuOptions::default()).unwrap();
+        let mut unique = files.clone();
+        unique.dedup();
+        assert_eq!(files.len(), unique.len(), "{files:?}");
+        assert!(dir.join("motif_dial.gd").exists() && dir.join("knob_dial.tscn").exists());
+        let tscn = scene(&dir, "dials_screen.tscn");
+        let knob = node(&tscn, "knob");
+        assert!(knob.contains("type=\"Range\"") && knob.contains("drag = 2") && knob.contains("value = 50.0") && knob.contains("columns = 30"), "{knob}");
+        // The tube is tall: up; the bars are wide: sideways.
+        assert!(node(&tscn, "mana").contains("drag = 1"), "{tscn}");
+        assert!(node(&tscn, "power").contains("drag = 0"), "{tscn}");
+        // Thirty frames a row, a row for the normal look, hover and press.
+        let png = tiny_skia::Pixmap::load_png(dir.join("knob_dial.png")).unwrap();
+        let cell = knob
+            .lines()
+            .find_map(|l| l.strip_prefix("cell = Vector2("))
+            .unwrap()
+            .trim_end_matches(')')
+            .split(", ")
+            .map(|v| v.parse::<u32>().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!((png.width(), png.height()), (cell[0] * 30, cell[1] * 3));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
