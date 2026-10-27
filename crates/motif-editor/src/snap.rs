@@ -18,12 +18,14 @@ pub struct Snap {
     /// Grid lines over the artboard every `grid_size` units.
     pub grid: bool,
     pub grid_size: f64,
+    /// Lines between the pixels of the export (at its scale), when zoomed in far enough to see them.
+    pub pixels: bool,
     pub rulers: bool,
 }
 
 impl Default for Snap {
     fn default() -> Self {
-        Snap { free: false, moving: 1.0, size: 1.0, rotation: 1.0, guides: true, grid: false, grid_size: 16.0, rulers: true }
+        Snap { free: false, moving: 1.0, size: 1.0, rotation: 1.0, guides: true, grid: false, grid_size: 16.0, pixels: false, rulers: true }
     }
 }
 
@@ -104,6 +106,19 @@ impl App {
                 self.snap.grid = true;
             }
             ui.label(RichText::new("G — показать или скрыть сетку.").size(11.5).color(FAINT));
+            ui.separator();
+            let px = 1.0 / self.export.scale.max(0.01);
+            ui.label(
+                RichText::new(format!("Пиксели экспорта (масштаб ×{})", motif_script::fmt_num(self.export.scale))).font(theme::semibold(13.0)).color(theme::FG),
+            );
+            ui.checkbox(&mut self.snap.pixels, "Пиксельная сетка").on_hover_text("Границы пикселей картинки после экспорта; видна при сильном увеличении");
+            if theme::button(ui, "Шаг = пиксель экспорта", theme::ButtonKind::Normal)
+                .on_hover_text("Сдвиг и размер — целыми пикселями экспорта: края не размываются")
+                .clicked()
+            {
+                (self.snap.free, self.snap.moving, self.snap.size) = (false, px, px);
+                self.snap.pixels = true;
+            }
         });
     }
 }

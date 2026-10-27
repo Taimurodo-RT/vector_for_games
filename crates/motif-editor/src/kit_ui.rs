@@ -4,7 +4,8 @@ use crate::app::{App, fold};
 use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
-use motif_core::{Node, ShapeKind, UiPart, UiRole};
+use motif_core::kurbo::Shape;
+use motif_core::{Document, Node, Prop, ShapeKind, UiPart, UiRole};
 use motif_script::fmt_num;
 
 /// `slice` written as short as it reads: one value, two (sides, top-bottom) or four.
@@ -59,14 +60,88 @@ fn role_hint(r: UiRole) -> &'static str {
     }
 }
 
+/// Distance of `v` from the nearest whole number.
+fn off_grid(v: f64) -> f64 {
+    (v - v.round()).abs()
+}
+
+/// Shapes of piece `i` (it and what is inside) whose edges land between pixels at `scale`,
+/// with the moves that put them on whole pixels: `(node, X/Y/Width/Height, new value)`. A
+/// stroke straddles the edge, so with an odd stroke width the edge sits on a half pixel instead.
+/// Only shapes that are not rotated or skewed are checked; paths only move, they keep their size.
+pub fn crisp_edits(doc: &Document, i: usize, scale: f64) -> (usize, Vec<(String, Prop, f64)>) {
+    let mut blurry = 0;
+    let mut edits = Vec::new();
+    for k in (0..doc.nodes.len()).filter(|&k| k == i || doc.is_inside(k, i)) {
+        let n = &doc.nodes[k];
+        if matches!(n.kind, ShapeKind::Group | ShapeKind::Bone | ShapeKind::Text) || !doc.is_visible(k) {
+            continue;
+        }
+        let Some(path) = n.path() else { continue };
+        // Only straight edges along the axes can be crisp: slanted lines are soft anyway.
+        let straight = |path: &motif_core::kurbo::BezPath| {
+            path.segments().all(|s| match s {
+                motif_core::kurbo::PathSeg::Line(l) => (l.p0.x - l.p1.x).abs() < 1e-9 || (l.p0.y - l.p1.y).abs() < 1e-9,
+                _ => true,
+            })
+        };
+        if matches!(n.kind, ShapeKind::Polygon | ShapeKind::Star) || (n.kind == ShapeKind::Path && !straight(&path)) {
+            continue;
+        }
+        let t = doc.world_transform(k).as_coeffs();
+        let parent = n.parent.map_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0], |p| doc.world_transform(p).as_coeffs());
+        if t[1].abs() > 1e-9 || t[2].abs() > 1e-9 || parent[1].abs() > 1e-9 || parent[2].abs() > 1e-9 || parent[0] == 0.0 || parent[3] == 0.0 {
+            continue;
+        }
+        let b = doc.world_transform(k).transform_rect_bbox(path.bounding_box());
+        let stroke = |a: f64| if n.stroke.is_some() && n.stroke_width > 0.0 { (n.stroke_width * a.abs() * scale / 2.0).fract() } else { 0.0 };
+        let (ox, oy) = (stroke(t[0]), stroke(t[3]));
+        let snap = |v: f64, o: f64| ((v * scale - o).round() + o) / scale;
+        let edges = [(b.x0, ox), (b.y0, oy), (b.x1, ox), (b.y1, oy)];
+        if edges.iter().all(|(v, o)| off_grid(v * scale - o) < 0.01) {
+            continue;
+        }
+        blurry += 1;
+        let sized = n.kind != ShapeKind::Path;
+        let [x0, y0] = [snap(b.x0, ox), snap(b.y0, oy)];
+        let (x1, y1) = if sized { (snap(b.x1, ox).max(x0 + 1.0 / scale), snap(b.y1, oy).max(y0 + 1.0 / scale)) } else { (x0 + b.width(), y0 + b.height()) };
+        let (dx, dy) = (((x0 + x1) - (b.x0 + b.x1)) / 2.0 / parent[0], ((y0 + y1) - (b.y0 + b.y1)) / 2.0 / parent[3]);
+        let round = |v: f64| (v * 1000.0).round() / 1000.0;
+        if dx.abs() > 1e-6 {
+            edits.push((n.id.clone(), Prop::X, round(n.x + dx)));
+        }
+        if dy.abs() > 1e-6 {
+            edits.push((n.id.clone(), Prop::Y, round(n.y + dy)));
+        }
+        if sized && b.width() > 0.0 && b.height() > 0.0 {
+            let (w, h) = (n.width * (x1 - x0) / b.width(), n.height * (y1 - y0) / b.height());
+            if (w - n.width).abs() > 1e-6 {
+                edits.push((n.id.clone(), Prop::Width, round(w)));
+            }
+            if (h - n.height).abs() > 1e-6 {
+                edits.push((n.id.clone(), Prop::Height, round(h)));
+            }
+        }
+    }
+    (blurry, edits)
+}
+
+/// What the Interface section asks the app to do.
+#[derive(Default)]
+pub struct KitAction {
+    pub add_states: bool,
+    pub stretch: bool,
+    pub crisp: bool,
+}
+
 impl App {
     /// Both flags are written through `styles`: `ui` alone makes a fixed-size piece,
     /// `slice` a stretchable one. Returns true when the states button was pressed.
-    pub(crate) fn kit_section(&self, ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<StyleEdit>) -> bool {
+    pub(crate) fn kit_section(&self, ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<StyleEdit>) -> KitAction {
+        let mut act = KitAction::default();
         if node.kind == ShapeKind::Bone {
-            return false;
+            return act;
         }
-        let mut add_states = false;
         let missing: Vec<&str> = ["Hover", "Press"].into_iter().filter(|n| self.scene.doc.animation(n).is_none()).collect();
         // The piece this node is inside, if any: then it can be one of its parts.
         let doc = &self.scene.doc;
@@ -164,7 +239,31 @@ impl App {
                     .on_hover_text("Пустые анимации состояний: в Animate меняйте свойства, последний кадр станет картинкой состояния")
                     .clicked()
             {
-                add_states = true;
+                act.add_states = true;
+            }
+            if theme::button(ui, "Проверить растяжение…", theme::ButtonKind::Normal)
+                .on_hover_text("Деталь, как её растянет Godot: тяните уголок, наводите и нажимайте мышью")
+                .clicked()
+            {
+                act.stretch = true;
+            }
+            // Edges between pixels come out soft; whole pixels keep thin lines crisp.
+            let scale = self.export.scale;
+            if let Some(i) = self.scene.doc.index_of(&node.id) {
+                let (blurry, edits) = crisp_edits(&self.scene.doc, i, scale);
+                let at = format!("при масштабе ×{}", fmt_num(scale));
+                if blurry == 0 {
+                    ui.label(RichText::new(format!("Края по пикселям {at}: чётко.")).size(11.5).color(theme::GOOD));
+                } else {
+                    ui.label(RichText::new(format!("Края между пикселями {at}: фигур {blurry} — выйдут размытыми.")).size(11.5).color(theme::ACCENT));
+                    if !edits.is_empty()
+                        && theme::button(ui, "Выровнять по пикселям", theme::ButtonKind::Normal)
+                            .on_hover_text("Сдвигает и чуть меняет размер фигур, чтобы края и обводки легли на целые пиксели экспорта")
+                            .clicked()
+                    {
+                        act.crisp = true;
+                    }
+                }
             }
             ui.label(
                 RichText::new(
@@ -174,13 +273,51 @@ impl App {
                 .color(FAINT),
             );
         });
-        add_states
+        act
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::slice_text;
+    use super::{crisp_edits, slice_text};
+    use motif_core::Prop;
+
+    #[test]
+    fn the_ui_kit_template_is_crisp() {
+        let src = include_str!("../../../examples/ui-kit.msc");
+        for scene in motif_script::parse_boards(src, None).unwrap() {
+            let doc = &scene.doc;
+            for (i, n) in doc.nodes.iter().enumerate().filter(|(_, n)| n.ui || n.slice.is_some()) {
+                for scale in [1.0, 2.0] {
+                    assert_eq!(crisp_edits(doc, i, scale).0, 0, "«{}» ×{scale}", n.id);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn edges_go_onto_whole_pixels() {
+        let src = "group b at 50.25 40 ui {\n  rect body size 30.5 20 fill #ffffff\n  rect frame size 40 20 fill none stroke #000000 1\n}\n";
+        let doc = motif_script::parse(src).unwrap().doc;
+        let i = doc.index_of("b").unwrap();
+        let (blurry, edits) = crisp_edits(&doc, i, 1.0);
+        assert_eq!(blurry, 2);
+        // body: 35..65.5 → 35..66, wide 31, centre +0.25 inside the group. frame: a 1 px stroke
+        // is crisp around half pixels, so 30.25 → 30.5 and 30 → 30.5.
+        assert_eq!(
+            edits,
+            [
+                ("body".to_string(), Prop::X, 0.25),
+                ("body".to_string(), Prop::Width, 31.0),
+                ("frame".to_string(), Prop::X, 0.25),
+                ("frame".to_string(), Prop::Y, 0.5),
+            ]
+        );
+        // At 2x the body's half pixel is whole; the frame's quarter is not.
+        let (blurry, edits) = crisp_edits(&doc, i, 2.0);
+        assert_eq!(blurry, 1);
+        assert_eq!(edits, [("frame".to_string(), Prop::X, 0.25)]);
+    }
 
     #[test]
     fn slice_is_written_short() {

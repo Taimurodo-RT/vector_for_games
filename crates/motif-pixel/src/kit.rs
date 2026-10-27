@@ -169,7 +169,10 @@ fn shoot(
     slice: Option<[f64; 4]>,
     opts: CpuOptions,
 ) -> Result<Shot, String> {
-    let region = frame.union(inner).inflate(REACH, REACH);
+    // On the artboard's pixel grid, so edges that are crisp on the artboard stay crisp here.
+    let r = frame.union(inner).inflate(REACH, REACH);
+    let k = opts.scale;
+    let region = Rect::new((r.x0 * k).floor() / k, (r.y0 * k).floor() / k, (r.x1 * k).ceil() / k, (r.y1 * k).ceil() / k);
     let mut pics: Vec<(&'static str, Pixmap)> = Vec::new();
     for (state, pose) in poses {
         let px = render_region(&alone(pose, show, hide), region, opts).ok_or("не удалось создать изображение")?;
@@ -268,13 +271,22 @@ const BUTTON_COLORS: [(&str, &str); 5] = [
 
 /// Renders every interface piece of `doc` in every state.
 pub fn render_kit(doc: &Document, opts: CpuOptions) -> Result<Vec<KitItem>, String> {
+    render_pieces(doc, opts, None)
+}
+
+/// Renders the piece `id` alone, as [`render_kit`] would.
+pub fn render_piece(doc: &Document, id: &str, opts: CpuOptions) -> Result<KitItem, String> {
+    render_pieces(doc, opts, Some(id))?.pop().ok_or_else(|| format!("«{id}» — не деталь интерфейса"))
+}
+
+fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result<Vec<KitItem>, String> {
     let opts = CpuOptions { background: false, ..opts };
     let poses = state_poses(doc);
     let normal = &poses[0].1;
     let mut items = Vec::new();
     for i in 0..doc.nodes.len() {
         let n = &doc.nodes[i];
-        if !(n.ui || n.slice.is_some()) || n.part.is_some() || !doc.is_visible(i) {
+        if !(n.ui || n.slice.is_some()) || n.part.is_some() || !doc.is_visible(i) || only.is_some_and(|o| o != n.id) {
             continue;
         }
         let parts: Vec<(UiPart, usize)> = (0..doc.nodes.len()).filter_map(|k| doc.nodes[k].part.filter(|_| owner(doc, k) == Some(i)).map(|p| (p, k))).collect();
@@ -477,7 +489,7 @@ pub fn render_kit(doc: &Document, opts: CpuOptions) -> Result<Vec<KitItem>, Stri
             }
         }
     }
-    if items.is_empty() {
+    if items.is_empty() && only.is_none() {
         return Err("в сцене нет элементов интерфейса: отметьте их ui или задайте slice".into());
     }
     Ok(items)
@@ -792,6 +804,19 @@ anim Press 0.1s {
         assert!(theme.contains("Play/colors/font_hover_color = Color(1, 0.878431, 0.541176, 1)"), "{theme}");
         assert!(dir.join("IBMPlexSans-SemiBold.ttf").exists());
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn pictures_keep_the_artboard_pixel_grid() {
+        // A 1 px stroke around edges on half pixels covers whole pixels on the artboard: the
+        // picture must not shift it by half a pixel and blur it.
+        let d = doc("artboard 100x100\nrect tag at 50.5 50.5 size 20 20 fill #ffffff stroke #000000 1 ui\n");
+        let item = render_piece(&d, "tag", CpuOptions { scale: 1.0, antialias: true, background: false }).unwrap();
+        let px = &item.pictures[0].px;
+        assert_eq!((px.width(), px.height()), (21, 21));
+        // No half-covered pixels along the edges (the rasterizer leaves a few nearly full ones).
+        let soft: Vec<u8> = px.pixels().iter().map(|p| p.alpha()).filter(|a| *a != 0 && *a < 200).collect();
+        assert!(soft.is_empty(), "soft edge pixels: {soft:?}");
     }
 
     #[test]
