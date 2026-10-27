@@ -32,6 +32,9 @@ fn role_name(r: UiRole) -> &'static str {
         UiRole::Slider => "Слайдер — HSlider/VSlider",
         UiRole::Scroll => "Прокрутка — ScrollBar",
         UiRole::Label => "Надпись — Label",
+        UiRole::Switch => "Переключатель — CheckButton",
+        UiRole::Input => "Поле ввода — LineEdit",
+        UiRole::Option => "Список — OptionButton",
     }
 }
 
@@ -44,6 +47,7 @@ fn part_name(p: UiPart) -> &'static str {
         UiPart::Track => "Дорожка",
         UiPart::Grabber => "Ползунок",
         UiPart::Text => "Подпись — шрифтом Godot",
+        UiPart::Arrow => "Стрелка",
     }
 }
 
@@ -59,6 +63,9 @@ fn role_hint(r: UiRole) -> &'static str {
         }
         UiRole::Scroll => "Внутри нужны «Дорожка» и «Ползунок»; ползунок тянется вдоль полосы.",
         UiRole::Label => "Шрифт, размер, цвет, обводка и тень текста — в тему Label.",
+        UiRole::Switch => "Как флажок, но подпись слева, а «Выключен» и «Включён» — картинки переключателя справа.",
+        UiRole::Input => "Рамка поля; «Подпись» — подсказка: полупрозрачной, а набранный текст будет того же цвета без прозрачности. Focus — рамка при вводе.",
+        UiRole::Option => "Как кнопка; «Стрелка» справа — значок списка, подпись — выбранный пункт.",
     }
 }
 

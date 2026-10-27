@@ -104,7 +104,7 @@ motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --n
 motif.exe kit     ui.msc --scale 2 -o game\ui
 motif.exe screen  menu.msc -o game\ui
 motif.exe godot   hero.msc --node hero --no-aa -o game\hero
-motif.exe render  ui-kit.msc --board Кнопка -o кнопка.png</code></pre>
+motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pre>
 <div class="table-wrap"><table>
   <tr><th>Команда / ключ</th><th>Что делает</th></tr>
   <tr><td><code>check</code></td><td>Проверяет сцену и печатает объекты и анимации; при ошибке пишет строку и причину.</td></tr>
@@ -153,13 +153,18 @@ anim Press 0.08s {
   body.y 0: 0 | 0.08: 5
   caption.y 0: 2 | 0.08: 7
 }</code></pre>
+<p>Заготовка «Файл → Новый UI-набор» (<code>examples/ui-kit.msc</code>) разложена по семи холстам: кнопки (основная, вторичная, опасная, успех, контурная, прозрачная, маленькая и круглые со значками), переключатели (флажок, тумблер, радио-кнопки), поля (ввод, поиск, выпадающий список, счётчик −/+), полосы (здоровье, мана, опыт, слайдер, прокрутка, рейтинг звёздами и круговая загрузка), панели (карточка, окно, уведомление, слоты инвентаря, подсказка, значки NEW и −20%, клавиша), навигация (вкладки и точки страниц) и текст (заголовок, подзаголовок, обычный текст, подсказка, счёт). Цвета — общие переменные в начале файла: поменяйте их, и перекрасится весь набор.</p>
 <p>Какие детали нужны каждому элементу:</p>
 <table>
   <tr><th>Скрипт</th><th>В Godot</th><th>Детали</th><th>Что попадает в тему</th></tr>
   <tr><td><code>ui button</code></td><td><code>Button</code></td><td><code>part text</code> — по желанию</td><td>стили <code>normal hover pressed hover_pressed disabled</code> (и <code>focus</code>, если есть анимация Focus), шрифт, размер и цвета текста по состояниям</td></tr>
   <tr><td><code>ui panel</code></td><td><code>PanelContainer</code></td><td>—</td><td>стиль <code>panel</code></td></tr>
   <tr><td><code>ui progress</code></td><td><code>ProgressBar</code></td><td><code>part background</code>, <code>part fill</code></td><td>стили <code>background</code> и <code>fill</code>; отступ заливки от рамки сохраняется, заливка растёт от начала</td></tr>
-  <tr><td><code>ui check</code></td><td><code>CheckBox</code></td><td><code>part unchecked</code>, <code>part checked</code>, <code>part text</code> — по желанию</td><td>иконки <code>unchecked checked</code> и их <code>_disabled</code>, зазор до подписи <code>h_separation</code>, шрифт и цвета</td></tr>
+  <tr><td><code>ui check</code></td><td><code>CheckBox</code></td><td><code>part unchecked</code>, <code>part checked</code>, <code>part text</code> — по желанию</td><td>иконки <code>unchecked checked</code>, <code>radio_unchecked radio_checked</code> и их <code>_disabled</code>, зазор до подписи <code>h_separation</code>, шрифт и цвета</td></tr>
+  <tr><td><code>ui check radio difficulty</code></td><td><code>CheckBox</code> с общей <code>ButtonGroup</code></td><td>как у флажка</td><td>радио-кнопки: в группе с одним именем включена одна; в сцене Godot они делят одну <code>ButtonGroup</code></td></tr>
+  <tr><td><code>ui switch</code></td><td><code>CheckButton</code></td><td><code>part unchecked</code>, <code>part checked</code>, <code>part text</code> — по желанию</td><td>иконки <code>unchecked checked</code> и их <code>_disabled</code>; подпись слева, переключатель справа, зазор <code>h_separation</code></td></tr>
+  <tr><td><code>ui input</code></td><td><code>LineEdit</code></td><td><code>part text</code> — подсказка (placeholder)</td><td>стили <code>normal focus read_only</code> (Focus и Disabled), цвет подсказки, цвет ввода и курсора — подсказки без прозрачности; ввод начинается там, где подсказка, — значок слева остаётся свободным</td></tr>
+  <tr><td><code>ui option</code></td><td><code>OptionButton</code></td><td><code>part arrow</code>, <code>part text</code> — выбранный пункт</td><td>стили кнопки, иконка <code>arrow</code>, отступы <code>arrow_margin</code> и <code>h_separation</code></td></tr>
   <tr><td><code>ui slider</code></td><td><code>HSlider</code> / <code>VSlider</code></td><td><code>part track</code>, <code>part grabber</code>, <code>part fill</code> — по желанию</td><td>стили <code>slider grabber_area grabber_area_highlight</code>, иконки <code>grabber grabber_highlight grabber_disabled</code></td></tr>
   <tr><td><code>ui scroll</code></td><td><code>HScrollBar</code> / <code>VScrollBar</code></td><td><code>part track</code>, <code>part grabber</code></td><td>стили <code>scroll scroll_focus grabber grabber_highlight grabber_pressed</code></td></tr>
   <tr><td><code>ui label</code></td><td><code>Label</code></td><td>сам <code>text</code> или группа с <code>part text</code></td><td>шрифт, размер, цвет, обводка (<code>outline</code>) и тень (<code>shadow</code>)</td></tr>
@@ -206,13 +211,13 @@ anim Value 1s {
 <p>Ниже кнопки — проверка краёв: край фигуры между пикселями экспорта выходит полупрозрачной полосой. Обводка лежит на краю наполовину внутри, наполовину снаружи, поэтому при нечётной толщине (в пикселях экспорта) края фигуры должны стоять на половине пикселя. <b>«Выровнять по пикселям»</b> чуть сдвигает фигуры детали и меняет их размер, чтобы и заливка, и обводка легли на целые пиксели. Наклонные линии и повёрнутые фигуры не проверяются: они мягкие в любом случае. Картинки набора снимаются по сетке пикселей артборда, так что чёткое на холсте остаётся чётким в теме.</p>
 <p>Горизонтальный слайдер или вертикальный, решает форма дорожки. Hover подсвечивает ползунок и заливку, Press — ползунок полосы прокрутки, Disabled — иконки флажка и ползунка.</p>
 <p>«Экспорт → Сохранить UI-набор…» (или <code>motif kit</code>) пишет в папку PNG по деталям и состояниям (<code>button_normal.png</code>, <code>button_hover.png</code>, <code>volume_grabber.png</code>…), файлы шрифтов подписей и тему <code>ИМЯ.tres</code>. Каждая деталь — вариация своего типа Godot из таблицы выше. Имя вариации — id детали в PascalCase; если оно совпадает с классом Godot, добавляется <code>Kit</code> (<code>button</code> → <code>ButtonKit</code>).</p>
-<figure><img src="img/kit-render.png" alt="Картинки UI-набора без подписей: кнопка в четырёх состояниях, закрыть, флажок, ползунки, панель, подсказка, полосы"></figure>
+<figure><img src="img/kit-render.png" alt="Холсты UI-набора: кнопки, полосы, слайдер, прокрутка, рейтинг, круговая загрузка, панели, слоты, значки, вкладки и точки страниц"></figure>
 <ol>
   <li>Положите папку набора в проект Godot, например в <code>res://ui/</code>.</li>
   <li>Назначьте <code>ui.tres</code> свойству <b>Theme</b> корневого <code>Control</code> — тема перейдёт на всех потомков.</li>
   <li>У кнопки, полосы, флажка или надписи в инспекторе выберите <b>Theme Type Variation</b>: <code>ButtonKit</code>, <code>Health</code>, <code>Sound</code>, <code>Title</code>… Текст задаёт сама игра: <code>text</code> кнопки или надписи. У <code>ProgressBar</code> снимите <b>Show Percentage</b>, если число не нужно.</li>
 </ol>
-<figure><img src="img/kit-godot.png" alt="Тот же набор в Godot 4.3: кнопки с подписями шрифтом Godot в обычном, нажатом и выключенном состояниях, полосы прогресса на 65 и 5 процентов, флажки, слайдер, полоса прокрутки, заголовок с обводкой и тенью, панель"></figure>
+<figure><img src="img/kit-godot.png" alt="Тот же набор в Godot 4.3: флажок, выключенный тумблер, выбранная радио-кнопка «Сложный», поле ввода с набранным текстом в фокусе, поиск со значком, выпадающий список и счётчик"></figure>
 <p>Пример <code>modern-button.msc</code> — веб-кнопка с Uiverse.io, повторённая по её CSS: как переводить <code>padding</code>, <code>box-shadow</code>, <code>overflow: hidden</code>, <code>:hover</code> и <code>:active</code> в фигуры, маску и анимации.</p>
 <p>Масштаб и сглаживание берутся из окна экспорта: для пиксельного интерфейса снимите набор без сглаживания и с целым масштабом.</p>
 

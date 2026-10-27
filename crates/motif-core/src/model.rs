@@ -446,6 +446,8 @@ pub struct Node {
     pub part: Option<crate::UiPart>,
     /// A slider drawn by its `Value` animation: how the pointer moves it and where it stands.
     pub dial: crate::Dial,
+    /// A check box in a group of radio buttons (`radio difficulty`): one of the group is on.
+    pub radio: Option<String>,
     /// Locked (`locked`): drawn as usual, but clicks on the canvas pass through it.
     pub locked: bool,
     /// Nine-slice margins (`slice 16`): left, top, right, bottom, in artboard units from the
@@ -643,6 +645,7 @@ impl Node {
             ui_role: crate::UiRole::Auto,
             part: None,
             dial: crate::Dial::default(),
+            radio: None,
             locked: false,
             brush: crate::Brush::default(),
             slice: None,

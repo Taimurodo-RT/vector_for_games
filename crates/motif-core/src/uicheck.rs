@@ -5,8 +5,10 @@
 use crate::{Animation, DialDrag, Document, ShapeKind, UiPart, UiRole};
 use kurbo::{Point, Rect, Shape, Vec2};
 
-/// The animations that set each state, as the UI kit reads them: hover, pressed, disabled.
-const STATES: [&[&str]; 3] = [&["hover"], &["press", "pressed", "down"], &["disabled"]];
+/// The animations that set each state, as the UI kit reads them: hover, pressed, disabled, focus.
+const STATES: [&[&str]; 4] = [&["hover"], &["press", "pressed", "down"], &["disabled"], &["focus", "focused"]];
+/// Which state's look wins when several are on: disabled, then pressed, focus, hover.
+const PRIORITY: [usize; 4] = [2, 1, 3, 0];
 /// The animation of the normal look, if the board has one.
 const NORMAL: &[&str] = &["normal", "idle"];
 /// The animation a dial plays by its value: the start is 0, the end 1.
@@ -51,14 +53,18 @@ pub struct Control {
     pub hover: bool,
     pub pressed: bool,
     pub disabled: bool,
+    /// Text fields: typing goes here after a click, until a click elsewhere.
+    pub focused: bool,
     /// Check boxes: whether the check mark shows.
     pub checked: Option<bool>,
+    /// Radio buttons: the group, in which clicking one turns the others off.
+    pub radio: Option<String>,
     /// Progress bars, sliders and scroll bars: where they stand, 0 to 1.
     pub value: Option<f64>,
     /// How many times it was clicked.
     pub clicks: u32,
     /// How far the animation of each state has played in, 0 to 1: hover, pressed, disabled.
-    shown: [f64; 3],
+    shown: [f64; 4],
     /// A piece drawn like an animated one plays that one's states, as both share one style in
     /// Godot: the node each key is on there, and the node of this piece it goes to.
     lend: Vec<(String, String)>,
@@ -69,7 +75,7 @@ pub struct Control {
 impl Control {
     /// Whether the pointer works it: a panel, a label and a progress bar only show.
     pub fn interactive(&self) -> bool {
-        matches!(self.role, UiRole::Button | UiRole::Check | UiRole::Slider | UiRole::Scroll)
+        matches!(self.role, UiRole::Button | UiRole::Check | UiRole::Switch | UiRole::Slider | UiRole::Scroll | UiRole::Input | UiRole::Option)
     }
 
     /// The state it shows, in words.
@@ -78,6 +84,8 @@ impl Control {
             "недоступно"
         } else if self.pressed {
             "нажатие"
+        } else if self.focused {
+            "ввод"
         } else if self.hover {
             "наведение"
         } else {
@@ -183,7 +191,8 @@ pub fn dial_run(doc: &Document, i: usize) -> Option<DialRun> {
 
 /// Which states change dial `i`: hover, pressed, disabled.
 pub fn dial_states(doc: &Document, i: usize) -> [bool; 3] {
-    STATES.map(|names| named(doc, names).is_some_and(|a| a.tracks.iter().any(|t| doc.index_of(&t.node).is_some_and(|k| within(doc, k, i)))))
+    [STATES[0], STATES[1], STATES[2]]
+        .map(|names| named(doc, names).is_some_and(|a| a.tracks.iter().any(|t| doc.index_of(&t.node).is_some_and(|k| within(doc, k, i)))))
 }
 
 /// The scene with dial `id` at `value` in `state` (0 hover, 1 pressed, 2 disabled; `None` the
@@ -247,16 +256,18 @@ impl UiCheck {
                 hover: false,
                 pressed: false,
                 disabled: false,
+                focused: false,
                 checked: None,
+                radio: if role == UiRole::Check { n.radio.clone() } else { None },
                 value: None,
                 clicks: 0,
-                shown: [0.0; 3],
+                shown: [0.0; 4],
                 lend,
                 dial: dial_run(doc, i),
             };
             match role {
                 UiRole::Slider if c.dial.is_some() => c.value = Some(n.dial.value.clamp(0.0, 1.0)),
-                UiRole::Check => c.checked = Some(part(doc, i, UiPart::Checked).is_some_and(|k| shows(doc, k))),
+                r if r.toggles() => c.checked = Some(part(doc, i, UiPart::Checked).is_some_and(|k| shows(doc, k))),
                 UiRole::Progress => c.value = progress_value(doc, i),
                 UiRole::Slider | UiRole::Scroll => {
                     c.value = run(doc, i, role).and_then(|r| {
@@ -347,13 +358,29 @@ impl UiCheck {
             }
         }
         if released {
+            // A click puts the typing into the field under it, and out of any other.
+            if self.grab.is_some() {
+                for (k, c) in self.controls.iter_mut().enumerate() {
+                    c.focused = c.role == UiRole::Input && self.grab == Some(k) && top == Some(k);
+                }
+            }
             if let Some(k) = self.grab.filter(|&k| top == Some(k)) {
+                // A radio button turns on, and the others of its group off.
+                if let Some(group) = self.controls[k].radio.clone() {
+                    for (j, c) in self.controls.iter_mut().enumerate() {
+                        if j != k && c.radio.as_ref() == Some(&group) {
+                            c.checked = Some(false);
+                        }
+                    }
+                }
                 let c = &mut self.controls[k];
                 c.clicks += 1;
                 if let Some(on) = &mut c.checked {
-                    *on = !*on;
+                    *on = c.radio.is_some() || !*on;
                     said = Some((c.node.clone(), if *on { "включён" } else { "выключен" }.to_string()));
-                } else if c.role == UiRole::Button {
+                } else if c.role == UiRole::Input {
+                    said = Some((c.node.clone(), "ввод текста".to_string()));
+                } else if matches!(c.role, UiRole::Button | UiRole::Option) {
                     said = Some((c.node.clone(), format!("нажата ({})", c.clicks)));
                 }
             }
@@ -373,7 +400,7 @@ impl UiCheck {
         let mut moving = false;
         for c in &mut self.controls {
             for (s, names) in STATES.iter().enumerate() {
-                let on = [c.hover, c.pressed, c.disabled][s];
+                let on = [c.hover, c.pressed, c.disabled, c.focused && !c.disabled][s];
                 let target = if on { 1.0 } else { 0.0 };
                 let len = named(doc, names).map_or(0.0, |a| a.duration);
                 let step = if len > 0.0 { dt / len } else { 1.0 };
@@ -416,9 +443,9 @@ impl UiCheck {
                 let t = v * a.duration;
                 keys(a, if a.looping { t.min(a.duration * (1.0 - 1e-9)) } else { t });
             }
-            // The highest state that shows wins: disabled, then pressed, then hover.
+            // The highest state that shows wins: disabled, then pressed, focus, hover.
             // A state without an animation looks like the one below it.
-            if let Some((s, a)) = (0..3).rev().filter(|&s| c.shown[s] > 0.0).find_map(|s| Some((s, named(scene, STATES[s])?))) {
+            if let Some((s, a)) = PRIORITY.into_iter().filter(|&s| c.shown[s] > 0.0).find_map(|s| Some((s, named(scene, STATES[s])?))) {
                 keys(a, c.shown[s] * a.duration);
             }
             if let Some(on) = c.checked {
