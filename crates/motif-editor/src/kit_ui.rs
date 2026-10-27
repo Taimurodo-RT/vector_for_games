@@ -5,7 +5,7 @@ use crate::style_ui::StyleEdit;
 use crate::theme::{self, FAINT, FG, KeyState};
 use egui::{RichText, vec2};
 use motif_core::kurbo::Shape;
-use motif_core::{Document, Node, Prop, ShapeKind, UiPart, UiRole};
+use motif_core::{DialDrag, Document, Node, Prop, ShapeKind, UiPart, UiRole};
 use motif_script::fmt_num;
 
 /// `slice` written as short as it reads: one value, two (sides, top-bottom) or four.
@@ -54,7 +54,9 @@ fn role_hint(r: UiRole) -> &'static str {
         UiRole::Button | UiRole::Panel => "Подпись (text с деталью «Подпись») не запекается: Godot пишет её шрифтом темы, цвет — по состояниям.",
         UiRole::Progress => "Внутри нужны детали «Фон» и «Заливка»; заливка растёт от начала полосы.",
         UiRole::Check => "Внутри нужны «Выключен» и «Включён» — картинки галочки; подпись — по желанию.",
-        UiRole::Slider => "Внутри нужны «Дорожка» и «Ползунок»; «Заливка» — пройденная часть, по желанию.",
+        UiRole::Slider => {
+            "Внутри нужны «Дорожка» и «Ползунок»; «Заливка» — пройденная часть, по желанию. Или любой рисунок и анимация Value: значение проигрывает её."
+        }
         UiRole::Scroll => "Внутри нужны «Дорожка» и «Ползунок»; ползунок тянется вдоль полосы.",
         UiRole::Label => "Шрифт, размер, цвет, обводка и тень текста — в тему Label.",
     }
@@ -130,11 +132,72 @@ pub fn crisp_edits(doc: &Document, i: usize, scale: f64) -> (usize, Vec<(String,
 #[derive(Default)]
 pub struct KitAction {
     pub add_states: bool,
+    pub add_value: bool,
     pub stretch: bool,
     pub crisp: bool,
 }
 
+/// How a dial is dragged, in words.
+fn drag_name(d: DialDrag) -> &'static str {
+    match d {
+        DialDrag::Auto => "по форме",
+        DialDrag::Across => "вбок",
+        DialDrag::Up => "вверх",
+        DialDrag::Turn => "по кругу",
+    }
+}
+
 impl App {
+    /// A slider drawn by its Value animation: which way the mouse moves it, the arc of a turn,
+    /// where it stands. Without the animation, a button that adds it.
+    fn dial_rows(&self, ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<StyleEdit>, act: &mut KitAction) {
+        let doc = &self.scene.doc;
+        let Some(i) = doc.index_of(&node.id) else { return };
+        if !motif_core::is_dial(doc, i) {
+            if doc.animations.iter().all(|a| !a.name.eq_ignore_ascii_case("value"))
+                && theme::button(ui, "Нарисовать анимацией Value", theme::ButtonKind::Normal)
+                    .on_hover_text("Пустая анимация Value: её начало — значение 0, конец — 1. Любой рисунок, ключи в Animate.")
+                    .clicked()
+            {
+                act.add_value = true;
+            }
+            return;
+        }
+        ui.label(RichText::new("Рисует анимация Value: значение от 0 до 1 проигрывает её от начала до конца.").size(11.5).color(FAINT));
+        let run = motif_core::dial_run(doc, i);
+        let dial = node.dial;
+        let write = |drag: DialDrag, arc: f64| match (drag, arc == 270.0) {
+            (DialDrag::Auto, true) => None,
+            (DialDrag::Turn, false) | (DialDrag::Auto, false) => Some(format!("dial turn {}", fmt_num(arc))),
+            (d, _) => Some(format!("dial {}", d.keyword())),
+        };
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Тянуть").size(12.5).color(FG));
+            let shown = match (dial.drag, run) {
+                (DialDrag::Auto, Some(r)) => format!("{} — {}", drag_name(DialDrag::Auto), drag_name(r.drag)),
+                (d, _) => drag_name(d).to_string(),
+            };
+            egui::ComboBox::from_id_salt(("dial-drag", &node.id)).width(ui.available_width() - 8.0).selected_text(shown).show_ui(ui, |ui| {
+                for d in DialDrag::ALL {
+                    if ui.selectable_label(dial.drag == d, drag_name(d)).clicked() && d != dial.drag {
+                        styles.push(("dial", write(d, if d == DialDrag::Turn { dial.arc } else { 270.0 })));
+                    }
+                }
+            });
+        });
+        ui.horizontal(|ui| {
+            if run.is_some_and(|r| r.drag == DialDrag::Turn)
+                && let Some(v) = theme::num_field(ui, half, "Дуга°", dial.arc, 1.0, 10.0..=360.0, 0, KeyState::Hidden).changed
+            {
+                styles.push(("dial", write(DialDrag::Turn, v.round())));
+            }
+            if let Some(v) = theme::num_field(ui, half, "Значение", dial.value, 0.01, 0.0..=1.0, 2, KeyState::Hidden).changed {
+                let v = (v * 100.0).round() / 100.0;
+                styles.push(("value", (v != 0.0).then(|| format!("value {}", fmt_num(v)))));
+            }
+        });
+    }
+
     /// Both flags are written through `styles`: `ui` alone makes a fixed-size piece,
     /// `slice` a stretchable one. Returns true when the states button was pressed.
     pub(crate) fn kit_section(&self, ui: &mut egui::Ui, node: &Node, half: f32, styles: &mut Vec<StyleEdit>) -> KitAction {
@@ -210,8 +273,13 @@ impl App {
                 );
             });
             ui.label(RichText::new(role_hint(node.ui_role)).size(11.5).color(FAINT));
+            if node.ui_role == UiRole::Slider {
+                self.dial_rows(ui, node, half, styles, &mut act);
+            }
+            // A dial is drawn frame by frame at its own size: it does not stretch.
+            let dial = self.scene.doc.index_of(&node.id).is_some_and(|i| motif_core::is_dial(&self.scene.doc, i));
             let mut stretch = node.slice.is_some();
-            if ui.checkbox(&mut stretch, RichText::new("Тянется (9-slice)").size(12.5).color(FG)).changed() {
+            if !dial && ui.checkbox(&mut stretch, RichText::new("Тянется (9-slice)").size(12.5).color(FG)).changed() {
                 // A quarter of the shorter side; groups have no size of their own.
                 let side = node.width.abs().min(node.height.abs());
                 let edge = if side >= 1.0 { (side / 4.0).round().clamp(4.0, 32.0) } else { 12.0 };
@@ -241,9 +309,10 @@ impl App {
             {
                 act.add_states = true;
             }
-            if theme::button(ui, "Проверить растяжение…", theme::ButtonKind::Normal)
-                .on_hover_text("Деталь, как её растянет Godot: тяните уголок, наводите и нажимайте мышью")
-                .clicked()
+            if !dial
+                && theme::button(ui, "Проверить растяжение…", theme::ButtonKind::Normal)
+                    .on_hover_text("Деталь, как её растянет Godot: тяните уголок, наводите и нажимайте мышью")
+                    .clicked()
             {
                 act.stretch = true;
             }

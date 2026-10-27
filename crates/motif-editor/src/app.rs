@@ -515,6 +515,18 @@ impl App {
         };
     }
 
+    /// An empty `Value` animation: a slider drawn by it, from value 0 at the start to 1 at the end.
+    fn add_value_anim(&mut self) {
+        if !self.can_edit() {
+            return;
+        }
+        let (out, _) = motif_script::add_states(&self.src, &self.scene, &["Value"], 1.0);
+        self.apply("value", Some(out));
+        self.set_mode_animate(true);
+        self.select_anim("Value".into());
+        self.status = "Добавлена анимация Value: начало — значение 0, конец — 1. Ключи рисуют слайдер, «▶ Проверить» тянет его мышью".into();
+    }
+
     pub(crate) fn select_anim(&mut self, name: String) {
         self.run = None;
         self.check = None;
@@ -1630,6 +1642,9 @@ impl App {
             }
             if kit.add_states {
                 self.add_ui_states();
+            }
+            if kit.add_value {
+                self.add_value_anim();
             }
             if kit.stretch {
                 self.stretch = Some(crate::stretch_ui::Stretch::new(&id));

@@ -274,6 +274,8 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "locked" | "fit" => (0, 0),
         "ui" => (0, 1),
         "part" => (1, 1),
+        "dial" => (0, 2),
+        "value" => (1, 1),
         "stack" | "anchor" => (1, 2),
         "gap" | "pad" => (1, 1),
         "slice" => (1, 4),

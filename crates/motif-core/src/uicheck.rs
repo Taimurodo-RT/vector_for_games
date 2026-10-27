@@ -2,13 +2,15 @@
 //! their Godot controls will. Buttons play their `Hover` and `Press` animations, a check box
 //! flips, a slider and a scroll bar follow a drag, and every value can also be set by hand.
 
-use crate::{Animation, Document, ShapeKind, UiPart, UiRole};
+use crate::{Animation, DialDrag, Document, ShapeKind, UiPart, UiRole};
 use kurbo::{Point, Rect, Shape, Vec2};
 
 /// The animations that set each state, as the UI kit reads them: hover, pressed, disabled.
 const STATES: [&[&str]; 3] = [&["hover"], &["press", "pressed", "down"], &["disabled"]];
 /// The animation of the normal look, if the board has one.
 const NORMAL: &[&str] = &["normal", "idle"];
+/// The animation a dial plays by its value: the start is 0, the end 1.
+const VALUE: &[&str] = &["value"];
 
 fn named<'d>(doc: &'d Document, names: &[&str]) -> Option<&'d Animation> {
     doc.animations.iter().find(|a| names.contains(&a.name.to_lowercase().as_str()))
@@ -60,6 +62,8 @@ pub struct Control {
     /// A piece drawn like an animated one plays that one's states, as both share one style in
     /// Godot: the node each key is on there, and the node of this piece it goes to.
     lend: Vec<(String, String)>,
+    /// A slider drawn by its `Value` animation: where and how the pointer moves it.
+    dial: Option<DialRun>,
 }
 
 impl Control {
@@ -120,6 +124,83 @@ impl Run {
     }
 }
 
+/// Where the pointer moves a dial, and which way.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DialRun {
+    /// Its track, or the whole piece without one, on the artboard.
+    pub track: Rect,
+    /// Never [`DialDrag::Auto`]: the way the drawing suggests.
+    pub drag: DialDrag,
+    /// Turning: the arc from 0 to 1 in degrees.
+    pub arc: f64,
+}
+
+impl DialRun {
+    /// The value with the pointer at `p`, moving sideways or up.
+    fn value_at(&self, p: Point) -> f64 {
+        let t = &self.track;
+        let v = if self.drag == DialDrag::Up { (t.y1 - p.y) / t.height() } else { (p.x - t.x0) / t.width() };
+        v.clamp(0.0, 1.0)
+    }
+
+    /// The angle of `p` around the middle of the track, clockwise from the top, in degrees.
+    fn angle(&self, p: Point) -> f64 {
+        let v = p - self.track.center();
+        v.x.atan2(-v.y).to_degrees()
+    }
+}
+
+/// Whether piece `i` is a dial: a `ui slider` that its `Value` animation draws.
+pub fn is_dial(doc: &Document, i: usize) -> bool {
+    doc.nodes[i].ui_role == UiRole::Slider
+        && named(doc, VALUE).is_some_and(|a| a.tracks.iter().any(|t| doc.index_of(&t.node).is_some_and(|k| within(doc, k, i))))
+}
+
+/// Where and how the pointer moves dial `i`: along its track (or itself) sideways when wide, up
+/// when tall, around when about as wide as tall, unless its `dial` says.
+pub fn dial_run(doc: &Document, i: usize) -> Option<DialRun> {
+    if !is_dial(doc, i) {
+        return None;
+    }
+    let track_part = part(doc, i, UiPart::Track).and_then(|k| piece_box(doc, k));
+    let track = track_part.or_else(|| piece_box(doc, i))?;
+    let (w, h) = (track.width(), track.height());
+    let drag = match doc.nodes[i].dial.drag {
+        DialDrag::Auto if track_part.is_some() => {
+            if w >= h {
+                DialDrag::Across
+            } else {
+                DialDrag::Up
+            }
+        }
+        DialDrag::Auto if w >= 1.5 * h => DialDrag::Across,
+        DialDrag::Auto if h >= 1.5 * w => DialDrag::Up,
+        DialDrag::Auto => DialDrag::Turn,
+        d => d,
+    };
+    Some(DialRun { track, drag, arc: doc.nodes[i].dial.arc.max(1.0) })
+}
+
+/// Which states change dial `i`: hover, pressed, disabled.
+pub fn dial_states(doc: &Document, i: usize) -> [bool; 3] {
+    STATES.map(|names| named(doc, names).is_some_and(|a| a.tracks.iter().any(|t| doc.index_of(&t.node).is_some_and(|k| within(doc, k, i)))))
+}
+
+/// The scene with dial `id` at `value` in `state` (0 hover, 1 pressed, 2 disabled; `None` the
+/// normal look), laid out: one frame of what the game shows.
+pub fn dial_pose(doc: &Document, id: &str, value: f64, state: Option<usize>) -> Document {
+    let mut base = doc.clone();
+    base.rig();
+    let mut check = UiCheck::new(doc);
+    if let Some(c) = check.controls.iter_mut().find(|c| c.node == id) {
+        c.value = Some(value);
+        if let Some(s) = state {
+            c.shown[s] = 1.0;
+        }
+    }
+    check.pose(doc, &base)
+}
+
 /// The pieces of a board and what the pointer did to them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UiCheck {
@@ -128,6 +209,8 @@ pub struct UiCheck {
     grab: Option<usize>,
     /// Where on the grabber it was taken, from the grabber's centre along the track.
     hold: f64,
+    /// Turning a dial: the pointer's last angle around it.
+    angle: f64,
     down: bool,
 }
 
@@ -169,8 +252,10 @@ impl UiCheck {
                 clicks: 0,
                 shown: [0.0; 3],
                 lend,
+                dial: dial_run(doc, i),
             };
             match role {
+                UiRole::Slider if c.dial.is_some() => c.value = Some(n.dial.value.clamp(0.0, 1.0)),
                 UiRole::Check => c.checked = Some(part(doc, i, UiPart::Checked).is_some_and(|k| shows(doc, k))),
                 UiRole::Progress => c.value = progress_value(doc, i),
                 UiRole::Slider | UiRole::Scroll => {
@@ -206,7 +291,9 @@ impl UiCheck {
             self.hold = 0.0;
             if let (Some(k), Some(p)) = (top, at) {
                 let c = &self.controls[k];
-                if matches!(c.role, UiRole::Slider | UiRole::Scroll)
+                if let Some(d) = &c.dial {
+                    self.angle = d.angle(p);
+                } else if matches!(c.role, UiRole::Slider | UiRole::Scroll)
                     && let Some(i) = shown.index_of(&c.node)
                     && let Some(r) = run(shown, i, c.role)
                     && let Some(g) = part(shown, i, UiPart::Grabber).and_then(|g| piece_box(shown, g))
@@ -228,7 +315,26 @@ impl UiCheck {
             && down
         {
             let c = &self.controls[k];
-            if matches!(c.role, UiRole::Slider | UiRole::Scroll)
+            if let Some(d) = c.dial {
+                let v = match d.drag {
+                    DialDrag::Turn => {
+                        let a = d.angle(p);
+                        // The shorter way round from the last angle: across the bottom too.
+                        let turned = (a - self.angle + 540.0).rem_euclid(360.0) - 180.0;
+                        self.angle = a;
+                        (c.value.unwrap_or(0.0) + turned / d.arc).clamp(0.0, 1.0)
+                    }
+                    _ => d.value_at(p),
+                };
+                let c = &mut self.controls[k];
+                if c.value != Some(v) {
+                    let before = c.value.map(|v| (v * 100.0).round());
+                    c.value = Some(v);
+                    if before != Some((v * 100.0).round()) {
+                        said = Some((c.node.clone(), format!("{:.0}%", v * 100.0)));
+                    }
+                }
+            } else if matches!(c.role, UiRole::Slider | UiRole::Scroll)
                 && let Some(i) = shown.index_of(&c.node)
                 && let Some(r) = run(shown, i, c.role)
             {
@@ -303,6 +409,13 @@ impl UiCheck {
             if let Some(a) = normal {
                 keys(a, if a.looping { 0.0 } else { a.duration });
             }
+            // A dial plays its Value animation to where it stands; the states go over it.
+            if c.dial.is_some()
+                && let (Some(v), Some(a)) = (c.value, named(scene, VALUE))
+            {
+                let t = v * a.duration;
+                keys(a, if a.looping { t.min(a.duration * (1.0 - 1e-9)) } else { t });
+            }
             // The highest state that shows wins: disabled, then pressed, then hover.
             // A state without an animation looks like the one below it.
             if let Some((s, a)) = (0..3).rev().filter(|&s| c.shown[s] > 0.0).find_map(|s| Some((s, named(scene, STATES[s])?))) {
@@ -318,6 +431,7 @@ impl UiCheck {
             if let Some(v) = c.value {
                 out.rig();
                 match c.role {
+                    _ if c.dial.is_some() => {}
                     UiRole::Progress => set_progress(&mut out, i, v),
                     UiRole::Slider | UiRole::Scroll => set_run(&mut out, i, c.role, v),
                     _ => {}
@@ -603,5 +717,65 @@ mod tests {
         let shown = check.pose(&doc, &doc);
         assert!((shown.node("quit").unwrap().opacity - 0.5).abs() < 1e-6);
         assert!((shown.node("play").unwrap().opacity - 1.0).abs() < 1e-6);
+    }
+
+    /// A round dial at (100, 100) whose Value animation fades its face in.
+    fn dial(drag: DialDrag) -> Document {
+        let mut d = Document::new(crate::Artboard::default());
+        let mut g = node("knob", ShapeKind::Group, None, 100.0, 0.0, 0.0);
+        g.y = 100.0;
+        g.ui = true;
+        g.ui_role = UiRole::Slider;
+        g.dial.drag = drag;
+        d.nodes.push(g);
+        let mut f = node("face", ShapeKind::Ellipse, Some(0), 0.0, 100.0, 100.0);
+        f.opacity = 0.0;
+        d.nodes.push(f);
+        d.animations.push(Animation {
+            name: "Value".into(),
+            duration: 1.0,
+            looping: false,
+            tracks: vec![Track {
+                node: "face".into(),
+                prop: Prop::Opacity,
+                keys: vec![
+                    Keyframe { time: 0.0, value: Value::Num(0.0), ease: crate::Ease::Linear },
+                    Keyframe { time: 1.0, value: Value::Num(1.0), ease: crate::Ease::Linear },
+                ],
+            }],
+            events: Vec::new(),
+        });
+        d
+    }
+
+    #[test]
+    fn a_dial_turns_and_plays_its_value() {
+        let doc = dial(DialDrag::Auto);
+        assert!(is_dial(&doc, 0));
+        assert_eq!(dial_run(&doc, 0).map(|r| r.drag), Some(DialDrag::Turn));
+        let mut check = UiCheck::new(&doc);
+        assert_eq!(check.control("knob").and_then(|c| c.value), Some(0.0));
+        // A quarter round clockwise from the top: a third of the 270° arc.
+        check.pointer(&doc, Some(Point::new(100.0, 60.0)), true);
+        check.pointer(&doc, Some(Point::new(130.0, 70.0)), true);
+        check.pointer(&doc, Some(Point::new(140.0, 100.0)), true);
+        let v = check.control("knob").and_then(|c| c.value).unwrap();
+        assert!((v - 1.0 / 3.0).abs() < 1e-9, "{v}");
+        let shown = check.pose(&doc, &doc);
+        assert!((shown.node("face").unwrap().opacity - v).abs() < 1e-6);
+        // On round past the bottom it stops at 1, and turning back brings it down at once.
+        for p in [(130.0, 130.0), (100.0, 140.0), (70.0, 130.0), (60.0, 100.0), (70.0, 70.0)] {
+            check.pointer(&doc, Some(Point::new(p.0, p.1)), true);
+        }
+        assert_eq!(check.control("knob").and_then(|c| c.value), Some(1.0));
+        check.pointer(&doc, Some(Point::new(60.0, 100.0)), true);
+        assert!(check.control("knob").and_then(|c| c.value).unwrap() < 1.0);
+        // Sideways it follows the pointer across the piece.
+        let doc = dial(DialDrag::Across);
+        let mut check = UiCheck::new(&doc);
+        check.pointer(&doc, Some(Point::new(75.0, 100.0)), true);
+        assert!((check.control("knob").and_then(|c| c.value).unwrap() - 0.25).abs() < 1e-6);
+        // A frame for the game: the dial alone at a value.
+        assert!((dial_pose(&doc, "knob", 0.6, None).node("face").unwrap().opacity - 0.6).abs() < 1e-6);
     }
 }

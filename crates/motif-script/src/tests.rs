@@ -1099,6 +1099,24 @@ fn ui_roles_and_parts() {
 }
 
 #[test]
+fn a_slider_drawn_by_its_value_animation() {
+    let src = "group knob ui slider dial turn 300 value 0.4 {\n  ellipse face size 60 60\n}\ngroup tube ui slider dial up {\n  rect glass size 20 80\n}\nanim Value 1s {\n  face.opacity 0: 0 | 1: 1\n  glass.opacity 0: 0 | 1: 1\n}\n";
+    let s = scene(src);
+    let knob = s.doc.node("knob").unwrap();
+    assert_eq!(knob.dial, motif_core::Dial { drag: motif_core::DialDrag::Turn, arc: 300.0, value: 0.4 });
+    assert_eq!(s.doc.node("tube").unwrap().dial.drag, motif_core::DialDrag::Up);
+    // Drawn by Value, it needs no track or grabber; the panel writes the way back.
+    assert!(motif_core::is_dial(&s.doc, s.doc.index_of("knob").unwrap()));
+    let out = set_style(src, &s, "knob", "dial", Some("dial across")).unwrap();
+    assert!(out.contains("group knob ui slider dial across value 0.4 {"), "{out}");
+    let errors = |src: &str| parse(src).unwrap_err().into_iter().map(|e| e.message).collect::<Vec<_>>();
+    assert_eq!(errors("group a ui slider {\n  rect b\n}\n"), ["для ui slider внутри не хватает: part track, part grabber"]);
+    assert_eq!(errors("rect a size 10 10 dial turn\n"), ["dial и value — у слайдера, который рисует анимация Value: ui slider dial turn"]);
+    assert_eq!(errors("group a ui slider dial sideways {\n  rect b\n}\nanim Value 1s {\n  b.x 0: 0 | 1: 10\n}\n").len(), 1);
+    assert_eq!(errors("group a ui slider value 2 {\n  rect b\n}\nanim Value 1s {\n  b.x 0: 0 | 1: 10\n}\n").len(), 1);
+}
+
+#[test]
 fn the_palette_is_the_top_level_colors() {
     let src = "// kit\nlet main = #3b6cff\nlet r = 14\nlet ink = main\nrect a size 10 10 fill main stroke ink 2\nrect b size 10 10 fill #ffffff\ngroup g {\n  rect c size 4 4\n}\n";
     let s = scene(src);

@@ -11,7 +11,7 @@
 //! not baked: Godot draws it with the font, size and per-state colors the theme gets.
 
 use motif_core::kurbo::{Rect, Shape};
-use motif_core::{Color, Document, ShapeKind, UiPart, UiRole};
+use motif_core::{Color, DialDrag, Document, ShapeKind, UiPart, UiRole};
 use motif_render::{CpuOptions, render_region};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -78,6 +78,145 @@ pub struct KitItem {
     pub pictures: Vec<KitPicture>,
     pub slots: Vec<Slot>,
     pub font: Option<KitFont>,
+    /// A slider its Value animation draws: not a theme type but a `Range` with the script
+    /// `motif_dial.gd`, drawing the frames of its one picture.
+    pub dial: Option<KitDial>,
+}
+
+/// The frames of a dial and how the game moves it, in pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KitDial {
+    /// Frames in a row: the value from 0 to 1.
+    pub columns: u32,
+    pub cell: [u32; 2],
+    /// The control's own size, without what is drawn outside it.
+    pub size: [u32; 2],
+    /// The row each look draws: normal, hover, pressed, disabled.
+    pub rows: [u32; 4],
+    /// Where a frame starts from the control's corner (a glow reaches outside).
+    pub offset: [i64; 2],
+    /// Where the pointer moves it, from the control's corner: x, y, width, height.
+    pub track: [f64; 4],
+    pub drag: DialDrag,
+    pub arc: f64,
+    /// Where it stands as drawn, 0 to 1.
+    pub value: f64,
+}
+
+/// The script of every dial in Godot.
+pub const DIAL_SCRIPT: &str = include_str!("motif_dial.gd");
+pub const DIAL_SCRIPT_FILE: &str = "motif_dial.gd";
+
+/// Frames a dial gets for each second of its Value animation.
+const DIAL_FPS: f64 = 30.0;
+
+/// Writes `motif_dial.gd` into `dir`.
+pub fn write_dial_script(dir: &Path) -> Result<PathBuf, String> {
+    let path = dir.join(DIAL_SCRIPT_FILE);
+    std::fs::write(&path, DIAL_SCRIPT).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path)
+}
+
+/// The properties of a dial's node in a scene, after its `script`: `frames` is the id of the
+/// atlas resource, `value` where it stands from 0 to 1.
+pub fn dial_props(d: &KitDial, frames: &str, value: f64) -> String {
+    let n = |v: f64| {
+        let r = (v * 1000.0).round() / 1000.0;
+        if r.fract() == 0.0 { format!("{r:.1}") } else { format!("{r}") }
+    };
+    let drag = match d.drag {
+        DialDrag::Up => 1,
+        DialDrag::Turn => 2,
+        _ => 0,
+    };
+    let [x, y, w, h] = d.track;
+    format!(
+        "frames = ExtResource(\"{frames}\")\ncolumns = {}\ncell = Vector2({}, {})\nrows = PackedInt32Array({}, {}, {}, {})\noffset = Vector2({}, {})\ntrack = Rect2({}, {}, {}, {})\ndrag = {drag}\narc = {}\nvalue = {}\n",
+        d.columns,
+        d.cell[0],
+        d.cell[1],
+        d.rows[0],
+        d.rows[1],
+        d.rows[2],
+        d.rows[3],
+        d.offset[0],
+        d.offset[1],
+        n(x),
+        n(y),
+        n(w),
+        n(h),
+        n(d.arc),
+        n((value * 100.0).clamp(0.0, 100.0).round()),
+    )
+}
+
+/// Dial `i` in every frame of its Value animation, a row for each look its states change.
+fn render_dial(doc: &Document, i: usize, opts: CpuOptions) -> Result<KitItem, String> {
+    let n = &doc.nodes[i];
+    let anim = doc.animations.iter().find(|a| a.name.eq_ignore_ascii_case("value")).ok_or(format!("«{}»: нет анимации Value", n.id))?;
+    let count = ((anim.duration * DIAL_FPS).round() as usize).clamp(2, 120);
+    let mut base = doc.clone();
+    base.rig();
+    let frame = piece_box(&base, i).ok_or(format!("«{}»: пустой слайдер", n.id))?;
+    let run = motif_core::dial_run(&base, i).ok_or(format!("«{}»: не слайдер с анимацией Value", n.id))?;
+    // The looks: normal, then each state that changes the dial.
+    let states = motif_core::dial_states(doc, i);
+    let looks: Vec<Option<usize>> = std::iter::once(None).chain((0..3).filter(|&s| states[s]).map(Some)).collect();
+    let row = |s: usize| looks.iter().position(|l| *l == Some(s));
+    let hover = row(0).unwrap_or(0);
+    let rows = [0, hover, row(1).unwrap_or(hover), row(2).unwrap_or(0)].map(|r| r as u32);
+    let poses: Vec<Vec<Document>> =
+        looks.iter().map(|&l| (0..count).map(|f| motif_core::dial_pose(doc, &n.id, f as f64 / (count - 1) as f64, l)).collect()).collect();
+    let mut r = frame;
+    for p in poses.iter().flatten() {
+        if let Some(b) = piece_box(p, i) {
+            r = r.union(b);
+        }
+    }
+    let r = r.inflate(REACH, REACH);
+    let k = opts.scale;
+    let region = Rect::new((r.x0 * k).floor() / k, (r.y0 * k).floor() / k, (r.x1 * k).ceil() / k, (r.y1 * k).ceil() / k);
+    let shots = poses
+        .iter()
+        .map(|row| row.iter().map(|p| render_region(&alone(p, i, &[]), region, opts).ok_or("не удалось создать изображение".to_string())).collect())
+        .collect::<Result<Vec<Vec<Pixmap>>, String>>()?;
+    let to_px = |v: f64| (v * k).round() as i64;
+    let box_px = [to_px(frame.x0 - region.x0), to_px(frame.y0 - region.y0), to_px(frame.x1 - region.x0), to_px(frame.y1 - region.y0)];
+    let mut crop = box_px;
+    for p in shots.iter().flatten() {
+        if let Some([x0, y0, x1, y1]) = opaque_bounds(p) {
+            crop = [crop[0].min(x0), crop[1].min(y0), crop[2].max(x1), crop[3].max(y1)];
+        }
+    }
+    let (w, h) = ((crop[2] - crop[0]) as u32, (crop[3] - crop[1]) as u32);
+    let mut atlas = Pixmap::new(w * count as u32, h * looks.len() as u32).ok_or("слишком большой слайдер")?;
+    for (y, row) in shots.iter().enumerate() {
+        for (x, p) in row.iter().enumerate() {
+            let c = cut(p, crop).ok_or("пустой слайдер")?;
+            atlas.draw_pixmap(
+                (x as u32 * w) as i32,
+                (y as u32 * h) as i32,
+                c.as_ref(),
+                &tiny_skia::PixmapPaint::default(),
+                tiny_skia::Transform::identity(),
+                None,
+            );
+        }
+    }
+    let t = run.track;
+    let dial = KitDial {
+        columns: count as u32,
+        cell: [w, h],
+        size: [(box_px[2] - box_px[0]).max(1) as u32, (box_px[3] - box_px[1]).max(1) as u32],
+        rows,
+        offset: [crop[0] - box_px[0], crop[1] - box_px[1]],
+        track: [((t.x0 - frame.x0) * k).round(), ((t.y0 - frame.y0) * k).round(), (t.width() * k).round(), (t.height() * k).round()],
+        drag: run.drag,
+        arc: run.arc,
+        value: n.dial.value,
+    };
+    let picture = KitPicture { name: "dial".into(), px: atlas, margins: None, expand: [0; 4] };
+    Ok(KitItem { id: n.id.clone(), base: "Range", pictures: vec![picture], slots: Vec::new(), font: None, dial: Some(dial) })
 }
 
 /// The poses of the scene for each state that has an animation, `normal` first.
@@ -177,6 +316,8 @@ pub fn control_box(doc: &Document, i: usize) -> Option<Rect> {
     match n.ui_role {
         UiRole::Progress => piece_box(doc, part(UiPart::Background)?),
         UiRole::Scroll => piece_box(doc, part(UiPart::Track)?),
+        // A dial draws its frames from its own corner.
+        UiRole::Slider if motif_core::is_dial(doc, i) => piece_box(doc, i),
         // As tall as the grabber icon drawn whole, or Godot grows the slider down to fit it.
         UiRole::Slider => {
             let (b, ink) = (piece_box(doc, i)?, ink_box_except(doc, i, &[])?);
@@ -371,7 +512,11 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
         let part = |p: UiPart| parts.iter().find(|(q, _)| *q == p).map(|(_, k)| *k);
         let all: Vec<usize> = parts.iter().map(|(_, k)| *k).collect();
         let text = part(UiPart::Text).or((n.ui_role == UiRole::Label && n.kind == ShapeKind::Text).then_some(i));
-        let item = |base: &'static str| KitItem { id: n.id.clone(), base, pictures: Vec::new(), slots: Vec::new(), font: None };
+        if motif_core::is_dial(doc, i) {
+            items.push(render_dial(doc, i, opts)?);
+            continue;
+        }
+        let item = |base: &'static str| KitItem { id: n.id.clone(), base, pictures: Vec::new(), slots: Vec::new(), font: None, dial: None };
         // A part on its own: the picture of each state, framed by `frame`.
         let part_shot = |k: usize, frame: Option<Rect>| -> Result<Option<Shot>, String> {
             let Some(own) = piece_box(normal, k) else { return Ok(None) };
@@ -579,6 +724,35 @@ fn render_pieces(doc: &Document, opts: CpuOptions, only: Option<&str>) -> Result
     Ok(items)
 }
 
+/// A dial of the kit: its frames `<id>_dial.png` and a scene `<id>_dial.tscn` to put in a
+/// screen, with `motif_dial.gd` written once.
+fn write_dial(dir: &Path, item: &KitItem, d: &KitDial, script: &mut Option<PathBuf>) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    if script.is_none() {
+        let path = write_dial_script(dir)?;
+        *script = Some(path.clone());
+        files.push(path);
+    }
+    let png = format!("{}_dial.png", item.id);
+    let path = dir.join(&png);
+    item.pictures[0].px.save_png(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    files.push(path);
+    let size = d.size;
+    let text = format!(
+        "[gd_scene load_steps=3 format=3]\n\n[ext_resource type=\"Script\" path=\"{DIAL_SCRIPT_FILE}\" id=\"1_script\"]\n[ext_resource type=\"Texture2D\" path=\"{png}\" id=\"2_frames\"]\n\n[node name=\"{}\" type=\"Range\"]\ncustom_minimum_size = Vector2({}, {})\noffset_right = {}.0\noffset_bottom = {}.0\nscript = ExtResource(\"1_script\")\n{}",
+        item.id,
+        size[0],
+        size[1],
+        size[0],
+        size[1],
+        dial_props(d, "2_frames", d.value)
+    );
+    let path = dir.join(format!("{}_dial.tscn", item.id));
+    std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+    files.push(path);
+    Ok(files)
+}
+
 /// The styles of a button-like control from its pictures by state (`StyleBoxEmpty` with none).
 fn state_styles(it: &mut KitItem, pics: &[(&'static str, usize)], content: Option<[u32; 4]>) {
     for (state, prop) in STYLE_STATES {
@@ -687,6 +861,10 @@ pub fn share_boards(boards: Vec<Vec<KitItem>>) -> (Vec<KitItem>, Vec<Vec<String>
 /// Two pieces that look the same at rest: the same control, picture and caption. One without
 /// states matches one with them; two with states match only state by state.
 fn same_look(a: &KitItem, b: &KitItem) -> bool {
+    // A dial is a scene of its own.
+    if a.dial.is_some() || b.dial.is_some() {
+        return false;
+    }
     // Cut to what they draw: a piece whose hover glows is shot with room for the glow.
     let trim = |x: &KitPicture| {
         let b = opaque_bounds(&x.px)?;
@@ -742,7 +920,12 @@ pub fn write_kit(dir: &Path, theme: &str, items: &[KitItem]) -> Result<Vec<PathB
     let (mut n_ext, mut n_sub) = (0, 0);
     let mut fonts: Vec<String> = Vec::new();
     let color = |c: Color| format!("Color({}, {}, {}, {})", unit(c.r), unit(c.g), unit(c.b), unit(c.a));
+    let mut dial_script = None;
     for item in items {
+        if let Some(d) = &item.dial {
+            files.extend(write_dial(dir, item, d, &mut dial_script)?);
+            continue;
+        }
         let ty = type_name(&item.id);
         props.push_str(&format!("{ty}/base_type = &\"{}\"\n", item.base));
         let mut tex = Vec::new();

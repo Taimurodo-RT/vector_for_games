@@ -444,6 +444,8 @@ pub struct Node {
     pub ui_role: crate::UiRole,
     /// The part of a composite piece this object draws (`part grabber`).
     pub part: Option<crate::UiPart>,
+    /// A slider drawn by its `Value` animation: how the pointer moves it and where it stands.
+    pub dial: crate::Dial,
     /// Locked (`locked`): drawn as usual, but clicks on the canvas pass through it.
     pub locked: bool,
     /// Nine-slice margins (`slice 16`): left, top, right, bottom, in artboard units from the
@@ -640,6 +642,7 @@ impl Node {
             ui: false,
             ui_role: crate::UiRole::Auto,
             part: None,
+            dial: crate::Dial::default(),
             locked: false,
             brush: crate::Brush::default(),
             slice: None,
