@@ -144,6 +144,8 @@ pub struct App {
     pub(crate) clipboard: (String, Vec<motif_script::Snippet>),
     /// Undo-step name shared by a batch of edits (moving or aligning several objects).
     pub(crate) edit_group: Option<String>,
+    /// Where the next click on the canvas puts the color under it.
+    pub(crate) eyedrop: Option<crate::palette_ui::Eyedrop>,
     /// The «Растяжение 9-slice» window, when open.
     pub(crate) stretch: Option<crate::stretch_ui::Stretch>,
     pub(crate) hovered: Option<String>,
@@ -254,6 +256,7 @@ impl App {
             clipboard: (String::new(), Vec::new()),
             edit_group: None,
             stretch: None,
+            eyedrop: None,
             hovered: None,
             view: None,
             anim: None,
@@ -1579,6 +1582,7 @@ impl App {
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG — подложкой.").size(12.0).color(FAINT));
         });
+        self.palette_section(ui);
         if self.scene.doc.purpose == Purpose::Ui {
             self.symbols_library(ui);
             self.backdrop_section(ui);
@@ -1665,6 +1669,7 @@ impl App {
                 }
             }
         });
+        self.palette_strip(ui, id, prop);
     }
 
     // ---------- status ----------
@@ -1801,13 +1806,16 @@ impl App {
             self.live_pointer(ui, &resp, &doc, doc_pt);
         }
         // The boards' names and size handle, and clicks on other boards.
-        let board_ui = !pan_gesture && !live && self.boards_input(ui, &resp, rect, view, &grid);
+        let board_ui = !pan_gesture && !live && self.eyedrop.is_none() && self.boards_input(ui, &resp, rect, view, &grid);
         // The pen and point editing take the pointer themselves.
         let special = live
             || board_ui
             || (!pan_gesture
                 && self.drag.is_none()
-                && if self.tool == Tool::Pen {
+                && if self.eyedrop.is_some() {
+                    self.eyedrop_input(ui, &resp, &doc, doc_pt);
+                    true
+                } else if self.tool == Tool::Pen {
                     self.pen_input(ui, &resp, rect, view);
                     true
                 } else if self.brush_w.on.is_some() && self.weight_paint_input(ui, &resp, rect, view, &doc) {
