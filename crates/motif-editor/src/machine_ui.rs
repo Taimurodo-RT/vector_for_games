@@ -159,8 +159,13 @@ impl App {
         let Some(m) = self.shown_machine().cloned() else { return };
         let on_canvas = resp.hovered() || resp.dragged() || resp.is_pointer_button_down_on();
         let at = at.filter(|_| on_canvas);
-        let down = ui.input(|i| i.pointer.primary_down()) && (resp.is_pointer_button_down_on() || resp.dragged());
+        let (down, quick) = ui.input(|i| (i.pointer.primary_down(), i.pointer.primary_pressed() && i.pointer.primary_released()));
+        let down = down && (resp.is_pointer_button_down_on() || resp.dragged());
         if let Some(run) = &mut self.run {
+            // A click quicker than a frame: the press is passed before the release.
+            if quick && !down {
+                run.player.pointer(&m, doc, at, true);
+            }
             run.player.pointer(&m, doc, at, down);
         }
         let over = at.is_some_and(|p| m.listeners.iter().any(|l| doc.index_of(&l.node).is_some_and(|i| doc.hits_tree(i, p))));

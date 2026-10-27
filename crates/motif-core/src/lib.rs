@@ -22,6 +22,7 @@ mod spring;
 mod squash;
 mod style;
 pub mod text;
+mod uicheck;
 mod uikind;
 mod world;
 
@@ -45,5 +46,6 @@ pub use spring::{SPRUNG, Spring};
 pub use squash::Squash;
 pub use style::{Blend, Cap, Glow, Join, Noise, Shadow};
 pub use text::{FontFile, TextAlign, TextShape, TextStyle};
+pub use uicheck::{Control, UiCheck};
 pub use uikind::{UiPart, UiRole};
 pub use world::{GRAVITY, World, own_gravity, sail, weight};
