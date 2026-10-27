@@ -277,6 +277,7 @@ anim Idle 1.2s loop {
 cargo run --release -p motif-cli -- check  examples/bounce.msc
 cargo run --release -p motif-cli -- render examples/bounce.msc -o ball.png --scale 2
 cargo run --release -p motif-cli -- frames examples/bounce.msc --anim Idle --fps 12 --width 120 --no-aa -o out/idle
+cargo run --release -p motif-cli -- video   examples/bounce.msc --anim Idle --scale 2 -o out/idle.mp4
 cargo run --release -p motif-cli -- palette examples/bounce.msc -o out/scene.pal
 cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --preset my.preset --no-aa -o out/idle_px
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
@@ -287,8 +288,15 @@ cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кноп
 
 В файле с несколькими холстами `--board ИМЯ` (или номер с 1) берёт один, без него команды работают со всеми: `check`
 перечисляет холсты, `render` сохраняет `СЦЕНА_ХОЛСТ.png` (`-o` — папка), `kit` собирает детали всех холстов в одну тему,
-`godot` выгружает каждый холст своей сценой `ХОЛСТ.tscn`, `palette` собирает цвета всех холстов, `frames` и `pixel`
-берут холст, где есть анимация `--anim`.
+`godot` выгружает каждый холст своей сценой `ХОЛСТ.tscn`, `palette` собирает цвета всех холстов, `frames`, `pixel`
+и `video` берут холст, где есть анимация `--anim`.
+
+## Видео
+
+«Экспорт → Видео» (или `motif video`) сохраняет анимацию одним файлом, формат — по расширению: GIF и APNG (`.png`)
+Motif пишет сам, MP4 (H.264) и WebM (VP9, с прозрачностью) — через [ffmpeg](https://ffmpeg.org/download.html), который
+ищется рядом с Motif, в `PATH` или по пути из окна экспорта (`--ffmpeg` в командной строке). Повторяющаяся анимация в
+GIF и APNG крутится по кругу без шва, а где прозрачности нет (MP4), её место занимает цвет фона холста.
 
 ## Анимации в Godot
 

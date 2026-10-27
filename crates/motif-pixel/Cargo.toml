@@ -7,6 +7,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+gif.workspace = true
+png.workspace = true
 motif-core.workspace = true
 motif-render.workspace = true
 serde_json.workspace = true

@@ -127,6 +127,13 @@ Alt+тяните — растяжение, Ctrl+C / Ctrl+V — копия на �
 позицию, поворот и масштаб, F — вписать, стрелки — сдвиг (Shift — на 10),
 колесо — масштаб, Ctrl+E — показать или скрыть скрипт. Полный список — кнопка «?».
 
+Видео: «Экспорт → Видео» сохраняет анимацию с таймлайна одним файлом —
+MP4, WebM, GIF или APNG. GIF и APNG Motif пишет сам. Для MP4 и WebM нужен
+ffmpeg: скачайте сборку с https://www.gyan.dev/ffmpeg/builds/ (ссылка есть
+на ffmpeg.org → Download → Windows), возьмите из архива bin\ffmpeg.exe и
+положите рядом с motif.exe. Можно и указать путь в окне экспорта. В командной
+строке: motif.exe video сцена.msc --anim Idle -o idle.mp4
+
 PixaTool: «Экспорт → PixaTool». Motif сам находит Pixatool.exe в папке tools
 рядом с Motif, загружает пресет (файл из «Save Preset» в PixaTool) и прогоняет
 через него кадры анимации — кнопка «Пикселизировать кадры…». PixaTool
@@ -192,7 +199,7 @@ PixaTool с пресетом из раздела PixaTool: в атлас лож�
 После первой выгрузки каждое Ctrl+S обновляет персонажа в той же папке Godot
 («Отвязать» в окне «Экспорт» выключает).
 
-motif.exe — командная строка: motif.exe check|render|frames|palette|pixel|kit|godot
+motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 
 В строке состояния внизу видно, чем рисует холст: «Vello на GPU» или запасной CPU-рендер.

@@ -13,6 +13,7 @@ motif — скрипты сцен Motif без окна редактора
   motif check   <сцена.msc>
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [параметры рендера]
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [-o папка] [параметры рендера]
+  motif video   <сцена.msc> --anim ИМЯ [--fps 30] [-o видео.mp4|.webm|.gif|.png] [--ffmpeg путь] [параметры рендера]
   motif palette <сцена.msc> [-o палитра.pal]
   motif kit     <сцена.msc> [-o папка] [параметры рендера]
   motif screen  <сцена.msc> [-o папка] [параметры рендера]
@@ -23,7 +24,7 @@ motif — скрипты сцен Motif без окна редактора
 с 1) берёт один из них, без него команды работают со всеми: render сохраняет СЦЕНА_ХОЛСТ.png
 (-o — папка), kit собирает детали всех холстов в одну тему, godot выгружает каждый холст своей
 сценой ХОЛСТ.tscn в одну папку, palette собирает цвета всех холстов; frames и pixel берут холст,
-где есть анимация --anim.
+где есть анимация --anim (video тоже).
 
 Параметры рендера:
   --scale N        пикселей на единицу артборда (по умолчанию 1)
@@ -32,6 +33,10 @@ motif — скрипты сцен Motif без окна редактора
   --transparent    без фона артборда
 
 frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их можно обработать в PixaTool пакетом.
+video сохраняет анимацию одним файлом, формат — по расширению -o (по умолчанию СЦЕНА_ИМЯ.mp4):
+GIF и APNG (.png) Motif пишет сам, MP4 (H.264) и WebM (VP9, с прозрачностью) — через ffmpeg, который
+ищется в --ffmpeg, рядом с Motif и в PATH. Повторяющаяся анимация в GIF и APNG крутится по кругу; где
+прозрачности нет (MP4), её место занимает цвет фона артборда.
 kit сохраняет элементы интерфейса (ui, slice) в каждом состоянии (анимации Hover, Press, Disabled, Focus)
 и тему Godot ИМЯ.tres, где они стоят стилями 9-slice.
 screen делает из каждого холста сцену Godot ХОЛСТ.tscn из Control-узлов: детали интерфейса — их типы
@@ -53,6 +58,8 @@ struct Args {
     anim: Option<String>,
     time: f64,
     fps: f64,
+    fps_set: bool,
+    ffmpeg: Option<PathBuf>,
     scale: Option<f64>,
     width: Option<f64>,
     antialias: bool,
@@ -79,6 +86,8 @@ fn parse_args() -> Result<Args, String> {
         anim: None,
         time: 0.0,
         fps: 12.0,
+        fps_set: false,
+        ffmpeg: None,
         scale: None,
         width: None,
         antialias: true,
@@ -97,7 +106,11 @@ fn parse_args() -> Result<Args, String> {
             "-o" | "--out" => a.out = Some(it.next().ok_or("после -o нужен путь")?.into()),
             "--anim" => a.anim = Some(it.next().ok_or("после --anim нужно имя анимации")?),
             "--time" => a.time = num(it.next(), "--time")?,
-            "--fps" => a.fps = num(it.next(), "--fps")?,
+            "--fps" => {
+                a.fps = num(it.next(), "--fps")?;
+                a.fps_set = true;
+            }
+            "--ffmpeg" => a.ffmpeg = Some(it.next().ok_or("после --ffmpeg нужен путь к ffmpeg")?.into()),
             "--scale" => a.scale = Some(num(it.next(), "--scale")?),
             "--width" => a.width = Some(num(it.next(), "--width")?),
             "--preset" => a.preset = Some(it.next().ok_or("после --preset нужен файл пресета")?.into()),
@@ -197,6 +210,15 @@ fn run() -> Result<(), String> {
                 px.save_png(&path).map_err(|e| format!("{}: {e}", path.display()))?;
             }
             println!("{}: {} кадров {}×{} при {} к/с", dir.display(), frames.len(), frames[0].width(), frames[0].height(), motif_script::fmt_num(a.fps));
+        }
+        "video" => {
+            let name = a.anim.clone().ok_or("для video укажите --anim ИМЯ")?;
+            let doc = board_with_anim(&boards, &name)?;
+            // Video plays smoothly at 30 frames a second; sprite frames keep their 12.
+            let fps = if a.fps_set { a.fps } else { 30.0 };
+            let out = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}.mp4")));
+            let r = motif_pixel::video::export_animation(doc, &name, render_for(doc), fps, a.ffmpeg.clone(), &out)?;
+            println!("{} — {}, {} кадров {}×{} при {} к/с", out.display(), r.format.label(), r.frames, r.width, r.height, motif_script::fmt_num(fps));
         }
         "pixel" => {
             let name = a.anim.clone().ok_or("для pixel укажите --anim ИМЯ")?;
