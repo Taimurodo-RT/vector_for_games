@@ -366,6 +366,9 @@ Motif, а кадр рисуется под размер узла на экран
 * В сборке для Windows аддон лежит в `godot-addon/` вместе с `bin/motif_godot.dll`; для Linux и macOS библиотеку
   собирает `cargo build --release -p motif-godot`. Пример — `godot-apps/hero`, проверка в настоящем Godot —
   `godot-addon/test/run.sh`. Подробнее — [docs/runtime.html](docs/runtime.html).
+* Путь до игры целиком проверяет `godot-addon/test/e2e/e2e.sh`: установка, правка `.tscn` человеком, переустановка,
+  экспорт шаблонами 4.3 и запуск игры из чужой папки с автотестом (код 0). CI гоняет его на Linux и на собранном
+  `game.exe` для Windows; проверка руками на своём ПК — [docs/runtime.html#delivery](docs/runtime.html#delivery).
 
 ## UI-наборы для Godot
 

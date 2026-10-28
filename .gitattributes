@@ -3,3 +3,4 @@ packaging/windows/*.ps1 text eol=crlf
 packaging/windows/*.txt text eol=crlf
 # The sides scenario log is compared byte for byte on every system.
 godot-addon/test/sides.* text eol=lf
+godot-addon/test/e2e/* text eol=lf
