@@ -4,9 +4,10 @@
 use crate::app::App;
 use crate::theme::{self, ButtonKind, FAINT, MUTED};
 use egui::RichText;
-use motif_pixel::video::{self, VideoFormat};
+use motif_pixel::video::{self, Progress, VideoFormat, VideoOptions};
 use motif_render::CpuOptions;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
 pub struct VideoExport {
@@ -16,22 +17,155 @@ pub struct VideoExport {
     pub transparent: bool,
     /// The ffmpeg found or picked, looked up again when the pick changes.
     found: Option<PathBuf>,
-    job: Option<Receiver<Result<String, String>>>,
+    job: Option<Job>,
+    /// The last video saved: its file (a folder with every board) and the line that said so.
+    saved: Option<(PathBuf, String)>,
     /// The last machine run recorded with «Запись», ready to be saved again in another format.
     pub last_take: Option<motif_core::Take>,
 }
 
+/// An export running on another thread.
+struct Job {
+    done: Receiver<Result<(PathBuf, String), String>>,
+    progress: Arc<Progress>,
+}
+
 impl VideoExport {
     pub fn new(picked: Option<PathBuf>) -> VideoExport {
-        VideoExport { format: VideoFormat::Mp4, fps: 30.0, transparent: false, found: video::locate_ffmpeg(picked.as_deref()), job: None, last_take: None }
+        VideoExport {
+            format: VideoFormat::Mp4,
+            fps: 30.0,
+            transparent: false,
+            found: video::locate_ffmpeg(picked.as_deref()),
+            job: None,
+            saved: None,
+            last_take: None,
+        }
     }
 
     /// The status line once the running export finishes.
     pub fn poll(&mut self) -> Option<String> {
-        let r = self.job.as_ref()?.try_recv().ok()?;
+        let r = self.job.as_ref()?.done.try_recv().ok()?;
         self.job = None;
-        Some(r.unwrap_or_else(|e| format!("Видео не сохранено: {e}")))
+        Some(match r {
+            Ok((path, status)) => {
+                self.saved = Some((path, status.clone()));
+                status
+            }
+            Err(e) if e.ends_with(video::CANCELLED) => "Видео отменено: файл не сохранён".into(),
+            Err(e) => format!("Видео не сохранено: {e}"),
+        })
     }
+
+    pub fn busy(&self) -> bool {
+        self.job.is_some()
+    }
+
+    /// Starts `work` on another thread; its progress is shown until it sends the saved file.
+    fn start(&mut self, ctx: &egui::Context, work: impl FnOnce(&Arc<Progress>) -> Result<(PathBuf, String), String> + Send + 'static) {
+        let (tx, rx) = channel();
+        let progress = Progress::new();
+        let shared = progress.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(work(&shared));
+            ctx.request_repaint();
+        });
+        self.saved = None;
+        self.job = Some(Job { done: rx, progress });
+    }
+
+    /// «Кадр 12 из 60» (and the file, with several), or None when nothing is being saved.
+    fn progress_text(&self) -> Option<(f32, String)> {
+        let p = &self.job.as_ref()?.progress;
+        let (done, total) = p.frames();
+        let mut text = if total == 0 {
+            "Готовлю кадры…".to_string()
+        } else if done >= total {
+            "Дописываю файл…".to_string()
+        } else {
+            format!("Кадр {} из {total}", done + 1)
+        };
+        if let Some((i, n)) = p.file() {
+            text = format!("Файл {i} из {n} · {text}");
+        }
+        Some((p.fraction(), text))
+    }
+
+    /// The bar, the frame it is on and «Отменить», while a video is being saved. `wide` in the
+    /// export window, narrow in the status line.
+    pub fn progress_ui(&mut self, ui: &mut egui::Ui, wide: bool) {
+        let Some((fraction, text)) = self.progress_text() else { return };
+        // The frames move on another thread: keep the bar moving with them.
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+        let bar = egui::ProgressBar::new(fraction).fill(theme::ACCENT).corner_radius(3.0).desired_height(6.0);
+        ui.add_sized([if wide { 140.0 } else { 120.0 }, 6.0], bar);
+        let text = if wide { RichText::new(text).size(12.0) } else { RichText::new(format!("Видео: {text}")).font(theme::mono(11.0)) };
+        ui.label(text.color(MUTED));
+        let cancelled = self.job.as_ref().is_some_and(|j| j.progress.cancelled());
+        let label = if cancelled { "Отменяю…" } else { "Отменить" };
+        let r = ui.add_enabled_ui(!cancelled, |ui| if wide { theme::button(ui, label, ButtonKind::Normal) } else { link(ui, label) }).inner;
+        if r.on_hover_text("Остановить запись видео; недописанный файл удалится").clicked()
+            && let Some(j) = &self.job
+        {
+            j.progress.cancel();
+        }
+    }
+
+    /// «Открыть папку» for the video just saved, while the status line still talks about it
+    /// (`status`), or always in the export window (`status` None). Says why when the folder
+    /// cannot be shown.
+    pub fn reveal_ui(&self, ui: &mut egui::Ui, status: Option<&str>) -> Option<String> {
+        let (path, said) = self.saved.as_ref()?;
+        if self.job.is_some() || status.is_some_and(|s| s != said) {
+            return None;
+        }
+        let r = if status.is_some() { link(ui, "Открыть папку") } else { theme::button(ui, "Открыть папку", ButtonKind::Normal) };
+        if r.on_hover_text(path.display().to_string()).clicked() {
+            return reveal(path).err().map(|e| format!("Не удалось открыть папку: {e}"));
+        }
+        None
+    }
+}
+
+/// A button as small as the status line's text.
+fn link(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let r = ui.add(egui::Label::new(RichText::new(text).font(theme::mono(11.0)).color(theme::ACCENT)).sense(egui::Sense::click()));
+    if r.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    r
+}
+
+/// Shows `path` in the file manager: the file picked out in its folder where the system can, the
+/// folder itself otherwise.
+pub(crate) fn reveal(path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    let spawned = {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new("explorer");
+        if path.is_file() {
+            // explorer wants the quotes inside the one argument: /select,"C:\a b\c.mp4".
+            cmd.raw_arg(format!("/select,\"{}\"", path.display()));
+        } else {
+            cmd.arg(path);
+        }
+        cmd.spawn()
+    };
+    #[cfg(target_os = "macos")]
+    let spawned = {
+        let mut cmd = std::process::Command::new("open");
+        if path.is_file() {
+            cmd.arg("-R");
+        }
+        cmd.arg(path).spawn()
+    };
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let spawned = {
+        let dir = if path.is_file() { path.parent().unwrap_or(path) } else { path };
+        std::process::Command::new("xdg-open").arg(dir).spawn()
+    };
+    spawned.map(|_| ())
 }
 
 impl App {
@@ -90,7 +224,7 @@ impl App {
         let all = self.board_count() > 1 && self.export.all_boards;
         // The animation the timeline shows, in Design as well.
         let anim = self.shown_anim().map(|a| a.name);
-        let busy = self.video.job.is_some();
+        let busy = self.video.busy();
         let label = match (&anim, all) {
             (Some(a), true) => format!("Сохранить видео… («{a}» со всех холстов)"),
             (Some(a), false) => format!("Сохранить видео… («{a}»)"),
@@ -120,7 +254,15 @@ impl App {
             }
         }
         if busy {
-            ui.add(egui::Spinner::new());
+            ui.horizontal(|ui| self.video.progress_ui(ui, true));
+        } else if let Some((path, _)) = &self.video.saved {
+            let name = path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("Сохранено: {name}")).size(12.0).color(MUTED));
+                if let Some(e) = self.video.reveal_ui(ui, None) {
+                    self.status = e;
+                }
+            });
         }
         ui.label(
             RichText::new("Масштаб и сглаживание — как у кадров PNG выше. Повторяющаяся анимация в GIF и APNG крутится по кругу. Прогон машины записывает «Запись» на панели машины состояний.")
@@ -152,17 +294,13 @@ impl App {
         let transparent = self.video.transparent && format.keeps_alpha();
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !transparent };
         let (doc, fps, ffmpeg) = (self.scene.doc.clone(), self.video.fps, self.video.found.clone());
-        let (tx, rx) = channel();
-        let ctx = ctx.clone();
         let length = take.length;
-        std::thread::spawn(move || {
-            let r = video::export_take(&doc, &m, &take, render, fps, ffmpeg, &path)
-                .map(|r| format!("Прогон «{}» {}: {} кадров {}×{} → {}", m.name, r.format.label(), r.frames, r.width, r.height, path.display()))
-                .map_err(|e| format!("{}: {e}", path.display()));
-            let _ = tx.send(r);
-            ctx.request_repaint();
+        self.video.start(ctx, move |progress| {
+            let opts = VideoOptions { fps, ffmpeg, progress: Some(progress.clone()), ..Default::default() };
+            let r = video::export_take(&doc, &m, &take, render, opts, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let status = format!("Прогон «{}» {}: {} кадров {}×{} → {}", m.name, r.format.label(), r.frames, r.width, r.height, path.display());
+            Ok((path, status))
         });
-        self.video.job = Some(rx);
         self.status = format!("Прогон {} с: рисую и кодирую {}…", motif_script::fmt_num((length * 10.0).round() / 10.0), format.label());
     }
 
@@ -198,26 +336,26 @@ impl App {
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !transparent };
         let (fps, ffmpeg, anim) = (self.video.fps, self.video.found.clone(), anim.to_string());
         let anim_name = anim.clone();
-        let (tx, rx) = channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
+        self.video.start(ctx, move |progress| {
             let mut last = None;
-            let result = jobs.iter().try_for_each(|(path, doc)| {
-                let r = video::export_animation(doc, &anim, render, fps, ffmpeg.clone(), path).map_err(|e| format!("{}: {e}", path.display()))?;
+            for (i, (path, doc)) in jobs.iter().enumerate() {
+                progress.begin_file(i, jobs.len());
+                let opts = VideoOptions { fps, ffmpeg: ffmpeg.clone(), progress: Some(progress.clone()), ..Default::default() };
+                let r = video::export_animation(doc, &anim, render, opts, path).map_err(|e| format!("{}: {e}", path.display()))?;
                 last = Some((path.clone(), r));
-                Ok::<(), String>(())
-            });
-            let status = result.map(|()| match (jobs.len(), last) {
-                (1, Some((path, r))) => format!("Видео {}: {} кадров {}×{} → {}", r.format.label(), r.frames, r.width, r.height, path.display()),
-                (n, Some((path, r))) => {
-                    format!("Видео {}: файлов {n} в {}", r.format.label(), path.parent().map_or(String::new(), |d| d.display().to_string()))
+            }
+            match (jobs.len(), last) {
+                (1, Some((path, r))) => {
+                    let status = format!("Видео {}: {} кадров {}×{} → {}", r.format.label(), r.frames, r.width, r.height, path.display());
+                    Ok((path, status))
                 }
-                (_, None) => "Видео: нечего сохранять".to_string(),
-            });
-            let _ = tx.send(status);
-            ctx.request_repaint();
+                (n, Some((path, r))) => {
+                    let dir = path.parent().map_or(path.clone(), Path::to_path_buf);
+                    Ok((dir.clone(), format!("Видео {}: файлов {n} в {}", r.format.label(), dir.display())))
+                }
+                (_, None) => Err("нечего сохранять".into()),
+            }
         });
-        self.video.job = Some(rx);
         self.status = format!("Видео {}: рисую и кодирую «{anim_name}»…", format.label());
     }
 }

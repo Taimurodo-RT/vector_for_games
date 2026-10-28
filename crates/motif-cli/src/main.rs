@@ -232,7 +232,14 @@ fn run() -> Result<(), String> {
             let take = motif_core::Take::parse(m, a.take.as_deref().unwrap_or(""), a.length)?;
             let fps = if a.fps_set { a.fps } else { 30.0 };
             let out = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}.mp4")));
-            let r = motif_pixel::video::export_take(doc, m, &take, render_for(doc), fps, a.ffmpeg.clone(), &out)?;
+            let r = motif_pixel::video::export_take(
+                doc,
+                m,
+                &take,
+                render_for(doc),
+                motif_pixel::video::VideoOptions { fps, ffmpeg: a.ffmpeg.clone(), ..Default::default() },
+                &out,
+            )?;
             println!(
                 "{} — {}, прогон «{name}» {} с: {} кадров {}×{}",
                 out.display(),
@@ -249,7 +256,13 @@ fn run() -> Result<(), String> {
             // Video plays smoothly at 30 frames a second; sprite frames keep their 12.
             let fps = if a.fps_set { a.fps } else { 30.0 };
             let out = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}.mp4")));
-            let r = motif_pixel::video::export_animation(doc, &name, render_for(doc), fps, a.ffmpeg.clone(), &out)?;
+            let r = motif_pixel::video::export_animation(
+                doc,
+                &name,
+                render_for(doc),
+                motif_pixel::video::VideoOptions { fps, ffmpeg: a.ffmpeg.clone(), ..Default::default() },
+                &out,
+            )?;
             println!("{} — {}, {} кадров {}×{} при {} к/с", out.display(), r.format.label(), r.frames, r.width, r.height, motif_script::fmt_num(fps));
         }
         "pixel" => {
