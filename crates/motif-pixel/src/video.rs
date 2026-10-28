@@ -110,6 +110,37 @@ pub fn export_animation(
     Ok(VideoReport { format, frames: frames.len(), width: frames[0].width(), height: frames[0].height() })
 }
 
+/// A recorded run of machine `m` ([`motif_core::Take`]) played again at `fps` and saved as the
+/// video `path` names. It plays once: a run has a start and an end.
+pub fn export_take(
+    doc: &motif_core::Document,
+    m: &motif_core::Machine,
+    take: &motif_core::Take,
+    render: motif_render::CpuOptions,
+    fps: f64,
+    ffmpeg: Option<PathBuf>,
+    path: &Path,
+) -> Result<VideoReport, String> {
+    if fps.is_nan() || fps <= 0.0 {
+        return Err("fps должен быть больше нуля".into());
+    }
+    if m.states.is_empty() {
+        return Err(format!("в машине «{}» нет состояний", m.name));
+    }
+    let frames = take
+        .poses(m, doc, fps)
+        .iter()
+        .map(|pose| motif_render::render_cpu(pose, render).ok_or_else(|| "не удалось создать изображение".to_string()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let bg = doc.artboard.background;
+    let opts = VideoOptions { fps, looping: false, background: [bg.r, bg.g, bg.b], ffmpeg };
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let format = write_video(path, &frames, &opts)?;
+    Ok(VideoReport { format, frames: frames.len(), width: frames[0].width(), height: frames[0].height() })
+}
+
 /// Saves `frames` (all the same size) as the video `path` names by its extension.
 pub fn write_video(path: &Path, frames: &[Pixmap], opts: &VideoOptions) -> Result<VideoFormat, String> {
     let format = VideoFormat::from_path(path).ok_or_else(|| format!("{}: формат видео по расширению — .mp4, .webm, .gif или .png (APNG)", path.display()))?;

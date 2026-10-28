@@ -17,11 +17,13 @@ pub struct VideoExport {
     /// The ffmpeg found or picked, looked up again when the pick changes.
     found: Option<PathBuf>,
     job: Option<Receiver<Result<String, String>>>,
+    /// The last machine run recorded with «Запись», ready to be saved again in another format.
+    pub last_take: Option<motif_core::Take>,
 }
 
 impl VideoExport {
     pub fn new(picked: Option<PathBuf>) -> VideoExport {
-        VideoExport { format: VideoFormat::Mp4, fps: 30.0, transparent: false, found: video::locate_ffmpeg(picked.as_deref()), job: None }
+        VideoExport { format: VideoFormat::Mp4, fps: 30.0, transparent: false, found: video::locate_ffmpeg(picked.as_deref()), job: None, last_take: None }
     }
 
     /// The status line once the running export finishes.
@@ -107,12 +109,61 @@ impl App {
             let ctx = ui.ctx().clone();
             self.export_video(&a, all, &ctx);
         }
+        if let Some(take) = &self.video.last_take {
+            let label = format!("Сохранить прогон «{}» ({} с)…", take.machine, motif_script::fmt_num((take.length * 10.0).round() / 10.0));
+            let ready = !busy && !(format.needs_ffmpeg() && self.video.found.is_none());
+            let r = ui.add_enabled_ui(ready, |ui| theme::button(ui, &label, ButtonKind::Normal)).inner;
+            if r.on_hover_text("Последняя запись машины состояний («Запись» на панели машины) в выбранном формате").clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.save_take(&ctx);
+            }
+        }
         if busy {
             ui.add(egui::Spinner::new());
         }
         ui.label(
-            RichText::new("Масштаб и сглаживание — как у кадров PNG выше. Повторяющаяся анимация в GIF и APNG крутится по кругу.").size(12.0).color(FAINT),
+            RichText::new("Масштаб и сглаживание — как у кадров PNG выше. Повторяющаяся анимация в GIF и APNG крутится по кругу. Прогон машины записывает «Запись» на панели машины состояний.")
+                .size(12.0)
+                .color(FAINT),
         );
+    }
+
+    /// Asks where to save the last recorded machine run, then plays it again frame by frame and
+    /// encodes it on another thread.
+    pub(crate) fn save_take(&mut self, ctx: &egui::Context) {
+        let Some(take) = self.video.last_take.clone() else { return };
+        let Some(m) = self.scene.doc.machine(&take.machine).cloned() else {
+            self.status = format!("Прогон не сохранён: машины «{}» больше нет", take.machine);
+            return;
+        };
+        let format = self.video.format;
+        if format.needs_ffmpeg() && self.video.found.is_none() {
+            self.status = "Для MP4 и WebM нужен ffmpeg: укажите его в «Экспорт → Видео» или выберите там GIF или APNG".into();
+            return;
+        }
+        let ext = format.extension();
+        let name = format!("{}_{}.{ext}", self.file_stem(), take.machine);
+        let dialog = rfd::FileDialog::new().set_title("Сохранить прогон машины").set_file_name(&name).add_filter(format.label(), &[ext]);
+        let Some(mut path) = dialog.save_file() else { return };
+        if VideoFormat::from_path(&path) != Some(format) {
+            path.set_extension(ext);
+        }
+        let transparent = self.video.transparent && format.keeps_alpha();
+        let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !transparent };
+        let (doc, fps, ffmpeg) = (self.scene.doc.clone(), self.video.fps, self.video.found.clone());
+        let (tx, rx) = channel();
+        let ctx = ctx.clone();
+        let length = take.length;
+        std::thread::spawn(move || {
+            let r = video::export_take(&doc, &m, &take, render, fps, ffmpeg, &path)
+                .map(|r| format!("Прогон «{}» {}: {} кадров {}×{} → {}", m.name, r.format.label(), r.frames, r.width, r.height, path.display()))
+                .map_err(|e| format!("{}: {e}", path.display()));
+            let _ = tx.send(r);
+            ctx.request_repaint();
+        });
+        self.video.job = Some(rx);
+        self.status = format!("Прогон {} с: рисую и кодирую {}…", motif_script::fmt_num((length * 10.0).round() / 10.0), format.label());
     }
 
     /// Asks where to save, then draws and encodes on another thread: one file, or with every

@@ -133,6 +133,10 @@ ffmpeg: скачайте сборку с https://www.gyan.dev/ffmpeg/builds/ (с
 на ffmpeg.org → Download → Windows), возьмите из архива bin\ffmpeg.exe и
 положите рядом с motif.exe. Можно и указать путь в окне экспорта. В командной
 строке: motif.exe video сцена.msc --anim Idle -o idle.mp4
+Прогон машины состояний в видео: кнопка «Запись» на панели машины, затем
+«Стоп» — Motif проиграет прогон заново и сохранит его в формате из «Экспорт →
+Видео». В командной строке: motif.exe video hero.msc --machine Hero
+--take "0.5 speed=1, 2 jump" --length 4 -o run.gif
 
 PixaTool: «Экспорт → PixaTool». Motif сам находит Pixatool.exe в папке tools
 рядом с Motif, загружает пресет (файл из «Save Preset» в PixaTool) и прогоняет
