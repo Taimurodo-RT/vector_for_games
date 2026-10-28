@@ -158,6 +158,8 @@ pub struct Scene {
     pub world: Option<Span>,
     /// Where the `directions` line is written, when there is one.
     pub directions: Option<Span>,
+    /// The ids after `turn` in it, where each is written.
+    pub directions_turn: Vec<(String, Span)>,
     /// Where each `weights` block is written, by the id of its shape.
     pub weights: HashMap<String, WeightsSite>,
     /// The grid cell (column, row) of this artboard among the others of its file: `cell 1 0`.

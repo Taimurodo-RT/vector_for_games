@@ -1689,4 +1689,17 @@ fn directions_parse_and_edit() {
     let out = set_directions(bare, &scene(bare), Some(&four));
     assert_eq!(out, "artboard 400x300\ndirections 4 turn head\nellipse head\n");
     assert_eq!(scene(&out).doc.directions, Some(four));
+    // A deleted object leaves `turn`, and the script still reads.
+    let out = delete_node(src, &s, "body").unwrap();
+    assert_eq!(out, "artboard 400x300\ndirections 8 turn head mirror\nellipse head\n");
+    let out = delete_node(&out, &scene(&out), "head").unwrap();
+    assert_eq!(out, "artboard 400x300\ndirections 8 mirror\n");
+    // Its group taking both with it.
+    let grouped = "artboard 400x300\ndirections 4 turn head body\ngroup hero {\n  ellipse head\n  ellipse body\n}\nrect floor\n";
+    let out = delete_node(grouped, &scene(grouped), "hero").unwrap();
+    assert_eq!(out, "artboard 400x300\ndirections 4\nrect floor\n");
+    assert!(scene(&out).doc.directions.unwrap().turn.is_empty());
+    // An object not turned leaves the line alone.
+    let out = delete_node(grouped, &scene(grouped), "floor").unwrap();
+    assert!(out.contains("directions 4 turn head body\n"), "{out}");
 }

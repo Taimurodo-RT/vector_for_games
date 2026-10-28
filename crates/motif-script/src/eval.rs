@@ -69,6 +69,7 @@ impl<'a> Evaluator<'a> {
                 machines: HashMap::new(),
                 world: None,
                 directions: None,
+                directions_turn: Vec::new(),
                 weights: HashMap::new(),
                 board_cell: None,
                 palette: Vec::new(),
@@ -243,6 +244,7 @@ impl<'a> Evaluator<'a> {
             return;
         }
         self.scene.directions = Some(span);
+        self.scene.directions_turn = turn.to_vec();
         let count = match self.value(count) {
             Some(Value::Num(n)) if n == 4.0 || n == 8.0 => n as usize,
             _ => {

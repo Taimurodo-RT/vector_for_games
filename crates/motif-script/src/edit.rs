@@ -439,6 +439,20 @@ pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Spa
         let Some(site) = scene.machines.get(&m.name) else { continue };
         spans.extend(m.listeners.iter().zip(&site.listeners).filter(|(l, _)| ids.contains(&l.node.as_str())).map(|(_, s)| whole_lines(src, *s)));
     }
+    // Turning parts of `directions` leave its line; with the last of them goes the `turn` word.
+    let gone: Vec<Span> = scene.directions_turn.iter().filter(|(id, _)| ids.contains(&id.as_str())).map(|(_, s)| *s).collect();
+    if !gone.is_empty() {
+        let with_space = |s: Span| Span::new(src[..s.start].trim_end_matches([' ', '\t']).len(), s.end);
+        if gone.len() == scene.directions_turn.len()
+            && let Some(first) = gone.first()
+            && src[..first.start].trim_end().ends_with("turn")
+        {
+            let word = src[..first.start].trim_end().len() - "turn".len();
+            spans.push(with_space(Span::new(word, gone.last().map_or(first.end, |s| s.end))));
+        } else {
+            spans.extend(gone.into_iter().map(with_space));
+        }
+    }
     // Weights go with their shape, and strokes with their bone.
     for (shape, w) in &scene.weights {
         if ids.contains(&shape.as_str()) {
