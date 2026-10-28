@@ -436,7 +436,18 @@ fn backdrop_line() {
     let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40\n";
     let s = scene(src);
     assert!(s.backdrop.is_none());
-    let mut b = crate::Backdrop { file: "ref.png".into(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.4, hidden: false, sheet: None, span: Span::new(0, 0) };
+    let mut b = crate::Backdrop {
+        file: "ref.png".into(),
+        x: 0.0,
+        y: 0.0,
+        scale: 1.0,
+        opacity: 0.4,
+        hidden: false,
+        sheet: None,
+        hide: Vec::new(),
+        show: Vec::new(),
+        span: Span::new(0, 0),
+    };
     let out = set_backdrop(src, &s, Some(&b));
     assert_eq!(out, "artboard \"M\" 200x200\nbackdrop \"ref.png\" opacity 0.4\nrect a at 50 50 size 40\n");
     let s2 = scene(&out);
@@ -460,6 +471,14 @@ fn backdrop_line() {
     let plain = crate::Sheet::new(8, 1);
     let line = backdrop_text(&crate::Backdrop { sheet: Some(plain), ..b.clone() });
     assert!(line.contains("sheet 8 1 hidden"), "{line}");
+    // Layers of a PSD turned off and on by name.
+    let psd = crate::Backdrop {
+        file: "hero.psd".into(), sheet: None, hide: vec!["Фон".into(), "Тень 2".into()], show: vec!["Эскиз".into()], ..b.clone()
+    };
+    let line = backdrop_text(&psd);
+    assert!(line.ends_with("hide \"Фон\" \"Тень 2\" show \"Эскиз\" hidden"), "{line}");
+    let got = scene(&format!("artboard \"M\" 9x9\n{line}\n")).backdrop.unwrap();
+    assert_eq!((got.hide, got.show), (psd.hide.clone(), psd.show.clone()));
     for bad in [
         "backdrop \"a.png\" sheet 0 1",
         "backdrop \"a.png\" sheet 2.5 1",
@@ -467,6 +486,8 @@ fn backdrop_line() {
         "backdrop \"a.png\" sheet 4 1 frame 4",
         "backdrop \"a.png\" sheet 4 1 fps 0",
         "backdrop \"a.png\" frames 3",
+        "backdrop \"a.psd\" hide",
+        "backdrop \"a.psd\" show 3",
     ] {
         assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
     }

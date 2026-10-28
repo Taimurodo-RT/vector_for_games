@@ -1128,7 +1128,7 @@ impl App {
                 {
                     self.pick_svg();
                 }
-                if ui.add(egui::Button::new("Подложка PNG…")).on_hover_text("Картинка-референс под фигурами, только в редакторе").clicked()
+                if ui.add(egui::Button::new("Подложка PNG или PSD…")).on_hover_text("Картинка-референс под фигурами, только в редакторе. У PSD слои включаются по отдельности").clicked()
                 {
                     self.pick_backdrop();
                 }
@@ -1673,7 +1673,7 @@ impl App {
         section(ui, |ui| {
             ui.label(RichText::new("Выберите объект на холсте, в слоях или кликом по его строке в скрипте.").size(12.0).color(FAINT));
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
-            ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG — подложкой.").size(12.0).color(FAINT));
+            ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG или PSD — подложкой.").size(12.0).color(FAINT));
         });
         self.palette_section(ui);
         if self.scene.doc.purpose == Purpose::Ui {

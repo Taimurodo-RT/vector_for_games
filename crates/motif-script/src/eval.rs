@@ -560,10 +560,30 @@ impl<'a> Evaluator<'a> {
                         self.err(*span, "подложка одна на сцену и пишется на верхнем уровне");
                         continue;
                     }
-                    let mut b = Backdrop { file: file.clone(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.5, hidden: false, sheet: None, span: *span };
+                    let mut b = Backdrop {
+                        file: file.clone(),
+                        x: 0.0,
+                        y: 0.0,
+                        scale: 1.0,
+                        opacity: 0.5,
+                        hidden: false,
+                        sheet: None,
+                        hide: Vec::new(),
+                        show: Vec::new(),
+                        span: *span,
+                    };
                     let mut frames: Option<(f64, Span)> = None;
                     let (mut fps, mut frame) = (None, None);
                     for p in props {
+                        if p.key == "hide" || p.key == "show" {
+                            let names = p.values.iter().filter_map(|v| if let ValueKind::Path(n) = &v.kind { Some(n.clone()) } else { None });
+                            if p.key == "hide" {
+                                b.hide.extend(names)
+                            } else {
+                                b.show.extend(names)
+                            }
+                            continue;
+                        }
                         let nums: Vec<f64> = p
                             .values
                             .iter()

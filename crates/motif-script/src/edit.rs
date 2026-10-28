@@ -829,6 +829,14 @@ pub fn backdrop_text(b: &crate::Backdrop) -> String {
             out.push_str(&format!(" frame {}", s.frame));
         }
     }
+    for (key, names) in [("hide", &b.hide), ("show", &b.show)] {
+        if !names.is_empty() {
+            out.push_str(&format!(" {key}"));
+            for n in names {
+                out.push_str(&format!(" \"{}\"", n.replace('"', "'")));
+            }
+        }
+    }
     if b.hidden {
         out.push_str(" hidden");
     }
