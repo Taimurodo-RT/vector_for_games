@@ -479,6 +479,12 @@ fn backdrop_line() {
     assert!(line.ends_with("hide \"Фон\" \"Тень 2\" show \"Эскиз\" hidden"), "{line}");
     let got = scene(&format!("artboard \"M\" 9x9\n{line}\n")).backdrop.unwrap();
     assert_eq!((got.hide, got.show), (psd.hide.clone(), psd.show.clone()));
+    // Layer names keep their quotes and backslashes, so hiding finds the very layer.
+    let odd = crate::Backdrop { file: "C:\\art\\hero.psd".into(), hide: vec!["Red \"front\"".into(), "a\\b".into()], show: vec!["\"".into()], ..psd.clone() };
+    let line = backdrop_text(&odd);
+    assert!(line.starts_with("backdrop \"C:\\art\\hero.psd\"") && line.contains("hide \"Red \\\"front\\\"\" \"a\\b\" show \"\\\"\""), "{line}");
+    let got = scene(&format!("artboard \"M\" 9x9\n{line}\n")).backdrop.unwrap();
+    assert_eq!((got.file, got.hide, got.show), (odd.file.clone(), odd.hide.clone(), odd.show.clone()));
     for bad in [
         "backdrop \"a.png\" sheet 0 1",
         "backdrop \"a.png\" sheet 2.5 1",

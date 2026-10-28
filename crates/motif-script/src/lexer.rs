@@ -147,6 +147,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, ScriptError> {
                     if ch == '"' || ch == '\n' {
                         break;
                     }
+                    // `\"` is a quote inside the string: `hide "Red \"front\""`.
+                    if ch == '\\' && at(j + 1) == Some('"') {
+                        s.push('"');
+                        j += 2;
+                        continue;
+                    }
                     s.push(ch);
                     j += 1;
                 }

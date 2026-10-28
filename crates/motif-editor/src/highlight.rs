@@ -113,7 +113,8 @@ fn tokens(line: &str) -> Vec<(usize, usize, Color32)> {
         } else if c == b'"' {
             i += 1;
             while i < b.len() && b[i] != b'"' && b[i] != b'\n' {
-                i += 1;
+                // `\"` stays inside the string.
+                i += if b[i] == b'\\' && b.get(i + 1) == Some(&b'"') { 2 } else { 1 };
             }
             i = (i + 1).min(b.len());
             GOOD

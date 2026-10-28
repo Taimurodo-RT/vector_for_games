@@ -210,13 +210,7 @@ impl App {
                     let text = RichText::new(&row.name).size(12.0).color(if on && inside_shown { FG } else { MUTED });
                     let text = if row.group { text.strong() } else { text };
                     if ui.checkbox(&mut on, text).on_hover_text(if row.group { "Группа слоёв" } else { "Слой" }).changed() {
-                        next.hide.retain(|n| n != &row.name);
-                        next.show.retain(|n| n != &row.name);
-                        match (on, row.visible) {
-                            (true, false) => next.show.push(row.name.clone()),
-                            (false, true) => next.hide.push(row.name.clone()),
-                            _ => {}
-                        }
+                        crate::psd::set_shown(&mut next.hide, &mut next.show, row, on);
                     }
                 });
                 if row.group {

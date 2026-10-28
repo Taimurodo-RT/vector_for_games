@@ -78,6 +78,18 @@ pub fn shown(p: &Props, hide: &[String], show: &[String]) -> bool {
     !hide.contains(&p.name) && (p.visible || show.contains(&p.name))
 }
 
+/// Turns the layer or group of `row` on or off: in `hide` or `show` only when that differs from
+/// the file.
+pub fn set_shown(hide: &mut Vec<String>, show: &mut Vec<String>, row: &Row, on: bool) {
+    hide.retain(|n| n != &row.name);
+    show.retain(|n| n != &row.name);
+    match (on, row.visible) {
+        (true, false) => show.push(row.name.clone()),
+        (false, true) => hide.push(row.name.clone()),
+        _ => {}
+    }
+}
+
 impl Layered {
     /// The layer list, top to bottom, groups before what is in them.
     pub fn rows(&self) -> Vec<Row> {
@@ -741,6 +753,33 @@ pub(crate) mod tests {
         let px = psd.compose(&names(&["Герой", "Фон"]), &names(&["Фон"])).unwrap();
         assert_eq!(rgba(&px, 9, 3)[3], 0);
         assert_eq!(rgba(&px, 1, 1)[3], 0);
+    }
+
+    #[test]
+    fn a_layer_named_with_quotes_is_hidden_through_the_script() {
+        let bytes = write(4, 4, &[Rec::layer("Фон", (0, 0, 4, 4), GREEN), Rec::layer("Red \"front\"", (0, 0, 4, 4), RED)]);
+        let psd = read(&bytes).unwrap();
+        let row = psd.rows().into_iter().find(|r| r.name == "Red \"front\"").unwrap();
+        let mut b = motif_script::Backdrop {
+            file: "t.psd".into(),
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            opacity: 1.0,
+            hidden: false,
+            sheet: None,
+            hide: Vec::new(),
+            show: Vec::new(),
+            span: motif_script::Span::new(0, 0),
+        };
+        set_shown(&mut b.hide, &mut b.show, &row, false);
+        // Written into the script, read back, the same name hides the same layer.
+        let src = format!("artboard 4x4\n{}\n", motif_script::backdrop_text(&b));
+        let back = motif_script::parse(&src).unwrap().backdrop.unwrap();
+        assert_eq!(back.hide, ["Red \"front\""], "{src}");
+        assert_eq!(rgba(&psd.compose(&back.hide, &back.show).unwrap(), 1, 1), GREEN);
+        set_shown(&mut b.hide, &mut b.show, &row, true);
+        assert!(b.hide.is_empty() && b.show.is_empty(), "as in the file again");
     }
 
     #[test]

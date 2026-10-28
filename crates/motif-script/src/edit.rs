@@ -807,9 +807,14 @@ pub fn paste_nodes(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64,
     (insert_declaration(src, scene, &block), roots)
 }
 
+/// `s` as a string of the script, in quotes, with its own quotes kept as `\"`.
+pub fn quoted(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\\\""))
+}
+
 /// The script line of a backdrop, leaving out values that are at their defaults.
 pub fn backdrop_text(b: &crate::Backdrop) -> String {
-    let mut out = format!("backdrop \"{}\"", b.file.replace('"', "'"));
+    let mut out = format!("backdrop {}", quoted(&b.file));
     if b.x != 0.0 || b.y != 0.0 {
         out.push_str(&format!(" at {} {}", fmt_num(b.x), fmt_num(b.y)));
     }
@@ -833,7 +838,7 @@ pub fn backdrop_text(b: &crate::Backdrop) -> String {
         if !names.is_empty() {
             out.push_str(&format!(" {key}"));
             for n in names {
-                out.push_str(&format!(" \"{}\"", n.replace('"', "'")));
+                out.push_str(&format!(" {}", quoted(n)));
             }
         }
     }
