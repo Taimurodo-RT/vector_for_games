@@ -560,7 +560,9 @@ impl<'a> Evaluator<'a> {
                         self.err(*span, "подложка одна на сцену и пишется на верхнем уровне");
                         continue;
                     }
-                    let mut b = Backdrop { file: file.clone(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.5, hidden: false, span: *span };
+                    let mut b = Backdrop { file: file.clone(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.5, hidden: false, sheet: None, span: *span };
+                    let mut frames: Option<(f64, Span)> = None;
+                    let (mut fps, mut frame) = (None, None);
                     for p in props {
                         let nums: Vec<f64> = p
                             .values
@@ -578,7 +580,41 @@ impl<'a> Evaluator<'a> {
                             "at" => (b.x, b.y) = (nums[0], nums[1]),
                             "scale" => b.scale = nums[0].max(0.001),
                             "opacity" => b.opacity = nums[0].clamp(0.0, 1.0),
+                            "sheet" if nums.iter().all(|n| n.fract() == 0.0 && (1.0..=4096.0).contains(n)) => {
+                                b.sheet = Some(crate::Sheet::new(nums[0] as u32, nums[1] as u32));
+                            }
+                            "sheet" => self.err(p.key_span, "sheet — колонки и ряды кадров целыми числами: sheet 8 1"),
+                            "frames" => frames = Some((nums[0], p.key_span)),
+                            "fps" if nums[0] > 0.0 => fps = Some(nums[0]),
+                            "fps" => self.err(p.key_span, "fps подложки — кадров в секунду, больше нуля"),
+                            "frame" => frame = Some((nums[0], p.key_span)),
                             _ => b.hidden = true,
+                        }
+                    }
+                    match &mut b.sheet {
+                        Some(sheet) => {
+                            if let Some((n, span)) = frames {
+                                if n.fract() != 0.0 || n < 1.0 || n > (sheet.cols * sheet.rows) as f64 {
+                                    self.err(span, format!("frames — сколько кадров в листе, от 1 до {}", sheet.cols * sheet.rows));
+                                } else {
+                                    sheet.frames = n as u32;
+                                }
+                            }
+                            if let Some(fps) = fps {
+                                sheet.fps = fps;
+                            }
+                            if let Some((n, span)) = frame {
+                                if n.fract() != 0.0 || n < 0.0 || n >= sheet.frames as f64 {
+                                    self.err(span, format!("frame — кадр листа от 0 до {}", sheet.frames - 1));
+                                } else {
+                                    sheet.frame = n as u32;
+                                }
+                            }
+                        }
+                        None => {
+                            if let Some(span) = props.iter().find(|p| matches!(p.key.as_str(), "frames" | "fps" | "frame")).map(|p| p.key_span) {
+                                self.err(span, "frames, fps и frame — у листа спрайтов: сначала sheet КОЛОНКИ РЯДЫ");
+                            }
                         }
                     }
                     self.scene.backdrop = Some(b);

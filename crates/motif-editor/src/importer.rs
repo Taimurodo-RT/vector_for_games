@@ -16,12 +16,25 @@ pub struct BackdropCache {
     image: Option<Backdrop>,
     pub error: Option<String>,
     last_check: Option<std::time::Instant>,
+    /// The frame of a sprite sheet shown now, cut out of the picture: columns, rows and its index.
+    frame: Option<((u32, u32, u32), Backdrop)>,
 }
 
-/// The backdrop to draw under the shapes, when the scene has a visible one that loaded.
+impl BackdropCache {
+    /// The whole picture, as loaded.
+    pub fn pixmap(&self) -> Option<&tiny_skia::Pixmap> {
+        self.image.as_ref().map(|b| b.pixmap.as_ref())
+    }
+}
+
+/// The backdrop to draw under the shapes, when the scene has a visible one that loaded: the whole
+/// picture, or the frame of a sprite sheet shown now.
 pub fn backdrop_view<'a>(scene: &motif_script::Scene, cache: &'a BackdropCache) -> Option<BackdropView<'a>> {
     let b = scene.backdrop.as_ref().filter(|b| !b.hidden)?;
-    let image = cache.image.as_ref()?;
+    let image = match &b.sheet {
+        Some(_) => &cache.frame.as_ref()?.1,
+        None => cache.image.as_ref()?,
+    };
     Some(BackdropView { image, transform: Affine::translate((b.x, b.y)) * Affine::scale(b.scale), opacity: b.opacity })
 }
 
@@ -54,6 +67,7 @@ impl App {
             if self.backdrop_img.key.as_ref() != Some(&key) {
                 let cache = &mut self.backdrop_img;
                 cache.key = Some(key);
+                cache.frame = None;
                 match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|bytes| Backdrop::from_png(&bytes)) {
                     Ok(img) => {
                         cache.image = Some(img);
@@ -64,6 +78,17 @@ impl App {
                         cache.error = Some(format!("{}: {e}", path.display()));
                     }
                 }
+            }
+        }
+        // A sprite sheet shows one frame: the one at the timeline's time while animating.
+        if let Some(sheet) = b.sheet {
+            let at = self.anim.is_some().then_some(self.time);
+            let key = (sheet.cols, sheet.rows, sheet.frame_at(at));
+            let cache = &mut self.backdrop_img;
+            if cache.frame.as_ref().is_none_or(|(k, _)| *k != key)
+                && let Some(px) = cache.pixmap().and_then(|px| crate::sheet::frame(px, key.0, key.1, key.2))
+            {
+                cache.frame = Some((key, Backdrop::new(px)));
             }
         }
     }
@@ -83,31 +108,143 @@ impl App {
     }
 
     pub(crate) fn set_backdrop_file(&mut self, file: &Path) {
-        let size = std::fs::read(file).map_err(|e| e.to_string()).and_then(|b| Backdrop::from_png(&b)).map(|img| img.size());
-        let (w, h) = match size {
-            Ok(s) => s,
+        let image = match std::fs::read(file).map_err(|e| e.to_string()).and_then(|b| Backdrop::from_png(&b)) {
+            Ok(img) => img,
             Err(e) => {
                 self.status = format!("Не удалось открыть {}: {e}", file.display());
                 return;
             }
         };
-        let ab = &self.scene.doc.artboard;
-        // Fit inside the artboard, centred; small pictures keep their size.
-        let scale = (ab.width / w as f64).min(ab.height / h as f64).min(1.0);
-        let scale = (scale * 1000.0).round() / 1000.0;
-        let (x, y) = (((ab.width - w as f64 * scale) / 2.0).round(), ((ab.height - h as f64 * scale) / 2.0).round());
+        let (w, h) = image.size();
+        // Frames set apart by transparent gaps: a sprite sheet, shown frame by frame.
+        let grid = crate::sheet::guess(&image.pixmap);
+        let sheet = grid.filter(|g| g.gaps).map(|g| motif_script::Sheet { frames: g.frames, ..motif_script::Sheet::new(g.cols, g.rows) });
         let old = self.scene.backdrop.clone();
-        let b = motif_script::Backdrop {
+        let mut b = motif_script::Backdrop {
             file: self.script_name(file),
-            x,
-            y,
-            scale,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
             opacity: old.as_ref().map_or(0.5, |o| o.opacity),
             hidden: false,
+            sheet,
             span: motif_script::Span::new(0, 0),
         };
+        self.fit_backdrop(&mut b, (w, h));
         self.write_backdrop(Some(&b));
-        self.status = format!("Подложка {} ({w}×{h}) — видна только в редакторе, в экспорт не попадает", b.file);
+        self.status = match (sheet, grid) {
+            (Some(s), _) => format!("Подложка {}: лист спрайтов {}×{}, кадров {} — на таймлайне идёт кадр за кадром", b.file, s.cols, s.rows, s.frames),
+            (None, Some(g)) => format!("Подложка {} ({w}×{h}). Если это лист из {} кадров — «Лист спрайтов» в разделе «Подложка»", b.file, g.frames),
+            (None, None) => format!("Подложка {} ({w}×{h}) — видна только в редакторе, в экспорт не попадает", b.file),
+        };
+    }
+
+    /// Scales and centres `b` to fit the artboard: the whole picture, or one frame of a sheet.
+    /// Small pictures keep their size.
+    fn fit_backdrop(&self, b: &mut motif_script::Backdrop, (w, h): (u32, u32)) {
+        let (w, h) = match &b.sheet {
+            Some(s) => ((w / s.cols) as f64, (h / s.rows) as f64),
+            None => (w as f64, h as f64),
+        };
+        let ab = &self.scene.doc.artboard;
+        let scale = (ab.width / w).min(ab.height / h).min(1.0);
+        b.scale = (scale * 1000.0).round() / 1000.0;
+        (b.x, b.y) = (((ab.width - w * b.scale) / 2.0).round(), ((ab.height - h * b.scale) / 2.0).round());
+    }
+
+    /// Sprite sheet controls under the backdrop: the grid, the frame rate and the still frame.
+    fn sheet_controls(&mut self, ui: &mut egui::Ui, b: &motif_script::Backdrop, next: &mut motif_script::Backdrop) {
+        let size = self.backdrop_img.pixmap().map(|p| (p.width(), p.height()));
+        let Some(sheet) = b.sheet else {
+            let r = theme::button(ui, "Лист спрайтов", ButtonKind::Normal).on_hover_text(
+                "Картинка — сетка кадров: подложка покажет по одному кадру, на таймлайне они пойдут по времени. Сетка угадывается по прозрачным промежуткам",
+            );
+            if r.clicked()
+                && let Some(px) = self.backdrop_img.pixmap()
+            {
+                let grid = crate::sheet::guess(px);
+                let (cols, rows, frames) = grid.map_or((1, 1, 1), |g| (g.cols, g.rows, g.frames));
+                next.sheet = Some(motif_script::Sheet { frames, ..motif_script::Sheet::new(cols, rows) });
+                if let Some(size) = size {
+                    self.fit_backdrop(next, size);
+                }
+                if grid.is_none() {
+                    self.status = "Сетку не угадать: укажите колонки и ряды кадров".into();
+                }
+            }
+            return;
+        };
+        ui.label(RichText::new("Лист спрайтов").size(12.0).color(MUTED));
+        let w = ui.available_width();
+        let half = (w - 6.0) / 2.0;
+        let mut s = sheet;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if let Some(v) = theme::num_field(ui, half, "Колонки", s.cols as f64, 0.1, 1.0..=4096.0, 0, KeyState::Hidden).changed {
+                s.cols = v as u32;
+            }
+            if let Some(v) = theme::num_field(ui, half, "Ряды", s.rows as f64, 0.1, 1.0..=4096.0, 0, KeyState::Hidden).changed {
+                s.rows = v as u32;
+            }
+        });
+        if (s.cols, s.rows) != (sheet.cols, sheet.rows) {
+            // A new grid: every cell is a frame again.
+            s.frames = s.cols * s.rows;
+        }
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if let Some(v) = theme::num_field(ui, half, "Кадров", s.frames as f64, 0.1, 1.0..=(s.cols * s.rows) as f64, 0, KeyState::Hidden).changed {
+                s.frames = v as u32;
+            }
+            if let Some(v) = theme::num_field(ui, half, "к/с", s.fps, 0.1, 1.0..=120.0, 1, KeyState::Hidden).changed {
+                s.fps = v;
+            }
+        });
+        s.frames = s.frames.clamp(1, s.cols * s.rows);
+        // While animating the timeline picks the frame.
+        let still = self.anim.is_none();
+        let picked =
+            ui.add_enabled_ui(still, |ui| theme::num_field(ui, w, "Кадр", s.frame as f64, 0.1, 0.0..=(s.frames - 1) as f64, 0, KeyState::Hidden).changed).inner;
+        if let Some(v) = picked {
+            s.frame = v as u32;
+        }
+        s.frame = s.frame.min(s.frames - 1);
+        if s != sheet {
+            next.sheet = Some(s);
+            if (s.cols, s.rows) != (sheet.cols, sheet.rows)
+                && let Some(size) = size
+            {
+                self.fit_backdrop(next, size);
+            }
+        }
+        ui.horizontal_wrapped(|ui| {
+            if theme::button(ui, "Угадать сетку", ButtonKind::Normal).on_hover_text("По прозрачным промежуткам между кадрами").clicked()
+                && let Some(g) = self.backdrop_img.pixmap().and_then(crate::sheet::guess)
+            {
+                next.sheet = Some(motif_script::Sheet { frames: g.frames, fps: sheet.fps, ..motif_script::Sheet::new(g.cols, g.rows) });
+                if let Some(size) = size {
+                    self.fit_backdrop(next, size);
+                }
+            }
+            if theme::button(ui, "Целиком", ButtonKind::Normal).on_hover_text("Показывать картинку целиком, а не по кадру").clicked()
+            {
+                next.sheet = None;
+                if let Some(size) = size {
+                    self.fit_backdrop(next, size);
+                }
+            }
+        });
+        let hint = if self.anim.is_some() {
+            format!(
+                "Кадр {} из {} идёт по времени таймлайна, {} к/с: обводите его в Animate.",
+                sheet.frame_at(Some(self.time)) + 1,
+                sheet.frames,
+                motif_script::fmt_num(sheet.fps)
+            )
+        } else {
+            "В Design стоит кадр из поля «Кадр», в Animate кадры идут по времени таймлайна.".to_string()
+        };
+        ui.label(RichText::new(hint).size(11.5).color(FAINT));
     }
 
     /// Asks for a TrueType or OpenType file for text `node`.
@@ -198,6 +335,7 @@ impl App {
             if let Some(v) = theme::num_field(ui, w, "Масштаб", b.scale, 0.005, 0.001..=100.0, 3, KeyState::Hidden).changed {
                 next.scale = v;
             }
+            self.sheet_controls(ui, &b, &mut next);
             ui.horizontal_wrapped(|ui| {
                 if theme::button(ui, "Заменить…", ButtonKind::Normal).clicked() {
                     self.pick_backdrop();

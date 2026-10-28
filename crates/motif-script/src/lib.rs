@@ -243,8 +243,39 @@ pub struct Backdrop {
     pub scale: f64,
     pub opacity: f64,
     pub hidden: bool,
+    /// The picture is a sprite sheet: one frame of it is shown at a time.
+    pub sheet: Option<Sheet>,
     /// The whole `backdrop …` line.
     pub span: Span,
+}
+
+/// A backdrop cut into a grid of frames (`sheet 8 2 frames 14 fps 12`), read left to right, top
+/// to bottom. While an animation plays the frames follow its time; otherwise `frame` stays.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sheet {
+    pub cols: u32,
+    pub rows: u32,
+    /// Frames in use: the last row may be short. Never more than `cols × rows`.
+    pub frames: u32,
+    pub fps: f64,
+    /// The frame shown while nothing plays, from 0.
+    pub frame: u32,
+}
+
+impl Sheet {
+    pub fn new(cols: u32, rows: u32) -> Sheet {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        Sheet { cols, rows, frames: cols * rows, fps: 12.0, frame: 0 }
+    }
+
+    /// The frame shown at `time` seconds into an animation, or the still one with `None`.
+    pub fn frame_at(&self, time: Option<f64>) -> u32 {
+        let count = self.frames.max(1);
+        match time {
+            Some(t) if t.is_finite() && t >= 0.0 => ((t * self.fps).floor() as u64 % count as u64) as u32,
+            _ => self.frame.min(count - 1),
+        }
+    }
 }
 
 /// Where an `anim` block is written in the script.

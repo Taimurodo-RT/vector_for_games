@@ -29,6 +29,7 @@ mod pixabridge;
 mod rope_ui;
 mod scriptui;
 mod selection;
+mod sheet;
 mod snap;
 mod stretch_ui;
 mod style_ui;
