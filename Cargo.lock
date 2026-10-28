@@ -1492,6 +1492,7 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "flate2",
  "motif-core",
  "motif-pixel",
  "motif-render",

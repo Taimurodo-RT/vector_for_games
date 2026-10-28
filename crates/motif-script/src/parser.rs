@@ -547,12 +547,31 @@ impl<'a> Parser<'a> {
         let mut end = self.toks[self.pos - 1].span.end;
         let mut props = Vec::new();
         while !self.at_line_end() {
-            let (key, key_span) = self.ident("свойство подложки: at, scale, opacity, hidden или sheet")?;
+            let (key, key_span) = self.ident("свойство подложки: at, scale, opacity, hidden, sheet, hide или show")?;
+            // Names of layers in quotes, one or more.
+            if key == "hide" || key == "show" {
+                let mut values = Vec::new();
+                while let Some(Tok::Str(_)) = self.peek() {
+                    if let Some(Token { tok: Tok::Str(s), span }) = self.next() {
+                        values.push(ValueAst { kind: ValueKind::Path(s), span });
+                    }
+                }
+                let Some(last) = values.last() else {
+                    return Err(self.err(key_span, format!("после {key} нужны имена слоёв в кавычках, например {key} \"Фон\"")));
+                };
+                end = last.span.end;
+                props.push(PropAst { key, key_span, values });
+                continue;
+            }
             let n = match key.as_str() {
                 "at" | "sheet" => 2,
                 "scale" | "opacity" | "frames" | "fps" | "frame" => 1,
                 "hidden" => 0,
-                _ => return Err(self.err(key_span, format!("у подложки нет свойства «{key}»: at, scale, opacity, hidden, sheet, frames, fps, frame"))),
+                _ => {
+                    return Err(
+                        self.err(key_span, format!("у подложки нет свойства «{key}»: at, scale, opacity, hidden, sheet, frames, fps, frame, hide, show"))
+                    );
+                }
             };
             let mut values = Vec::new();
             for _ in 0..n {

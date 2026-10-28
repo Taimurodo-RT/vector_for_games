@@ -250,6 +250,10 @@ pub struct Backdrop {
     pub hidden: bool,
     /// The picture is a sprite sheet: one frame of it is shown at a time.
     pub sheet: Option<Sheet>,
+    /// Layers of a layered picture (PSD) turned off and on against how the file has them, by
+    /// name: `hide "Фон" show "Эскиз"`. A group's name covers the layers inside it.
+    pub hide: Vec<String>,
+    pub show: Vec<String>,
     /// The whole `backdrop …` line.
     pub span: Span,
 }

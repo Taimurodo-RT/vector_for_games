@@ -1,5 +1,5 @@
-//! Bringing outside pictures in: a PNG reference under the artboard (`backdrop`), SVG files as
-//! editable paths, and files dropped onto the window.
+//! Bringing outside pictures in: a PNG or PSD reference under the artboard (`backdrop`), SVG
+//! files as editable paths, and files dropped onto the window.
 
 use crate::app::{App, fold};
 use crate::theme::{self, ButtonKind, FAINT, FG, KeyState, MUTED};
@@ -18,12 +18,27 @@ pub struct BackdropCache {
     last_check: Option<std::time::Instant>,
     /// The frame of a sprite sheet shown now, cut out of the picture: columns, rows and its index.
     frame: Option<((u32, u32, u32), Backdrop)>,
+    /// The layers of a PSD, and the layers hidden and shown when `image` was put together.
+    pub layered: Option<crate::psd::Layered>,
+    composed: (Vec<String>, Vec<String>),
 }
 
 impl BackdropCache {
     /// The whole picture, as loaded.
     pub fn pixmap(&self) -> Option<&tiny_skia::Pixmap> {
         self.image.as_ref().map(|b| b.pixmap.as_ref())
+    }
+}
+
+/// Reads a backdrop picture: a PNG, or a PSD put together with the named layers hidden and shown.
+fn load_picture(path: &Path, hide: &[String], show: &[String]) -> Result<(Backdrop, Option<crate::psd::Layered>), String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    if crate::psd::is_layered(path) {
+        let psd = crate::psd::read(&bytes)?;
+        let px = psd.compose(hide, show).ok_or("пустая картинка")?;
+        Ok((Backdrop::new(px), Some(psd)))
+    } else {
+        Ok((Backdrop::from_png(&bytes)?, None))
     }
 }
 
@@ -68,16 +83,29 @@ impl App {
                 let cache = &mut self.backdrop_img;
                 cache.key = Some(key);
                 cache.frame = None;
-                match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|bytes| Backdrop::from_png(&bytes)) {
-                    Ok(img) => {
+                cache.composed = (b.hide.clone(), b.show.clone());
+                match load_picture(&path, &b.hide, &b.show) {
+                    Ok((img, layered)) => {
                         cache.image = Some(img);
+                        cache.layered = layered;
                         cache.error = None;
                     }
                     Err(e) => {
-                        cache.image = None;
+                        (cache.image, cache.layered) = (None, None);
                         cache.error = Some(format!("{}: {e}", path.display()));
                     }
                 }
+            }
+        }
+        // Layers of a PSD turned off or on: put the picture together again.
+        let cache = &mut self.backdrop_img;
+        if let Some(psd) = &cache.layered
+            && (cache.composed.0 != b.hide || cache.composed.1 != b.show)
+        {
+            cache.composed = (b.hide.clone(), b.show.clone());
+            if let Some(px) = psd.compose(&b.hide, &b.show) {
+                cache.image = Some(Backdrop::new(px));
+                cache.frame = None;
             }
         }
         // A sprite sheet shows one frame: the one at the timeline's time while animating.
@@ -101,14 +129,14 @@ impl App {
         self.apply("backdrop", Some(out));
     }
 
-    /// Asks for a PNG and sets it as the backdrop, fitted to the artboard width.
+    /// Asks for a PNG or PSD and sets it as the backdrop, fitted to the artboard width.
     pub(crate) fn pick_backdrop(&mut self) {
-        let Some(file) = rfd::FileDialog::new().set_title("Подложка").add_filter("PNG", &["png"]).pick_file() else { return };
+        let Some(file) = rfd::FileDialog::new().set_title("Подложка").add_filter("PNG и PSD", &["png", "psd", "psb"]).pick_file() else { return };
         self.set_backdrop_file(&file);
     }
 
     pub(crate) fn set_backdrop_file(&mut self, file: &Path) {
-        let image = match std::fs::read(file).map_err(|e| e.to_string()).and_then(|b| Backdrop::from_png(&b)) {
+        let (image, layered) = match load_picture(file, &[], &[]) {
             Ok(img) => img,
             Err(e) => {
                 self.status = format!("Не удалось открыть {}: {e}", file.display());
@@ -128,14 +156,18 @@ impl App {
             opacity: old.as_ref().map_or(0.5, |o| o.opacity),
             hidden: false,
             sheet,
+            hide: Vec::new(),
+            show: Vec::new(),
             span: motif_script::Span::new(0, 0),
         };
         self.fit_backdrop(&mut b, (w, h));
         self.write_backdrop(Some(&b));
-        self.status = match (sheet, grid) {
-            (Some(s), _) => format!("Подложка {}: лист спрайтов {}×{}, кадров {} — на таймлайне идёт кадр за кадром", b.file, s.cols, s.rows, s.frames),
-            (None, Some(g)) => format!("Подложка {} ({w}×{h}). Если это лист из {} кадров — «Лист спрайтов» в разделе «Подложка»", b.file, g.frames),
-            (None, None) => format!("Подложка {} ({w}×{h}) — видна только в редакторе, в экспорт не попадает", b.file),
+        let layers = layered.as_ref().map(|l| l.rows().iter().filter(|r| !r.group).count());
+        self.status = match (sheet, grid, layers) {
+            (_, _, Some(n)) => format!("Подложка {} ({w}×{h}), слоёв: {n} — включайте и выключайте их в разделе «Подложка»", b.file),
+            (Some(s), _, _) => format!("Подложка {}: лист спрайтов {}×{}, кадров {} — на таймлайне идёт кадр за кадром", b.file, s.cols, s.rows, s.frames),
+            (None, Some(g), _) => format!("Подложка {} ({w}×{h}). Если это лист из {} кадров — «Лист спрайтов» в разделе «Подложка»", b.file, g.frames),
+            (None, None, _) => format!("Подложка {} ({w}×{h}) — видна только в редакторе, в экспорт не попадает", b.file),
         };
     }
 
@@ -150,6 +182,47 @@ impl App {
         let scale = (ab.width / w).min(ab.height / h).min(1.0);
         b.scale = (scale * 1000.0).round() / 1000.0;
         (b.x, b.y) = (((ab.width - w * b.scale) / 2.0).round(), ((ab.height - h * b.scale) / 2.0).round());
+    }
+
+    /// The layers of a PSD backdrop, top to bottom, each with its eye.
+    fn layer_controls(&mut self, ui: &mut egui::Ui, b: &motif_script::Backdrop, next: &mut motif_script::Backdrop) {
+        let Some(psd) = &self.backdrop_img.layered else { return };
+        let rows = psd.rows();
+        if rows.is_empty() {
+            return;
+        }
+        ui.add_space(4.0);
+        ui.label(RichText::new("Слои").size(12.0).color(MUTED));
+        if !psd.unreadable.is_empty() {
+            ui.label(RichText::new(format!("Не прочитаны, показаны пустыми: {}", psd.unreadable.join(", "))).size(11.5).color(theme::DANGER));
+        }
+        // Whether the groups around the row are drawn, by depth.
+        let mut open: Vec<bool> = Vec::new();
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            for row in &rows {
+                open.truncate(row.depth);
+                let props = crate::psd::Props { name: row.name.clone(), visible: row.visible, opacity: 1.0, blend: *b"norm", clipped: false };
+                let mut on = crate::psd::shown(&props, &b.hide, &b.show);
+                let inside_shown = open.iter().all(|&o| o);
+                ui.horizontal(|ui| {
+                    ui.add_space(row.depth as f32 * 14.0);
+                    let text = RichText::new(&row.name).size(12.0).color(if on && inside_shown { FG } else { MUTED });
+                    let text = if row.group { text.strong() } else { text };
+                    if ui.checkbox(&mut on, text).on_hover_text(if row.group { "Группа слоёв" } else { "Слой" }).changed() {
+                        crate::psd::set_shown(&mut next.hide, &mut next.show, row, on);
+                    }
+                });
+                if row.group {
+                    open.push(on);
+                }
+            }
+        });
+        if (!b.hide.is_empty() || !b.show.is_empty())
+            && theme::button(ui, "Как в файле", ButtonKind::Normal).on_hover_text("Слои видны так, как сохранены в PSD").clicked()
+        {
+            (next.hide, next.show) = (Vec::new(), Vec::new());
+        }
     }
 
     /// Sprite sheet controls under the backdrop: the grid, the frame rate and the still frame.
@@ -278,15 +351,15 @@ impl App {
         }
     }
 
-    /// PNG files dropped onto the window become the backdrop, SVG files are imported.
+    /// PNG and PSD files dropped onto the window become the backdrop, SVG files are imported.
     pub(crate) fn dropped_files(&mut self, ctx: &egui::Context) {
         let files: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
         for f in files {
             match f.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
                 Some("svg") => self.import_svg_file(&f),
-                Some("png") => self.set_backdrop_file(&f),
+                Some("png" | "psd" | "psb") => self.set_backdrop_file(&f),
                 Some("msc") => self.status = "Сцену открывайте через Файл → Открыть".into(),
-                _ => self.status = format!("{}: перетащите SVG (импорт) или PNG (подложка)", f.display()),
+                _ => self.status = format!("{}: перетащите SVG (импорт), PNG или PSD (подложка)", f.display()),
             }
         }
     }
@@ -296,7 +369,7 @@ impl App {
         fold(ui, "Подложка", |ui| {
             let Some(b) = self.scene.backdrop.clone() else {
                 ui.label(RichText::new("Картинка-референс под фигурами: эскиз, кадр, макет. Видна только в редакторе.").size(12.0).color(FAINT));
-                if theme::button(ui, "Загрузить PNG…", ButtonKind::Normal).clicked() {
+                if theme::button(ui, "Загрузить PNG или PSD…", ButtonKind::Normal).clicked() {
                     self.pick_backdrop();
                 }
                 return;
@@ -312,16 +385,13 @@ impl App {
             if let Some(e) = &self.backdrop_img.error {
                 ui.label(RichText::new(format!("Не загружена: {e}")).size(11.5).color(theme::DANGER));
             }
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Непрозрачность").size(12.0).color(MUTED));
-                ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(40.0);
-                let mut pct = (b.opacity * 100.0).round();
-                let slider = egui::Slider::new(&mut pct, 0.0..=100.0).suffix("%").step_by(1.0);
-                if ui.add(slider).changed() {
-                    next.opacity = pct / 100.0;
-                }
-            });
             let w = ui.available_width();
+            // A field the width of the panel, as the others: a slider beside a label kept
+            // nudging the panel's width.
+            if let Some(v) = theme::num_field(ui, w, "Непрозрачность, %", (b.opacity * 100.0).round(), 0.5, 0.0..=100.0, 0, KeyState::Hidden).changed
+            {
+                next.opacity = v.round() / 100.0;
+            }
             let half = (w - 6.0) / 2.0;
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
@@ -335,6 +405,7 @@ impl App {
             if let Some(v) = theme::num_field(ui, w, "Масштаб", b.scale, 0.005, 0.001..=100.0, 3, KeyState::Hidden).changed {
                 next.scale = v;
             }
+            self.layer_controls(ui, &b, &mut next);
             self.sheet_controls(ui, &b, &mut next);
             ui.horizontal_wrapped(|ui| {
                 if theme::button(ui, "Заменить…", ButtonKind::Normal).clicked() {
