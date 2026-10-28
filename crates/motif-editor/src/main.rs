@@ -36,6 +36,7 @@ mod symbol_ui;
 mod text_ui;
 mod theme;
 mod timeline;
+mod video_ui;
 mod weights_ui;
 mod world_ui;
 

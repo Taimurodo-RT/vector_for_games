@@ -10,6 +10,7 @@ pub mod godot;
 pub mod kit;
 pub mod pixatool;
 pub mod screen;
+pub mod video;
 
 use motif_core::{Color, Document, Value};
 use motif_render::{CpuOptions, render_cpu};

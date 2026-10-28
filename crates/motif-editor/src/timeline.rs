@@ -112,7 +112,7 @@ impl Scale {
 
 impl App {
     /// The animation the timeline shows: the selected one, or in Design the one Animate returns to.
-    fn shown_anim(&self) -> Option<Animation> {
+    pub(crate) fn shown_anim(&self) -> Option<Animation> {
         let doc = &self.scene.doc;
         self.anim.as_deref().or(self.last_anim.as_deref()).and_then(|n| doc.animation(n)).or(doc.animations.first()).cloned()
     }

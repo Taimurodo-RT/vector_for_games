@@ -50,6 +50,8 @@ pub struct Bridge {
     /// Scenes exported to Godot, re-exported on every save: the scene file, the folder in the
     /// Godot project and the object exported (the whole scene when `None`).
     pub links: Vec<GodotLink>,
+    /// ffmpeg for MP4 and WebM, picked by hand; otherwise found next to Motif or on PATH.
+    pub ffmpeg: Option<PathBuf>,
     pub job: Option<Job>,
 }
 
@@ -71,6 +73,7 @@ impl Bridge {
                 Some(("pixatool", v)) if Path::new(v.trim()).is_file() => b.exe = Some(v.trim().into()),
                 Some(("pixatool-preset", v)) if Path::new(v.trim()).is_file() => b.preset = Some(v.trim().into()),
                 Some(("godot-pixatool", v)) => b.godot = v.trim() == "1",
+                Some(("ffmpeg", v)) if Path::new(v.trim()).is_file() => b.ffmpeg = Some(v.trim().into()),
                 Some(("godot-link", v)) => {
                     let mut parts = v.split('\t');
                     if let (Some(scene), Some(dir)) = (parts.next(), parts.next()) {
@@ -95,6 +98,9 @@ impl Bridge {
         }
         if self.godot {
             text += "godot-pixatool=1\n";
+        }
+        if let Some(p) = &self.ffmpeg {
+            text += &format!("ffmpeg={}\n", p.display());
         }
         for l in &self.links {
             let t = &l.target;
@@ -244,8 +250,11 @@ mod tests {
             |dir: &str, node: Option<&str>, board: Option<&str>| GodotTarget { dir: dir.into(), node: node.map(String::from), board: board.map(String::from) };
         b.links.push(GodotLink { scene: "C:\\Игры\\hero.msc".into(), target: target("C:\\game\\characters\\hero", Some("hero"), Some("Герой")) });
         b.links.push(GodotLink { scene: "/tmp/ui.msc".into(), target: target("/tmp/game/ui", None, None) });
+        let exe = std::env::current_exe().unwrap();
+        b.ffmpeg = Some(exe.clone());
         let back = Bridge::parse(&b.text());
         assert!(back.godot);
+        assert_eq!(back.ffmpeg, Some(exe));
         assert_eq!(back.links, b.links);
         // A link saved before boards (three fields) is the whole file.
         let old = Bridge::parse("godot-link=/tmp/a.msc\t/tmp/g\thero\n");

@@ -127,7 +127,7 @@ pub struct ExportSettings {
     pub(crate) antialias: bool,
     transparent: bool,
     /// Export every board of the file, not only the open one.
-    all_boards: bool,
+    pub(crate) all_boards: bool,
 }
 
 pub struct App {
@@ -221,7 +221,8 @@ pub struct App {
     hex_edit: Option<(Prop, String)>,
     pixel: PixelPreview,
     pub(crate) export: ExportSettings,
-    pixa: crate::pixabridge::Bridge,
+    pub(crate) pixa: crate::pixabridge::Bridge,
+    pub(crate) video: crate::video_ui::VideoExport,
     /// For work that finishes on another thread and must wake the window (re-export on save).
     ctx: egui::Context,
     canvas: Canvas,
@@ -238,6 +239,7 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
         theme::install(&cc.egui_ctx);
+        let pixa = crate::pixabridge::Bridge::load();
         let (src, status) = match &path {
             Some(p) => match std::fs::read_to_string(p) {
                 Ok(s) => (s, format!("Открыт {}", p.display())),
@@ -308,7 +310,8 @@ impl App {
             hex_edit: None,
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
             export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true, all_boards: false },
-            pixa: crate::pixabridge::Bridge::load(),
+            video: crate::video_ui::VideoExport::new(pixa.ffmpeg.clone()),
+            pixa,
             ctx: cc.egui_ctx.clone(),
             canvas: Canvas::new(),
             guides: Vec::new(),
@@ -860,13 +863,13 @@ impl App {
         }
     }
 
-    fn file_stem(&self) -> String {
+    pub(crate) fn file_stem(&self) -> String {
         self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned())
     }
 
     /// The boards an export covers, each with the name its files get: the open board, or every
     /// board with «Все холсты». A file with one board is named after the file.
-    fn export_boards(&self) -> Result<Vec<(String, Document)>, String> {
+    pub(crate) fn export_boards(&self) -> Result<Vec<(String, Document)>, String> {
         let n = self.board_count();
         if n < 2 {
             return Ok(vec![(self.file_stem(), self.scene.doc.clone())]);
@@ -2319,6 +2322,10 @@ impl App {
                 ui.add_space(6.0);
                 theme::rule(ui);
                 ui.add_space(4.0);
+                self.video_section(ui);
+                ui.add_space(6.0);
+                theme::rule(ui);
+                ui.add_space(4.0);
                 theme::caption(ui, "Палитра");
                 if theme::button(ui, &format!("Палитра сцены в .pal… (до {PIXATOOL_MAX_COLORS} цветов)"), ButtonKind::Normal).clicked() {
                     self.export_palette();
@@ -2360,7 +2367,7 @@ impl App {
             }
         });
         let hint = if self.export.all_boards {
-            "Кадры — ХОЛСТ_0000.png на каждый холст, UI-набор — детали всех холстов в одной теме, Godot — сцена ХОЛСТ.tscn на каждый холст, палитра — цвета всех холстов."
+            "Кадры — ХОЛСТ_0000.png на каждый холст, видео — ХОЛСТ_Анимация.mp4 с каждого холста, где она есть, UI-набор — детали всех холстов в одной теме, Godot — сцена ХОЛСТ.tscn на каждый холст, палитра — цвета всех холстов."
         } else {
             "Всё ниже сохраняется только с открытого холста. Другой холст открывается кликом по нему."
         };
@@ -2947,6 +2954,9 @@ impl eframe::App for App {
         self.dropped_files(&ctx);
         self.refresh_backdrop();
         if let Some(status) = self.pixa.poll() {
+            self.status = status;
+        }
+        if let Some(status) = self.video.poll() {
             self.status = status;
         }
         self.shortcuts(&ctx);

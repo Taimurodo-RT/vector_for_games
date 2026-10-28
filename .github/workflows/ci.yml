@@ -28,6 +28,7 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/symbols.msc
       - run: cargo run -p motif-cli -- check examples/machine.msc
       - run: cargo run -p motif-cli -- godot examples/machine.msc --node hero -o target/godot-check
+      - run: cargo run -p motif-cli -- video examples/bounce.msc --anim Idle --fps 12 -o target/video-check/idle.gif
       - run: cargo run -p motif-cli -- check examples/bones.msc
       - run: cargo run -p motif-cli -- check examples/weights.msc
       - run: cargo run -p motif-cli -- check examples/tunnel.msc
