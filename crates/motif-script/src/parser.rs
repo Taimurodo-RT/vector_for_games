@@ -547,12 +547,12 @@ impl<'a> Parser<'a> {
         let mut end = self.toks[self.pos - 1].span.end;
         let mut props = Vec::new();
         while !self.at_line_end() {
-            let (key, key_span) = self.ident("свойство подложки: at, scale, opacity или hidden")?;
+            let (key, key_span) = self.ident("свойство подложки: at, scale, opacity, hidden или sheet")?;
             let n = match key.as_str() {
-                "at" => 2,
-                "scale" | "opacity" => 1,
+                "at" | "sheet" => 2,
+                "scale" | "opacity" | "frames" | "fps" | "frame" => 1,
                 "hidden" => 0,
-                _ => return Err(self.err(key_span, format!("у подложки нет свойства «{key}»: at, scale, opacity, hidden"))),
+                _ => return Err(self.err(key_span, format!("у подложки нет свойства «{key}»: at, scale, opacity, hidden, sheet, frames, fps, frame"))),
             };
             let mut values = Vec::new();
             for _ in 0..n {

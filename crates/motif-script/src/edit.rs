@@ -831,6 +831,18 @@ pub fn backdrop_text(b: &crate::Backdrop) -> String {
         out.push_str(&format!(" scale {}", crate::fmt_num_with(b.scale, 4)));
     }
     out.push_str(&format!(" opacity {}", fmt_num(b.opacity)));
+    if let Some(s) = &b.sheet {
+        out.push_str(&format!(" sheet {} {}", s.cols, s.rows));
+        if s.frames != s.cols * s.rows {
+            out.push_str(&format!(" frames {}", s.frames));
+        }
+        if s.fps != 12.0 {
+            out.push_str(&format!(" fps {}", fmt_num(s.fps)));
+        }
+        if s.frame != 0 {
+            out.push_str(&format!(" frame {}", s.frame));
+        }
+    }
     if b.hidden {
         out.push_str(" hidden");
     }

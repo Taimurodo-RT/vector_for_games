@@ -436,7 +436,7 @@ fn backdrop_line() {
     let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40\n";
     let s = scene(src);
     assert!(s.backdrop.is_none());
-    let mut b = crate::Backdrop { file: "ref.png".into(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.4, hidden: false, span: Span::new(0, 0) };
+    let mut b = crate::Backdrop { file: "ref.png".into(), x: 0.0, y: 0.0, scale: 1.0, opacity: 0.4, hidden: false, sheet: None, span: Span::new(0, 0) };
     let out = set_backdrop(src, &s, Some(&b));
     assert_eq!(out, "artboard \"M\" 200x200\nbackdrop \"ref.png\" opacity 0.4\nrect a at 50 50 size 40\n");
     let s2 = scene(&out);
@@ -448,6 +448,28 @@ fn backdrop_line() {
     let s3 = scene(&out);
     assert!(s3.backdrop.as_ref().unwrap().hidden);
     assert_eq!(set_backdrop(&out, &s3, None), src);
+    // A sprite sheet: 4 × 2 with 7 frames at 8 fps, still on frame 2.
+    let mut sheet = crate::Sheet::new(4, 2);
+    (sheet.frames, sheet.fps, sheet.frame) = (7, 8.0, 2);
+    b.sheet = Some(sheet);
+    let out = set_backdrop(&out, &s3, Some(&b));
+    assert!(out.contains("backdrop \"ref.png\" at 10 -5 scale 0.5 opacity 0.4 sheet 4 2 frames 7 fps 8 frame 2 hidden"), "{out}");
+    let got = scene(&out).backdrop.unwrap().sheet.unwrap();
+    assert_eq!(got, sheet);
+    assert_eq!((got.frame_at(None), got.frame_at(Some(0.0)), got.frame_at(Some(0.26)), got.frame_at(Some(1.0))), (2, 0, 2, 1));
+    let plain = crate::Sheet::new(8, 1);
+    let line = backdrop_text(&crate::Backdrop { sheet: Some(plain), ..b.clone() });
+    assert!(line.contains("sheet 8 1 hidden"), "{line}");
+    for bad in [
+        "backdrop \"a.png\" sheet 0 1",
+        "backdrop \"a.png\" sheet 2.5 1",
+        "backdrop \"a.png\" sheet 4 1 frames 5",
+        "backdrop \"a.png\" sheet 4 1 frame 4",
+        "backdrop \"a.png\" sheet 4 1 fps 0",
+        "backdrop \"a.png\" frames 3",
+    ] {
+        assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
+    }
     for bad in ["backdrop ref.png", "backdrop \"a.png\" glow 1", "backdrop \"a.png\"\nbackdrop \"b.png\"", "group g {\n  backdrop \"a.png\"\n}"] {
         assert!(parse(&format!("artboard \"M\" 9x9\n{bad}")).is_err(), "{bad}");
     }
