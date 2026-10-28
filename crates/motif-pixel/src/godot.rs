@@ -345,9 +345,11 @@ fn events_gd(sheet: &Sheet) -> Option<String> {
         "\n## Animation events from Motif: connect to it, e.g. event.connect(func(name): if name == \"step\": $Step.play()).\nsignal event(name: String)\n\n\
 ## Events by animation and frame.\nconst EVENTS := {{\n{}\n}}\n\nvar _last_frame := []\n\n\
 func _watch_events() -> void:\n\t$Sprite.frame_changed.connect(_on_frame)\n\t# Right after a switch the sprite still holds the old frame number: read once it is set.\n\t$Sprite.animation_changed.connect(_on_frame.call_deferred)\n\t_on_frame()\n\n\
-func _on_frame() -> void:\n\tvar anim := String($Sprite.animation)\n\tvar frame := [{}, $Sprite.frame]\n\tif frame == _last_frame:\n\t\treturn\n\t_last_frame = frame\n\
+func _on_frame() -> void:\n{}\tvar anim := String($Sprite.animation)\n\tvar frame := [{}, $Sprite.frame]\n\tif frame == _last_frame:\n\t\treturn\n\t_last_frame = frame\n\
 \tfor name in EVENTS.get(anim, {{}}).get($Sprite.frame, []):\n\t\tevent.emit(name)\n",
         table.join(",\n"),
+        // Switching sides passes frame 0 on its way back to the frame shown.
+        if sheet.sides.is_some() { "\tif _turning:\n\t\treturn\n" } else { "" },
         // Turning to another side keeps the frame: its events have already been sent.
         if sheet.sides.is_some() { "playing" } else { "anim" },
     ))
@@ -364,9 +366,9 @@ fn sides_gd(sides: &Sides) -> String {
     format!(
         "\n## The sides the character was drawn from in Motif: «Walk» seen from the right is the sprite\n## animation «Walk_right».\nconst SIDES := [{}]\n## Sides shown as another side flipped.\nconst MIRRORED := {{{}}}\n\n\
 ## Where the character looks: any vector, the nearest side is shown.\n@export var facing := Vector2.DOWN:\n\tset(value):\n\t\tif value != Vector2.ZERO:\n\t\t\tfacing = value\n\t\t\t_face()\n\n\
-## The side shown now, such as \"down_right\".\nvar side := \"down\"\n## The animation playing, by its own name, such as \"Walk\".\nvar playing := \"{}\"\n\n\
+## The side shown now, such as \"down_right\".\nvar side := \"down\"\n## The animation playing, by its own name, such as \"Walk\".\nvar playing := \"{}\"\n## True while the sprite switches to another side: the frames it passes are not steps.\nvar _turning := false\n\n\
 ## Plays an animation by its own name (\"Walk\") from the side the character faces.\nfunc play_facing(anim: String) -> void:\n\tvar shown := _side_anim(anim)\n\tif anim == playing and $Sprite.animation == shown and $Sprite.is_playing():\n\t\treturn\n\tplaying = anim\n\t$Sprite.play(shown)\n\t_flip()\n\n\
-func _face() -> void:\n\tvar k := posmod(roundi(atan2(facing.x, facing.y) / TAU * SIDES.size()), SIDES.size())\n\tside = SIDES[k]\n\tif not is_node_ready():\n\t\treturn\n\tvar shown := _side_anim(playing)\n\tif $Sprite.animation != shown:\n\t\t# Turning keeps the step the animation is on.\n\t\tvar frame: int = $Sprite.frame\n\t\tvar progress: float = $Sprite.frame_progress\n\t\tif $Sprite.is_playing():\n\t\t\t$Sprite.play(shown)\n\t\telse:\n\t\t\t$Sprite.animation = shown\n\t\t$Sprite.set_frame_and_progress(frame, progress)\n\t_flip()\n\n\
+func _face() -> void:\n\tvar k := posmod(roundi(atan2(facing.x, facing.y) / TAU * SIDES.size()), SIDES.size())\n\tside = SIDES[k]\n\tif not is_node_ready():\n\t\treturn\n\tvar shown := _side_anim(playing)\n\tif $Sprite.animation != shown:\n\t\t# Turning keeps the step the animation is on.\n\t\tvar frame: int = $Sprite.frame\n\t\tvar progress: float = $Sprite.frame_progress\n\t\t_turning = true\n\t\tif $Sprite.is_playing():\n\t\t\t$Sprite.play(shown)\n\t\telse:\n\t\t\t$Sprite.animation = shown\n\t\t$Sprite.set_frame_and_progress(frame, progress)\n\t\t_turning = false\n\t_flip()\n\n\
 func _side_anim(anim: String) -> StringName:\n\treturn StringName(anim + \"_\" + MIRRORED.get(side, side))\n\n\
 func _flip() -> void:\n\t$Sprite.scale.x = -1.0 if MIRRORED.has(side) else 1.0\n",
         names.join(", "),
@@ -711,6 +713,7 @@ mod tests {
         assert!(gd.contains("const MIRRORED := {\"left\": \"right\"}") && gd.contains("func play_facing(anim: String)"), "{gd}");
         assert!(gd.contains("func _ready() -> void:\n\t_watch_events()\n\t_face()\n"), "{gd}");
         assert!(gd.contains("signal event(name: String)"), "{gd}");
+        assert!(gd.contains("_turning = true") && gd.contains("\tif _turning:\n\t\treturn\n"), "turning frames are not steps: {gd}");
         unique_names(&gd);
         // With a machine the states ask the script to play their animation from the side shown.
         let m = Machine {
