@@ -3,7 +3,8 @@
 Локальный редактор векторной анимации для игр, в духе Rive. Сцену можно написать коротким скриптом, увидеть сразу на холсте и
 доделать мышью: правки с холста записываются обратно в текст скрипта.
 
-Сейчас в репозитории редактор и командная строка `motif`; анимации и машины состояний выгружаются в Godot готовыми сценами. Рантайм для Godot 4.7 (.NET) без запекания в кадры — следующий этап.
+В репозитории редактор, командная строка `motif` и аддон для Godot 4.3+. Анимации и машины состояний выгружаются в Godot
+готовыми сценами со спрайтами, а узел `MotifSprite` играет сцену `.msc` прямо в игре вектором, без запекания.
 
 ![Окно редактора: скрипт, холст, слои и таймлайн](docs/editor.png)
 
@@ -131,7 +132,7 @@ cargo run --release -p motif-editor -- examples/bounce.msc
   перехода, «Дождаться конца анимации» и смешивание. ▶ запускает машину на холсте, входы переключаются руками, как это
   делала бы игра. Раздел «Мышь» связывает наведение, нажатие, клик и положение указателя на объекте со входами
   (`listen button hover -> hover`); тогда «▶ Проверить» вверху превращает холст в живой предпросмотр: кнопка реагирует
-  на мышь сама. В скрипте: `machine Hero { input speed 0 … state Idle … Idle -> Run when speed > 0.5 blend 0.2s }`.
+  на мышь сама. «Запись» снимает прогон машины в видео. В скрипте: `machine Hero { input speed 0 … state Idle … Idle -> Run when speed > 0.5 blend 0.2s }`.
 * **События анимации.** Строка «⚑ События» на таймлайне: флажки с именами (шаг, отрыв, удар) там, где игра должна об
   этом узнать. «+» или двойной клик ставят флажок, он тянется по времени, правый клик — имя и удаление. Запущенная
   машина показывает пройденные события плашками в углу графа. В скрипте: `event step 0 0.2` внутри `anim`; игра читает
@@ -294,6 +295,7 @@ cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --pr
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
 cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
+cargo run --release -p motif-cli -- runtime examples/machine.msc -o ~/game/characters
 cargo run --release -p motif-cli -- godot   examples/directions.msc -o out/walker
 cargo run --release -p motif-cli -- render  examples/directions.msc --anim Walk --side up_right -o out/up_right.png
 cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопки -o out/buttons.png
@@ -309,7 +311,13 @@ cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кноп
 «Экспорт → Видео» (или `motif video`) сохраняет анимацию одним файлом, формат — по расширению: GIF и APNG (`.png`)
 Motif пишет сам, MP4 (H.264) и WebM (VP9, с прозрачностью) — через [ffmpeg](https://ffmpeg.org/download.html), который
 ищется рядом с Motif, в `PATH` или по пути из окна экспорта (`--ffmpeg` в командной строке). Повторяющаяся анимация в
-GIF и APNG крутится по кругу без шва, а где прозрачности нет (MP4), её место занимает цвет фона холста.
+GIF и APNG крутится по кругу без шва, а где прозрачности нет (MP4), её место занимает цвет фона холста. Пока видео
+пишется, внизу окна видно «Кадр N из M» и «Отменить» (недописанный файл удаляется), а готовый файл показывает
+«Открыть папку».
+
+Целый прогон машины состояний — с переходами, смешиванием и событиями — снимает кнопка «Запись» на панели машины:
+она запоминает, как менялись входы, а «Стоп» проигрывает прогон заново кадр за кадром и сохраняет видео. Из командной
+строки прогон пишется словами: `motif video hero.msc --machine Hero --take "0.5 speed=1, 2 jump, 3.5 speed=0" --length 5 -o run.gif`.
 
 ## Анимации в Godot
 
@@ -334,6 +342,23 @@ GIF и APNG крутится по кругу без шва, а где прозр
 * Флажок «Через PixaTool» (или `--pixelize` / `--preset X.preset`) прогоняет кадры через PixaTool перед упаковкой: в
   атлас ложится пиксель-арт в размере пикселей пресета, с фильтром Nearest и сдвигом на целых пикселях. Подробнее —
   [docs/export.html#godot-pixatool](docs/export.html#godot-pixatool).
+
+## Motif в игре: MotifSprite
+
+Аддон `godot-addon/addons/motif` (GDExtension на Rust, Godot 4.3+) добавляет узел `MotifSprite`. Он читает `.msc` и играет
+его в игре тем же ядром, что и редактор: кости, мягкие тела, морфинг, 3D, машина состояний и события работают как в
+Motif, а кадр рисуется под размер узла на экране и остаётся чётким при приближении камеры.
+
+* «Экспорт → Поставить в проект Godot…» (или `motif runtime сцена.msc -o папка-в-проекте`) ставит аддон в
+  `addons/motif`, кладёт `.msc` со шрифтами и `ИМЯ.tscn` с готовым узлом, дописывает `*.msc` в фильтры экспорта.
+  Потом каждое Ctrl+S копирует сцену в проект снова.
+* Свойства: `scene` (файл), `board`, `machine` или `animation`, `playing`, `speed`, `centered`, `resolution`,
+  `background`, `pointer` (мышь для строк `listen`).
+* Из кода: `set_input("speed", 1)`, `fire("jump")`, `get_state()`, `jump_to("Hit")`, `restart()`, `get_image(2.0)`;
+  сигналы `event(name)` и `state_changed(state)`.
+* В сборке для Windows аддон лежит в `godot-addon/` вместе с `bin/motif_godot.dll`; для Linux и macOS библиотеку
+  собирает `cargo build --release -p motif-godot`. Пример — `godot-apps/hero`, проверка в настоящем Godot —
+  `godot-addon/test/run.sh`. Подробнее — [docs/runtime.html](docs/runtime.html).
 
 ## UI-наборы для Godot
 
@@ -388,7 +413,8 @@ UI-набор…» (или `motif kit`) собирает детали всех �
   `VBoxContainer`/`HBoxContainer` в `PanelContainer` с фоном 9-slice, привязки — якоря, тексты — `Label`, остальное —
   картинки `TextureRect`. Тема пишется рядом и назначена корню; меню из `examples/menu.msc` в Godot 4.3 совпадает
   с холстом до пикселя. Подробнее — [docs/export.html#screens](docs/export.html#screens).
-* `godot-apps/` — два приложения Godot с интерфейсом из Motif: калькулятор и таймер «Фокус». Рисунок в `ИМЯ.msc`,
+* `godot-apps/` — приложения Godot с интерфейсом из Motif: калькулятор и таймер «Фокус» (а ещё `hero` — капля,
+  которая играет вектором через `MotifSprite`). Рисунок в `ИМЯ.msc`,
   `motif screen` собирает из него `ui/`, а `main.gd` — только логика по id узлов. Одинаково нарисованные клавиши
   становятся одним типом темы. Подробнее — [godot-apps/README.md](godot-apps/README.md).
 

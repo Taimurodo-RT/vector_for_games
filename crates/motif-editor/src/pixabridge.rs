@@ -52,6 +52,9 @@ pub struct Bridge {
     pub links: Vec<GodotLink>,
     /// ffmpeg for MP4 and WebM, picked by hand; otherwise found next to Motif or on PATH.
     pub ffmpeg: Option<PathBuf>,
+    /// Scenes put into a Godot project for MotifSprite: the scene file and the project folder it
+    /// is copied to again on every save.
+    pub runtime_links: Vec<(PathBuf, PathBuf)>,
     pub job: Option<Job>,
 }
 
@@ -74,6 +77,11 @@ impl Bridge {
                 Some(("pixatool-preset", v)) if Path::new(v.trim()).is_file() => b.preset = Some(v.trim().into()),
                 Some(("godot-pixatool", v)) => b.godot = v.trim() == "1",
                 Some(("ffmpeg", v)) if Path::new(v.trim()).is_file() => b.ffmpeg = Some(v.trim().into()),
+                Some(("runtime-link", v)) => {
+                    if let Some((scene, dir)) = v.split_once('\t') {
+                        b.runtime_links.push((scene.into(), dir.into()));
+                    }
+                }
                 Some(("godot-link", v)) => {
                     let mut parts = v.split('\t');
                     if let (Some(scene), Some(dir)) = (parts.next(), parts.next()) {
@@ -107,6 +115,9 @@ impl Bridge {
             text +=
                 &format!("godot-link={}\t{}\t{}\t{}\n", l.scene.display(), t.dir.display(), t.node.as_deref().unwrap_or(""), t.board.as_deref().unwrap_or(""));
         }
+        for (scene, dir) in &self.runtime_links {
+            text += &format!("runtime-link={}\t{}\n", scene.display(), dir.display());
+        }
         text
     }
 
@@ -125,6 +136,20 @@ impl Bridge {
         self.links.retain(|l| l.scene != scene);
         if let Some(target) = target {
             self.links.push(GodotLink { scene: scene.to_path_buf(), target });
+        }
+        self.save();
+    }
+
+    /// The folder of a Godot project the scene at `scene` is copied to on every save.
+    pub fn runtime_link(&self, scene: &Path) -> Option<&PathBuf> {
+        self.runtime_links.iter().find(|(s, _)| s == scene).map(|(_, d)| d)
+    }
+
+    /// Keeps `scene` copied into `dir` from now on, or stops with `None`.
+    pub fn set_runtime_link(&mut self, scene: &Path, dir: Option<PathBuf>) {
+        self.runtime_links.retain(|(s, _)| s != scene);
+        if let Some(dir) = dir {
+            self.runtime_links.push((scene.to_path_buf(), dir));
         }
         self.save();
     }
@@ -250,12 +275,14 @@ mod tests {
             |dir: &str, node: Option<&str>, board: Option<&str>| GodotTarget { dir: dir.into(), node: node.map(String::from), board: board.map(String::from) };
         b.links.push(GodotLink { scene: "C:\\Игры\\hero.msc".into(), target: target("C:\\game\\characters\\hero", Some("hero"), Some("Герой")) });
         b.links.push(GodotLink { scene: "/tmp/ui.msc".into(), target: target("/tmp/game/ui", None, None) });
+        b.runtime_links.push(("C:\\Игры\\hero.msc".into(), "C:\\game\\heroes".into()));
         let exe = std::env::current_exe().unwrap();
         b.ffmpeg = Some(exe.clone());
         let back = Bridge::parse(&b.text());
         assert!(back.godot);
         assert_eq!(back.ffmpeg, Some(exe));
         assert_eq!(back.links, b.links);
+        assert_eq!(back.runtime_links, b.runtime_links);
         // A link saved before boards (three fields) is the whole file.
         let old = Bridge::parse("godot-link=/tmp/a.msc\t/tmp/g\thero\n");
         assert_eq!(old.links[0].target, target("/tmp/g", Some("hero"), None));

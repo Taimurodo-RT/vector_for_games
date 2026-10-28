@@ -14,11 +14,13 @@ motif — скрипты сцен Motif без окна редактора
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [параметры рендера]
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [--side СТОРОНА] [-o папка] [параметры рендера]
   motif video   <сцена.msc> --anim ИМЯ [--fps 30] [--side СТОРОНА] [-o видео.mp4|.webm|.gif|.png] [--ffmpeg путь] [параметры рендера]
+  motif video   <сцена.msc> --machine ИМЯ --take \"1 speed=1, 2.5 jump\" [--length СЕК] [-o видео.mp4] …
   motif palette <сцена.msc> [-o палитра.pal]
   motif kit     <сцена.msc> [-o папка] [параметры рендера]
   motif screen  <сцена.msc> [-o папка] [параметры рендера]
   motif godot   <сцена.msc> [--node ID] [--pivot X Y] [--machine ИМЯ] [--pixelize] [--preset X.preset] [--fps 12] [-o папка] [параметры рендера]
   motif pixel   <сцена.msc> --anim ИМЯ [--preset X.preset] [--pixatool Pixatool.exe] [--fps 12] [-o папка] [параметры рендера]
+  motif runtime <сцена.msc> -o папка-в-проекте-godot [--addon папка-аддона]
 
 Холсты: в файле с несколькими строками artboard каждая открывает свой холст. У всех команд --board ИМЯ (или номер
 с 1) берёт один из них, без него команды работают со всеми: render сохраняет СЦЕНА_ХОЛСТ.png
@@ -36,7 +38,9 @@ frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их мож
 video сохраняет анимацию одним файлом, формат — по расширению -o (по умолчанию СЦЕНА_ИМЯ.mp4):
 GIF и APNG (.png) Motif пишет сам, MP4 (H.264) и WebM (VP9, с прозрачностью) — через ffmpeg, который
 ищется в --ffmpeg, рядом с Motif и в PATH. Повторяющаяся анимация в GIF и APNG крутится по кругу; где
-прозрачности нет (MP4), её место занимает цвет фона артборда.
+прозрачности нет (MP4), её место занимает цвет фона артборда. С --machine и --take video снимает прогон машины
+состояний: в моменты из --take входы меняются (число — speed=1, флаг — on или on=0, триггер — просто имя),
+и машина переходит между состояниями, как в игре. Прогон длится --length секунд или секунду после последнего момента.
 kit сохраняет элементы интерфейса (ui, slice) в каждом состоянии (анимации Hover, Press, Disabled, Focus)
 и тему Godot ИМЯ.tres, где они стоят стилями 9-slice.
 screen делает из каждого холста сцену Godot ХОЛСТ.tscn из Control-узлов: детали интерфейса — их типы
@@ -48,6 +52,9 @@ godot запекает все анимации в один атлас ИМЯ.png
 только один объект (персонаж без фона), --pivot задаёт точку привязки спрайта в координатах артборда.
 С --pixelize (или --preset) кадры перед упаковкой в атлас проходят через PixaTool.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
+runtime кладёт сцену в проект Godot для узла MotifSprite, который играет её вектором без запекания: аддон
+Motif в addons/motif (из --addon, переменной MOTIF_GODOT_ADDON или папки godot-addon рядом с Motif), .msc и
+его шрифты в папку -o, сцену ИМЯ.tscn с настроенным узлом (если её ещё нет) и *.msc в фильтры экспорта.
 Стороны: в сцене со строкой directions 8 turn ID… godot снимает каждую анимацию со всех сторон
 (Walk_down, Walk_right…, с mirror — без левых, их отражает скрипт ИМЯ.gd), а --side right у render,
 frames и video снимает одну сторону: down, down_right, right, up_right, up, up_left, left, down_left.
@@ -63,6 +70,7 @@ struct Args {
     fps: f64,
     fps_set: bool,
     ffmpeg: Option<PathBuf>,
+    addon: Option<PathBuf>,
     scale: Option<f64>,
     width: Option<f64>,
     antialias: bool,
@@ -74,6 +82,8 @@ struct Args {
     pixelize: bool,
     machine: Option<String>,
     board: Option<String>,
+    take: Option<String>,
+    length: Option<f64>,
     side: Option<String>,
 }
 
@@ -92,6 +102,7 @@ fn parse_args() -> Result<Args, String> {
         fps: 12.0,
         fps_set: false,
         ffmpeg: None,
+        addon: None,
         scale: None,
         width: None,
         antialias: true,
@@ -103,6 +114,8 @@ fn parse_args() -> Result<Args, String> {
         pixelize: false,
         machine: None,
         board: None,
+        take: None,
+        length: None,
         side: None,
     };
     let num = |v: Option<String>, flag: &str| v.and_then(|s| s.parse::<f64>().ok()).ok_or(format!("после {flag} нужно число"));
@@ -115,6 +128,7 @@ fn parse_args() -> Result<Args, String> {
                 a.fps = num(it.next(), "--fps")?;
                 a.fps_set = true;
             }
+            "--addon" => a.addon = Some(it.next().ok_or("после --addon нужна папка аддона (godot-addon/addons/motif)")?.into()),
             "--ffmpeg" => a.ffmpeg = Some(it.next().ok_or("после --ffmpeg нужен путь к ffmpeg")?.into()),
             "--scale" => a.scale = Some(num(it.next(), "--scale")?),
             "--width" => a.width = Some(num(it.next(), "--width")?),
@@ -122,6 +136,8 @@ fn parse_args() -> Result<Args, String> {
             "--pixatool" => a.pixatool = Some(it.next().ok_or("после --pixatool нужен путь к Pixatool.exe")?.into()),
             "--node" => a.node = Some(it.next().ok_or("после --node нужен id объекта")?),
             "--board" => a.board = Some(it.next().ok_or("после --board нужно имя холста или его номер")?),
+            "--take" => a.take = Some(it.next().ok_or("после --take нужны моменты: \"1 speed=1, 2.5 jump\"")?),
+            "--length" => a.length = Some(num(it.next(), "--length")?),
             "--side" => a.side = Some(it.next().ok_or("после --side нужна сторона: down, right, up…")?),
             "--machine" => a.machine = Some(it.next().ok_or("после --machine нужно имя машины")?),
             "--pivot" => a.pivot = Some((num(it.next(), "--pivot")?, num(it.next(), "--pivot")?)),
@@ -229,14 +245,54 @@ fn run() -> Result<(), String> {
             }
             println!("{}: {} кадров {}×{} при {} к/с", dir.display(), frames.len(), frames[0].width(), frames[0].height(), motif_script::fmt_num(a.fps));
         }
+        "video" if a.take.is_some() || (a.anim.is_none() && a.machine.is_some()) => {
+            let name = a.machine.clone().ok_or("для прогона укажите --machine ИМЯ")?;
+            if a.side.is_some() {
+                return Err("--side пока работает только с --anim, не с прогоном машины".into());
+            }
+            let with: Vec<&Document> = boards.iter().filter(|d| d.machine(&name).is_some()).collect();
+            let doc = match with.as_slice() {
+                [doc] => *doc,
+                [] => return Err(format!("нет машины «{name}»")),
+                _ => return Err(format!("машина «{name}» есть на нескольких холстах: укажите --board")),
+            };
+            let m = doc.machine(&name).expect("found");
+            let take = motif_core::Take::parse(m, a.take.as_deref().unwrap_or(""), a.length)?;
+            let fps = if a.fps_set { a.fps } else { 30.0 };
+            let out = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}.mp4")));
+            let r = motif_pixel::video::export_take(
+                doc,
+                m,
+                &take,
+                render_for(doc),
+                motif_pixel::video::VideoOptions { fps, ffmpeg: a.ffmpeg.clone(), ..Default::default() },
+                &out,
+            )?;
+            println!(
+                "{} — {}, прогон «{name}» {} с: {} кадров {}×{}",
+                out.display(),
+                r.format.label(),
+                motif_script::fmt_num(take.length),
+                r.frames,
+                r.width,
+                r.height
+            );
+        }
         "video" => {
-            let name = a.anim.clone().ok_or("для video укажите --anim ИМЯ")?;
+            let name = a.anim.clone().ok_or("для video укажите --anim ИМЯ (или --machine и --take для прогона машины)")?;
             let doc = board_with_anim(&boards, &name)?;
             // Video plays smoothly at 30 frames a second; sprite frames keep their 12.
             let fps = if a.fps_set { a.fps } else { 30.0 };
             let out = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}.mp4")));
             let face = a.side.as_deref().map(|s| motif_pixel::side(doc, s)).transpose()?;
-            let r = motif_pixel::video::export_animation(doc, &name, face, render_for(doc), fps, a.ffmpeg.clone(), &out)?;
+            let r = motif_pixel::video::export_animation(
+                doc,
+                &name,
+                face,
+                render_for(doc),
+                motif_pixel::video::VideoOptions { fps, ffmpeg: a.ffmpeg.clone(), ..Default::default() },
+                &out,
+            )?;
             println!("{} — {}, {} кадров {}×{} при {} к/с", out.display(), r.format.label(), r.frames, r.width, r.height, motif_script::fmt_num(fps));
         }
         "pixel" => {
@@ -308,6 +364,25 @@ fn run() -> Result<(), String> {
             for doc in boards {
                 let name = a.node.clone().unwrap_or_else(|| board_name(doc));
                 godot(&a, doc, render_for(doc), &dir, &name)?;
+            }
+        }
+        "runtime" => {
+            let dir = a.out.clone().ok_or("для runtime укажите -o папку внутри проекта Godot")?;
+            let addon = a.addon.clone().or_else(motif_pixel::runtime::addon_source);
+            let r = motif_pixel::runtime::install(&a.scene, &src, &dir, addon.as_deref())?;
+            println!("{} → {}", a.scene.display(), r.res);
+            if r.fonts > 0 {
+                println!("  шрифтов рядом: {}", r.fonts);
+            }
+            if let Some(t) = &r.tscn {
+                println!("  сцена с узлом MotifSprite: {}", t.display());
+            }
+            println!("  аддон: {}", if r.addon { "поставлен в addons/motif" } else { "уже стоит" });
+            if r.presets > 0 {
+                println!("  *.msc добавлен в фильтры экспорта: {} пресетов", r.presets);
+            }
+            for w in &r.warnings {
+                eprintln!("  внимание: {w}");
             }
         }
         "palette" => {

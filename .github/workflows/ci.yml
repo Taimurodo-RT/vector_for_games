@@ -29,6 +29,7 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/machine.msc
       - run: cargo run -p motif-cli -- godot examples/machine.msc --node hero -o target/godot-check
       - run: cargo run -p motif-cli -- video examples/bounce.msc --anim Idle --fps 12 -o target/video-check/idle.gif
+      - run: cargo run -p motif-cli -- video examples/machine.msc --machine Hero --take "0.5 speed=1, 1.5 jump" --fps 12 -o target/video-check/run.gif
       - run: cargo run -p motif-cli -- check examples/bones.msc
       - run: cargo run -p motif-cli -- check examples/weights.msc
       - run: cargo run -p motif-cli -- check examples/tunnel.msc
@@ -55,6 +56,25 @@ jobs:
       - run: cargo run -p motif-cli -- screen godot-apps/calculator/calculator.msc -o target/apps-check/calculator
       - run: cargo run -p motif-cli -- screen godot-apps/focus/focus.msc -o target/apps-check/focus
 
+  # MotifSprite in a real Godot: the addon loads, plays the machine, sends events, draws.
+  godot-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p motif-godot
+      - name: Godot 4.3
+        run: |
+          curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+          unzip -q godot.zip
+      - run: godot-addon/test/run.sh "$PWD/Godot_v4.3-stable_linux.x86_64" "$PWD/target/debug/libmotif_godot.so"
+      - name: motif runtime into a project
+        run: |
+          mkdir -p target/runtime-check/ui && echo 'config_version=5' > target/runtime-check/project.godot
+          cargo run -p motif-cli -- runtime examples/modern-button.msc -o target/runtime-check/ui
+          test -f target/runtime-check/addons/motif/motif.gdextension && test -f target/runtime-check/ui/fonts/Inter-Medium.ttf
+
   # Windows build. On main it is also published as the release that update.bat downloads.
   windows-build:
     runs-on: windows-latest
@@ -74,6 +94,8 @@ jobs:
           $sha = "${{ github.sha }}".Substring(0, 7)
           "MOTIF_BUILD=$(Get-Date -Format yyyy.MM.dd)-$sha" >> $env:GITHUB_ENV
       - run: cargo build --release -p motif-editor -p motif-cli
+      # Built on its own, so the editor's GPU renderer does not end up in the Godot library.
+      - run: cargo build --release -p motif-godot
       - name: Collect the build
         shell: pwsh
         run: packaging/windows/package.ps1 -Out Motif -Version $env:MOTIF_BUILD

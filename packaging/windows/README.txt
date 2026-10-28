@@ -145,6 +145,12 @@ ffmpeg: скачайте сборку с https://www.gyan.dev/ffmpeg/builds/ (с
 на ffmpeg.org → Download → Windows), возьмите из архива bin\ffmpeg.exe и
 положите рядом с motif.exe. Можно и указать путь в окне экспорта. В командной
 строке: motif.exe video сцена.msc --anim Idle -o idle.mp4
+Пока видео пишется, внизу окна видно «Кадр N из M» и кнопку «Отменить»;
+готовый файл покажет «Открыть папку».
+Прогон машины состояний в видео: кнопка «Запись» на панели машины, затем
+«Стоп» — Motif проиграет прогон заново и сохранит его в формате из «Экспорт →
+Видео». В командной строке: motif.exe video hero.msc --machine Hero
+--take "0.5 speed=1, 2 jump" --length 4 -o run.gif
 
 PixaTool: «Экспорт → PixaTool». Motif сам находит Pixatool.exe в папке tools
 рядом с Motif, загружает пресет (файл из «Save Preset» в PixaTool) и прогоняет
@@ -211,7 +217,17 @@ PixaTool с пресетом из раздела PixaTool: в атлас лож�
 После первой выгрузки каждое Ctrl+S обновляет персонажа в той же папке Godot
 («Отвязать» в окне «Экспорт» выключает).
 
-motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot
+Motif прямо в игре, без запекания: «Экспорт → Поставить в проект Godot…» и
+папка внутри проекта Godot 4.3+. Motif поставит аддон в addons/motif, положит
+сцену .msc со шрифтами и ИМЯ.tscn с узлом MotifSprite; потом каждое Ctrl+S
+копирует сцену туда снова (Godot лучше закрыть при первой установке).
+Командой: motif.exe runtime hero.msc -o C:\game\characters. Узел MotifSprite
+играет сцену вектором тем же ядром, что редактор: машина состояний, кости, мягкие
+тела, 3D. Из кода: set_input("speed", 1), fire("jump"), get_state(), сигналы
+event(name) и state_changed(state). Пример — godot-apps\hero: стрелки, пробел,
+H, колесо мыши. Подробнее — docs\runtime.html.
+
+motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 
 В строке состояния внизу видно, чем рисует холст: «Vello на GPU» или запасной CPU-рендер.

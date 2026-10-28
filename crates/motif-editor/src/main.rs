@@ -28,6 +28,7 @@ mod physics_ui;
 mod pixabridge;
 mod psd;
 mod rope_ui;
+mod runtime_ui;
 mod scriptui;
 mod selection;
 mod sheet;

@@ -167,6 +167,8 @@ pub struct App {
     pub(crate) machine_pick: Option<motif_script::MachineItem>,
     /// The machine playing on the canvas.
     pub(crate) run: Option<crate::machine_ui::Run>,
+    /// The machine run being recorded («Запись»).
+    pub(crate) take: Option<motif_core::Take>,
     /// The interface check: the `ui` pieces working under the mouse.
     pub(crate) check: Option<motif_core::UiCheck>,
     /// The pointer listener being put together in the machine panel: object, event, input.
@@ -226,7 +228,7 @@ pub struct App {
     pub(crate) pixa: crate::pixabridge::Bridge,
     pub(crate) video: crate::video_ui::VideoExport,
     /// For work that finishes on another thread and must wake the window (re-export on save).
-    ctx: egui::Context,
+    pub(crate) ctx: egui::Context,
     canvas: Canvas,
     pub(crate) backdrop_img: crate::importer::BackdropCache,
     pub(crate) status: String,
@@ -277,6 +279,7 @@ impl App {
             machine: None,
             machine_pick: None,
             run: None,
+            take: None,
             check: None,
             listen_draft: (String::new(), motif_core::PointerEvent::Hover, String::new()),
             graph: Default::default(),
@@ -827,6 +830,12 @@ impl App {
                 if let Some(link) = self.pixa.link(&path).cloned() {
                     let ctx = self.ctx.clone();
                     self.status = format!("Сохранено. {}", self.godot_to(&link.target, &ctx));
+                }
+                if let Some(dir) = self.pixa.runtime_link(&path).cloned() {
+                    self.status = match motif_pixel::runtime::copy_scene(&path, &self.saved_src, &dir) {
+                        Ok((to, _)) => format!("{} Для MotifSprite: → {}", self.status, to.display()),
+                        Err(e) => format!("{} В проект Godot не скопировано: {e}", self.status),
+                    };
                 }
             }
             Err(e) => self.status = format!("Не удалось сохранить {}: {e}", path.display()),
@@ -1789,7 +1798,14 @@ impl App {
             };
             ui.label(small(mode, FAINT));
             ui.label(small(format!("история: {}", self.undo.len()), FAINT));
-            ui.label(small(self.status.clone(), MUTED));
+            if self.video.busy() {
+                self.video.progress_ui(ui, false);
+            } else {
+                ui.label(small(self.status.clone(), MUTED));
+                if let Some(e) = self.video.reveal_ui(ui, Some(&self.status)) {
+                    self.status = e;
+                }
+            }
         });
     }
 
@@ -2308,6 +2324,7 @@ impl App {
                 } else {
                     self.godot_export(ui);
                 }
+                self.runtime_export(ui);
                 theme::caption(ui, "Кадры PNG для PixaTool");
                 egui::Grid::new("export").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                     ui.label("Кадров в секунду");
