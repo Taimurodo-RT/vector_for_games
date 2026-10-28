@@ -11,9 +11,8 @@ gif.workspace = true
 png.workspace = true
 motif-core.workspace = true
 motif-render.workspace = true
+motif-script.workspace = true
 serde_json.workspace = true
 tiny-skia.workspace = true
 tungstenite.workspace = true
 
-[dev-dependencies]
-motif-script.workspace = true

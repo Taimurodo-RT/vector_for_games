@@ -138,6 +138,7 @@ impl App {
         if self.run.is_some() {
             self.run = None;
             self.status = "Машина остановлена".into();
+            self.finish_take();
         } else if let Some(m) = self.shown_machine() {
             if m.states.is_empty() {
                 self.status = "В машине нет состояний: добавьте их кнопкой «+ Состояние»".into();
@@ -174,13 +175,51 @@ impl App {
         }
     }
 
+    /// «Запись»: runs the machine from its start and records how its inputs change, until
+    /// «■ Стоп» (or the machine stops), then asks where to save the run as a video.
+    pub(crate) fn toggle_take(&mut self) {
+        if self.take.is_some() {
+            self.finish_take();
+            return;
+        }
+        let Some(m) = self.shown_machine().cloned() else { return };
+        if m.states.is_empty() {
+            self.status = "В машине нет состояний: записывать нечего".into();
+            return;
+        }
+        if self.run.is_none() {
+            self.toggle_run();
+        }
+        // A take starts from the beginning, like the game does.
+        self.run = Some(Run { player: MachinePlayer::new(&m), flash: None, heard: Vec::new() });
+        self.take = Some(motif_core::Take::new(&m));
+        self.status = format!("Запись прогона «{}»: меняйте входы и наводите мышь, «Стоп» — сохранить видео", m.name);
+    }
+
+    /// Ends the recording, if one is on, and offers to save it.
+    pub(crate) fn finish_take(&mut self) {
+        let Some(take) = self.take.take() else { return };
+        if take.length < 0.1 {
+            self.status = "Запись слишком короткая".into();
+            return;
+        }
+        self.video.last_take = Some(take);
+        let ctx = self.ctx.clone();
+        self.save_take(&ctx);
+    }
+
     /// Moves the running machine on by `dt` seconds.
     pub(crate) fn advance_run(&mut self, dt: f32) {
         let Some(m) = self.shown_machine().cloned() else {
             self.run = None;
+            self.finish_take();
             return;
         };
         let Some(run) = &mut self.run else { return };
+        if let Some(take) = &mut self.take {
+            take.record(take.length, &run.player.values, None);
+            take.length += dt as f64;
+        }
         if let Some(k) = run.player.advance(&m, &self.scene.doc, dt as f64) {
             run.flash = Some((k, 0.6));
         }
@@ -219,6 +258,7 @@ impl App {
         }
         if self.shown_machine().is_none() {
             self.run = None;
+            self.take = None;
         }
     }
 
@@ -275,6 +315,7 @@ impl App {
             self.machine = Some(n);
             self.machine_pick = None;
             self.run = None;
+            self.take = None;
         }
         if (create || (names.is_empty() && theme::button(ui, "Создать машину", ButtonKind::Primary).clicked())) && self.can_edit() {
             let (out, name) = add_machine(&self.src, &self.scene);
@@ -314,6 +355,9 @@ impl App {
             self.machine_pick = Some(MachineItem::State(i));
             if let Some(run) = &mut self.run {
                 run.player.jump(i);
+                if let Some(take) = &mut self.take {
+                    take.record(take.length, &run.player.values, Some(i));
+                }
             }
         }
         let add = theme::button(ui, "+ Состояние", ButtonKind::Normal).on_hover_text("Новое состояние с одной из анимаций");
@@ -345,8 +389,24 @@ impl App {
         if theme::button(ui, "Сброс", ButtonKind::Normal).on_hover_text("С начального состояния, входы по умолчанию").clicked() && running
         {
             self.run = Some(Run { player: MachinePlayer::new(&m), flash: None, heard: Vec::new() });
+            if self.take.is_some() {
+                // The recording starts over with the machine.
+                self.take = Some(motif_core::Take::new(&m));
+            }
         }
-        let hint = if running && !m.listeners.is_empty() {
+        let label = match &self.take {
+            Some(t) => format!("Стоп {} с", motif_script::fmt_num((t.length * 10.0).round() / 10.0)),
+            None => "Запись".to_string(),
+        };
+        if theme::record_button(ui, &label, self.take.is_some())
+            .on_hover_text("Записать прогон машины в видео: с начального состояния, со всеми входами и переходами")
+            .clicked()
+        {
+            self.toggle_take();
+        }
+        let hint = if self.take.is_some() {
+            "Идёт запись: «Стоп» сохранит видео"
+        } else if running && !m.listeners.is_empty() {
             "Играет: мышь на холсте и входы справа"
         } else if running {
             "Играет: переключайте входы справа"

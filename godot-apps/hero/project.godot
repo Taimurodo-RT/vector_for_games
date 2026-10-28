@@ -1,0 +1,19 @@
+; Капля из Motif, которая играет в Godot вектором, без запекания: узел MotifSprite из addons/motif.
+; addons/motif кладёт сборка Motif (или ../build.sh из репозитория).
+
+config_version=5
+
+[application]
+config/name="Капля (Motif runtime)"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3")
+
+[display]
+window/size/viewport_width=960
+window/size/viewport_height=600
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.08, 0.09, 0.13, 1)
