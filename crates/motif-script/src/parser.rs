@@ -176,6 +176,14 @@ pub enum Stmt {
         props: Vec<PropAst>,
         span: Span,
     },
+    /// `directions 8 turn head body mirror`: the sides a character is shot from.
+    Directions {
+        count: ValueAst,
+        /// The objects turned to face each side, with where each is written.
+        turn: Vec<(String, Span)>,
+        mirror: bool,
+        span: Span,
+    },
     Node(NodeAst),
     /// `symbol Coin size=16 color=#ffd23f { … }`: a reusable piece, drawn only through `use`.
     Symbol {
@@ -422,12 +430,13 @@ impl<'a> Parser<'a> {
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
         let (word, span) = self.ident(
-            "команда: artboard, world, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
+            "команда: artboard, world, directions, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
         )?;
         match word.as_str() {
             "artboard" => self.artboard(),
             "backdrop" => self.backdrop(span.start),
             "world" => self.world(span.start),
+            "directions" => self.directions(span.start),
             "let" => {
                 let (name, _) = self.ident("имя переменной")?;
                 self.vars.insert(name.clone());
@@ -592,6 +601,32 @@ impl<'a> Parser<'a> {
             props.push(PropAst { key, key_span, values });
         }
         Ok(Stmt::World { props, span: Span::new(start, end) })
+    }
+
+    fn directions(&mut self, start: usize) -> Result<Stmt, ScriptError> {
+        let count = self.value()?;
+        let mut end = count.span.end;
+        let mut turn = Vec::new();
+        let mut mirror = false;
+        while !self.at_line_end() {
+            let (key, key_span) = self.ident("turn ID… или mirror")?;
+            end = key_span.end;
+            match key.as_str() {
+                "turn" => {
+                    while matches!(self.peek(), Some(Tok::Ident(w)) if w != "mirror") {
+                        let (id, id_span) = self.ident("id объекта")?;
+                        end = id_span.end;
+                        turn.push((id, id_span));
+                    }
+                    if turn.is_empty() {
+                        return Err(self.err(key_span, "после turn — id объектов, которые поворачиваются: turn head body"));
+                    }
+                }
+                "mirror" => mirror = true,
+                _ => return Err(self.err(key_span, format!("у directions нет «{key}»: directions 8 turn head mirror"))),
+            }
+        }
+        Ok(Stmt::Directions { count, turn, mirror, span: Span::new(start, end) })
     }
 
     /// `name=value`, with a value of its own: number, colour, name or `{expression}`.

@@ -68,6 +68,8 @@ impl<'a> Evaluator<'a> {
                 instances: HashMap::new(),
                 machines: HashMap::new(),
                 world: None,
+                directions: None,
+                directions_turn: Vec::new(),
                 weights: HashMap::new(),
                 board_cell: None,
                 palette: Vec::new(),
@@ -124,6 +126,11 @@ impl<'a> Evaluator<'a> {
             }
         }
         self.check_rig();
+        for s in stmts {
+            if let Stmt::Directions { count, turn, mirror, span } = s {
+                self.directions(count, turn, *mirror, *span);
+            }
+        }
         for s in stmts {
             if let Stmt::Weights { node, node_span, strokes, span, close } = s {
                 self.note_block(span.start);
@@ -229,6 +236,29 @@ impl<'a> Evaluator<'a> {
         for (span, msg) in errors {
             self.err(span, msg);
         }
+    }
+
+    fn directions(&mut self, count: &ValueAst, turn: &[(String, Span)], mirror: bool, span: Span) {
+        if self.scene.directions.is_some() {
+            self.err(span, "directions одна строка на холст");
+            return;
+        }
+        self.scene.directions = Some(span);
+        self.scene.directions_turn = turn.to_vec();
+        let count = match self.value(count) {
+            Some(Value::Num(n)) if n == 4.0 || n == 8.0 => n as usize,
+            _ => {
+                self.err(count.span, "directions 4 или directions 8: сколько сторон снимать");
+                return;
+            }
+        };
+        for (id, at) in turn {
+            if self.scene.doc.index_of(id).is_none() {
+                self.err(*at, format!("нет объекта «{id}»"));
+            }
+        }
+        let turn = turn.iter().map(|(id, _)| id.clone()).collect();
+        self.scene.doc.directions = Some(motif_core::Directions { count, turn, mirror });
     }
 
     /// IK targets and skin bones must exist; a target must not hang from the chain it moves.
@@ -553,6 +583,11 @@ impl<'a> Evaluator<'a> {
                     }
                     for (span, msg) in bad {
                         self.err(span, msg);
+                    }
+                }
+                Stmt::Directions { span, .. } => {
+                    if parent.is_some() {
+                        self.err(*span, "directions пишется на верхнем уровне сцены");
                     }
                 }
                 Stmt::Backdrop { file, props, span } => {
