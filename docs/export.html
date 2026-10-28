@@ -61,6 +61,7 @@
   <li><b>Повтор.</b> Анимация с повтором (<code>loop</code>) в GIF и APNG крутится по кругу без шва: последний кадр не дублирует первый. Видео MP4 и WebM повторяет плеер.</li>
   <li><b>Прозрачный фон</b> работает для WebM, GIF и APNG. В GIF полупрозрачные края становятся либо видимыми, либо прозрачными — для мягких краёв берите APNG или WebM.</li>
   <li><b>Все холсты.</b> С выбором «Все» вверху окна каждый холст, где есть эта анимация, сохраняется своим файлом <code>ХОЛСТ_Анимация.mp4</code> в выбранную папку.</li>
+  <li><b>Прогон машины.</b> «Запись» на панели <a href="machine.html#take">машины состояний</a> снимает целый прогон с переходами и событиями; после «Стоп» он сохраняется сюда же, а кнопка «Сохранить прогон…» повторит его в другом формате.</li>
   <li><b>ffmpeg</b> нужен только для MP4 и WebM. Скачайте его с <a href="https://ffmpeg.org/download.html">ffmpeg.org</a> (для Windows — сборка <a href="https://www.gyan.dev/ffmpeg/builds/">gyan.dev</a>, файл <code>bin\ffmpeg.exe</code> из архива) и положите <code>ffmpeg.exe</code> рядом с <code>motif.exe</code>. Motif ищет его там, затем в <code>PATH</code>; другой путь можно указать в окне экспорта — он запомнится в <code>motif.ini</code>.</li>
 </ul>
 
@@ -118,6 +119,7 @@ motif.exe render  сцена.msc --anim Idle --time 0.5 -o кадр.png
 motif.exe frames  сцена.msc --anim Idle --fps 12 --width 120 --no-aa -o out\idle
 motif.exe video   сцена.msc --anim Idle --scale 2 -o out\idle.mp4
 motif.exe video   сцена.msc --anim Idle --transparent -o out\idle.gif
+motif.exe video   сцена.msc --machine Hero --take "0.5 speed=1, 2 jump" -o out\run.gif
 motif.exe palette сцена.msc -o out\scene.pal
 motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --no-aa -o out\idle_px
 motif.exe kit     ui.msc --scale 2 -o game\ui
@@ -139,6 +141,7 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
   <tr><td><code>--board ИМЯ</code></td><td>Один холст файла по имени или номеру с 1. Без ключа команды работают со всеми холстами: <code>check</code> перечисляет их, <code>render</code> сохраняет <code>СЦЕНА_ХОЛСТ.png</code> (<code>-o</code> — папка), <code>kit</code> собирает детали всех холстов в одну тему, <code>godot</code> выгружает каждый холст сценой <code>ХОЛСТ.tscn</code>, <code>palette</code> собирает цвета всех; <code>frames</code>, <code>pixel</code> и <code>video</code> берут холст, где есть анимация <code>--anim</code>.</td></tr>
   <tr><td><code>--side СТОРОНА</code></td><td>Для <code>render</code>, <code>frames</code> и <code>video</code> в сцене со строкой <code>directions</code>: снять одну сторону — <code>down</code>, <code>down_right</code>, <code>right</code>, <code>up_right</code>, <code>up</code>, <code>up_left</code>, <code>left</code>, <code>down_left</code>. См. <a href="orbit.html#sides">«Стороны»</a>.</td></tr>
   <tr><td><code>--node ID</code> / <code>--pivot X Y</code> / <code>--machine ИМЯ</code></td><td>Для <code>godot</code>: один объект вместо всей сцены, точка привязки спрайта, машина состояний.</td></tr>
+  <tr><td><code>--machine ИМЯ --take "…"</code> / <code>--length С</code></td><td>Для <code>video</code>: прогон машины состояний вместо одной анимации — моменты <code>"0.5 speed=1, 2 jump"</code> по времени, длина видео в секундах. См. <a href="machine.html#take">«Запись прогона»</a>.</td></tr>
   <tr><td><code>--preset X.preset</code></td><td>Пресет PixaTool для <code>pixel</code>; без него — настройки PixaTool по умолчанию.</td></tr>
   <tr><td><code>--pixatool путь</code></td><td>Где лежит <code>Pixatool.exe</code>. Без ключа он ищется в переменной <code>MOTIF_PIXATOOL</code> и в папке <code>tools</code> рядом с Motif.</td></tr>
   <tr><td><code>--ffmpeg путь</code></td><td>Где лежит <code>ffmpeg.exe</code> для MP4 и WebM. Без ключа он ищется рядом с Motif и в <code>PATH</code>.</td></tr>
