@@ -874,6 +874,30 @@ pub fn set_world(src: &str, scene: &Scene, world: &motif_core::World) -> String 
     }
 }
 
+/// The `directions` line for `d`.
+pub fn directions_text(d: &motif_core::Directions) -> String {
+    let mut out = format!("directions {}", d.count);
+    if !d.turn.is_empty() {
+        out.push_str(" turn ");
+        out.push_str(&d.turn.join(" "));
+    }
+    if d.mirror {
+        out.push_str(" mirror");
+    }
+    out
+}
+
+/// Returns the script with its `directions` line set to `d`: replaced, added under the
+/// `artboard` line, or removed with `None`.
+pub fn set_directions(src: &str, scene: &Scene, d: Option<&motif_core::Directions>) -> String {
+    match (scene.directions, d) {
+        (Some(span), Some(d)) => splice(src, span, &directions_text(d)),
+        (Some(span), None) => remove_spans(src, vec![whole_lines(src, span)]),
+        (None, Some(d)) => under_artboard(src, &directions_text(d)),
+        (None, None) => src.to_string(),
+    }
+}
+
 /// Returns the script with the scene light (`light` on the `artboard` line) set to `angle`
 /// degrees; the default 90 removes it. `None` when there is no artboard line.
 pub fn set_light(src: &str, angle: f64) -> Option<String> {

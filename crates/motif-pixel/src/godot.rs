@@ -59,6 +59,17 @@ pub struct Sheet {
     pub offset: (f64, f64),
     pub fps: f64,
     pub anims: Vec<SheetAnim>,
+    /// With `directions`: the sides and the animations they were shot for, each as
+    /// `NAME_side` in [`Sheet::anims`].
+    pub sides: Option<Sides>,
+}
+
+/// The sides of a sheet shot with `directions`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sides {
+    pub directions: motif_core::Directions,
+    /// Each animation by its own name, how long it plays and whether it loops.
+    pub bases: Vec<(String, f64, bool)>,
 }
 
 /// One animation rendered at full artboard size, before trimming and packing.
@@ -75,13 +86,31 @@ fn prepared(doc: &Document, only: Option<&str>) -> Result<Document, String> {
     if let Some(id) = only {
         let i = doc.index_of(id).ok_or_else(|| format!("нет объекта «{id}»"))?;
         for k in 0..doc.nodes.len() {
-            let keep = k == i || doc.is_inside(k, i) || doc.is_inside(i, k);
+            let keep = rides(&doc, k, i, 8) || doc.is_inside(i, k);
             if !keep {
                 doc.nodes[k].visible = false;
             }
         }
     }
     Ok(doc)
+}
+
+/// Whether node `k` is node `i`, inside it, or sits on it (`on`, through the groups it is in),
+/// up to `depth` objects sitting on each other.
+fn rides(doc: &Document, k: usize, i: usize, depth: usize) -> bool {
+    if k == i || doc.is_inside(k, i) {
+        return true;
+    }
+    let mut at = Some(k);
+    while let Some(x) = at.filter(|_| depth > 0) {
+        if let Some(ball) = doc.nodes[x].on.as_deref().and_then(|o| doc.index_of(o))
+            && rides(doc, ball, i, depth - 1)
+        {
+            return true;
+        }
+        at = doc.nodes[x].parent;
+    }
+    false
 }
 
 /// Renders every frame of every animation (the scene as written when it has none), trims them
@@ -99,30 +128,37 @@ pub fn bake_sheet_with(doc: &Document, opts: &GodotExport, process: impl FnOnce(
     }
     let base = prepared(doc, opts.only.as_deref())?;
     let render = CpuOptions { background: false, ..opts.render };
-    // Every animation's frames, full artboard size.
+    // Every animation's frames, full artboard size: from each drawn side with `directions`.
     let mut raw: Vec<RawAnim> = Vec::new();
-    for anim in &base.animations {
-        let mut count = (anim.duration * opts.fps).round() as usize;
-        if !anim.looping {
-            count += 1;
+    let mut sides = None;
+    match base.directions.clone() {
+        None => {
+            for anim in &base.animations {
+                raw.push(shoot(&base, anim, &anim.name, None, opts.fps, render)?);
+            }
         }
-        let mut sim = SimCache::default();
-        let frames = (0..count.max(1))
-            .map(|i| {
-                let t = (i as f64 / opts.fps).min(anim.duration);
-                render_cpu(&anim.pose_with(&base, t, &mut sim), render).ok_or_else(|| "не удалось создать изображение".to_string())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        // An event belongs to the frame nearest its time; on a loop the end is the next start.
-        let events = anim
-            .events
-            .iter()
-            .map(|e| {
-                let i = (e.time * opts.fps).round() as usize;
-                (if anim.looping { i % frames.len() } else { i.min(frames.len() - 1) }, e.name.clone())
-            })
-            .collect();
-        raw.push(RawAnim { name: anim.name.clone(), looping: anim.looping, frames, events });
+        Some(d) => {
+            let mut bases = Vec::new();
+            for anim in base.animations.iter().filter(|a| !d.is_side(&base, &a.name)) {
+                for k in d.drawn() {
+                    let shot = d.anim_for(&base, &anim.name, k).unwrap_or(anim);
+                    raw.push(shoot(&base, shot, &format!("{}_{}", anim.name, d.names()[k]), Some(k), opts.fps, render)?);
+                }
+                bases.push((anim.name.clone(), anim.duration, anim.looping));
+            }
+            if base.animations.is_empty() {
+                for k in d.drawn() {
+                    let mut posed = base.clone();
+                    posed.rig();
+                    posed.face(k);
+                    posed.rig();
+                    let px = render_cpu(&posed, render).ok_or("не удалось создать изображение")?;
+                    raw.push(RawAnim { name: format!("default_{}", d.names()[k]), looping: false, frames: vec![px], events: Vec::new() });
+                }
+                bases.push(("default".to_string(), 0.0, false));
+            }
+            sides = Some(Sides { directions: d, bases });
+        }
     }
     if raw.is_empty() {
         let mut posed = base.clone();
@@ -200,7 +236,33 @@ pub fn bake_sheet_with(doc: &Document, opts: &GodotExport, process: impl FnOnce(
         // Resized frames are pixel art: on whole pixels, so none comes out wider than the rest.
         offset = (offset.0.round(), offset.1.round());
     }
-    Ok(Sheet { atlas, cells: at, size, offset, fps: opts.fps, anims })
+    Ok(Sheet { atlas, cells: at, size, offset, fps: opts.fps, anims, sides })
+}
+
+/// Every frame of `anim` at full artboard size, from side `face` of the scene's `directions`,
+/// stored as `name`.
+fn shoot(base: &Document, anim: &motif_core::Animation, name: &str, face: Option<usize>, fps: f64, render: CpuOptions) -> Result<RawAnim, String> {
+    let mut count = (anim.duration * fps).round() as usize;
+    if !anim.looping {
+        count += 1;
+    }
+    let mut sim = SimCache::default();
+    let frames = (0..count.max(1))
+        .map(|i| {
+            let t = (i as f64 / fps).min(anim.duration);
+            render_cpu(&anim.pose_facing(base, t, &mut sim, face), render).ok_or_else(|| "не удалось создать изображение".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    // An event belongs to the frame nearest its time; on a loop the end is the next start.
+    let events = anim
+        .events
+        .iter()
+        .map(|e| {
+            let i = (e.time * fps).round() as usize;
+            (if anim.looping { i % frames.len() } else { i.min(frames.len() - 1) }, e.name.clone())
+        })
+        .collect();
+    Ok(RawAnim { name: name.to_string(), looping: anim.looping, frames, events })
 }
 
 /// The smallest box around pixels that are not fully transparent: x0, y0, x1, y1.
@@ -282,11 +344,48 @@ fn events_gd(sheet: &Sheet) -> Option<String> {
     Some(format!(
         "\n## Animation events from Motif: connect to it, e.g. event.connect(func(name): if name == \"step\": $Step.play()).\nsignal event(name: String)\n\n\
 ## Events by animation and frame.\nconst EVENTS := {{\n{}\n}}\n\nvar _shown := []\n\n\
-func _ready() -> void:\n\t$Sprite.frame_changed.connect(_on_frame)\n\t# Right after a switch the sprite still holds the old frame number: read once it is set.\n\t$Sprite.animation_changed.connect(_on_frame.call_deferred)\n\t_on_frame()\n\n\
+func _watch_events() -> void:\n\t$Sprite.frame_changed.connect(_on_frame)\n\t# Right after a switch the sprite still holds the old frame number: read once it is set.\n\t$Sprite.animation_changed.connect(_on_frame.call_deferred)\n\t_on_frame()\n\n\
 func _on_frame() -> void:\n\tvar anim := String($Sprite.animation)\n\tvar shown := [anim, $Sprite.frame]\n\tif shown == _shown:\n\t\treturn\n\t_shown = shown\n\
 \tfor name in EVENTS.get(anim, {{}}).get($Sprite.frame, []):\n\t\tevent.emit(name)\n",
         table.join(",\n")
     ))
+}
+
+/// The part of the scene script that shows the side the character faces: `facing` (any vector)
+/// picks the nearest drawn side, `play_facing("Walk")` plays an animation from it, and a left
+/// side drawn as a flipped right one flips the sprite.
+fn sides_gd(sides: &Sides) -> String {
+    let d = &sides.directions;
+    let names: Vec<String> = d.names().iter().map(|n| format!("\"{n}\"")).collect();
+    let mirrored: Vec<String> = (0..d.count).filter_map(|k| d.mirror_of(k).map(|m| format!("\"{}\": \"{}\"", d.names()[k], d.names()[m]))).collect();
+    let first = sides.bases.first().map_or("default", |b| b.0.as_str());
+    format!(
+        "\n## The sides the character was drawn from in Motif: «Walk» seen from the right is the sprite\n## animation «Walk_right».\nconst SIDES := [{}]\n## Sides shown as another side flipped.\nconst MIRRORED := {{{}}}\n\n\
+## Where the character looks: any vector, the nearest side is shown.\n@export var facing := Vector2.DOWN:\n\tset(value):\n\t\tif value != Vector2.ZERO:\n\t\t\tfacing = value\n\t\t\t_face()\n\n\
+## The side shown now, such as \"down_right\".\nvar side := \"down\"\n## The animation playing, by its own name, such as \"Walk\".\nvar playing := \"{}\"\n\n\
+## Plays an animation by its own name (\"Walk\") from the side the character faces.\nfunc play_facing(anim: String) -> void:\n\tvar shown := _shown(anim)\n\tif anim == playing and $Sprite.animation == shown and $Sprite.is_playing():\n\t\treturn\n\tplaying = anim\n\t$Sprite.play(shown)\n\t_flip()\n\n\
+func _face() -> void:\n\tvar k := posmod(roundi(atan2(facing.x, facing.y) / TAU * SIDES.size()), SIDES.size())\n\tside = SIDES[k]\n\tif not is_node_ready():\n\t\treturn\n\tvar shown := _shown(playing)\n\tif $Sprite.animation != shown:\n\t\t# Turning keeps the step the animation is on.\n\t\tvar frame: int = $Sprite.frame\n\t\tvar progress: float = $Sprite.frame_progress\n\t\tif $Sprite.is_playing():\n\t\t\t$Sprite.play(shown)\n\t\telse:\n\t\t\t$Sprite.animation = shown\n\t\t$Sprite.set_frame_and_progress(frame, progress)\n\t_flip()\n\n\
+func _shown(anim: String) -> StringName:\n\treturn StringName(anim + \"_\" + MIRRORED.get(side, side))\n\n\
+func _flip() -> void:\n\t$Sprite.scale.x = -1.0 if MIRRORED.has(side) else 1.0\n",
+        names.join(", "),
+        mirrored.join(", "),
+        quote(first)
+    )
+}
+
+/// A scene script: its header, its parts and a `_ready` that starts the parts that need it.
+fn script(head: &str, parts: &[String], ready: &[&str]) -> String {
+    let mut gd = format!("extends Node2D\n{head}");
+    for p in parts {
+        gd.push_str(p);
+    }
+    if !ready.is_empty() {
+        gd.push_str("\nfunc _ready() -> void:\n");
+        for line in ready {
+            gd.push_str(&format!("\t{line}\n"));
+        }
+    }
+    gd
 }
 
 /// Writes `<name>.png` (the atlas), `<name>_frames.tres` (SpriteFrames) and `<name>.tscn` (a
@@ -347,21 +446,31 @@ pub fn write_godot(dir: &Path, name: &str, sheet: &Sheet, machine: Option<&Machi
         s
     };
 
-    let events = events_gd(sheet);
+    // The script's parts: the events, the sides; `_ready` starts each.
+    let mut parts = Vec::new();
+    let mut ready = Vec::new();
+    if let Some(ev) = events_gd(sheet) {
+        parts.push(ev);
+        ready.push("_watch_events()");
+    }
+    if let Some(sides) = &sheet.sides {
+        parts.push(sides_gd(sides));
+        ready.push("_face()");
+    }
     let Some(m) = machine.filter(|m| !m.states.is_empty()) else {
-        // Without a machine a script is needed only to hand out the events.
-        let script = match &events {
-            Some(ev) => {
-                save(format!("{name}.gd"), format!("extends Node2D\n## Exported from Motif.\n{ev}"))?;
-                (format!("[ext_resource type=\"Script\" path=\"{name}.gd\" id=\"1_script\"]\n"), "script = ExtResource(\"1_script\")\n")
-            }
-            None => (String::new(), ""),
+        // Without a machine a script is needed only for the events and the sides.
+        let has_script = !parts.is_empty();
+        let res = if has_script {
+            save(format!("{name}.gd"), script("## Exported from Motif.\n", &parts, &ready))?;
+            (format!("[ext_resource type=\"Script\" path=\"{name}.gd\" id=\"1_script\"]\n"), "script = ExtResource(\"1_script\")\n")
+        } else {
+            (String::new(), "")
         };
         let tscn = format!(
             "[gd_scene load_steps={} format=3]\n\n{}[ext_resource type=\"SpriteFrames\" path=\"{frames_file}\" id=\"1_frames\"]\n\n[node name=\"{root}\" type=\"Node2D\"]\n{}\n[node name=\"Sprite\" type=\"AnimatedSprite2D\" parent=\".\"]\n{}",
-            if events.is_some() { 3 } else { 2 },
-            script.0,
-            script.1,
+            if has_script { 3 } else { 2 },
+            res.0,
+            res.1,
             sprite_props(true)
         );
         save(format!("{name}.tscn"), tscn)?;
@@ -369,10 +478,8 @@ pub fn write_godot(dir: &Path, name: &str, sheet: &Sheet, machine: Option<&Machi
     };
 
     // The inputs as script variables: the AnimationTree reads them in its expressions.
-    let mut gd = format!(
-        "extends Node2D\n## Inputs of the state machine «{}», exported from Motif.\n## Set them from the game; call fire_…() for a one-shot trigger.\n\n",
-        m.name
-    );
+    let mut gd =
+        format!("## Inputs of the state machine «{}», exported from Motif.\n## Set them from the game; call fire_…() for a one-shot trigger.\n\n", m.name);
     for input in &m.inputs {
         let v = ident(&input.name);
         match input.kind {
@@ -388,15 +495,24 @@ pub fn write_godot(dir: &Path, name: &str, sheet: &Sheet, machine: Option<&Machi
             input.name
         ));
     }
-    if let Some(ev) = &events {
-        gd.push_str(ev);
-    }
-    save(format!("{name}.gd"), gd)?;
+    save(format!("{name}.gd"), script(&gd, &parts, &ready))?;
 
     // One Animation per baked animation: it sets the sprite's animation and steps its frames.
+    // With sides, one per animation of the scene: it asks the script to play it from the side
+    // the character faces, and the sprite steps the frames itself.
     let mut subs = String::new();
     let mut lib = Vec::new();
-    for (k, a) in sheet.anims.iter().enumerate() {
+    for (k, (base, length, looping)) in sheet.sides.iter().flat_map(|s| &s.bases).enumerate() {
+        subs.push_str(&format!(
+            "\n[sub_resource type=\"Animation\" id=\"a{k}\"]\nresource_name = \"{0}\"\nlength = {1}\nloop_mode = {2}\n\
+tracks/0/type = \"method\"\ntracks/0/imported = false\ntracks/0/enabled = true\ntracks/0/path = NodePath(\".\")\ntracks/0/interp = 1\ntracks/0/loop_wrap = true\ntracks/0/keys = {{\n\"times\": PackedFloat32Array(0),\n\"transitions\": PackedFloat32Array(1),\n\"values\": [{{\n\"args\": [\"{0}\"],\n\"method\": &\"play_facing\"\n}}]\n}}\n",
+            quote(base),
+            num(length.max(1e-3)),
+            u8::from(*looping),
+        ));
+        lib.push(format!("&\"{}\": SubResource(\"a{k}\")", quote(base)));
+    }
+    for (k, a) in sheet.anims.iter().enumerate().filter(|_| sheet.sides.is_none()) {
         let n = a.frames.len();
         let times: Vec<String> = (0..n).map(|i| num(i as f64 / sheet.fps)).collect();
         let ones: Vec<&str> = (0..n).map(|_| "1").collect();
@@ -478,7 +594,7 @@ tracks/1/type = \"value\"\ntracks/1/imported = false\ntracks/1/enabled = true\nt
 [node name=\"Sprite\" type=\"AnimatedSprite2D\" parent=\".\"]\n{}\n\
 [node name=\"AnimationPlayer\" type=\"AnimationPlayer\" parent=\".\"]\nlibraries = {{\n\"\": SubResource(\"lib\")\n}}\n\n\
 [node name=\"AnimationTree\" type=\"AnimationTree\" parent=\".\"]\ntree_root = SubResource(\"machine\")\nadvance_expression_base_node = NodePath(\"..\")\nanim_player = NodePath(\"../AnimationPlayer\")\n",
-        3 + sheet.anims.len() + 1 + m.states.len() + pairs.len() + 2,
+        3 + lib.len() + 1 + m.states.len() + pairs.len() + 2,
         sprite_props(false)
     );
     save(format!("{name}.tscn"), tscn)?;
@@ -561,6 +677,52 @@ mod tests {
             Ok(f)
         });
         assert!(odd.is_err(), "frames of different sizes are refused");
+    }
+
+    #[test]
+    fn sides_are_shot_and_the_script_shows_them() {
+        let mut doc = hero();
+        let mut eye = Node::new("eye", ShapeKind::Ellipse);
+        (eye.width, eye.height, eye.on) = (6.0, 6.0, Some("ball".into()));
+        eye.wrap = true;
+        doc.nodes.push(eye);
+        doc.directions = Some(motif_core::Directions { count: 4, turn: vec!["ball".into()], mirror: true });
+        // Jump seen from the back is an animation of its own, a longer one.
+        let mut back = doc.animations[1].clone();
+        (back.name, back.duration) = ("Jump_up".into(), 1.0);
+        doc.animations.push(back);
+        let opts = GodotExport { fps: 4.0, only: Some("ball".into()), ..GodotExport::default() };
+        let sheet = bake_sheet(&doc, &opts).unwrap();
+        let names: Vec<&str> = sheet.anims.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["Idle_down", "Idle_right", "Idle_up", "Jump_down", "Jump_right", "Jump_up"], "left is mirrored, Jump_up is a side");
+        assert_eq!(sheet.anims[3].frames.len(), 3);
+        assert_eq!(sheet.anims[5].frames.len(), 5, "the back plays Jump_up: 0…1 s");
+        assert_ne!(sheet.anims[0].frames[0], sheet.anims[1].frames[0], "the eye moves when the ball turns");
+        let sides = sheet.sides.clone().unwrap();
+        assert_eq!(sides.bases, vec![("Idle".to_string(), 1.0, true), ("Jump".to_string(), 0.5, false)]);
+
+        let dir = std::env::temp_dir().join(format!("motif-godot-sides-{}", std::process::id()));
+        write_godot(&dir, "ball", &sheet, None, false).unwrap();
+        let gd = std::fs::read_to_string(dir.join("ball.gd")).unwrap();
+        assert!(gd.contains("const SIDES := [\"down\", \"right\", \"up\", \"left\"]"), "{gd}");
+        assert!(gd.contains("const MIRRORED := {\"left\": \"right\"}") && gd.contains("func play_facing(anim: String)"), "{gd}");
+        assert!(gd.contains("func _ready() -> void:\n\t_face()\n"), "{gd}");
+        // With a machine the states ask the script to play their animation from the side shown.
+        let m = Machine {
+            name: "Hero".into(),
+            inputs: Vec::new(),
+            listeners: Vec::new(),
+            states: vec![motif_core::State { name: "Idle".into(), anim: "Idle".into(), pos: None }],
+            transitions: Vec::new(),
+            any_pos: None,
+        };
+        write_godot(&dir, "hero", &sheet, Some(&m), false).unwrap();
+        let tscn = std::fs::read_to_string(dir.join("hero.tscn")).unwrap();
+        assert!(tscn.contains("\"method\": &\"play_facing\"") && tscn.contains("\"args\": [\"Jump\"]"), "{tscn}");
+        assert!(!tscn.contains("Sprite:frame"), "the sprite steps its own frames: {tscn}");
+        let gd = std::fs::read_to_string(dir.join("hero.gd")).unwrap();
+        assert!(gd.starts_with("extends Node2D\n## Inputs of the state machine") && gd.contains("func play_facing"), "{gd}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// Runs only where a PixaTool copy is given: `MOTIF_TEST_PIXATOOL=…/Pixatool cargo test`.
