@@ -49,18 +49,7 @@ impl App {
         match runtime::install(scene, &src, dir, addon.as_deref()) {
             Ok(r) => {
                 self.pixa.set_runtime_link(scene, Some(dir.to_path_buf()));
-                let mut parts = vec![format!("В проекте Godot: {}", r.res)];
-                if let Some(t) = &r.tscn {
-                    parts.push(format!("сцена с узлом — {}", t.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned())));
-                }
-                if r.addon {
-                    parts.push("аддон в addons/motif".into());
-                }
-                if r.fonts > 0 {
-                    parts.push(format!("шрифтов: {}", r.fonts));
-                }
-                parts.extend(r.warnings.iter().map(|w| format!("внимание: {w}")));
-                self.status = parts.join(" · ");
+                self.status = format!("В проекте Godot — {}", r.report().join(" · "));
             }
             Err(e) => self.status = format!("Не поставлено: {e}"),
         }
