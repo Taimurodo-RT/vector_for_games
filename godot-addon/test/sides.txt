@@ -1,0 +1,22 @@
+# Один сценарий сторон для ядра (cargo test -p motif-godot) и для Godot 4.3 (test.gd).
+# После каждого шага пишется строка журнала: состояние, анимация, сторона, время, события.
+# Обе стороны сверяют журнал с sides.expected, поэтому редактор и игра ведут себя одинаково.
+# Сцена examples/directions.msc, машина Walker, узел на паузе: время идёт только шагами advance.
+# Шаги: advance СЕК, side ИМЯ, facing X Y, set ВХОД ЧИСЛО.
+advance 0.1
+side right
+set speed 1
+advance 0.2
+advance 0.2
+side up
+advance 0.15
+facing -1 0
+advance 0.3
+facing -1 -1
+advance 0.2
+side down
+set speed 0
+advance 0.3
+side left
+advance 0.5
+side left

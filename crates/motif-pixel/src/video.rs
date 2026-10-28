@@ -181,11 +181,13 @@ pub fn export_animation(
 }
 
 /// A recorded run of machine `m` ([`motif_core::Take`]) played again at `opts.fps` and saved as
-/// the video `path` names. It plays once: a run has a start and an end.
+/// the video `path` names. It plays once: a run has a start and an end. `face` shoots it from one
+/// side of the scene's `directions`.
 pub fn export_take(
     doc: &motif_core::Document,
     m: &motif_core::Machine,
     take: &motif_core::Take,
+    face: Option<usize>,
     render: motif_render::CpuOptions,
     opts: VideoOptions,
     path: &Path,
@@ -198,7 +200,15 @@ pub fn export_take(
     }
     let bg = doc.artboard.background;
     let opts = VideoOptions { looping: false, background: [bg.r, bg.g, bg.b], ..opts };
-    let poses = take.poses(m, doc, opts.fps);
+    // From a side every state plays its side animation (`Walk_up`), turned to face it.
+    let m = face.map_or_else(|| m.clone(), |k| m.facing(doc, k));
+    let mut poses = take.poses(&m, doc, opts.fps);
+    if let Some(k) = face.filter(|_| doc.directions.is_some()) {
+        for pose in &mut poses {
+            pose.face(k);
+            pose.rig();
+        }
+    }
     let mut draw = |i: usize| motif_render::render_cpu(&poses[i], render).ok_or_else(|| "не удалось создать изображение".to_string());
     encode_to(path, poses.len(), &mut draw, &opts)
 }

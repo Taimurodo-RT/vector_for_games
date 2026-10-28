@@ -13,7 +13,8 @@ cp "$lib" "$p/addons/motif/bin/"
 cp "$root/examples/machine.msc" "$p/hero.msc"
 cp "$root/examples/modern-button.msc" "$p/ui/"
 cp "$root/examples/fonts/Inter-Medium.ttf" "$p/ui/fonts/"
-cp "$here/test.gd" "$p/"
+cp "$root/examples/directions.msc" "$p/walker.msc"
+cp "$here/test.gd" "$here/sides.txt" "$here/sides.expected" "$p/"
 printf 'config_version=5\n\n[application]\n\nconfig/name="motif-test"\n' > "$p/project.godot"
 "$godot" --headless --path "$p" --import >/dev/null 2>&1 || true
 "$godot" --headless --path "$p" -s test.gd

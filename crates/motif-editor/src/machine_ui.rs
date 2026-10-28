@@ -157,7 +157,7 @@ impl App {
 
     /// The live preview: passes the pointer on the canvas to the running machine's listeners.
     pub(crate) fn live_pointer(&mut self, ui: &Ui, resp: &egui::Response, doc: &motif_core::Document, at: Option<motif_core::kurbo::Point>) {
-        let Some(m) = self.shown_machine().cloned() else { return };
+        let Some(m) = self.shown_machine().map(|m| self.faced(m)) else { return };
         let on_canvas = resp.hovered() || resp.dragged() || resp.is_pointer_button_down_on();
         let at = at.filter(|_| on_canvas);
         let (down, quick) = ui.input(|i| (i.pointer.primary_down(), i.pointer.primary_pressed() && i.pointer.primary_released()));
@@ -210,7 +210,7 @@ impl App {
 
     /// Moves the running machine on by `dt` seconds.
     pub(crate) fn advance_run(&mut self, dt: f32) {
-        let Some(m) = self.shown_machine().cloned() else {
+        let Some(m) = self.shown_machine().map(|m| self.faced(m)) else {
             self.run = None;
             self.finish_take();
             return;

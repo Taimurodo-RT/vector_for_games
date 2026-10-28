@@ -111,7 +111,8 @@
         $Hero.facing = dir
     $Hero.speed = dir.length()   # вход машины состояний</code></pre>
 <figure><img src="img/sides-godot.png" alt="Восемь персонажей в Godot смотрят в разные стороны"><figcaption>Та же сцена в Godot 4.3: восемь копий с разным <code>facing</code>, левые — отражённые правые.</figcaption></figure>
-<p>В командной строке одну сторону снимает <code>--side</code>: <code>motif render hero.msc --side up_right</code>, а также <code>frames</code> и <code>video</code>.</p>
+<p>Без запекания то же умеет узел <b>MotifSprite</b>: то же свойство <code>facing</code>, шаг не сбивается при повороте. См. <a href="runtime.html#sides">«Motif в игре: стороны»</a>.</p>
+<p>В командной строке одну сторону снимает <code>--side</code>: <code>motif render hero.msc --side up_right</code>, а также <code>frames</code> и <code>video</code>, в том числе прогон машины (<code>video --machine Walker --side up</code>).</p>
 
 <h2 id="script">В скрипте</h2>
 <pre><code><span class="k">ellipse</span> head <span class="p">at</span> <span class="n">420 170</span> <span class="p">size</span> <span class="n">150 170</span>
