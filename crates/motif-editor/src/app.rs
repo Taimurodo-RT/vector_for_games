@@ -4,7 +4,7 @@ use crate::theme::{self, ACCENT, ACCENT_INK, BG, ButtonKind, DANGER, FAINT, FG, 
 use egui::{Align2, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, pos2, vec2};
 use motif_core::kurbo::{Affine, Point, Shape};
 use motif_core::{Color, Document, Prop, Purpose, ShapeKind, Value};
-use motif_pixel::{FrameExport, PIXATOOL_MAX_COLORS, parse_jasc, quantize, render_frames, scene_palette, to_jasc};
+use motif_pixel::{FrameExport, PIXATOOL_MAX_COLORS, parse_jasc, quantize, render_frames_facing, scene_palette, to_jasc};
 use motif_render::{CpuOptions, render_cpu};
 use motif_script::{Scene, ScriptError, add_node, delete_key, delete_node, fmt_num, parse, set_key, set_prop};
 use std::path::PathBuf;
@@ -155,6 +155,8 @@ pub struct App {
     pub(crate) anim: Option<String>,
     /// Animation to return to when switching back to Animate.
     pub(crate) last_anim: Option<String>,
+    /// The side of `directions` the canvas shows (the compass in «Стороны»), or the scene as written.
+    pub(crate) side: Option<usize>,
     pub(crate) time: f64,
     pub(crate) playing: bool,
     /// The bottom panel shows the state machine instead of the timeline.
@@ -268,6 +270,7 @@ impl App {
             view: None,
             anim: None,
             last_anim: None,
+            side: None,
             time: 0.0,
             playing: false,
             bottom_machine: false,
@@ -602,6 +605,10 @@ impl App {
         {
             skin.paint.push(stroke);
         }
+        if let Some(k) = self.shown_side() {
+            doc.rig();
+            doc.face(k);
+        }
         doc.rig();
         doc
     }
@@ -858,7 +865,7 @@ impl App {
     fn export_render(&self, doc: &Document, anim: Option<&str>) -> Result<Vec<tiny_skia::Pixmap>, String> {
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !self.export.transparent };
         match anim {
-            Some(a) => render_frames(doc, a, &FrameExport { fps: self.export.fps, render }),
+            Some(a) => render_frames_facing(doc, a, &FrameExport { fps: self.export.fps, render }, self.shown_side()),
             None => render_cpu(doc, render).map(|p| vec![p]).ok_or_else(|| "не удалось создать изображение".to_string()),
         }
     }
@@ -1696,6 +1703,7 @@ impl App {
             let out = motif_script::set_light(&self.src, a);
             self.apply("light", out);
         }
+        self.sides_section(ui);
         self.world_section(ui);
         self.symbols_library(ui);
         self.backdrop_section(ui);
@@ -2388,6 +2396,13 @@ impl App {
         };
         let busy = self.pixa.job.is_some();
         let r = ui.add_enabled_ui(!busy, |ui| theme::button(ui, &format!("Выгрузить в Godot… ({what})"), ButtonKind::Primary)).inner;
+        if let Some(d) = &self.scene.doc.directions {
+            let drawn: Vec<&str> = d.drawn().into_iter().map(|k| d.names()[k]).collect();
+            let mirror = if d.mirror { ", левые — отражением правых" } else { "" };
+            ui.label(
+                RichText::new(format!("Стороны: {}{mirror}. Каждая анимация снимается как ИМЯ_{}…", d.count, drawn.join(", ИМЯ_"))).size(12.0).color(FAINT),
+            );
+        }
         if r.on_hover_text("Все анимации в одном атласе, SpriteFrames и готовая сцена .tscn; машина состояний — AnimationTree").clicked()
         {
             let ctx = ui.ctx().clone();

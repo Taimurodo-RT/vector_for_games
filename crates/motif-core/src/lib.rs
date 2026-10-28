@@ -3,6 +3,7 @@
 mod body;
 mod brush;
 mod color;
+mod directions;
 mod ease;
 mod field;
 mod fluid;
@@ -29,6 +30,7 @@ mod world;
 pub use body::{Body, Face, silhouette};
 pub use brush::{Brush, Grain, Hatch, hard as brush_hard};
 pub use color::Color;
+pub use directions::Directions;
 pub use ease::{Dir, Ease, Family};
 pub use field::Field;
 pub use fluid::Fluid;
