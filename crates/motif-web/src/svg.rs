@@ -16,7 +16,7 @@ pub(crate) fn matrix(a: Affine) -> String {
     a.as_coeffs().iter().map(|x| motif_script::fmt_num_with(*x, 6)).collect::<Vec<_>>().join(" ")
 }
 
-fn transform(a: Affine) -> String {
+pub(crate) fn transform(a: Affine) -> String {
     if a == Affine::IDENTITY {
         return String::new();
     }
@@ -28,7 +28,7 @@ fn transform(a: Affine) -> String {
     }
 }
 
-fn path(p: &BezPath) -> String {
+pub(crate) fn path(p: &BezPath) -> String {
     let xy = |p: motif_core::kurbo::Point| format!("{} {}", num(p.x), num(p.y));
     p.elements()
         .iter()
@@ -109,6 +109,7 @@ struct Writer<'a> {
     scene: &'a Scene,
     doc: &'a Document,
     config: &'a Config,
+    paint_doc: Document,
     asset: &'a Asset,
     ids: BTreeMap<String, String>,
     defs: String,
@@ -116,6 +117,24 @@ struct Writer<'a> {
 }
 
 impl Writer<'_> {
+    // World-space bounds deliberately overestimate clipping, never cut off a soft edge.
+    fn bounds(&self, index: usize) -> Option<motif_core::kurbo::Rect> {
+        let n = &self.doc.nodes[index];
+        if !self.doc.is_visible(index) {
+            return None;
+        }
+        if !n.kind.is_container() {
+            return motif_render::ops_bounds(&motif_render::node_ops(&self.paint_doc, index));
+        }
+        self.doc
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.parent == Some(index))
+            .filter_map(|(i, _)| self.bounds(i))
+            .reduce(|a, b| a.union(b))
+            .map(|b| b.inflate(n.blur * 2.0, n.blur * 2.0))
+    }
     fn node(&mut self, index: usize) -> Result<String, String> {
         let n = &self.doc.nodes[index];
         if !n.visible {
@@ -139,6 +158,7 @@ impl Writer<'_> {
         }
         let children: Vec<usize> = self.doc.nodes.iter().enumerate().filter(|(_, c)| c.parent == Some(index)).map(|(i, _)| i).collect();
         let mut skip = None;
+        let mut clip = String::new();
         if n.clip {
             let &first = children.first().ok_or_else(|| format!("{}: clip без маски", n.id))?;
             let mask = &self.doc.nodes[first];
@@ -152,24 +172,18 @@ impl Writer<'_> {
                 path(&mask.path().unwrap_or_default()),
                 transform(mask.local_transform())
             ));
-            attrs.push_str(&format!(" clip-path=\"url(#{cid})\""));
+            clip = format!(" clip-path=\"url(#{cid})\"");
             skip = Some(first);
         }
-        if n.blur > 0.0 && !n.kind.is_container() {
-            let fid = format!("{}-blur-{index}", self.prefix);
-            let [a, b, _, _, _, _] = self.doc.world_transform(index).as_coeffs();
-            let local_blur = n.blur / a.hypot(b).max(1e-9);
-            let pad = local_blur * 2.0 + n.stroke_width.max(0.0) + 1.0;
-            let bounds = n.path().unwrap_or_default().bounding_box().inflate(pad, pad);
-            self.defs.push_str(&format!(
-                "<filter id=\"{fid}\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"><feGaussianBlur stdDeviation=\"{}\"/></filter>",
-                num(bounds.x0),num(bounds.y0),num(bounds.width()),num(bounds.height()),
-                num(local_blur / 2.0)
-            ));
-            attrs.push_str(&format!(" filter=\"url(#{fid})\""));
-        }
         let mut content = String::new();
-        if !n.kind.is_container() {
+        if !n.kind.is_container() && crate::effects::expanded(n) {
+            let prefix = format!("{}-nodefx-{index}", self.prefix);
+            let mut effects = crate::effects::Effects::new(self.scene, self.config, &prefix);
+            let body = effects.ops(&motif_render::node_ops(&self.paint_doc, index))?;
+            self.defs.push_str(&effects.defs);
+            content = format!("<g{attrs}{clip}><g{}>{body}</g></g>", transform(self.doc.world_transform(index).inverse()));
+        } else if !n.kind.is_container() {
+            attrs.push_str(&clip);
             let (tag, geom) = geometry(n);
             let mut style = String::new();
             for (stroke, g, color, prop, label) in
@@ -209,7 +223,20 @@ impl Writer<'_> {
             }
         }
         if n.kind.is_container() {
-            Ok(format!("<g{attrs}>{body}</g>"))
+            if n.blur > 0.0 {
+                let world = self.doc.world_transform(index);
+                let prefix = format!("{}-groupfx-{index}", self.prefix);
+                let mut effects = crate::effects::Effects::new(self.scene, self.config, &prefix);
+                let inner = format!("<g{}{clip}>{body}</g>", transform(world));
+                let body = match self.bounds(index) {
+                    Some(bounds) => effects.blur(&inner, n.blur, bounds),
+                    None => inner,
+                };
+                self.defs.push_str(&effects.defs);
+                Ok(format!("<g{attrs}><g{}>{body}</g></g>", transform(world.inverse())))
+            } else {
+                Ok(format!("<g{attrs}{clip}>{body}</g>"))
+            }
         } else if body.is_empty() {
             Ok(content)
         } else {
@@ -219,7 +246,7 @@ impl Writer<'_> {
 }
 
 pub fn render(scene: &Scene, config: &Config, override_profile: Option<Profile>) -> Result<Svg, String> {
-    config::validate(config)?;
+    config::validate_metadata(scene, config)?;
     let doc = &scene.doc;
     if !doc.artboard.width.is_finite() || !doc.artboard.height.is_finite() || doc.artboard.width <= 0.0 || doc.artboard.height <= 0.0 {
         return Err("SVG: некорректный размер холста".into());
@@ -244,35 +271,11 @@ pub fn render(scene: &Scene, config: &Config, override_profile: Option<Profile>)
             continue;
         }
         let mut unsupported = Vec::new();
-        if n.blur > 0.0 {
-            let [a, b, c, d, _, _] = doc.world_transform(doc.index_of(&n.id).unwrap()).as_coeffs();
-            if n.kind.is_container() {
-                unsupported.push("group blur");
-            }
-            if (a * c + b * d).abs() > 1e-6 || (a.hypot(b) - c.hypot(d)).abs() > 1e-6 || a.hypot(b) < 1e-9 {
-                unsupported.push("blur with nonuniform/degenerate transform");
-            }
-        }
-        if n.shadow.is_some() || n.elevation != 0.0 {
-            unsupported.push("shadow/elevation");
-        }
-        if n.glow.is_some() {
-            unsupported.push("glow");
-        }
-        if n.inset.is_some() {
-            unsupported.push("inset");
-        }
-        if n.noise.is_some() {
-            unsupported.push("noise");
+        if crate::effects::expanded(n) && doc.world_transform(doc.index_of(&n.id).unwrap()).determinant().abs() < 1e-12 {
+            unsupported.push("effect with degenerate transform");
         }
         if n.blend != motif_core::Blend::Normal {
             unsupported.push("blend");
-        }
-        if !n.outlines.is_empty() {
-            unsupported.push("outlines");
-        }
-        if n.brush != motif_core::Brush::default() {
-            unsupported.push("brush");
         }
         if n.body.is_some() || n.on.is_some() || n.wrap {
             unsupported.push("3D");
@@ -296,7 +299,13 @@ pub fn render(scene: &Scene, config: &Config, override_profile: Option<Profile>)
             return Err(format!("В метаданных указан отсутствующий слой {layer}"));
         }
     }
-    let mut w = Writer { scene, doc, config, asset: &asset, ids, defs: String::new(), prefix: prefix.clone() };
+    // Effect passes inherit each node's combined paint opacity from its semantic wrapper.
+    // Keeping geometry at zero alpha also lets CSS fade an initially invisible object in.
+    let mut paint_doc = doc.clone();
+    for n in &mut paint_doc.nodes {
+        n.opacity = 1.0;
+    }
+    let mut w = Writer { scene, doc, config, paint_doc, asset: &asset, ids, defs: String::new(), prefix: prefix.clone() };
     let mut body = String::new();
     for (i, n) in doc.nodes.iter().enumerate() {
         if n.parent.is_none() {
@@ -326,8 +335,8 @@ pub fn render(scene: &Scene, config: &Config, override_profile: Option<Profile>)
         if doc.nodes.iter().any(|n| n.stroke.is_some() && (n.stroke_width - expected).abs() > 0.001) {
             warnings.push(format!("{}: есть обводки не {expected} px", p.name()));
         }
-        if doc.nodes.iter().any(|n| n.gradient.is_some() || n.blur > 0.0) {
-            warnings.push("Иконка использует градиент или blur".into());
+        if doc.nodes.iter().any(|n| n.gradient.is_some() || n.stroke_gradient.is_some() || crate::effects::expanded(n)) {
+            warnings.push("Иконка использует градиент или дополнительные эффекты".into());
         }
         if size == 16.0 {
             let colors: HashSet<_> = doc.nodes.iter().flat_map(|n| [n.fill, n.stroke]).flatten().filter(|c| c.a > 0).map(|c| (c.r, c.g, c.b)).collect();

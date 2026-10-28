@@ -1,8 +1,9 @@
 //! Deterministic SVG from Motif's evaluated model; shared by GUI and CLI.
 mod config;
+mod effects;
 mod package;
 mod svg;
-pub use config::{Asset, Config, Layer, Profile, read, slug, write};
+pub use config::{Asset, Config, Layer, Profile, read, slug, validate_metadata, write};
 pub use package::{Package, build, export, gallery};
 pub use svg::{Svg, render};
 

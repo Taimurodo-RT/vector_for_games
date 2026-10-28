@@ -185,3 +185,28 @@ pub fn validate(c: &Config) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Check authored metadata independently of whether the scene can be exported to SVG.
+/// A physics/3D document still needs to store asset IDs, themes and game attachment points.
+pub fn validate_metadata(scene: &motif_script::Scene, config: &Config) -> Result<(), String> {
+    validate(config)?;
+    let Some(asset) = config.assets.get(&scene.doc.artboard.name) else { return Ok(()) };
+    for layer in asset.layers.keys() {
+        if scene.doc.node(layer).is_none() {
+            return Err(format!("В метаданных указан отсутствующий слой {layer}"));
+        }
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for n in &scene.doc.nodes {
+        let id = asset.layers.get(&n.id).map(|l| l.id.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| slug(&n.id));
+        if !ids.insert(id.clone()) {
+            return Err(format!("Повторяющийся SVG id слоя: {id}"));
+        }
+    }
+    if let Some(s) = asset.slices
+        && (s[1] + s[3] > scene.doc.artboard.width || s[0] + s[2] > scene.doc.artboard.height)
+    {
+        return Err("Slice выходит за размер холста".into());
+    }
+    Ok(())
+}

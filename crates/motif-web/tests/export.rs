@@ -119,8 +119,8 @@ fn duplicate_fragment_prefixes_across_directories_are_rejected() {
 #[test]
 fn unsupported_effects_fail_instead_of_disappearing() {
     let mut s = scene(SIMPLE);
-    s.doc.nodes[0].noise = Some(motif_core::Noise::DEFAULT);
-    assert!(motif_web::render(&s, &Config::default(), None).unwrap_err_or_else().contains("noise"));
+    s.doc.nodes[0].blend = motif_core::Blend::Multiply;
+    assert!(motif_web::render(&s, &Config::default(), None).unwrap_err_or_else().contains("blend"));
 }
 
 // Small helper keeps the public Svg type free from Debug solely for tests.
@@ -144,6 +144,9 @@ fn profiles_and_slice_bounds_are_enforced() {
     let mut c = Config::default();
     c.assets.insert("test".into(), Asset { slices: Some([1.0, 20.0, 1.0, 20.0]), ..Default::default() });
     assert!(motif_web::render(&s, &c, None).is_err());
+    let glow = scene("artboard \"test\" 24x24\nellipse a at 12 12 size 8 fill #234567 glow 2 #234567\n");
+    let svg = motif_web::render(&glow, &Config::default(), Some(Profile::Icon24)).unwrap();
+    assert!(svg.warnings.iter().any(|w| w.contains("эффекты")), "Effects must not silently pass strict icon profiles");
 }
 
 #[test]
@@ -201,8 +204,11 @@ fn export_is_repeatable_and_writes_all_files() {
 }
 
 fn compare_render(src: &str) {
-    let s = scene(src);
-    let svg = motif_web::render(&s, &Config::default(), None).unwrap();
+    compare_scene(&scene(src));
+}
+
+fn compare_scene(s: &motif_script::Scene) {
+    let svg = motif_web::render(s, &Config::default(), None).unwrap();
     let tree = resvg::usvg::Tree::from_str(&svg.text, &resvg::usvg::Options::default()).unwrap();
     let mut actual = tiny_skia::Pixmap::new(s.doc.artboard.width as u32, s.doc.artboard.height as u32).unwrap();
     resvg::render(&tree, tiny_skia::Transform::identity(), &mut actual.as_mut());
@@ -220,4 +226,115 @@ fn raster_equivalence_nested_transform_opacity_gradient_clip() {
     compare_render("artboard \"test\" 64x64\ngroup g at 32 32 clip {\nellipse mask size 50\nrect a size 60 gradient linear 35 #ff0000 #00ff00 #0000ff\n}\n");
     compare_render("artboard \"test\" 64x64\nrect a at 32 32 size 4 fill #ff0000 blur 12\n");
     compare_render("artboard \"test\" 64x64\nrect a at 32 32 size 4 scale 2 fill #ff0000 blur 12\n");
+}
+
+#[test]
+fn raster_equivalence_effects_and_textures() {
+    for shape in [
+        "rect a at 48 48 size 40 30 r 5 fill #6090e0 stroke #ffeebb 3 shadow 9 -6 8 #11223399",
+        "rect a at 48 48 size 32 26 scale 1.5 0.7 rot 30 fill #6090e0 stroke #ffeebb 3 shadow 9 -6 8 #11223399",
+        "rect a at 48 48 size 30 30 scale 1.6 0.7 rot 25 fill #f09050 blur 8",
+        "rect a at 48 48 size 40 30 r 5 fill #6090e0 stroke #ffeebb 3 glow 10 4 #ff55aacc",
+        "rect a at 48 48 size 48 38 r 8 fill #c0d0e0 stroke #445566 2 inset 3 -4 8 #000000cc",
+        "rect a at 48 48 size 48 38 r 8 fill #c0d0e0 noise 0.3 2",
+        "ellipse a at 48 48 size 50 40 fill #c0d0e0 stroke #445566 2 rough 2 16 hatch 45 5 1 #223344 cross",
+        "ellipse a at 48 48 size 50 40 fill #c0d0e0 grain 0.2 2 #445566",
+        "ellipse a at 48 48 size 50 40 gradient linear 30 #ff9955 #5599ff bands 4 stroke #112233 3",
+        "rect a at 48 48 size 42 32 r 4 fill #dd8844 stroke-gradient linear 90 #ffdd00 #aa0033 stroke #222222 5 inset 0 2 5 #00000088",
+    ] {
+        compare_render(&format!("artboard \"test\" 96x96\n{shape}\n"));
+    }
+}
+
+#[test]
+fn raster_equivalence_nested_group_blur_and_clip() {
+    compare_render(
+        "artboard \"test\" 96x96\ngroup g at 48 48 rot 20 scale 1.3 0.7 opacity 0.7 blur 8 clip {\nellipse mask size 45\nrect a at -8 0 size 48 fill #ff6600\ngroup inner at 10 2 blur 4 {\nellipse b size 30 fill #0088ff\n}\n}\n",
+    );
+    compare_render(
+        "artboard \"test\" 96x96\ngroup outer at 48 48 clip {\nellipse mask size 50\nrect a at 12 0 size 45 fill #ddaa88 shadow 5 5 8 #22222299\n}\n",
+    );
+}
+
+#[test]
+fn effects_keep_paint_provenance_and_vector_geometry() {
+    let s = scene("let ink = #234567\nartboard \"test\" 96x96\nrect a at 48 48 size 40 fill ink shadow 5 5 8 #234567\n");
+    let mut c = Config::default();
+    c.tokens.insert("ink".into(), "--ink".into());
+    let svg = motif_web::render(&s, &c, None).unwrap();
+    assert_eq!(svg.text.matches("var(--ink,#234567)").count(), 1);
+    assert!(svg.text.contains("fill=\"#234567\""));
+    assert!(!svg.text.contains("<image"));
+    assert_eq!(svg.text, motif_web::render(&s, &c, None).unwrap().text);
+}
+
+#[test]
+fn metadata_can_be_saved_for_native_only_scenes() {
+    let mut s = scene(SIMPLE);
+    s.doc.nodes[0].blend = motif_core::Blend::Multiply;
+    let mut c = Config::default();
+    c.assets.insert("test".into(), Asset { pivot: Some([12.0, 24.0]), keywords: vec!["button".into(), "blue".into()], ..Default::default() });
+    assert!(motif_web::render(&s, &c, None).is_err());
+    motif_web::validate_metadata(&s, &c).unwrap();
+    assert_eq!(motif_web::read(&motif_web::write(SIMPLE, &c).unwrap()).unwrap(), c);
+    c.assets.get_mut("test").unwrap().layers.insert("missing".into(), Layer { class: "base".into(), ..Default::default() });
+    assert!(motif_web::validate_metadata(&s, &c).is_err());
+}
+
+#[test]
+fn css_color_and_stroke_tracks_keep_values_and_last_opacity_track() {
+    let s = scene(
+        "artboard \"test\" 64x64\nrect a at 32 32 size 30 fill #ff0000 stroke #ffffff 2\nanim Color 1s {\na.fill 0: #ff0000 | 1: #00ff00\na.stroke 0: #ffffff | 1: #0000ff\na.stroke_w 0: 2 | 1: 6\na.opacity 0: 0.2 | 1: 0.4\na.opacity 0: 0.6 | 1: 0.8\n}\n",
+    );
+    let p = motif_web::build(&[s], &Config::default(), None).unwrap();
+    assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+    assert!(p.files["animations.css"].contains("100%{fill-opacity:0.8;stroke-opacity:0.8;fill:#00ff00;stroke:#0000ff;stroke-width:6;}"));
+}
+
+#[test]
+fn css_effects_fade_and_translate_but_report_unsupported_rotation() {
+    let source = "artboard \"test\" 96x96\nrect a at 40 48 size 30 fill #f09040 opacity 0 shadow 4 4 6 #00000088\nanim Reveal 1s {\na.opacity 0: 0 | 1: 1\na.x 0: 40 | 1: 50\n}\n";
+    let mut s = scene(source);
+    let p = motif_web::build(&[s.clone()], &Config::default(), None).unwrap();
+    assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+    let svg = &p.files["test.svg"];
+    assert!(svg.contains("<path"), "An initially transparent effect must retain its geometry");
+    assert_eq!(svg.matches("fill-opacity=").count(), 1, "Effect paths must inherit the animated opacity");
+    s.doc.animations[0].tracks[1].prop = motif_core::Prop::Rotation;
+    let p = motif_web::build(&[s], &Config::default(), None).unwrap();
+    let m: serde_json::Value = serde_json::from_str(&p.files["graphics.json"]).unwrap();
+    assert_eq!(m["assets"][0]["anim"][0]["css"], false);
+    assert!(!p.warnings.is_empty());
+}
+
+#[test]
+fn raster_equivalence_outlines_elevation_and_skew() {
+    compare_render("artboard \"test\" 96x96\nellipse a at 48 48 size 40 30 fill #f09040 outline #223344 12 #ffeebb 6 shadow 5 5 6 #00000088\n");
+    compare_render("artboard \"test\" 96x96\nrect a at 48 48 size 30 fill #f09040 elevation 8\n");
+    let mut s = scene("artboard \"test\" 96x96\nrect a at 48 48 size 30 fill #f09040 stroke #eeffdd 4 blur 6\n");
+    s.doc.nodes[0].set(motif_core::Prop::SkewX, motif_core::Value::Num(35.0));
+    compare_scene(&s);
+}
+
+#[test]
+fn blur_bounds_include_anisotropic_strokes() {
+    let s = scene("artboard \"test\" 200x100\nellipse a at 100 50 size 2 scale 12 0.25 fill none stroke #ff0000 8 blur 2\n");
+    let bounds = motif_render::ops_bounds(&motif_render::node_ops(&s.doc, 0)).unwrap();
+    assert!(bounds.x0 <= 40.0 && bounds.x1 >= 160.0, "{bounds:?}");
+    let image = motif_render::render_cpu(&s.doc, motif_render::CpuOptions { scale: 1.0, antialias: true, background: false }).unwrap();
+    assert!(image.pixel(145, 50).unwrap().alpha() > 80, "The distant end of a stretched stroke must not be clipped by blur");
+    compare_scene(&s);
+}
+
+#[test]
+fn bundled_effect_examples_match_native_pixels() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    for file in ["ui-effects.msc", "depth.msc", "title.msc", "web-effects.msc"] {
+        let src = std::fs::read_to_string(examples.join(file)).unwrap();
+        let scenes = motif_script::parse_boards(&src, Some(&examples)).unwrap();
+        for s in &scenes {
+            compare_scene(s);
+        }
+        motif_web::build(&scenes, &motif_web::read(&src).unwrap(), None).unwrap();
+    }
 }

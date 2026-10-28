@@ -29,16 +29,45 @@ fn animation(scene: &Scene, svg: &Svg) -> (Json, String, Vec<String>) {
     for a in &scene.doc.animations {
         let name = config::slug(&a.name);
         let tracks:Vec<_>=a.tracks.iter().map(|t|json!({"node":t.node,"svg_id":svg.node_ids.get(&t.node),"property":t.prop.path_name(),"keys":t.keys.iter().map(|k|json!({"time":k.time,"value":value(k.value),"ease":k.ease.script()})).collect::<Vec<_>>()})).collect();
-        let allowed = |p| matches!(p, Prop::X | Prop::Y | Prop::Rotation | Prop::ScaleX | Prop::ScaleY | Prop::SkewX | Prop::SkewY | Prop::Opacity);
-        let supported = a.tracks.iter().all(|t| allowed(t.prop))
+        let is_transform = |p| matches!(p, Prop::X | Prop::Y | Prop::Rotation | Prop::ScaleX | Prop::ScaleY | Prop::SkewX | Prop::SkewY);
+        let is_ancestor = |parent: &str, child: &str| {
+            let mut at = scene.doc.index_of(child);
+            while let Some(i) = at {
+                if scene.doc.nodes[i].id == parent {
+                    return true;
+                }
+                at = scene.doc.nodes[i].parent;
+            }
+            false
+        };
+        let allowed = |t: &motif_core::Track| {
+            let Some(n) = scene.doc.node(&t.node) else {
+                return false;
+            };
+            if !n.visible {
+                return false;
+            }
+            let rich = crate::effects::expanded(n);
+            match t.prop {
+                Prop::Opacity => true,
+                Prop::Fill => !n.kind.is_container() && !rich && n.gradient.is_none(),
+                Prop::StrokeColor | Prop::StrokeWidth => !n.kind.is_container() && !rich && n.stroke_gradient.is_none() && n.stroke.is_some(),
+                p if is_transform(p) => scene.doc.nodes.iter().all(|effect| {
+                    // World-space effects cannot rotate/scale with a CSS transform. Translation is exact,
+                    // except for children of a blurred group whose fixed filter bounds could clip motion.
+                    !(is_ancestor(&t.node, &effect.id) && crate::effects::expanded(effect) && !matches!(p, Prop::X | Prop::Y)
+                        || effect.kind.is_container() && effect.blur > 0.0 && effect.id != t.node && is_ancestor(&effect.id, &t.node))
+                }),
+                _ => false,
+            }
+        };
+        let supported = a.tracks.iter().all(allowed)
             && a.duration > 0.0
             && a.duration <= 60.0
             && names.insert(name.clone())
-            && scene
-                .doc
-                .nodes
-                .iter()
-                .all(|n| n.ik.is_none() && n.skin.is_none() && n.spring.is_none() && n.jiggle.is_none() && n.swing == 0.0 && n.squash.is_none());
+            && scene.doc.nodes.iter().all(|n| {
+                n.ik.is_none() && n.skin.is_none() && n.spring.is_none() && n.jiggle.is_none() && n.swing == 0.0 && n.squash.is_none() && n.brush.boil == 0.0
+            });
         list.push(json!({"name":a.name,"selector":name,"duration":a.duration,"loop":a.looping,"css":supported,"sampling_fps":if supported {Some(60)} else {None},"tracks":tracks,"events":a.events.iter().map(|e|json!({"name":e.name,"time":e.time})).collect::<Vec<_>>()}));
         if !supported {
             warnings.push(format!("{} / {}: сохранены ключи в graphics.json; CSS для этой анимации не создан", svg.id, a.name));
@@ -68,11 +97,14 @@ fn animation(scene: &Scene, svg: &Svg) -> (Json, String, Vec<String>) {
         for node in nodes {
             let Some(id) = svg.node_ids.get(node) else { continue };
             let key = format!("{id}-{name}");
-            let changes_transform = a.tracks.iter().any(|t| t.node == node && t.prop != Prop::Opacity);
+            let changes_transform = a.tracks.iter().any(|t| t.node == node && is_transform(t.prop));
             let ancestors = ancestor_chain(node);
             let changes_opacity =
                 scene.doc.node(node).is_some_and(|n| !n.kind.is_container()) && a.tracks.iter().any(|t| ancestors.contains(&t.node) && t.prop == Prop::Opacity);
-            if !changes_transform && !changes_opacity {
+            let changes_fill = a.tracks.iter().any(|t| t.node == node && t.prop == Prop::Fill);
+            let changes_stroke = a.tracks.iter().any(|t| t.node == node && t.prop == Prop::StrokeColor);
+            let changes_width = a.tracks.iter().any(|t| t.node == node && t.prop == Prop::StrokeWidth);
+            if !changes_transform && !changes_opacity && !changes_fill && !changes_stroke && !changes_width {
                 continue;
             }
             css.push_str(&format!(
@@ -98,7 +130,8 @@ fn animation(scene: &Scene, svg: &Svg) -> (Json, String, Vec<String>) {
                         .map(|id| {
                             a.tracks
                                 .iter()
-                                .find(|t| t.node == *id && t.prop == Prop::Opacity)
+                                .rev()
+                                .find(|t| t.node == *id && t.prop == Prop::Opacity && t.sample(time).is_some())
                                 .and_then(|t| t.sample(time))
                                 .and_then(Value::as_num)
                                 .unwrap_or_else(|| scene.doc.node(id).unwrap().opacity)
@@ -106,6 +139,15 @@ fn animation(scene: &Scene, svg: &Svg) -> (Json, String, Vec<String>) {
                         .product::<f64>()
                         .clamp(0.0, 1.0);
                     css.push_str(&format!("fill-opacity:{};stroke-opacity:{};", num(opacity), num(opacity)));
+                }
+                if changes_fill {
+                    css.push_str(&format!("fill:{};", n.fill.map(|c| c.to_hex()).unwrap_or_else(|| "none".into())));
+                }
+                if changes_stroke {
+                    css.push_str(&format!("stroke:{};", n.stroke.map(|c| c.to_hex()).unwrap_or_else(|| "none".into())));
+                }
+                if changes_width {
+                    css.push_str(&format!("stroke-width:{};", num(n.stroke_width.max(0.0))));
                 }
                 css.push_str("}\n");
             }
@@ -256,7 +298,7 @@ pub fn gallery(previews: &[(Json, String)], config: &Config, tokens: &str, css: 
             String::new()
         };
         let notes = meta["warnings"].as_array().map(|a| a.iter().filter_map(|v| v.as_str()).map(xml).collect::<Vec<_>>().join(" · ")).unwrap_or_default();
-        cards.push_str(&format!("<article><h2>{}</h2><p>{} · {} байт · {}</p>{motion}<div class=\"samples {}\">{copies}</div>{slice}<p class=\"notes\">{notes}</p><a href=\"{}\">SVG</a></article>",xml(meta["id"].as_str().unwrap_or("")),xml(meta["profile"].as_str().unwrap_or("")),meta["bytes"],if modes==9 {"сетка 3×3"}else{"100% / 200%"},if modes==9 {"tiles"}else{""},xml(meta["file"].as_str().unwrap_or(""))));
+        cards.push_str(&format!("<article class=\"{}\"><h2>{}</h2><p>{} · {} байт · {}</p>{motion}<div class=\"samples {}\">{copies}</div>{slice}<p class=\"notes\">{notes}</p><a href=\"{}\">SVG</a></article>",if width>160.0 || height>160.0 {"wide"} else {""},xml(meta["id"].as_str().unwrap_or("")),xml(meta["profile"].as_str().unwrap_or("")),meta["bytes"],if modes==9 {"сетка 3×3"}else{"100% / 200%"},if modes==9 {"tiles"}else{""},xml(meta["file"].as_str().unwrap_or(""))));
     }
     let themes = config.themes.keys().map(|t| format!("<option>{}</option>", xml(t))).collect::<String>();
     format!(

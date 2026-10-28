@@ -28,14 +28,28 @@ pub(crate) fn scale_of(a: Affine) -> f64 {
 }
 
 /// Bounds of the ops in target pixels under `view`, with room for strokes and inner blurs.
-fn bounds(ops: &[Op], view: Affine) -> Option<Rect> {
+pub(crate) fn bounds(ops: &[Op], view: Affine) -> Option<Rect> {
     let mut out: Option<Rect> = None;
     for op in ops {
         let r = match op {
             Op::Draw(item) => {
                 let t = view * item.transform;
-                let pad = item.stroke.map_or(0.0, |s| s.1) * scale_of(t);
-                t.transform_rect_bbox(item.path.bounding_box()).inflate(pad, pad)
+                // Expanding by sqrt(det(t)) cuts off thick strokes under anisotropic scale.
+                // Expand in local space for caps/joins, then apply the full affine map.
+                // This conservative bound is cheap enough for every animation frame.
+                let mut local = item.path.bounding_box();
+                if let Some((_, width)) = item.stroke {
+                    let reach = if item.line.join == motif_core::Join::Miter {
+                        4.0
+                    } else if item.line.cap == motif_core::Cap::Square {
+                        std::f64::consts::SQRT_2
+                    } else {
+                        1.0
+                    };
+                    let pad = width * 0.5 * reach;
+                    local = local.inflate(pad, pad);
+                }
+                t.transform_rect_bbox(local)
             }
             Op::Blur { ops, radius } => {
                 let pad = radius * 1.5 * scale_of(view);

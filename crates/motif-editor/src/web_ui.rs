@@ -11,6 +11,8 @@ pub(crate) struct WebState {
     error: String,
     pub preview_theme: String,
     advanced: String,
+    keywords: String,
+    new_theme: String,
 }
 
 fn point(ui: &mut egui::Ui, label: &str, p: &mut Option<[f64; 2]>) {
@@ -67,6 +69,8 @@ impl App {
         if theme::button(ui, "Токены, темы и метаданные…", ButtonKind::Normal).clicked() {
             match motif_web::read(&self.src) {
                 Ok(config) => {
+                    self.web.keywords = config.assets.get(&self.scene.doc.artboard.name).map(|a| a.keywords.join(", ")).unwrap_or_default();
+                    self.web.new_theme = "dark".into();
                     self.web.advanced = serde_json::to_string_pretty(&config).unwrap_or_default();
                     self.web.base = Some(config.clone());
                     self.web.draft = Some(config);
@@ -96,7 +100,7 @@ impl App {
         let mut apply = false;
         egui::Window::new("Web assets · настройки в .msc").open(&mut open).default_width(560.0).default_height(650.0).show(ctx, |ui| {
             ui.label("Применить создаёт один шаг Undo. Затем сохраните .msc обычным Ctrl+S.");
-            egui::ScrollArea::vertical().max_height(540.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 180.0).clamp(120.0, 540.0)).show(ui, |ui| {
                 ui.collapsing("Цветовые токены", |ui| {
                     ui.label("Пусто = HEX; currentColor = цвет текста; --имя = CSS-переменная.");
                     for swatch in &self.scene.palette {
@@ -106,6 +110,9 @@ impl App {
                             if ui.text_edit_singleline(&mut binding).changed() {
                                 if binding.is_empty() {
                                     config.tokens.remove(&swatch.name);
+                                    for colors in config.themes.values_mut() {
+                                        colors.remove(&swatch.name);
+                                    }
                                 } else {
                                     config.tokens.insert(swatch.name.clone(), binding);
                                 }
@@ -114,11 +121,28 @@ impl App {
                     }
                 });
                 ui.collapsing("Темы", |ui| {
-                    if ui.button("Добавить тему dark").clicked() {
-                        config.themes.entry("dark".into()).or_insert_with(|| {
-                            self.scene.palette.iter().filter(|s| config.tokens.contains_key(&s.name)).map(|s| (s.name.clone(), s.color.to_hex())).collect()
-                        });
-                    }
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut self.web.new_theme).hint_text("Имя новой темы: dark, sepia…"));
+                        if ui.button("Добавить тему").clicked() {
+                            let name = self.web.new_theme.trim().to_string();
+                            let mut candidate = config.clone();
+                            candidate.themes.entry(name.clone()).or_insert_with(|| {
+                                self.scene.palette.iter().filter(|s| config.tokens.contains_key(&s.name)).map(|s| (s.name.clone(), s.color.to_hex())).collect()
+                            });
+                            if config.themes.contains_key(&name) {
+                                self.web.error = "Тема с таким именем уже есть".into();
+                            } else {
+                                match motif_web::write("", &candidate) {
+                                    Ok(_) => {
+                                        config = candidate;
+                                        self.web.new_theme.clear();
+                                        self.web.error.clear();
+                                    }
+                                    Err(e) => self.web.error = e,
+                                }
+                            }
+                        }
+                    });
                     let mut remove = None;
                     for (name, colors) in &mut config.themes {
                         ui.horizontal(|ui| {
@@ -133,6 +157,13 @@ impl App {
                                 let mut color = colors.get(token).cloned().unwrap_or_else(|| {
                                     self.scene.palette.iter().find(|s| s.name == *token).map(|s| s.color.to_hex()).unwrap_or_else(|| "#000000".into())
                                 });
+                                if let Some(c) = motif_core::Color::from_hex(&color) {
+                                    let mut rgba = [c.r, c.g, c.b, c.a];
+                                    if ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed() {
+                                        color = motif_core::Color { r: rgba[0], g: rgba[1], b: rgba[2], a: rgba[3] }.to_hex();
+                                        colors.insert(token.clone(), color.clone());
+                                    }
+                                }
                                 if ui.text_edit_singleline(&mut color).changed() {
                                     colors.insert(token.clone(), color);
                                 }
@@ -162,9 +193,8 @@ impl App {
                     });
                     ui.end_row();
                     ui.label("Ключевые слова");
-                    let mut words = asset.keywords.join(", ");
-                    if ui.text_edit_singleline(&mut words).changed() {
-                        asset.keywords = words.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
+                    if ui.text_edit_singleline(&mut self.web.keywords).changed() {
+                        asset.keywords = self.web.keywords.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect();
                     }
                     ui.end_row();
                 });
@@ -195,7 +225,7 @@ impl App {
                     }
                     asset.layers.retain(|_, l| !l.id.is_empty() || !l.class.is_empty());
                 });
-                ui.collapsing("JSON — все холсты и произвольные имена тем", |ui| {
+                ui.collapsing("JSON — все холсты и дополнительные метаданные", |ui| {
                     if ui.button("Обновить JSON из формы").clicked() {
                         self.web.advanced = serde_json::to_string_pretty(&config).unwrap_or_default();
                     }
@@ -203,6 +233,7 @@ impl App {
                     if ui.button("Загрузить JSON в форму").clicked() {
                         match serde_json::from_str::<Config>(&self.web.advanced) {
                             Ok(c) => {
+                                self.web.keywords = c.assets.get(&self.web.board).map(|a| a.keywords.join(", ")).unwrap_or_default();
                                 config = c;
                                 self.web.error.clear();
                             }
@@ -222,8 +253,8 @@ impl App {
                     return Err("Сцена или её настройки изменились. Закройте окно и откройте заново.".into());
                 }
                 let src = motif_web::write(&self.src, &config)?;
-                // Export preflight catches stale layer IDs and bad slice coordinates before storing.
-                motif_web::render(&self.scene, &config, None)?;
+                // Saving metadata must work for physics, 3D and other native-only scenes too.
+                motif_web::validate_metadata(&self.scene, &config)?;
                 Ok(src)
             })();
             match result {

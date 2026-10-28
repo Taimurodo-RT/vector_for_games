@@ -61,6 +61,9 @@ pub struct BackdropView<'a> {
 /// One shape ready to paint, in artboard space.
 #[derive(Clone, Debug)]
 pub struct Item {
+    /// Which authored paints this pass uses. Effect/derived colors have no reference.
+    pub fill_source: Option<motif_core::Prop>,
+    pub stroke_source: Option<motif_core::Prop>,
     pub node: usize,
     pub path: BezPath,
     pub transform: Affine,
@@ -192,141 +195,170 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
             }
             continue;
         }
-        let Some(path) = node.path() else { continue };
-        // A 3D body draws its faces; its shadow and outlines take the whole silhouette.
-        let faces = node.body_faces(doc.light);
-        let path = faces.as_deref().map_or(path, motif_core::silhouette);
-        let brush = &node.brush;
-        let seed = brush.seed_at(&node.id, doc.time);
-        // A body keeps its true outline: its faces are drawn from the shape itself.
-        let path = if faces.is_none() { brush.roughen(&path, seed) } else { path };
-        let opacity = doc.world_opacity(i).clamp(0.0, 1.0);
-        let stroke = node.stroke.filter(|_| node.stroke_width > 0.0).map(|c| (c, node.stroke_width));
-        let fill = match (&node.gradient, node.fill) {
-            (Some(g), _) if g.colors.len() >= 2 => {
-                let (from, to) = g.line(path.bounding_box());
-                Some(Paint::Gradient { gradient: brush.band_gradient(g).unwrap_or_else(|| g.clone()), from, to })
-            }
-            (_, Some(c)) => Some(Paint::Solid(c)),
-            _ => None,
-        };
-        let textured = brush.hatch.is_some() || brush.grain.is_some();
-        // A gradient stroke paints the stroke's outline as a fill, with the gradient of the shape.
-        let line_w = if node.stroke.is_some() || node.stroke_gradient.is_some() { node.stroke_width } else { 0.0 };
-        let ring = node.stroke_gradient.as_ref().filter(|g| g.colors.len() >= 2 && line_w > 0.0);
-        let glow = node.glow.filter(|g| g.size > 0.0 || g.spread > 0.0);
-        let inset = node.inset;
-        let noise = node.noise.filter(|n| n.amount > 0.0);
-        if opacity <= 0.0 || (fill.is_none() && stroke.is_none() && ring.is_none() && node.outlines.is_empty() && !textured) {
-            continue;
-        }
-        let mut own = Vec::new();
-        let transform = doc.world_transform(i);
-        let line = Line { dash: node.dash.clone(), cap: node.cap, join: node.join };
-        let widest = node.outlines.first().map_or(0.0, |o| o.1);
-        let plain = node.particles.is_none();
-        if plain && let Some(g) = glow {
-            glow_ops(&mut own, i, &path, transform, g, fill.is_some(), line_w.max(widest), opacity);
-        }
-        if plain && let Some(sh) = Shadow::cast(node.shadow, node.elevation, doc.light) {
-            shadow_ops(&mut own, i, &path, transform, sh, line_w.max(widest), opacity);
-        }
-        // Layered outlines under the shape, widest first, with round corners like a sticker.
-        for &(c, w) in node.outlines.iter().filter(|_| plain) {
-            let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
-            own.push(Op::Draw(Item {
-                node: i,
-                path: path.clone(),
-                transform,
-                fill: None,
-                stroke: Some((c, w)),
-                line,
-                opacity,
-                blend: node.blend,
-                even_odd: false,
-            }));
-        }
-        match &node.particles {
-            // An emitter draws its particles instead of itself.
-            Some(parts) => own.extend(parts.iter().filter(|(_, o)| *o > 0.0).map(|(at, o)| {
-                Op::Draw(Item {
-                    node: i,
-                    path: path.clone(),
-                    transform: *at,
-                    fill: fill.clone(),
-                    stroke,
-                    line: line.clone(),
-                    opacity: opacity * o.clamp(0.0, 1.0),
-                    blend: node.blend,
-                    even_odd: node.even_odd,
-                })
-            })),
-            None => match faces {
-                Some(faces) => body_ops(&mut own, i, faces, transform, stroke, opacity, node.blend, brush.bands > 0),
-                None if textured || inset.is_some() || noise.is_some() || ring.is_some() => {
-                    // Hatching, grain, an inner shadow and noise lie on the fill, under the outline.
-                    let base = node.fill.or_else(|| node.gradient.as_ref().and_then(|g| g.colors.first().copied()));
-                    let darker = base.map(|c| c.lerp(Color { a: c.a, ..Color::BLACK }, 0.45));
-                    let item = |path: BezPath, fill: Option<Paint>, stroke: Option<(Color, f64)>, line: Line, even_odd: bool| {
-                        Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd })
-                    };
-                    if fill.is_some() {
-                        own.push(item(path.clone(), fill, None, line.clone(), node.even_odd));
-                    }
-                    own.push(Op::PushClip { path: path.clone(), transform, even_odd: node.even_odd });
-                    let bounds = path.bounding_box();
-                    if let (Some(h), Some(lines)) = (brush.hatch, brush.hatch_lines(bounds, seed))
-                        && let Some(c) = h.color.or(node.stroke).or(darker)
-                    {
-                        let round = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
-                        own.push(item(lines, None, Some((c, h.width)), round, false));
-                    }
-                    if let (Some(g), Some(dots)) = (brush.grain, brush.grain_dots(bounds, seed ^ 0x5bd1_e995))
-                        && let Some(c) = g.color.or(darker).or(node.stroke)
-                    {
-                        own.push(item(dots, Some(Paint::Solid(c)), None, Line::default(), false));
-                    }
-                    if let Some(sh) = inset {
-                        inset_ops(&mut own, i, &path, transform, sh, line_w, opacity);
-                    }
-                    if let Some(n) = noise {
-                        own.extend(noise_ops(i, &path, transform, n, &node.id, opacity));
-                    }
-                    own.push(Op::Pop);
-                    match ring {
-                        Some(g) => {
-                            let outline = stroke_outline(&path, line_w, &line);
-                            let (from, to) = g.line(path.bounding_box());
-                            own.push(item(
-                                outline,
-                                Some(Paint::Gradient { gradient: brush.band_gradient(g).unwrap_or_else(|| g.clone()), from, to }),
-                                None,
-                                Line::default(),
-                                false,
-                            ));
-                        }
-                        None if stroke.is_some() => own.push(item(path, None, stroke, line, node.even_odd)),
-                        None => {}
-                    }
-                }
-                None => own.push(Op::Draw(Item { node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd: node.even_odd })),
-            },
-        }
-        if let Some(clip) = ball_clip(doc, i) {
-            own.insert(0, clip);
-            own.push(Op::Pop);
-        }
-        let out = target(&mut ops, &mut open);
-        if node.blur > 0.0 {
-            out.push(Op::Blur { ops: own, radius: node.blur });
-        } else {
-            out.extend(own);
-        }
+        target(&mut ops, &mut open).extend(node_ops(doc, i));
     }
     while !open.is_empty() {
         close(&mut ops, &mut open);
     }
     ops
+}
+
+/// Draw operations for one shape, in artboard coordinates, including its effects.
+/// Ancestor clips and group blurs are handled by `display_ops`. Exporters can reuse
+/// this painter without reimplementing shadows, brushes or three-dimensional faces.
+pub fn node_ops(doc: &Document, i: usize) -> Vec<Op> {
+    let Some(node) = doc.nodes.get(i) else { return Vec::new() };
+    if node.kind.is_container() || !doc.is_visible(i) {
+        return Vec::new();
+    }
+    let Some(path) = node.path() else { return Vec::new() };
+    // A 3D body draws its faces; its shadow and outlines take the whole silhouette.
+    let faces = node.body_faces(doc.light);
+    let path = faces.as_deref().map_or(path, motif_core::silhouette);
+    let brush = &node.brush;
+    let seed = brush.seed_at(&node.id, doc.time);
+    // A body keeps its true outline: its faces are drawn from the shape itself.
+    let path = if faces.is_none() { brush.roughen(&path, seed) } else { path };
+    let opacity = doc.world_opacity(i).clamp(0.0, 1.0);
+    let stroke = node.stroke.filter(|_| node.stroke_width > 0.0).map(|c| (c, node.stroke_width));
+    let fill = match (&node.gradient, node.fill) {
+        (Some(g), _) if g.colors.len() >= 2 => {
+            let (from, to) = g.line(path.bounding_box());
+            Some(Paint::Gradient { gradient: brush.band_gradient(g).unwrap_or_else(|| g.clone()), from, to })
+        }
+        (_, Some(c)) => Some(Paint::Solid(c)),
+        _ => None,
+    };
+    let textured = brush.hatch.is_some() || brush.grain.is_some();
+    // A gradient stroke paints the stroke's outline as a fill, with the gradient of the shape.
+    let line_w = if node.stroke.is_some() || node.stroke_gradient.is_some() { node.stroke_width } else { 0.0 };
+    let ring = node.stroke_gradient.as_ref().filter(|g| g.colors.len() >= 2 && line_w > 0.0);
+    let glow = node.glow.filter(|g| g.size > 0.0 || g.spread > 0.0);
+    let inset = node.inset;
+    let noise = node.noise.filter(|n| n.amount > 0.0);
+    if opacity <= 0.0 || (fill.is_none() && stroke.is_none() && ring.is_none() && node.outlines.is_empty() && !textured) {
+        return Vec::new();
+    }
+    let mut own = Vec::new();
+    let transform = doc.world_transform(i);
+    let line = Line { dash: node.dash.clone(), cap: node.cap, join: node.join };
+    let widest = node.outlines.first().map_or(0.0, |o| o.1);
+    let plain = node.particles.is_none();
+    if plain && let Some(g) = glow {
+        glow_ops(&mut own, i, &path, transform, g, fill.is_some(), line_w.max(widest), opacity);
+    }
+    if plain && let Some(sh) = Shadow::cast(node.shadow, node.elevation, doc.light) {
+        shadow_ops(&mut own, i, &path, transform, sh, line_w.max(widest), opacity);
+    }
+    // Layered outlines under the shape, widest first, with round corners like a sticker.
+    for &(c, w) in node.outlines.iter().filter(|_| plain) {
+        let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
+        own.push(Op::Draw(Item {
+            fill_source: None,
+            stroke_source: None,
+            node: i,
+            path: path.clone(),
+            transform,
+            fill: None,
+            stroke: Some((c, w)),
+            line,
+            opacity,
+            blend: node.blend,
+            even_odd: false,
+        }));
+    }
+    match &node.particles {
+        // An emitter draws its particles instead of itself.
+        Some(parts) => own.extend(parts.iter().filter(|(_, o)| *o > 0.0).map(|(at, o)| {
+            Op::Draw(Item {
+                fill_source: None,
+                stroke_source: None,
+                node: i,
+                path: path.clone(),
+                transform: *at,
+                fill: fill.clone(),
+                stroke,
+                line: line.clone(),
+                opacity: opacity * o.clamp(0.0, 1.0),
+                blend: node.blend,
+                even_odd: node.even_odd,
+            })
+        })),
+        None => match faces {
+            Some(faces) => body_ops(&mut own, i, faces, transform, stroke, opacity, node.blend, brush.bands > 0),
+            None if textured || inset.is_some() || noise.is_some() || ring.is_some() => {
+                // Hatching, grain, an inner shadow and noise lie on the fill, under the outline.
+                let base = node.fill.or_else(|| node.gradient.as_ref().and_then(|g| g.colors.first().copied()));
+                let darker = base.map(|c| c.lerp(Color { a: c.a, ..Color::BLACK }, 0.45));
+                let item = |path: BezPath, fill: Option<Paint>, stroke: Option<(Color, f64)>, line: Line, even_odd: bool, fill_source, stroke_source| {
+                    Op::Draw(Item { fill_source, stroke_source, node: i, path, transform, fill, stroke, line, opacity, blend: node.blend, even_odd })
+                };
+                if fill.is_some() {
+                    own.push(item(path.clone(), fill, None, line.clone(), node.even_odd, Some(motif_core::Prop::Fill), None));
+                }
+                own.push(Op::PushClip { path: path.clone(), transform, even_odd: node.even_odd });
+                let bounds = path.bounding_box();
+                if let (Some(h), Some(lines)) = (brush.hatch, brush.hatch_lines(bounds, seed))
+                    && let Some(c) = h.color.or(node.stroke).or(darker)
+                {
+                    let round = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
+                    own.push(item(lines, None, Some((c, h.width)), round, false, None, None));
+                }
+                if let (Some(g), Some(dots)) = (brush.grain, brush.grain_dots(bounds, seed ^ 0x5bd1_e995))
+                    && let Some(c) = g.color.or(darker).or(node.stroke)
+                {
+                    own.push(item(dots, Some(Paint::Solid(c)), None, Line::default(), false, None, None));
+                }
+                if let Some(sh) = inset {
+                    inset_ops(&mut own, i, &path, transform, sh, line_w, opacity);
+                }
+                if let Some(n) = noise {
+                    own.extend(noise_ops(i, &path, transform, n, &node.id, opacity));
+                }
+                own.push(Op::Pop);
+                match ring {
+                    Some(g) => {
+                        let outline = stroke_outline(&path, line_w, &line);
+                        let (from, to) = g.line(path.bounding_box());
+                        own.push(item(
+                            outline,
+                            Some(Paint::Gradient { gradient: brush.band_gradient(g).unwrap_or_else(|| g.clone()), from, to }),
+                            None,
+                            Line::default(),
+                            false,
+                            Some(motif_core::Prop::StrokeColor),
+                            None,
+                        ));
+                    }
+                    None if stroke.is_some() => own.push(item(path, None, stroke, line, node.even_odd, None, Some(motif_core::Prop::StrokeColor))),
+                    None => {}
+                }
+            }
+            None => own.push(Op::Draw(Item {
+                fill_source: Some(motif_core::Prop::Fill),
+                stroke_source: Some(motif_core::Prop::StrokeColor),
+                node: i,
+                path,
+                transform,
+                fill,
+                stroke,
+                line,
+                opacity,
+                blend: node.blend,
+                even_odd: node.even_odd,
+            })),
+        },
+    }
+    if let Some(clip) = ball_clip(doc, i) {
+        own.insert(0, clip);
+        own.push(Op::Pop);
+    }
+    if node.blur > 0.0 { vec![Op::Blur { ops: own, radius: node.blur }] } else { own }
+}
+
+/// Bounds of vector draw operations, including strokes and nested blur extents.
+pub fn ops_bounds(ops: &[Op]) -> Option<motif_core::kurbo::Rect> {
+    blur::bounds(ops, Affine::IDENTITY)
 }
 
 /// The faces of a body back to front, then its inked edges over them all, so that a thick edge
@@ -365,6 +397,8 @@ fn body_ops(
             None => (Paint::Solid(f.color), Some((f.color, 0.6))),
         };
         ops.push(Op::Draw(Item {
+            fill_source: None,
+            stroke_source: None,
             node,
             path: f.path,
             transform,
@@ -378,11 +412,35 @@ fn body_ops(
         let mut own = BezPath::new();
         polylines(&f.edges, &mut own);
         if let Some(ink) = stroke.filter(|_| !own.is_empty()) {
-            ops.push(Op::Draw(Item { node, path: own, transform, fill: None, stroke: Some(ink), line: line.clone(), opacity, blend, even_odd: false }));
+            ops.push(Op::Draw(Item {
+                fill_source: None,
+                stroke_source: None,
+                node,
+                path: own,
+                transform,
+                fill: None,
+                stroke: Some(ink),
+                line: line.clone(),
+                opacity,
+                blend,
+                even_odd: false,
+            }));
         }
     }
     if let Some(ink) = stroke.filter(|_| !top.is_empty()) {
-        ops.push(Op::Draw(Item { node, path: top, transform, fill: None, stroke: Some(ink), line, opacity, blend, even_odd: false }));
+        ops.push(Op::Draw(Item {
+            fill_source: None,
+            stroke_source: None,
+            node,
+            path: top,
+            transform,
+            fill: None,
+            stroke: Some(ink),
+            line,
+            opacity,
+            blend,
+            even_odd: false,
+        }));
     }
 }
 
@@ -406,6 +464,8 @@ fn shadow_ops(ops: &mut Vec<Op>, node: usize, path: &BezPath, transform: Affine,
     let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
     let body = (stroke_w > 0.0).then_some((sh.color, stroke_w));
     let item = Item {
+        fill_source: None,
+        stroke_source: None,
         node,
         path: path.clone(),
         transform: moved,
@@ -430,6 +490,8 @@ fn glow_ops(ops: &mut Vec<Op>, node: usize, path: &BezPath, transform: Affine, g
     let line = Line { dash: Vec::new(), cap: Cap::Round, join: Join::Round };
     let body = stroke_w + 2.0 * g.spread;
     let item = Item {
+        fill_source: None,
+        stroke_source: None,
         node,
         path: path.clone(),
         transform,
@@ -454,6 +516,8 @@ fn inset_ops(ops: &mut Vec<Op>, node: usize, path: &BezPath, transform: Affine, 
     let mut frame = path.bounding_box().inflate(reach, reach).to_path(0.1);
     frame.extend(path.iter());
     let item = Item {
+        fill_source: None,
+        stroke_source: None,
         node,
         path: frame,
         transform: Affine::translate((sh.dx, sh.dy)) * transform,
@@ -512,6 +576,8 @@ fn noise_ops(node: usize, path: &BezPath, transform: Affine, n: motif_core::Nois
             let base = if k < 3 { Color::WHITE } else { Color::BLACK };
             let color = Color { a: (strength * 255.0).round() as u8, ..base };
             Op::Draw(Item {
+                fill_source: None,
+                stroke_source: None,
                 node,
                 path: p,
                 transform,
