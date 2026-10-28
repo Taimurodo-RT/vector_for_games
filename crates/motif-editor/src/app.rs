@@ -584,7 +584,7 @@ impl App {
 
     pub(crate) fn display_doc(&self) -> Document {
         let mut doc = match (self.running(), self.current_anim()) {
-            (Some((m, player)), _) => player.pose(m, &self.scene.doc),
+            (Some((m, player)), _) => player.pose(&self.faced(m), &self.scene.doc),
             (None, Some(a)) => self.pose_anim(a, self.time),
             (None, None) => self.scene.doc.clone(),
         };

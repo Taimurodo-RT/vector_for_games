@@ -226,6 +226,10 @@ Motif прямо в игре, без запекания: «Экспорт → П
 тела, 3D. Из кода: set_input("speed", 1), fire("jump"), get_state(), сигналы
 event(name) и state_changed(state). Пример — godot-apps\hero: стрелки, пробел,
 H, колесо мыши. Подробнее — docs\runtime.html.
+Персонаж со сторонами (directions): $Walker.facing = направление движения —
+узел покажет ближайшую сторону, со спины сыграет Walk_up вместо Walk, шаг не
+собьётся, левые стороны отразятся при рисовании. Как устроен MotifSprite и
+почему он на GDExtension — docs\runtime.html#how.
 
 motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
