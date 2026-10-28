@@ -1792,7 +1792,14 @@ impl App {
             };
             ui.label(small(mode, FAINT));
             ui.label(small(format!("история: {}", self.undo.len()), FAINT));
-            ui.label(small(self.status.clone(), MUTED));
+            if self.video.busy() {
+                self.video.progress_ui(ui, false);
+            } else {
+                ui.label(small(self.status.clone(), MUTED));
+                if let Some(e) = self.video.reveal_ui(ui, Some(&self.status)) {
+                    self.status = e;
+                }
+            }
         });
     }
 

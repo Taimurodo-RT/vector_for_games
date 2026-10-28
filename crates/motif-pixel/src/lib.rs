@@ -123,6 +123,13 @@ impl Default for FrameExport {
     }
 }
 
+/// How many frames `animation` has at `fps`: a looping one leaves out its last frame, which
+/// equals the first.
+pub fn frame_count(animation: &motif_core::Animation, fps: f64) -> usize {
+    let count = (animation.duration * fps).round() as usize;
+    (if animation.looping { count } else { count + 1 }).max(1)
+}
+
 /// Renders every frame of an animation. Looping animations skip the last frame, which equals the first.
 pub fn render_frames(doc: &Document, anim: &str, opts: &FrameExport) -> Result<Vec<Pixmap>, String> {
     render_frames_facing(doc, anim, opts, None)
@@ -136,13 +143,9 @@ pub fn render_frames_facing(doc: &Document, anim: &str, opts: &FrameExport, face
     if opts.fps <= 0.0 {
         return Err("fps должен быть больше нуля".into());
     }
-    let mut count = (animation.duration * opts.fps).round() as usize;
-    if !animation.looping {
-        count += 1;
-    }
     // Soft bodies are simulated once for all frames.
     let mut sim = motif_core::SimCache::default();
-    (0..count.max(1))
+    (0..frame_count(animation, opts.fps))
         .map(|i| {
             let t = (i as f64 / opts.fps).min(animation.duration);
             render_cpu(&animation.pose_facing(doc, t, &mut sim, face), opts.render).ok_or_else(|| "не удалось создать изображение".to_string())
