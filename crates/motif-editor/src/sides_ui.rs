@@ -22,6 +22,14 @@ impl App {
         })
     }
 
+    /// Machine `m` as it plays from the side the canvas shows: `Walk_up` instead of `Walk`.
+    pub(crate) fn faced(&self, m: &motif_core::Machine) -> motif_core::Machine {
+        match self.shown_side() {
+            Some(k) => m.facing(&self.scene.doc, k),
+            None => m.clone(),
+        }
+    }
+
     pub(crate) fn sides_section(&mut self, ui: &mut egui::Ui) {
         let doc = &self.scene.doc;
         let current = doc.directions.clone();
