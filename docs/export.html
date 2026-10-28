@@ -126,6 +126,7 @@ motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --n
 motif.exe kit     ui.msc --scale 2 -o game\ui
 motif.exe screen  menu.msc -o game\ui
 motif.exe godot   hero.msc --node hero --no-aa -o game\hero
+motif.exe runtime hero.msc -o game\characters
 motif.exe render  hero.msc --anim Walk --side up_right -o сбоку.png
 motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pre>
 <div class="table-wrap"><table>
@@ -139,6 +140,7 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
   <tr><td><code>kit</code></td><td>UI-набор: каждая деталь <code>ui</code>/<code>slice</code> в каждом состоянии и тема Godot <code>.tres</code>, как кнопка «Сохранить UI-набор…». Без <code>-o</code> — в папку <code>ИМЯ_ui</code>.</td></tr>
   <tr><td><code>screen</code></td><td>Каждый холст — сцена Godot <code>ХОЛСТ.tscn</code> из <code>Control</code>-узлов с темой набора рядом, как кнопка «Экран для Godot…». См. <a href="#screens">«Экраны в Godot»</a>.</td></tr>
   <tr><td><code>godot</code></td><td>Все анимации в атлас, <code>SpriteFrames</code>, сцену <code>.tscn</code> и машину состояний в <code>AnimationTree</code>, как кнопка «Выгрузить в Godot…». См. <a href="#godot">«Анимации в Godot»</a>.</td></tr>
+  <tr><td><code>runtime</code></td><td>Сцена для узла MotifSprite, который играет её в игре вектором: аддон в <code>addons/motif</code>, <code>.msc</code> со шрифтами в папку <code>-o</code> внутри проекта Godot, <code>ИМЯ.tscn</code> с узлом, <code>*.msc</code> в фильтры экспорта. Как кнопка «Поставить в проект Godot…». См. <a href="runtime.html">«Motif в игре»</a>.</td></tr>
   <tr><td><code>--board ИМЯ</code></td><td>Один холст файла по имени или номеру с 1. Без ключа команды работают со всеми холстами: <code>check</code> перечисляет их, <code>render</code> сохраняет <code>СЦЕНА_ХОЛСТ.png</code> (<code>-o</code> — папка), <code>kit</code> собирает детали всех холстов в одну тему, <code>godot</code> выгружает каждый холст сценой <code>ХОЛСТ.tscn</code>, <code>palette</code> собирает цвета всех; <code>frames</code>, <code>pixel</code> и <code>video</code> берут холст, где есть анимация <code>--anim</code>.</td></tr>
   <tr><td><code>--side СТОРОНА</code></td><td>Для <code>render</code>, <code>frames</code> и <code>video</code> в сцене со строкой <code>directions</code>: снять одну сторону — <code>down</code>, <code>down_right</code>, <code>right</code>, <code>up_right</code>, <code>up</code>, <code>up_left</code>, <code>left</code>, <code>down_left</code>. См. <a href="orbit.html#sides">«Стороны»</a>.</td></tr>
   <tr><td><code>--node ID</code> / <code>--pivot X Y</code> / <code>--machine ИМЯ</code></td><td>Для <code>godot</code>: один объект вместо всей сцены, точка привязки спрайта, машина состояний.</td></tr>

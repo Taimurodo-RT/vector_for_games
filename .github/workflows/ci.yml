@@ -69,6 +69,11 @@ jobs:
           curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
           unzip -q godot.zip
       - run: godot-addon/test/run.sh "$PWD/Godot_v4.3-stable_linux.x86_64" "$PWD/target/debug/libmotif_godot.so"
+      - name: motif runtime into a project
+        run: |
+          mkdir -p target/runtime-check/ui && echo 'config_version=5' > target/runtime-check/project.godot
+          cargo run -p motif-cli -- runtime examples/modern-button.msc -o target/runtime-check/ui
+          test -f target/runtime-check/addons/motif/motif.gdextension && test -f target/runtime-check/ui/fonts/Inter-Medium.ttf
 
   # Windows build. On main it is also published as the release that update.bat downloads.
   windows-build:

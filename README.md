@@ -289,6 +289,7 @@ cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --pr
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
 cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
+cargo run --release -p motif-cli -- runtime examples/machine.msc -o ~/game/characters
 cargo run --release -p motif-cli -- godot   examples/directions.msc -o out/walker
 cargo run --release -p motif-cli -- render  examples/directions.msc --anim Walk --side up_right -o out/up_right.png
 cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопки -o out/buttons.png
@@ -342,6 +343,9 @@ GIF и APNG крутится по кругу без шва, а где прозр
 его в игре тем же ядром, что и редактор: кости, мягкие тела, морфинг, 3D, машина состояний и события работают как в
 Motif, а кадр рисуется под размер узла на экране и остаётся чётким при приближении камеры.
 
+* «Экспорт → Поставить в проект Godot…» (или `motif runtime сцена.msc -o папка-в-проекте`) ставит аддон в
+  `addons/motif`, кладёт `.msc` со шрифтами и `ИМЯ.tscn` с готовым узлом, дописывает `*.msc` в фильтры экспорта.
+  Потом каждое Ctrl+S копирует сцену в проект снова.
 * Свойства: `scene` (файл), `board`, `machine` или `animation`, `playing`, `speed`, `centered`, `resolution`,
   `background`, `pointer` (мышь для строк `listen`).
 * Из кода: `set_input("speed", 1)`, `fire("jump")`, `get_state()`, `jump_to("Hit")`, `restart()`, `get_image(2.0)`;

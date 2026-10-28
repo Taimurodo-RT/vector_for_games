@@ -27,6 +27,7 @@ mod pathedit;
 mod physics_ui;
 mod pixabridge;
 mod rope_ui;
+mod runtime_ui;
 mod scriptui;
 mod selection;
 mod sides_ui;

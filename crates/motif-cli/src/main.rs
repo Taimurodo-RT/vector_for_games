@@ -20,6 +20,7 @@ motif — скрипты сцен Motif без окна редактора
   motif screen  <сцена.msc> [-o папка] [параметры рендера]
   motif godot   <сцена.msc> [--node ID] [--pivot X Y] [--machine ИМЯ] [--pixelize] [--preset X.preset] [--fps 12] [-o папка] [параметры рендера]
   motif pixel   <сцена.msc> --anim ИМЯ [--preset X.preset] [--pixatool Pixatool.exe] [--fps 12] [-o папка] [параметры рендера]
+  motif runtime <сцена.msc> -o папка-в-проекте-godot [--addon папка-аддона]
 
 Холсты: в файле с несколькими строками artboard каждая открывает свой холст. У всех команд --board ИМЯ (или номер
 с 1) берёт один из них, без него команды работают со всеми: render сохраняет СЦЕНА_ХОЛСТ.png
@@ -51,6 +52,9 @@ godot запекает все анимации в один атлас ИМЯ.png
 только один объект (персонаж без фона), --pivot задаёт точку привязки спрайта в координатах артборда.
 С --pixelize (или --preset) кадры перед упаковкой в атлас проходят через PixaTool.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
+runtime кладёт сцену в проект Godot для узла MotifSprite, который играет её вектором без запекания: аддон
+Motif в addons/motif (из --addon, переменной MOTIF_GODOT_ADDON или папки godot-addon рядом с Motif), .msc и
+его шрифты в папку -o, сцену ИМЯ.tscn с настроенным узлом (если её ещё нет) и *.msc в фильтры экспорта.
 Стороны: в сцене со строкой directions 8 turn ID… godot снимает каждую анимацию со всех сторон
 (Walk_down, Walk_right…, с mirror — без левых, их отражает скрипт ИМЯ.gd), а --side right у render,
 frames и video снимает одну сторону: down, down_right, right, up_right, up, up_left, left, down_left.
@@ -66,6 +70,7 @@ struct Args {
     fps: f64,
     fps_set: bool,
     ffmpeg: Option<PathBuf>,
+    addon: Option<PathBuf>,
     scale: Option<f64>,
     width: Option<f64>,
     antialias: bool,
@@ -97,6 +102,7 @@ fn parse_args() -> Result<Args, String> {
         fps: 12.0,
         fps_set: false,
         ffmpeg: None,
+        addon: None,
         scale: None,
         width: None,
         antialias: true,
@@ -122,6 +128,7 @@ fn parse_args() -> Result<Args, String> {
                 a.fps = num(it.next(), "--fps")?;
                 a.fps_set = true;
             }
+            "--addon" => a.addon = Some(it.next().ok_or("после --addon нужна папка аддона (godot-addon/addons/motif)")?.into()),
             "--ffmpeg" => a.ffmpeg = Some(it.next().ok_or("после --ffmpeg нужен путь к ffmpeg")?.into()),
             "--scale" => a.scale = Some(num(it.next(), "--scale")?),
             "--width" => a.width = Some(num(it.next(), "--width")?),
@@ -357,6 +364,25 @@ fn run() -> Result<(), String> {
             for doc in boards {
                 let name = a.node.clone().unwrap_or_else(|| board_name(doc));
                 godot(&a, doc, render_for(doc), &dir, &name)?;
+            }
+        }
+        "runtime" => {
+            let dir = a.out.clone().ok_or("для runtime укажите -o папку внутри проекта Godot")?;
+            let addon = a.addon.clone().or_else(motif_pixel::runtime::addon_source);
+            let r = motif_pixel::runtime::install(&a.scene, &src, &dir, addon.as_deref())?;
+            println!("{} → {}", a.scene.display(), r.res);
+            if r.fonts > 0 {
+                println!("  шрифтов рядом: {}", r.fonts);
+            }
+            if let Some(t) = &r.tscn {
+                println!("  сцена с узлом MotifSprite: {}", t.display());
+            }
+            println!("  аддон: {}", if r.addon { "поставлен в addons/motif" } else { "уже стоит" });
+            if r.presets > 0 {
+                println!("  *.msc добавлен в фильтры экспорта: {} пресетов", r.presets);
+            }
+            for w in &r.warnings {
+                eprintln!("  внимание: {w}");
             }
         }
         "palette" => {

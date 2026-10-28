@@ -831,6 +831,12 @@ impl App {
                     let ctx = self.ctx.clone();
                     self.status = format!("Сохранено. {}", self.godot_to(&link.target, &ctx));
                 }
+                if let Some(dir) = self.pixa.runtime_link(&path).cloned() {
+                    self.status = match motif_pixel::runtime::copy_scene(&path, &self.saved_src, &dir) {
+                        Ok((to, _)) => format!("{} Для MotifSprite: → {}", self.status, to.display()),
+                        Err(e) => format!("{} В проект Godot не скопировано: {e}", self.status),
+                    };
+                }
             }
             Err(e) => self.status = format!("Не удалось сохранить {}: {e}", path.display()),
         }
@@ -2318,6 +2324,7 @@ impl App {
                 } else {
                     self.godot_export(ui);
                 }
+                self.runtime_export(ui);
                 theme::caption(ui, "Кадры PNG для PixaTool");
                 egui::Grid::new("export").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                     ui.label("Кадров в секунду");
