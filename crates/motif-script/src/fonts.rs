@@ -48,6 +48,25 @@ pub fn load(font: Option<&str>, base: Option<&Path>) -> Result<Arc<Vec<u8>>, Str
     Ok(bytes)
 }
 
+/// The font files a script names (`font "fonts/Inter.ttf"`), as written, each once; the built-in
+/// `regular` and `bold` are left out. Read from the script's words, so a comment or a text that
+/// mentions a font does not count.
+pub fn named(src: &str) -> Result<Vec<String>, String> {
+    use crate::lexer::Tok;
+    let toks = crate::lexer::lex(src).map_err(|e| e.to_string())?;
+    let mut out: Vec<String> = Vec::new();
+    for pair in toks.windows(2) {
+        if let (Tok::Ident(key), Tok::Str(file)) = (&pair[0].tok, &pair[1].tok)
+            && key == "font"
+            && !matches!(file.as_str(), "" | "regular" | "bold")
+            && !out.contains(file)
+        {
+            out.push(file.clone());
+        }
+    }
+    Ok(out)
+}
+
 /// The file name a font is saved under next to an exported theme.
 pub fn file_name(font: Option<&str>) -> String {
     match font {

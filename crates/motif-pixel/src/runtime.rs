@@ -40,54 +40,53 @@ pub fn addon_source() -> Option<PathBuf> {
     exe.ancestors().skip(1).take(4).map(|d| d.join("godot-addon/addons/motif")).find(|d| d.join("motif.gdextension").is_file())
 }
 
-/// The font files a scene names (`font "fonts/Inter.ttf"`), as written; the built-in ones are left out.
-pub fn fonts(src: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut rest = src;
-    while let Some(i) = rest.find("font") {
-        let before = rest[..i].chars().next_back();
-        let after = &rest[i + 4..];
-        rest = after;
-        if before.is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
-            continue;
-        }
-        let Some(quoted) = after.strip_prefix(|c: char| c == ' ' || c == '\t').map(str::trim_start).and_then(|s| s.strip_prefix('"')) else {
-            continue;
-        };
-        let Some(end) = quoted.find('"') else { continue };
-        let name = &quoted[..end];
-        if !name.is_empty() && name != "regular" && name != "bold" && !out.iter().any(|f| f == name) {
-            out.push(name.to_string());
-        }
-    }
-    out
-}
-
-/// Copies the scene `src` (saved at `scene`) into `dir` with the fonts it names, at the same
-/// paths relative to it. Returns the copied scene and how many fonts went along.
-pub fn copy_scene(scene: &Path, src: &str, dir: &Path) -> Result<(PathBuf, usize), String> {
-    let name = scene.file_name().ok_or("у сцены нет имени файла")?;
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let to = dir.join(name);
-    std::fs::write(&to, src).map_err(|e| format!("{}: {e}", to.display()))?;
+/// The fonts scene `src` (saved at `scene`) names, checked before anything is copied: each as
+/// written, and the file it is read from. A font outside the scene's folder, or missing, is an error.
+pub fn scene_fonts(scene: &Path, src: &str) -> Result<Vec<(String, PathBuf)>, String> {
     let from_dir = scene.parent().unwrap_or(Path::new("."));
-    let mut copied = 0;
-    for font in fonts(src) {
+    let mut out = Vec::new();
+    for font in motif_script::fonts::named(src)? {
         let rel = Path::new(&font);
         if rel.is_absolute() || rel.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
             // Outside the scene's folder: the game would look for it at a path it does not have.
             return Err(format!("шрифт «{font}» лежит не в папке сцены: положите его рядом с .msc (например в fonts/), чтобы он поехал в игру"));
         }
-        let (src_font, dst_font) = (from_dir.join(rel), dir.join(rel));
-        if src_font == dst_font {
+        let file = from_dir.join(rel);
+        if !file.is_file() {
+            return Err(format!("нет шрифта {}", file.display()));
+        }
+        out.push((font, file));
+    }
+    Ok(out)
+}
+
+/// Copies the scene `src` (saved at `scene`) into `dir` with the fonts it names, at the same
+/// paths relative to it. Returns the copied scene and how many fonts went along. When a font is
+/// wrong nothing is written, and a scene copied there before stays as it was.
+pub fn copy_scene(scene: &Path, src: &str, dir: &Path) -> Result<(PathBuf, usize), String> {
+    let name = scene.file_name().ok_or("у сцены нет имени файла")?;
+    let fonts = scene_fonts(scene, src)?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut copied = 0;
+    for (font, from) in fonts {
+        let to = dir.join(&font);
+        if to == from {
             continue;
         }
-        if let Some(parent) = dst_font.parent() {
+        if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        std::fs::copy(&src_font, &dst_font).map_err(|e| format!("шрифт {}: {e}", src_font.display()))?;
+        std::fs::copy(&from, &to).map_err(|e| format!("шрифт {}: {e}", from.display()))?;
         copied += 1;
     }
+    // The scene last, and whole: Godot may be reading it.
+    let to = dir.join(name);
+    let part = dir.join(format!(".{}.part", name.to_string_lossy()));
+    std::fs::write(&part, src).map_err(|e| format!("{}: {e}", part.display()))?;
+    std::fs::rename(&part, &to).map_err(|e| {
+        let _ = std::fs::remove_file(&part);
+        format!("{}: {e}", to.display())
+    })?;
     Ok((to, copied))
 }
 
@@ -96,6 +95,8 @@ pub fn copy_scene(scene: &Path, src: &str, dir: &Path) -> Result<(PathBuf, usize
 /// touched when it exists), and `*.msc` in the project's export filters.
 pub fn install(scene: &Path, src: &str, dir: &Path, addon: Option<&Path>) -> Result<Installed, String> {
     let project = project_root(dir).ok_or_else(|| format!("{} — не проект Godot: выберите папку внутри проекта, где лежит project.godot", dir.display()))?;
+    // A scene that cannot go is found out before anything in the project changes.
+    scene_fonts(scene, src)?;
     let mut out = Installed { project: project.clone(), ..Default::default() };
     match addon {
         Some(a) => {
@@ -218,7 +219,35 @@ mod tests {
     #[test]
     fn fonts_are_found_as_written() {
         let src = "text a content \"x\" font \"fonts/Inter.ttf\" font-size 16\ntext b font \"bold\"\ntext c font \"fonts/Inter.ttf\"\ntext d font  \"мой.otf\"\n// myfont \"no.ttf\"";
-        assert_eq!(fonts(src), ["fonts/Inter.ttf", "мой.otf"]);
+        assert_eq!(motif_script::fonts::named(src).unwrap(), ["fonts/Inter.ttf", "мой.otf"]);
+        // Comments and texts that mention a font are not fonts.
+        let src = "artboard 100x80\nellipse body at 50 40 size 20 20 fill #55aa88\n// font \"fonts/unused.ttf\" was removed\ntext t content \"font x.ttf\" font-size 12\n";
+        assert_eq!(motif_script::fonts::named(src).unwrap(), Vec::<String>::new());
+        let d = dir("comment");
+        std::fs::write(d.join("a.msc"), src).unwrap();
+        let (to, n) = copy_scene(&d.join("a.msc"), src, &d.join("game")).unwrap();
+        assert_eq!((std::fs::read_to_string(to).unwrap().as_str(), n), (src, 0));
+        std::fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn a_refused_scene_leaves_the_copy_in_the_game() {
+        let d = dir("refused");
+        let (art, game) = (d.join("art"), d.join("game/characters"));
+        std::fs::create_dir_all(&art).unwrap();
+        std::fs::create_dir_all(d.join("shared")).unwrap();
+        std::fs::write(d.join("shared/Inter.ttf"), b"font").unwrap();
+        let good = "artboard 100x80\nellipse body at 50 40 size 20 20 fill #55aa88\n";
+        copy_scene(&art.join("hero.msc"), good, &game).unwrap();
+        // A font beside the art folder, and one that is not there: refused, the copy kept.
+        for font in ["../shared/Inter.ttf", "fonts/missing.ttf"] {
+            let bad = format!("{good}text label at 10 20 content \"Test\" font \"{font}\" font-size 16\n");
+            assert!(copy_scene(&art.join("hero.msc"), &bad, &game).is_err(), "{font}");
+            assert_eq!(std::fs::read_to_string(game.join("hero.msc")).unwrap(), good, "{font}");
+        }
+        let names: Vec<_> = std::fs::read_dir(&game).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(names, [std::ffi::OsString::from("hero.msc")], "no half-written files");
+        std::fs::remove_dir_all(d).ok();
     }
 
     #[test]
@@ -258,6 +287,10 @@ mod tests {
         assert_eq!((again.addon, again.tscn, again.presets), (false, None, 0));
         assert_eq!(std::fs::read_to_string(game.join("ui/button.tscn")).unwrap(), "мой");
 
+        // Refused before the project changes: the scene installed before stays.
+        let broken = format!("{src}text u content \"?\" font \"fonts/Gone.ttf\"\n");
+        assert!(install(&art.join("button.msc"), &broken, &game.join("ui"), Some(&addon)).unwrap_err().contains("Gone.ttf"));
+        assert_eq!(std::fs::read_to_string(game.join("ui/button.msc")).unwrap(), src);
         // A font outside the scene's folder would not reach the game.
         let outside = "text t font \"../Inter.ttf\"";
         assert!(copy_scene(&art.join("button.msc"), outside, &game.join("ui")).unwrap_err().contains("рядом с .msc"));
