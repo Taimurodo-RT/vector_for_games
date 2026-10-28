@@ -197,13 +197,15 @@ impl App {
         let transparent = self.video.transparent && format.keeps_alpha();
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !transparent };
         let (fps, ffmpeg, anim) = (self.video.fps, self.video.found.clone(), anim.to_string());
+        // From the side the canvas shows, when the scene has sides.
+        let side = self.shown_side();
         let anim_name = anim.clone();
         let (tx, rx) = channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let mut last = None;
             let result = jobs.iter().try_for_each(|(path, doc)| {
-                let r = video::export_animation(doc, &anim, render, fps, ffmpeg.clone(), path).map_err(|e| format!("{}: {e}", path.display()))?;
+                let r = video::export_animation(doc, &anim, side, render, fps, ffmpeg.clone(), path).map_err(|e| format!("{}: {e}", path.display()))?;
                 last = Some((path.clone(), r));
                 Ok::<(), String>(())
             });
