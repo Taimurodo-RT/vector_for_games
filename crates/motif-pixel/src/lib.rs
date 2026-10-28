@@ -132,7 +132,14 @@ pub fn frame_count(animation: &motif_core::Animation, fps: f64) -> usize {
 
 /// Renders every frame of an animation. Looping animations skip the last frame, which equals the first.
 pub fn render_frames(doc: &Document, anim: &str, opts: &FrameExport) -> Result<Vec<Pixmap>, String> {
-    let animation = doc.animation(anim).ok_or_else(|| format!("нет анимации «{anim}»"))?;
+    render_frames_facing(doc, anim, opts, None)
+}
+
+/// [`render_frames`] from one side of the scene's `directions` (by number): the turned objects
+/// face it, and `anim_side` plays instead of `anim` where the scene has one.
+pub fn render_frames_facing(doc: &Document, anim: &str, opts: &FrameExport, face: Option<usize>) -> Result<Vec<Pixmap>, String> {
+    let side = face.zip(doc.directions.as_ref()).and_then(|(k, d)| d.anim_for(doc, anim, k));
+    let animation = side.or_else(|| doc.animation(anim)).ok_or_else(|| format!("нет анимации «{anim}»"))?;
     if opts.fps <= 0.0 {
         return Err("fps должен быть больше нуля".into());
     }
@@ -141,9 +148,15 @@ pub fn render_frames(doc: &Document, anim: &str, opts: &FrameExport) -> Result<V
     (0..frame_count(animation, opts.fps))
         .map(|i| {
             let t = (i as f64 / opts.fps).min(animation.duration);
-            render_cpu(&animation.pose_with(doc, t, &mut sim), opts.render).ok_or_else(|| "не удалось создать изображение".to_string())
+            render_cpu(&animation.pose_facing(doc, t, &mut sim, face), opts.render).ok_or_else(|| "не удалось создать изображение".to_string())
         })
         .collect()
+}
+
+/// The side of the scene's `directions` named `name` (`right`, `up_left`…), by number.
+pub fn side(doc: &Document, name: &str) -> Result<usize, String> {
+    let d = doc.directions.as_ref().ok_or("в сцене нет строки directions")?;
+    d.find(name).ok_or_else(|| format!("нет стороны «{name}»: {}", d.names().join(", ")))
 }
 
 #[cfg(test)]

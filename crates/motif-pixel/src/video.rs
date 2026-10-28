@@ -151,15 +151,19 @@ pub struct VideoReport {
 
 /// Animation `anim` of `doc` drawn at `opts.fps` and saved as the video `path` names: it loops
 /// when the animation does, and the artboard colour stands behind transparency the format cannot
-/// keep. Each frame is drawn just before it is encoded, so a long video never sits in memory.
+/// keep. `face` shoots it from one side of the scene's `directions`. Each frame is drawn just
+/// before it is encoded, so a long video never sits in memory.
 pub fn export_animation(
     doc: &motif_core::Document,
     anim: &str,
+    face: Option<usize>,
     render: motif_render::CpuOptions,
     opts: VideoOptions,
     path: &Path,
 ) -> Result<VideoReport, String> {
-    let animation = doc.animation(anim).ok_or_else(|| format!("нет анимации «{anim}»"))?;
+    // From a side, `Walk_up` plays instead of `Walk` where the scene has it.
+    let side = face.zip(doc.directions.as_ref()).and_then(|(k, d)| d.anim_for(doc, anim, k));
+    let animation = side.or_else(|| doc.animation(anim)).ok_or_else(|| format!("нет анимации «{anim}»"))?;
     if opts.fps.is_nan() || opts.fps <= 0.0 {
         return Err("fps должен быть больше нуля".into());
     }
@@ -171,7 +175,7 @@ pub fn export_animation(
     let fps = opts.fps;
     let mut draw = |i: usize| {
         let t = (i as f64 / fps).min(animation.duration);
-        motif_render::render_cpu(&animation.pose_with(doc, t, &mut sim), render).ok_or_else(|| "не удалось создать изображение".to_string())
+        motif_render::render_cpu(&animation.pose_facing(doc, t, &mut sim, face), render).ok_or_else(|| "не удалось создать изображение".to_string())
     };
     encode_to(path, count, &mut draw, &opts)
 }

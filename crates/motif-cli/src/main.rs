@@ -11,9 +11,9 @@ motif — скрипты сцен Motif без окна редактора
 
 Использование:
   motif check   <сцена.msc>
-  motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [параметры рендера]
-  motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [-o папка] [параметры рендера]
-  motif video   <сцена.msc> --anim ИМЯ [--fps 30] [-o видео.mp4|.webm|.gif|.png] [--ffmpeg путь] [параметры рендера]
+  motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [параметры рендера]
+  motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [--side СТОРОНА] [-o папка] [параметры рендера]
+  motif video   <сцена.msc> --anim ИМЯ [--fps 30] [--side СТОРОНА] [-o видео.mp4|.webm|.gif|.png] [--ffmpeg путь] [параметры рендера]
   motif video   <сцена.msc> --machine ИМЯ --take \"1 speed=1, 2.5 jump\" [--length СЕК] [-o видео.mp4] …
   motif palette <сцена.msc> [-o палитра.pal]
   motif kit     <сцена.msc> [-o папка] [параметры рендера]
@@ -51,6 +51,9 @@ godot запекает все анимации в один атлас ИМЯ.png
 только один объект (персонаж без фона), --pivot задаёт точку привязки спрайта в координатах артборда.
 С --pixelize (или --preset) кадры перед упаковкой в атлас проходят через PixaTool.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
+Стороны: в сцене со строкой directions 8 turn ID… godot снимает каждую анимацию со всех сторон
+(Walk_down, Walk_right…, с mirror — без левых, их отражает скрипт ИМЯ.gd), а --side right у render,
+frames и video снимает одну сторону: down, down_right, right, up_right, up, up_left, left, down_left.
 pixel снимает кадры и сам прогоняет их через PixaTool с пресетом, сохранённым в PixaTool кнопкой
 «Save Preset». PixaTool ищется в --pixatool, в переменной MOTIF_PIXATOOL и в папке tools рядом с Motif.";
 
@@ -76,6 +79,7 @@ struct Args {
     board: Option<String>,
     take: Option<String>,
     length: Option<f64>,
+    side: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -106,6 +110,7 @@ fn parse_args() -> Result<Args, String> {
         board: None,
         take: None,
         length: None,
+        side: None,
     };
     let num = |v: Option<String>, flag: &str| v.and_then(|s| s.parse::<f64>().ok()).ok_or(format!("после {flag} нужно число"));
     while let Some(arg) = it.next() {
@@ -126,6 +131,7 @@ fn parse_args() -> Result<Args, String> {
             "--board" => a.board = Some(it.next().ok_or("после --board нужно имя холста или его номер")?),
             "--take" => a.take = Some(it.next().ok_or("после --take нужны моменты: \"1 speed=1, 2.5 jump\"")?),
             "--length" => a.length = Some(num(it.next(), "--length")?),
+            "--side" => a.side = Some(it.next().ok_or("после --side нужна сторона: down, right, up…")?),
             "--machine" => a.machine = Some(it.next().ok_or("после --machine нужно имя машины")?),
             "--pivot" => a.pivot = Some((num(it.next(), "--pivot")?, num(it.next(), "--pivot")?)),
             "--no-aa" => a.antialias = false,
@@ -188,11 +194,22 @@ fn run() -> Result<(), String> {
         }
         "render" => {
             for doc in &boards {
-                let posed = match &a.anim {
-                    Some(name) if several => doc.animation(name).map_or_else(|| doc.clone(), |an| an.pose(doc, a.time)),
-                    Some(name) => doc.animation(name).ok_or(format!("нет анимации «{name}»"))?.pose(doc, a.time),
+                let face = a.side.as_deref().map(|s| motif_pixel::side(doc, s)).transpose()?;
+                // From a side, `Walk_up` plays instead of `Walk` where the scene has it.
+                let anim = |name: &str| match (face, &doc.directions) {
+                    (Some(k), Some(d)) => d.anim_for(doc, name, k),
+                    _ => doc.animation(name),
+                };
+                let mut posed = match &a.anim {
+                    Some(name) if several => anim(name).map_or_else(|| doc.clone(), |an| an.pose(doc, a.time)),
+                    Some(name) => anim(name).ok_or(format!("нет анимации «{name}»"))?.pose(doc, a.time),
                     None => doc.clone(),
                 };
+                if let Some(k) = face {
+                    posed.rig();
+                    posed.face(k);
+                    posed.rig();
+                }
                 // Several boards: -o is the folder they go to.
                 let out = match &a.out {
                     Some(o) if several => o.join(format!("{stem}_{}.png", board_name(doc))),
@@ -211,7 +228,8 @@ fn run() -> Result<(), String> {
         "frames" => {
             let name = a.anim.clone().ok_or("для frames укажите --anim ИМЯ")?;
             let doc = board_with_anim(&boards, &name)?;
-            let frames = render_frames(doc, &name, &FrameExport { fps: a.fps, render: render_for(doc) })?;
+            let face = a.side.as_deref().map(|s| motif_pixel::side(doc, s)).transpose()?;
+            let frames = motif_pixel::render_frames_facing(doc, &name, &FrameExport { fps: a.fps, render: render_for(doc) }, face)?;
             let dir = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}")));
             std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             for (i, px) in frames.iter().enumerate() {
@@ -222,6 +240,9 @@ fn run() -> Result<(), String> {
         }
         "video" if a.take.is_some() || (a.anim.is_none() && a.machine.is_some()) => {
             let name = a.machine.clone().ok_or("для прогона укажите --machine ИМЯ")?;
+            if a.side.is_some() {
+                return Err("--side пока работает только с --anim, не с прогоном машины".into());
+            }
             let with: Vec<&Document> = boards.iter().filter(|d| d.machine(&name).is_some()).collect();
             let doc = match with.as_slice() {
                 [doc] => *doc,
@@ -256,9 +277,11 @@ fn run() -> Result<(), String> {
             // Video plays smoothly at 30 frames a second; sprite frames keep their 12.
             let fps = if a.fps_set { a.fps } else { 30.0 };
             let out = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}.mp4")));
+            let face = a.side.as_deref().map(|s| motif_pixel::side(doc, s)).transpose()?;
             let r = motif_pixel::video::export_animation(
                 doc,
                 &name,
+                face,
                 render_for(doc),
                 motif_pixel::video::VideoOptions { fps, ffmpeg: a.ffmpeg.clone(), ..Default::default() },
                 &out,

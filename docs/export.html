@@ -126,6 +126,7 @@ motif.exe pixel   сцена.msc --anim Idle --preset пиксель4.preset --n
 motif.exe kit     ui.msc --scale 2 -o game\ui
 motif.exe screen  menu.msc -o game\ui
 motif.exe godot   hero.msc --node hero --no-aa -o game\hero
+motif.exe render  hero.msc --anim Walk --side up_right -o сбоку.png
 motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pre>
 <div class="table-wrap"><table>
   <tr><th>Команда / ключ</th><th>Что делает</th></tr>
@@ -139,6 +140,7 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
   <tr><td><code>screen</code></td><td>Каждый холст — сцена Godot <code>ХОЛСТ.tscn</code> из <code>Control</code>-узлов с темой набора рядом, как кнопка «Экран для Godot…». См. <a href="#screens">«Экраны в Godot»</a>.</td></tr>
   <tr><td><code>godot</code></td><td>Все анимации в атлас, <code>SpriteFrames</code>, сцену <code>.tscn</code> и машину состояний в <code>AnimationTree</code>, как кнопка «Выгрузить в Godot…». См. <a href="#godot">«Анимации в Godot»</a>.</td></tr>
   <tr><td><code>--board ИМЯ</code></td><td>Один холст файла по имени или номеру с 1. Без ключа команды работают со всеми холстами: <code>check</code> перечисляет их, <code>render</code> сохраняет <code>СЦЕНА_ХОЛСТ.png</code> (<code>-o</code> — папка), <code>kit</code> собирает детали всех холстов в одну тему, <code>godot</code> выгружает каждый холст сценой <code>ХОЛСТ.tscn</code>, <code>palette</code> собирает цвета всех; <code>frames</code>, <code>pixel</code> и <code>video</code> берут холст, где есть анимация <code>--anim</code>.</td></tr>
+  <tr><td><code>--side СТОРОНА</code></td><td>Для <code>render</code>, <code>frames</code> и <code>video</code> в сцене со строкой <code>directions</code>: снять одну сторону — <code>down</code>, <code>down_right</code>, <code>right</code>, <code>up_right</code>, <code>up</code>, <code>up_left</code>, <code>left</code>, <code>down_left</code>. См. <a href="orbit.html#sides">«Стороны»</a>.</td></tr>
   <tr><td><code>--node ID</code> / <code>--pivot X Y</code> / <code>--machine ИМЯ</code></td><td>Для <code>godot</code>: один объект вместо всей сцены, точка привязки спрайта, машина состояний.</td></tr>
   <tr><td><code>--machine ИМЯ --take "…"</code> / <code>--length С</code></td><td>Для <code>video</code>: прогон машины состояний вместо одной анимации — моменты <code>"0.5 speed=1, 2 jump"</code> по времени, длина видео в секундах. См. <a href="machine.html#take">«Запись прогона»</a>.</td></tr>
   <tr><td><code>--preset X.preset</code></td><td>Пресет PixaTool для <code>pixel</code>; без него — настройки PixaTool по умолчанию.</td></tr>
@@ -288,6 +290,8 @@ anim Value 1s {
   <li><code>ИМЯ_frames.tres</code> — <code>SpriteFrames</code>: анимации с именами из Motif, скоростью из «Кадров в секунду» и повтором как в скрипте.</li>
   <li><code>ИМЯ.tscn</code> — сцена: корень <code>Node2D</code> и <code>AnimatedSprite2D</code> «Sprite». Точка корня — центр выделенного объекта (или середина артборда), спрайт сдвинут так, что персонаж стоит там же, где в Motif.</li>
   <li>Если в сцене есть машина состояний, в <code>ИМЯ.tscn</code> добавляются <code>AnimationPlayer</code> с теми же анимациями и <code>AnimationTree</code> с теми же состояниями и переходами, а рядом ложится скрипт <code>ИМЯ.gd</code>. Входы машины становятся его переменными: число и флаг можно менять из игры и в инспекторе, у триггера есть метод <code>fire_…()</code>.</li>
+  <li>Если в сцене есть строка <code>directions</code>, каждая анимация снимается со всех сторон (<code>Walk_down</code>, <code>Walk_right</code>…), а скрипт получает <code>facing</code>: спрайт сам показывает сторону, куда смотрит персонаж. См. <a href="orbit.html#sides">«Стороны для вида сверху»</a>.</li>
+  <li>Персонаж-шар выгружается целиком: с выделенным шаром в спрайт попадает и всё, что стоит на нём (<code>on</code>), — глаза, нос, рюкзак.</li>
 </ul>
 <pre><code><span class="c"># персонаж из examples/machine.msc в игре</span>
 <span class="k">var</span> hero = preload(<span class="s">"res://characters/hero/hero.tscn"</span>).instantiate()

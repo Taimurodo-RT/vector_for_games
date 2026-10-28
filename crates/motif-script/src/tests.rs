@@ -1669,3 +1669,37 @@ fn the_interface_check_reads_and_moves_the_kit() {
         assert!(buttons.contains(&key), "{key} in {buttons:?}");
     }
 }
+
+#[test]
+fn directions_parse_and_edit() {
+    let src = "artboard 400x300\ndirections 8 turn head body mirror\nellipse head\nellipse body\n";
+    let s = scene(src);
+    let d = s.doc.directions.clone().unwrap();
+    assert_eq!((d.count, d.turn.clone(), d.mirror), (8, vec!["head".to_string(), "body".to_string()], true));
+    assert!(parse("directions 6\nellipse e\n").is_err(), "4 or 8 sides");
+    assert!(parse("directions 4 turn nobody\nellipse e\n").is_err(), "turned objects exist");
+    assert!(parse("directions 4 spin\n").is_err());
+    assert!(parse("group g {\n  directions 4\n}\n").is_err(), "top level only");
+    assert!(parse("directions 4\ndirections 8\n").is_err(), "one line");
+    // Editing rewrites the line, adds one under the artboard, or removes it.
+    let four = motif_core::Directions { count: 4, turn: vec!["head".into()], mirror: false };
+    assert_eq!(set_directions(src, &s, Some(&four)), "artboard 400x300\ndirections 4 turn head\nellipse head\nellipse body\n");
+    assert_eq!(set_directions(src, &s, None), "artboard 400x300\nellipse head\nellipse body\n");
+    let bare = "artboard 400x300\nellipse head\n";
+    let out = set_directions(bare, &scene(bare), Some(&four));
+    assert_eq!(out, "artboard 400x300\ndirections 4 turn head\nellipse head\n");
+    assert_eq!(scene(&out).doc.directions, Some(four));
+    // A deleted object leaves `turn`, and the script still reads.
+    let out = delete_node(src, &s, "body").unwrap();
+    assert_eq!(out, "artboard 400x300\ndirections 8 turn head mirror\nellipse head\n");
+    let out = delete_node(&out, &scene(&out), "head").unwrap();
+    assert_eq!(out, "artboard 400x300\ndirections 8 mirror\n");
+    // Its group taking both with it.
+    let grouped = "artboard 400x300\ndirections 4 turn head body\ngroup hero {\n  ellipse head\n  ellipse body\n}\nrect floor\n";
+    let out = delete_node(grouped, &scene(grouped), "hero").unwrap();
+    assert_eq!(out, "artboard 400x300\ndirections 4\nrect floor\n");
+    assert!(scene(&out).doc.directions.unwrap().turn.is_empty());
+    // An object not turned leaves the line alone.
+    let out = delete_node(grouped, &scene(grouped), "floor").unwrap();
+    assert!(out.contains("directions 4 turn head body\n"), "{out}");
+}

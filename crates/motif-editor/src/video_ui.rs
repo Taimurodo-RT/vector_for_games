@@ -335,13 +335,15 @@ impl App {
         let transparent = self.video.transparent && format.keeps_alpha();
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !transparent };
         let (fps, ffmpeg, anim) = (self.video.fps, self.video.found.clone(), anim.to_string());
+        // From the side the canvas shows, when the scene has sides.
+        let side = self.shown_side();
         let anim_name = anim.clone();
         self.video.start(ctx, move |progress| {
             let mut last = None;
             for (i, (path, doc)) in jobs.iter().enumerate() {
                 progress.begin_file(i, jobs.len());
                 let opts = VideoOptions { fps, ffmpeg: ffmpeg.clone(), progress: Some(progress.clone()), ..Default::default() };
-                let r = video::export_animation(doc, &anim, render, opts, path).map_err(|e| format!("{}: {e}", path.display()))?;
+                let r = video::export_animation(doc, &anim, side, render, opts, path).map_err(|e| format!("{}: {e}", path.display()))?;
                 last = Some((path.clone(), r));
             }
             match (jobs.len(), last) {

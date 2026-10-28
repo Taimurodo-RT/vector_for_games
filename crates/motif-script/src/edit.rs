@@ -439,6 +439,20 @@ pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Spa
         let Some(site) = scene.machines.get(&m.name) else { continue };
         spans.extend(m.listeners.iter().zip(&site.listeners).filter(|(l, _)| ids.contains(&l.node.as_str())).map(|(_, s)| whole_lines(src, *s)));
     }
+    // Turning parts of `directions` leave its line; with the last of them goes the `turn` word.
+    let gone: Vec<Span> = scene.directions_turn.iter().filter(|(id, _)| ids.contains(&id.as_str())).map(|(_, s)| *s).collect();
+    if !gone.is_empty() {
+        let with_space = |s: Span| Span::new(src[..s.start].trim_end_matches([' ', '\t']).len(), s.end);
+        if gone.len() == scene.directions_turn.len()
+            && let Some(first) = gone.first()
+            && src[..first.start].trim_end().ends_with("turn")
+        {
+            let word = src[..first.start].trim_end().len() - "turn".len();
+            spans.push(with_space(Span::new(word, gone.last().map_or(first.end, |s| s.end))));
+        } else {
+            spans.extend(gone.into_iter().map(with_space));
+        }
+    }
     // Weights go with their shape, and strokes with their bone.
     for (shape, w) in &scene.weights {
         if ids.contains(&shape.as_str()) {
@@ -871,6 +885,30 @@ pub fn set_world(src: &str, scene: &Scene, world: &motif_core::World) -> String 
         (Some(span), true) => remove_spans(src, vec![whole_lines(src, span)]),
         (None, false) => under_artboard(src, &world_text(world)),
         (None, true) => src.to_string(),
+    }
+}
+
+/// The `directions` line for `d`.
+pub fn directions_text(d: &motif_core::Directions) -> String {
+    let mut out = format!("directions {}", d.count);
+    if !d.turn.is_empty() {
+        out.push_str(" turn ");
+        out.push_str(&d.turn.join(" "));
+    }
+    if d.mirror {
+        out.push_str(" mirror");
+    }
+    out
+}
+
+/// Returns the script with its `directions` line set to `d`: replaced, added under the
+/// `artboard` line, or removed with `None`.
+pub fn set_directions(src: &str, scene: &Scene, d: Option<&motif_core::Directions>) -> String {
+    match (scene.directions, d) {
+        (Some(span), Some(d)) => splice(src, span, &directions_text(d)),
+        (Some(span), None) => remove_spans(src, vec![whole_lines(src, span)]),
+        (None, Some(d)) => under_artboard(src, &directions_text(d)),
+        (None, None) => src.to_string(),
     }
 }
 
