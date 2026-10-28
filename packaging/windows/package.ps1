@@ -19,6 +19,8 @@ New-Item -ItemType Directory -Force "$Out/godot-addon/addons" | Out-Null
 Copy-Item "$root/godot-addon/addons/motif" $addon -Recurse -Force
 New-Item -ItemType Directory -Force "$addon/bin" | Out-Null
 Copy-Item "$root/target/release/motif_godot.dll" "$addon/bin/"
+# The build the addon comes from: Motif tells an old addon from a new one by it.
+Set-Content -Path "$addon/version.txt" -Value $Version -NoNewline -Encoding ascii
 New-Item -ItemType Directory -Force "$Out/godot-apps/hero/addons" | Out-Null
 Copy-Item $addon "$Out/godot-apps/hero/addons/motif" -Recurse -Force
 Copy-Item "$PSScriptRoot/README.txt", "$PSScriptRoot/update.bat", "$PSScriptRoot/update.ps1" $Out

@@ -370,19 +370,9 @@ fn run() -> Result<(), String> {
             let dir = a.out.clone().ok_or("для runtime укажите -o папку внутри проекта Godot")?;
             let addon = a.addon.clone().or_else(motif_pixel::runtime::addon_source);
             let r = motif_pixel::runtime::install(&a.scene, &src, &dir, addon.as_deref())?;
-            println!("{} → {}", a.scene.display(), r.res);
-            if r.fonts > 0 {
-                println!("  шрифтов рядом: {}", r.fonts);
-            }
-            if let Some(t) = &r.tscn {
-                println!("  сцена с узлом MotifSprite: {}", t.display());
-            }
-            println!("  аддон: {}", if r.addon { "поставлен в addons/motif" } else { "уже стоит" });
-            if r.presets > 0 {
-                println!("  *.msc добавлен в фильтры экспорта: {} пресетов", r.presets);
-            }
-            for w in &r.warnings {
-                eprintln!("  внимание: {w}");
+            println!("{} → проект Godot {}", a.scene.display(), r.project.display());
+            for line in r.report() {
+                println!("  {line}");
             }
         }
         "palette" => {

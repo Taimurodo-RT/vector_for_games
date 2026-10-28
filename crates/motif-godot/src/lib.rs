@@ -310,8 +310,29 @@ fn read_res(path: &std::path::Path) -> Option<Vec<u8>> {
     FileAccess::file_exists(&path).then(|| FileAccess::get_file_as_bytes(&path).to_vec())
 }
 
+/// Says once when the library and the addon folder around it come from different Motif builds
+/// (a hand-copied addon, a library left from before): the build packs `version.txt` beside it.
+fn check_build() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let Some(lib) = option_env!("MOTIF_BUILD") else { return };
+        let file = GString::from("res://addons/motif/version.txt");
+        if !FileAccess::file_exists(&file) {
+            return;
+        }
+        let addon = FileAccess::get_file_as_string(&file).to_string();
+        if addon.trim() != lib {
+            godot_warn!(
+                "MotifSprite: библиотека аддона из сборки Motif {lib}, а addons/motif — из {}: поставьте аддон заново из Motif («Поставить в проект Godot…»)",
+                addon.trim()
+            );
+        }
+    });
+}
+
 impl MotifSprite {
     fn load(&self) -> Result<Player, String> {
+        check_build();
         let path = self.scene.to_string();
         if !FileAccess::file_exists(&self.scene) {
             return Err(format!("нет файла {path}"));
