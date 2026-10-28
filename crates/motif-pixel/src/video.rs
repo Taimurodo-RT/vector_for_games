@@ -91,16 +91,18 @@ pub struct VideoReport {
 
 /// Animation `anim` of `doc` drawn at `fps` and saved as the video `path` names: it loops when the
 /// animation does, and the artboard colour stands behind transparency the format cannot keep.
+/// `face` shoots it from one side of the scene's `directions`.
 pub fn export_animation(
     doc: &motif_core::Document,
     anim: &str,
+    face: Option<usize>,
     render: motif_render::CpuOptions,
     fps: f64,
     ffmpeg: Option<PathBuf>,
     path: &Path,
 ) -> Result<VideoReport, String> {
     let looping = doc.animation(anim).ok_or_else(|| format!("нет анимации «{anim}»"))?.looping;
-    let frames = crate::render_frames(doc, anim, &crate::FrameExport { fps, render })?;
+    let frames = crate::render_frames_facing(doc, anim, &crate::FrameExport { fps, render }, face)?;
     let bg = doc.artboard.background;
     let opts = VideoOptions { fps, looping, background: [bg.r, bg.g, bg.b], ffmpeg };
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {

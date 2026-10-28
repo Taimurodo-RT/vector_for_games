@@ -30,6 +30,7 @@ mod rope_ui;
 mod runtime_ui;
 mod scriptui;
 mod selection;
+mod sides_ui;
 mod snap;
 mod stretch_ui;
 mod style_ui;

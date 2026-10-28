@@ -166,6 +166,11 @@ cargo run --release -p motif-editor -- examples/bounce.msc
 * **Орбиты 2.5D.** `on planet lat 20 lon -30 alt 0 wrap`: объект лежит на шаре и ездит по нему как по глобусу, прячется за
   ним, а с `wrap` изгибается по поверхности. `yaw` и `pitch` у шара поворачивают всё, что на нём: так поворачивается голова.
   Пример — [`examples/orbit.msc`](examples/orbit.msc).
+* **Стороны для вида сверху.** `directions 8 turn body mirror` снимает персонажа с 8 сторон: объекты из `turn` (шары и
+  3D-тела) поворачиваются на каждую сторону, и всё, что стоит на них, уезжает вбок и за спину само. `mirror` не рисует
+  левые стороны: в игре это отражённые правые. Анимация `Walk_up` заменяет `Walk` только для вида со спины. В редакторе —
+  раздел «Стороны» с компасом вида на холсте, в Godot — все стороны в одном атласе и `facing` в скрипте сцены, в командной
+  строке — `--side up_right`. Пример — [`examples/directions.msc`](examples/directions.msc).
 * **3D-тела.** `extrude 90` выдавливает любую фигуру в глубину (квадрат — куб, круг — цилиндр, звезда — печенье,
   контур с дыркой — кольцо), `extrude 120 0` сужает заднюю грань в конус или пирамиду. `yaw` и `pitch` поворачивают тело
   в пространстве, грани освещает свет сцены, гладкие стенки закрашиваются плавно, обводка идёт только по рёбрам. Всё
@@ -285,6 +290,8 @@ cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out
 cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
 cargo run --release -p motif-cli -- runtime examples/machine.msc -o ~/game/characters
+cargo run --release -p motif-cli -- godot   examples/directions.msc -o out/walker
+cargo run --release -p motif-cli -- render  examples/directions.msc --anim Walk --side up_right -o out/up_right.png
 cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопки -o out/buttons.png
 ```
 
