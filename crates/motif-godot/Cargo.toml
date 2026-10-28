@@ -1,0 +1,17 @@
+[package]
+name = "motif-godot"
+description = "Motif в Godot 4 без запекания: узел MotifSprite играет сцену .msc, её анимации и машину состояний"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+motif-core.workspace = true
+motif-script.workspace = true
+motif-render.workspace = true
+tiny-skia.workspace = true
+godot = { version = "0.5.5", features = ["api-4-3"] }

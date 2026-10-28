@@ -13,6 +13,7 @@
     ["orbit.html", "2.5D и 3D"],
     ["script.html", "Скрипт сцены"],
     ["export.html", "Экспорт и программы"],
+    ["runtime.html", "Motif в игре"],
   ];
 
   try {

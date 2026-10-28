@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motif в игре — Motif</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+<main><div class="content">
+
+<h1>Motif в игре: узел MotifSprite</h1>
+<p class="lead">Аддон Motif для Godot 4 добавляет узел <b>MotifSprite</b>. Он читает файл <code>.msc</code> и играет его прямо в игре, без запекания в спрайты. Сцену двигает то же ядро, что и редактор Motif, поэтому кости, мягкие тела, морфинг, 3D-повороты, машина состояний и события анимаций ведут себя в игре так же. Кадр рисуется под размер узла на экране, так что при приближении камеры капля остаётся чёткой.</p>
+
+<figure><img src="img/motif-sprite.png" alt="Две картинки из Godot: капля бежит и прыгает, в углу список событий step, push, land; справа камера приближена, капля крупная и чёткая, получила удар"><figcaption>Пример <code>godot-apps/hero</code> в Godot 4.3: стрелки дают вход <code>speed</code>, пробел — триггер <code>jump</code>. Справа камера приближена колесом, капля получила <code>hurt</code>.</figcaption></figure>
+
+<h2 id="when">Когда что брать</h2>
+<div class="table-wrap"><table>
+  <tr><th></th><th>MotifSprite (вектор в игре)</th><th>«Выгрузить в Godot…» (запекание)</th></tr>
+  <tr><td>Чёткость</td><td>Любой масштаб, камера может приближаться</td><td>Размер, с которым запекли</td></tr>
+  <tr><td>Физика, мягкие тела</td><td>Живые: каждый раз чуть по-разному</td><td>Записанный один раз прогон</td></tr>
+  <tr><td>Цена</td><td>Кадр рисуется на процессоре: десятки персонажей на экране — уже заметно</td><td>Почти бесплатно: готовые спрайты</td></tr>
+  <tr><td>Пиксель-арт через PixaTool</td><td>Нет</td><td>Да</td></tr>
+  <tr><td>Правка</td><td>Сохранили <code>.msc</code> в Motif — игра покажет новое при следующем запуске сцены</td><td>Выгрузить ещё раз</td></tr>
+</table></div>
+<p>Их можно смешивать: главный герой и интерфейс — вектором, толпа и частицы — запечёнными спрайтами.</p>
+
+<h2 id="install">Как поставить</h2>
+<ol>
+  <li>Скопируйте папку <code>godot-addon/addons/motif</code> из папки Motif в свой проект Godot, чтобы получилось <code>res://addons/motif</code>. В ней файл <code>motif.gdextension</code>, значок и библиотека <code>bin/motif_godot.dll</code>. Включать аддон в настройках проекта не нужно: Godot подхватывает расширение сам.</li>
+  <li>Положите сцену <code>.msc</code> в проект, например <code>res://hero.msc</code>. Шрифты, на которые она ссылается (<code>font "fonts/Inter-Medium.ttf"</code>), кладите рядом с ней по тем же путям.</li>
+  <li>Добавьте узел <b>MotifSprite</b> и выберите файл в свойстве <b>Scene</b>. Сцена сразу играет и в редакторе Godot.</li>
+</ol>
+<p>Нужен Godot 4.3 или новее. Аддон собран для Windows x64, а для Linux и macOS его собирает <code>godot-apps/build.sh</code> из репозитория.</p>
+<p><b>Экспорт игры.</b> Файлы <code>.msc</code> Godot не считает ресурсами. В окне «Проект → Экспорт» на вкладке «Ресурсы» допишите <code>*.msc</code> в поле «Фильтры для экспорта не-ресурсных файлов» (и <code>*.ttf</code>, если сцена берёт шрифты из файлов).</p>
+
+<h2 id="properties">Свойства</h2>
+<div class="table-wrap"><table>
+  <tr><th>Свойство</th><th>Что делает</th></tr>
+  <tr><td><code>scene</code></td><td>Файл <code>.msc</code>.</td></tr>
+  <tr><td><code>board</code></td><td>Холст файла по имени или номеру с 1. Пусто — первый.</td></tr>
+  <tr><td><code>machine</code></td><td>Машина состояний, которая играет сцену. Пусто — первая машина холста.</td></tr>
+  <tr><td><code>animation</code></td><td>Одна анимация вместо машины. Повторяющаяся крутится по кругу.</td></tr>
+  <tr><td><code>playing</code> / <code>speed</code></td><td>Идёт ли время и как быстро (1 — как в Motif).</td></tr>
+  <tr><td><code>centered</code></td><td>Холст рисуется вокруг позиции узла (иначе от левого верхнего угла).</td></tr>
+  <tr><td><code>resolution</code></td><td>Сколько точек рисовать на точку экрана: больше 1 — глаже края, меньше 1 — быстрее.</td></tr>
+  <tr><td><code>background</code></td><td>Рисовать цвет фона холста (<code>bg</code>) под сценой.</td></tr>
+  <tr><td><code>pointer</code></td><td>Передавать мышь строкам <code>listen</code> машины: наведение, нажатие, клик и положение указателя. Так кнопка из Motif реагирует на мышь сама.</td></tr>
+</table></div>
+
+<h2 id="code">Из кода</h2>
+<pre><code>@onready var hero = $Hero
+
+func _ready():
+	hero.event.connect(func(name): if name == "step": $Step.play())
+	hero.state_changed.connect(func(state): print("теперь ", state))
+
+func _process(_delta):
+	hero.set_input("speed", absf(Input.get_axis("ui_left", "ui_right")))
+	if Input.is_action_just_pressed("ui_accept"):
+		hero.fire("jump")</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Метод / сигнал</th><th>Что делает</th></tr>
+  <tr><td><code>set_input(имя, значение)</code></td><td>Вход машины: число или <code>true</code>/<code>false</code> для флага.</td></tr>
+  <tr><td><code>fire(имя)</code></td><td>Срабатывает триггер.</td></tr>
+  <tr><td><code>get_input(имя)</code> / <code>get_inputs()</code></td><td>Значение входа; все входы машины по именам.</td></tr>
+  <tr><td><code>get_state()</code></td><td>Состояние, в котором машина сейчас (или играющая анимация).</td></tr>
+  <tr><td><code>jump_to(состояние)</code></td><td>Сразу перейти в состояние, без смешивания.</td></tr>
+  <tr><td><code>restart()</code></td><td>С начального состояния, входы по умолчанию.</td></tr>
+  <tr><td><code>reload()</code></td><td>Перечитать файл сцены.</td></tr>
+  <tr><td><code>get_size()</code></td><td>Размер холста в точках.</td></tr>
+  <tr><td><code>get_image(масштаб)</code></td><td>Текущий кадр картинкой <code>Image</code>: для скриншота, иконки или своей текстуры.</td></tr>
+  <tr><td>сигнал <code>event(имя)</code></td><td>Событие анимации (<a href="animation.html#events">строка «События» на таймлайне</a>): шаг, удар, момент для звука.</td></tr>
+  <tr><td>сигнал <code>state_changed(состояние)</code></td><td>Машина перешла в другое состояние.</td></tr>
+</table></div>
+<p>Если файла нет или в нём ошибка, узел показывает предупреждение в дереве сцены (значок ⚠) и пишет причину в «Вывод», а игра не падает.</p>
+
+<h2 id="demo">Пример: godot-apps/hero</h2>
+<p>Проект <code>godot-apps/hero</code> — капля из <code>examples/machine.msc</code>. Откройте его в Godot и нажмите F5. Стрелки дают бег, пробел — прыжок, H — удар, колесо мыши меняет масштаб. Её события (<code>step</code>, <code>push</code>, <code>land</code>) и смена состояний пишутся в углу. Вся логика — двадцать строк в <code>main.gd</code>. Откройте <code>hero.msc</code> в Motif, перекрасьте каплю или поменяйте прыжок, сохраните и запустите сцену снова.</p>
+
+</div></main>
+</div>
+<script src="site.js"></script>
+</body>
+</html>

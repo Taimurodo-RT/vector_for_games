@@ -11,3 +11,14 @@ for app in calculator focus; do
   rm -rf "$app/ui"
   $run screen "$app/$app.msc" -o "$app/ui"
 done
+# Капля (hero) играет вектором через аддон Motif: аддон и его библиотека, собранная cargo.
+case "$(uname)" in
+  Darwin) lib=libmotif_godot.dylib ;;
+  *) lib=libmotif_godot.so ;;
+esac
+(cd .. && cargo build -q --release -p motif-godot)
+rm -rf hero/addons/motif
+mkdir -p hero/addons
+cp -r ../godot-addon/addons/motif hero/addons/
+mkdir -p hero/addons/motif/bin
+cp "../target/release/$lib" hero/addons/motif/bin/

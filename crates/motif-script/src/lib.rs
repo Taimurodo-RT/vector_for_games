@@ -27,7 +27,7 @@ mod boolean;
 mod edit;
 mod eval;
 mod expr;
-mod fonts;
+pub mod fonts;
 mod lexer;
 mod machine;
 mod parser;

@@ -212,6 +212,15 @@ PixaTool с пресетом из раздела PixaTool: в атлас лож�
 После первой выгрузки каждое Ctrl+S обновляет персонажа в той же папке Godot
 («Отвязать» в окне «Экспорт» выключает).
 
+Motif прямо в игре, без запекания: скопируйте папку godot-addon\addons\motif в
+свой проект Godot 4.3+ (получится res://addons/motif), положите туда же сцену
+.msc и добавьте узел MotifSprite, в свойстве Scene выберите файл. Он играет
+сцену вектором тем же ядром, что редактор: машина состояний, кости, мягкие
+тела, 3D. Из кода: set_input("speed", 1), fire("jump"), get_state(), сигналы
+event(name) и state_changed(state). Пример — godot-apps\hero: стрелки, пробел,
+H, колесо мыши. При экспорте игры допишите *.msc в «Фильтры для экспорта
+не-ресурсных файлов». Подробнее — docs\runtime.html.
+
 motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 

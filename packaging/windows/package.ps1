@@ -13,6 +13,14 @@ Copy-Item "$root/examples/fonts" "$Out/examples/fonts" -Recurse -Force
 Copy-Item "$root/docs" "$Out/docs" -Recurse -Force
 # Godot apps whose interface is drawn in Motif: projects to open in Godot.
 Copy-Item "$root/godot-apps" "$Out/godot-apps" -Recurse -Force
+# The Godot addon (MotifSprite), with its library, on its own and inside the hero example.
+$addon = "$Out/godot-addon/addons/motif"
+New-Item -ItemType Directory -Force "$Out/godot-addon/addons" | Out-Null
+Copy-Item "$root/godot-addon/addons/motif" $addon -Recurse -Force
+New-Item -ItemType Directory -Force "$addon/bin" | Out-Null
+Copy-Item "$root/target/release/motif_godot.dll" "$addon/bin/"
+New-Item -ItemType Directory -Force "$Out/godot-apps/hero/addons" | Out-Null
+Copy-Item $addon "$Out/godot-apps/hero/addons/motif" -Recurse -Force
 Copy-Item "$PSScriptRoot/README.txt", "$PSScriptRoot/update.bat", "$PSScriptRoot/update.ps1" $Out
 Set-Content -Path "$Out/version.txt" -Value $Version -NoNewline -Encoding ascii
 Compress-Archive -Path "$Out/*" -DestinationPath 'Motif-windows-x64.zip' -Force

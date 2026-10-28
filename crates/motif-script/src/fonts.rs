@@ -12,6 +12,16 @@ fn cache() -> &'static Mutex<Cache> {
     CACHE.get_or_init(Default::default)
 }
 
+/// Reads files where `std::fs` cannot: a game engine's packed resources (`res://` in Godot).
+pub type Reader = fn(&Path) -> Option<Vec<u8>>;
+
+static READER: OnceLock<Reader> = OnceLock::new();
+
+/// Makes fonts load through `reader` first, falling back to the disk. Set once, at start.
+pub fn set_reader(reader: Reader) {
+    let _ = READER.set(reader);
+}
+
 /// The bytes of a font: the built-in one (`None`, `regular`, `bold`) or a file, relative to `base`.
 pub fn load(font: Option<&str>, base: Option<&Path>) -> Result<Arc<Vec<u8>>, String> {
     let file = match font {
@@ -23,6 +33,9 @@ pub fn load(font: Option<&str>, base: Option<&Path>) -> Result<Arc<Vec<u8>>, Str
         Some(b) if Path::new(file).is_relative() => b.join(file),
         _ => PathBuf::from(file),
     };
+    if let Some(bytes) = READER.get().and_then(|read| read(&path)) {
+        return Ok(Arc::new(bytes));
+    }
     let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     let mut cache = cache().lock().map_err(|_| "кэш шрифтов недоступен".to_string())?;
     if let Some((t, bytes)) = cache.get(&path)

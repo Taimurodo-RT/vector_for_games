@@ -1,0 +1,16 @@
+; Motif в Godot без запекания: узел MotifSprite. Библиотеку кладёт сюда сборка Motif (папка bin).
+[configuration]
+entry_symbol = "gdext_rust_init"
+compatibility_minimum = "4.3"
+reloadable = true
+
+[libraries]
+windows.debug.x86_64 = "res://addons/motif/bin/motif_godot.dll"
+windows.release.x86_64 = "res://addons/motif/bin/motif_godot.dll"
+linux.debug.x86_64 = "res://addons/motif/bin/libmotif_godot.so"
+linux.release.x86_64 = "res://addons/motif/bin/libmotif_godot.so"
+macos.debug = "res://addons/motif/bin/libmotif_godot.dylib"
+macos.release = "res://addons/motif/bin/libmotif_godot.dylib"
+
+[icons]
+MotifSprite = "res://addons/motif/icon.svg"
