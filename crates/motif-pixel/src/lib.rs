@@ -9,6 +9,7 @@
 pub mod godot;
 pub mod kit;
 pub mod pixatool;
+pub mod runtime;
 pub mod screen;
 pub mod video;
 
