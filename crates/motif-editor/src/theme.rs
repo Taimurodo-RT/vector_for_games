@@ -384,6 +384,26 @@ pub fn button(ui: &mut Ui, text: &str, kind: ButtonKind) -> Response {
     resp
 }
 
+/// «Запись» / «Стоп N с»: a red dot (a square while recording) drawn before the text, since
+/// the font has no record glyph.
+pub fn record_button(ui: &mut Ui, text: &str, recording: bool) -> Response {
+    let galley = ui.painter().layout_no_wrap(text.to_string(), ui_font(13.0), Color32::PLACEHOLDER);
+    let size = vec2(galley.size().x + 36.0, 26.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let bg = if resp.hovered() { RAISE } else { PANEL_2 };
+    let border = if recording { DANGER } else { LINE };
+    ui.painter().rect(rect, 6.0, bg, Stroke::new(1.0, border), StrokeKind::Inside);
+    let mark = pos2(rect.left() + 15.0, rect.center().y);
+    if recording {
+        ui.painter().rect_filled(Rect::from_center_size(mark, vec2(8.0, 8.0)), 1.5, DANGER);
+    } else {
+        ui.painter().circle_filled(mark, 4.5, DANGER);
+    }
+    let text_pos = pos2(rect.left() + 26.0, rect.center().y - galley.size().y / 2.0);
+    ui.painter().galley(text_pos, galley, if recording { DANGER } else { FG });
+    resp
+}
+
 /// A row of mutually exclusive choices in a sunken frame (`Design | Animate`). Returns the clicked index.
 pub fn segmented(ui: &mut Ui, items: &[&str], selected: usize, accent_last: bool) -> Option<usize> {
     let font = ui_font(13.0);

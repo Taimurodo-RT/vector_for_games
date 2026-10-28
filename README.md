@@ -128,7 +128,7 @@ cargo run --release -p motif-editor -- examples/bounce.msc
   перехода, «Дождаться конца анимации» и смешивание. ▶ запускает машину на холсте, входы переключаются руками, как это
   делала бы игра. Раздел «Мышь» связывает наведение, нажатие, клик и положение указателя на объекте со входами
   (`listen button hover -> hover`); тогда «▶ Проверить» вверху превращает холст в живой предпросмотр: кнопка реагирует
-  на мышь сама. В скрипте: `machine Hero { input speed 0 … state Idle … Idle -> Run when speed > 0.5 blend 0.2s }`.
+  на мышь сама. «Запись» снимает прогон машины в видео. В скрипте: `machine Hero { input speed 0 … state Idle … Idle -> Run when speed > 0.5 blend 0.2s }`.
 * **События анимации.** Строка «⚑ События» на таймлайне: флажки с именами (шаг, отрыв, удар) там, где игра должна об
   этом узнать. «+» или двойной клик ставят флажок, он тянется по времени, правый клик — имя и удаление. Запущенная
   машина показывает пройденные события плашками в углу графа. В скрипте: `event step 0 0.2` внутри `anim`; игра читает
@@ -166,6 +166,11 @@ cargo run --release -p motif-editor -- examples/bounce.msc
 * **Орбиты 2.5D.** `on planet lat 20 lon -30 alt 0 wrap`: объект лежит на шаре и ездит по нему как по глобусу, прячется за
   ним, а с `wrap` изгибается по поверхности. `yaw` и `pitch` у шара поворачивают всё, что на нём: так поворачивается голова.
   Пример — [`examples/orbit.msc`](examples/orbit.msc).
+* **Стороны для вида сверху.** `directions 8 turn body mirror` снимает персонажа с 8 сторон: объекты из `turn` (шары и
+  3D-тела) поворачиваются на каждую сторону, и всё, что стоит на них, уезжает вбок и за спину само. `mirror` не рисует
+  левые стороны: в игре это отражённые правые. Анимация `Walk_up` заменяет `Walk` только для вида со спины. В редакторе —
+  раздел «Стороны» с компасом вида на холсте, в Godot — все стороны в одном атласе и `facing` в скрипте сцены, в командной
+  строке — `--side up_right`. Пример — [`examples/directions.msc`](examples/directions.msc).
 * **3D-тела.** `extrude 90` выдавливает любую фигуру в глубину (квадрат — куб, круг — цилиндр, звезда — печенье,
   контур с дыркой — кольцо), `extrude 120 0` сужает заднюю грань в конус или пирамиду. `yaw` и `pitch` поворачивают тело
   в пространстве, грани освещает свет сцены, гладкие стенки закрашиваются плавно, обводка идёт только по рёбрам. Всё
@@ -284,6 +289,8 @@ cargo run --release -p motif-cli -- pixel   examples/bounce.msc --anim Idle --pr
 cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out/ui
 cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
+cargo run --release -p motif-cli -- godot   examples/directions.msc -o out/walker
+cargo run --release -p motif-cli -- render  examples/directions.msc --anim Walk --side up_right -o out/up_right.png
 cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопки -o out/buttons.png
 ```
 
@@ -297,7 +304,13 @@ cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кноп
 «Экспорт → Видео» (или `motif video`) сохраняет анимацию одним файлом, формат — по расширению: GIF и APNG (`.png`)
 Motif пишет сам, MP4 (H.264) и WebM (VP9, с прозрачностью) — через [ffmpeg](https://ffmpeg.org/download.html), который
 ищется рядом с Motif, в `PATH` или по пути из окна экспорта (`--ffmpeg` в командной строке). Повторяющаяся анимация в
-GIF и APNG крутится по кругу без шва, а где прозрачности нет (MP4), её место занимает цвет фона холста.
+GIF и APNG крутится по кругу без шва, а где прозрачности нет (MP4), её место занимает цвет фона холста. Пока видео
+пишется, внизу окна видно «Кадр N из M» и «Отменить» (недописанный файл удаляется), а готовый файл показывает
+«Открыть папку».
+
+Целый прогон машины состояний — с переходами, смешиванием и событиями — снимает кнопка «Запись» на панели машины:
+она запоминает, как менялись входы, а «Стоп» проигрывает прогон заново кадр за кадром и сохраняет видео. Из командной
+строки прогон пишется словами: `motif video hero.msc --machine Hero --take "0.5 speed=1, 2 jump, 3.5 speed=0" --length 5 -o run.gif`.
 
 ## Анимации в Godot
 
