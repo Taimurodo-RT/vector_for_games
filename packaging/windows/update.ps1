@@ -20,7 +20,8 @@ try {
     Write-Host "Последняя версия:   $latest"
     # Папка godot-apps появилась в сборке позже: без неё качаем сборку и при той же версии.
     $apps = Join-Path $dir 'godot-apps'
-    if ($latest -eq $current -and (Test-Path $apps)) {
+    $addonLibrary = Join-Path $dir 'godot-addon/addons/motif/bin/motif_godot.dll'
+    if ($latest -eq $current -and (Test-Path $apps) -and (Test-Path $addonLibrary)) {
         Write-Host ''
         Write-Host 'У вас уже последняя версия.' -ForegroundColor Green
         return
@@ -47,6 +48,12 @@ try {
         Copy-Item "$tmp\new\docs" (Join-Path $dir 'docs') -Recurse
     }
     # update.bat сейчас выполняется, поэтому его заменяем, только если его нет.
+    # Runtime is part of the program, not an editable example. Restore/update its own copy.
+    if (Test-Path "$tmp\new\godot-addon") {
+        $addonDir = Join-Path $dir 'godot-addon'
+        New-Item -ItemType Directory -Force $addonDir | Out-Null
+        Copy-Item "$tmp\new\godot-addon\*" $addonDir -Recurse -Force
+    }
     if (-not (Test-Path (Join-Path $dir 'update.bat'))) { Copy-Item "$tmp\new\update.bat" $dir }
     # Примеры и приложения Godot: новые файлы добавляются, изменённые вами остаются как есть.
     foreach ($name in 'examples', 'godot-apps') {

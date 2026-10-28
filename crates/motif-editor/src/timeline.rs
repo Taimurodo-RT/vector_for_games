@@ -600,6 +600,8 @@ impl App {
             }
         });
         match done {
+            // `apply` consumes `out`; it cannot move the binding from a match guard.
+            #[allow(clippy::collapsible_match)]
             Some(Ok((out, select, status))) if self.can_edit() => {
                 if self.apply("anim-menu", Some(out)) {
                     if select.is_empty() {

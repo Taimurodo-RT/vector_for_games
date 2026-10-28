@@ -168,6 +168,8 @@ pub struct Scene {
     pub palette: Vec<Swatch>,
     /// Properties written as a name (`fill main`): the name, by node id and property.
     pub refs: HashMap<(String, Prop), String>,
+    /// Original palette references at each gradient stop, for semantic SVG export.
+    pub gradient_refs: HashMap<(String, bool), Vec<Option<String>>>,
 }
 
 /// A named color of the palette: `let main = #3b6cff`.

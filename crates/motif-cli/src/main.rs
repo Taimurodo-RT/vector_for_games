@@ -11,6 +11,8 @@ motif — скрипты сцен Motif без окна редактора
 
 Использование:
   motif check   <сцена.msc>
+  motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
+  motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [параметры рендера]
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [--side СТОРОНА] [-o папка] [параметры рендера]
   motif video   <сцена.msc> --anim ИМЯ [--fps 30] [--side СТОРОНА] [-o видео.mp4|.webm|.gif|.png] [--ffmpeg путь] [параметры рендера]
@@ -85,6 +87,8 @@ struct Args {
     take: Option<String>,
     length: Option<f64>,
     side: Option<String>,
+    web_profile: Option<motif_web::Profile>,
+    strict: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -117,6 +121,8 @@ fn parse_args() -> Result<Args, String> {
         take: None,
         length: None,
         side: None,
+        web_profile: None,
+        strict: false,
     };
     let num = |v: Option<String>, flag: &str| v.and_then(|s| s.parse::<f64>().ok()).ok_or(format!("после {flag} нужно число"));
     while let Some(arg) = it.next() {
@@ -142,6 +148,8 @@ fn parse_args() -> Result<Args, String> {
             "--machine" => a.machine = Some(it.next().ok_or("после --machine нужно имя машины")?),
             "--pivot" => a.pivot = Some((num(it.next(), "--pivot")?, num(it.next(), "--pivot")?)),
             "--no-aa" => a.antialias = false,
+            "--profile" => a.web_profile = Some(motif_web::Profile::parse(&it.next().ok_or("после --profile нужен профиль")?)?),
+            "--strict" => a.strict = true,
             "--pixelize" => a.pixelize = true,
             "--transparent" => a.background = false,
             s if s.starts_with('-') => return Err(format!("неизвестный параметр {s}\n\n{HELP}")),
@@ -161,6 +169,9 @@ fn run() -> Result<(), String> {
     let scenes = motif_script::parse_boards(&src, a.scene.parent())
         .map_err(|errs| errs.iter().map(|e| format!("{}: {e}", a.scene.display())).collect::<Vec<_>>().join("\n"))?;
     let total = scenes.len();
+    if a.cmd == "svg" || a.cmd == "web" {
+        return export_web(&a, &src, scenes);
+    }
     let boards = pick_boards(scenes.into_iter().map(|s| s.doc).collect(), a.board.as_deref())?;
     let several = boards.len() > 1;
     let stem = a.scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene").to_string();
@@ -392,6 +403,54 @@ fn run() -> Result<(), String> {
             println!("{} — {} цветов", out.display(), colors.len());
         }
         other => return Err(format!("неизвестная команда «{other}»\n\n{HELP}")),
+    }
+    Ok(())
+}
+
+fn export_web(a: &Args, src: &str, mut scenes: Vec<motif_script::Scene>) -> Result<(), String> {
+    if a.anim.is_some() || a.time != 0.0 || a.side.is_some() || a.machine.is_some() || a.scale.is_some() || a.width.is_some() {
+        return Err("SVG/Web экспортирует исходный векторный рисунок. Анимации web сохраняются отдельно в CSS и graphics.json; параметры растрового рендера здесь не применяются.".into());
+    }
+    if let Some(board) = &a.board {
+        let index = board
+            .parse::<usize>()
+            .ok()
+            .filter(|i| *i > 0 && *i <= scenes.len())
+            .map(|i| i - 1)
+            .or_else(|| scenes.iter().position(|s| s.doc.artboard.name == *board))
+            .ok_or_else(|| format!("Нет холста {board}"))?;
+        scenes = vec![scenes.remove(index)];
+    }
+    let config = motif_web::read(src)?;
+    let package = motif_web::build(&scenes, &config, a.web_profile)?;
+    for warning in &package.warnings {
+        eprintln!("Внимание: {warning}");
+    }
+    if a.strict && !package.warnings.is_empty() {
+        return Err("--strict: экспорт остановлен из-за предупреждений, файлы не записаны".into());
+    }
+    let stem = a.scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
+    if a.cmd == "svg" && scenes.len() == 1 {
+        let svg = motif_web::render(&scenes[0], &config, a.web_profile)?;
+        let dest = a.out.clone().unwrap_or_else(|| PathBuf::from(&svg.file));
+        if dest.extension().and_then(|s| s.to_str()) != Some("svg") {
+            return Err("Для одного SVG укажите -o файл.svg; для пакета используйте motif web".into());
+        }
+        if let Some(p) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&dest, svg.text).map_err(|e| e.to_string())?;
+        println!("{}", dest.display());
+    } else {
+        let dir = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}-web")));
+        if a.cmd == "svg" {
+            let mut only = package;
+            only.files.retain(|name, _| name.ends_with(".svg"));
+            motif_web::export(&only, &dir)?;
+        } else {
+            motif_web::export(&package, &dir)?;
+        }
+        println!("{} — холстов {}", dir.display(), scenes.len());
     }
     Ok(())
 }

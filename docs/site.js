@@ -13,6 +13,7 @@
     ["orbit.html", "2.5D и 3D"],
     ["script.html", "Скрипт сцены"],
     ["export.html", "Экспорт и программы"],
+    ["web.html", "SVG и Web assets"],
     ["runtime.html", "Motif в игре"],
   ];
 

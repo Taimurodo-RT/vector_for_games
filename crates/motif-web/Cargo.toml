@@ -1,0 +1,19 @@
+[package]
+name = "motif-web"
+description = "Native SVG and web asset packages for Motif"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motif-core.workspace = true
+motif-script.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+roxmltree = "0.21"
+motif-render.workspace = true
+tiny-skia.workspace = true
+resvg = { version = "0.49", default-features = false }

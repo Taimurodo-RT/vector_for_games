@@ -1,10 +1,13 @@
 # Collects the Windows build into a folder and a zip: what update.ps1 downloads.
 # Usage: package.ps1 -Out Motif -Version 2026.10.25-abc1234
-param([string]$Out = 'Motif', [string]$Version = 'local')
+param([string]$Out = 'Motif', [string]$Version = 'local', [string]$BinaryDir = '', [string]$Archive = 'Motif-windows-x64.zip')
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path "$PSScriptRoot/../.."
+if (-not $BinaryDir) {
+    $BinaryDir = if ($env:CARGO_TARGET_DIR) { Join-Path $env:CARGO_TARGET_DIR 'release' } else { "$root/target/release" }
+}
 New-Item -ItemType Directory -Force "$Out/examples" | Out-Null
-Copy-Item "$root/target/release/motif-editor.exe", "$root/target/release/motif.exe" $Out
+Copy-Item "$BinaryDir/motif-editor.exe", "$BinaryDir/motif.exe" $Out
 Copy-Item "$root/examples/*.msc" "$Out/examples/"
 # Templates of game screens behind «Файл → Новое…».
 Copy-Item "$root/examples/screens" "$Out/examples/screens" -Recurse -Force
@@ -18,9 +21,9 @@ $addon = "$Out/godot-addon/addons/motif"
 New-Item -ItemType Directory -Force "$Out/godot-addon/addons" | Out-Null
 Copy-Item "$root/godot-addon/addons/motif" $addon -Recurse -Force
 New-Item -ItemType Directory -Force "$addon/bin" | Out-Null
-Copy-Item "$root/target/release/motif_godot.dll" "$addon/bin/"
+Copy-Item "$BinaryDir/motif_godot.dll" "$addon/bin/"
 New-Item -ItemType Directory -Force "$Out/godot-apps/hero/addons" | Out-Null
 Copy-Item $addon "$Out/godot-apps/hero/addons/motif" -Recurse -Force
 Copy-Item "$PSScriptRoot/README.txt", "$PSScriptRoot/update.bat", "$PSScriptRoot/update.ps1" $Out
 Set-Content -Path "$Out/version.txt" -Value $Version -NoNewline -Encoding ascii
-Compress-Archive -Path "$Out/*" -DestinationPath 'Motif-windows-x64.zip' -Force
+Compress-Archive -Path "$Out/*" -DestinationPath $Archive -Force

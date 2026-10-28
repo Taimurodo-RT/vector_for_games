@@ -131,6 +131,7 @@ pub struct ExportSettings {
 }
 
 pub struct App {
+    pub(crate) web: crate::web_ui::WebState,
     pub(crate) path: Option<PathBuf>,
     pub(crate) src: String,
     saved_src: String,
@@ -254,6 +255,7 @@ impl App {
         let src_file = src.clone();
         let scene = parse(&src).or_else(|_| parse(NEW_SCENE)).expect("built-in scene parses");
         let mut app = App {
+            web: crate::web_ui::WebState::default(),
             disk_mtime: path.as_ref().and_then(|p| mtime(p)),
             pending_file: None,
             path,
@@ -613,6 +615,11 @@ impl App {
             doc.face(k);
         }
         doc.rig();
+        if !self.web.preview_theme.is_empty()
+            && let Ok(config) = motif_web::read(&self.src)
+        {
+            motif_web::preview_theme(&self.scene, &mut doc, &config, &self.web.preview_theme);
+        }
         doc
     }
 
@@ -2170,7 +2177,7 @@ impl App {
                 self.create_shape(kind, p, p, false);
             } else if !shift && let Some(hit) = &path_hit {
                 self.motion_seek(hit);
-            } else if !doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_some() {
+            } else if doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_none() {
                 let hit = pointer
                     .and_then(|p| crate::bone_ui::pick_bone(&doc, rect, view, p))
                     .or_else(|| doc_pt.and_then(|p| doc.hit_test(p)))
@@ -2313,10 +2320,13 @@ impl App {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .vscroll(true)
+            .max_height((ctx.content_rect().height() - 96.0).max(240.0))
             .default_width(380.0)
             .anchor(Align2::RIGHT_TOP, vec2(-280.0, 56.0))
             .show(ctx, |ui| {
                 self.export_boards_choice(ui);
+                self.web_export(ui);
                 // An interface scene is exported as a kit first of all; game art has no kit.
                 let purpose = self.scene.doc.purpose;
                 if purpose == Purpose::Ui {
@@ -2649,10 +2659,8 @@ impl App {
                 egui::Event::Copy => {
                     self.copy_selection(ctx);
                 }
-                egui::Event::Cut => {
-                    if self.copy_selection(ctx) {
-                        self.delete_selected_nodes();
-                    }
+                egui::Event::Cut if self.copy_selection(ctx) => {
+                    self.delete_selected_nodes();
                 }
                 egui::Event::Paste(text) => self.paste(Some(text)),
                 _ => {}
@@ -3024,6 +3032,7 @@ impl eframe::App for App {
         }
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, frame));
         self.export_window(&ctx);
+        self.web_window(&ctx);
         self.help_window(&ctx);
         self.unsaved_window(&ctx);
         self.syntax_window(&ctx);
