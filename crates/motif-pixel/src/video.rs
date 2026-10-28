@@ -271,21 +271,31 @@ fn encode(path: &Path, feed: &mut Feed, opts: &VideoOptions) -> Result<VideoForm
     if format == VideoFormat::Gif && (feed.size.0 > u16::MAX as u32 || feed.size.1 > u16::MAX as u32) {
         return Err("GIF не бывает больше 65535 точек".into());
     }
-    // From here on the file is being written.
+    // The video is written next to `path` and takes its place only when it is whole: a file that
+    // was there survives an encoder that fails to start, fails halfway or is stopped.
+    let part = part_path(path);
     let written = match format {
-        VideoFormat::Gif => write_gif(path, feed, opts),
-        VideoFormat::Apng => write_apng(path, feed, opts),
+        VideoFormat::Gif => write_gif(&part, feed, opts),
+        VideoFormat::Apng => write_apng(&part, feed, opts),
         VideoFormat::Mp4 | VideoFormat::Webm => {
             let exe = locate_ffmpeg(opts.ffmpeg.as_deref())
                 .ok_or("для MP4 и WebM нужен ffmpeg: положите ffmpeg.exe рядом с Motif, добавьте его в PATH или укажите путь (ffmpeg.org → Download)")?;
-            write_ffmpeg(&exe, path, feed, format, opts)
+            write_ffmpeg(&exe, &part, feed, format, opts)
         }
-    };
+    }
+    .and_then(|()| std::fs::rename(&part, path).map_err(|e| format!("{}: {e}", path.display())));
     if written.is_err() {
         // Half a video is no use to anyone.
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&part);
     }
-    written.map(|_| format)
+    written.map(|()| format)
+}
+
+/// `.NAME.part.EXT` next to `path`: hidden, and with the extension ffmpeg reads the format from.
+fn part_path(path: &Path) -> PathBuf {
+    let stem = path.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+    let ext = path.extension().map_or_else(String::new, |e| e.to_string_lossy().into_owned());
+    path.with_file_name(format!(".{stem}.part.{ext}"))
 }
 
 /// Straight (not premultiplied) RGBA of a frame; without `keep_alpha` it lies on `background`.
@@ -495,8 +505,10 @@ mod tests {
                 }
                 Ok(frames(1).remove(0))
             };
+            let before = std::fs::read(&path).unwrap();
             assert_eq!(encode_to(&path, 8, &mut draw, &opts).unwrap_err(), CANCELLED);
-            assert!(!path.exists(), "{name}");
+            assert_eq!(std::fs::read(&path).unwrap(), before, "{name}: the finished video stays");
+            assert!(!part_path(&path).exists(), "{name}");
         }
         std::fs::remove_dir_all(d).ok();
     }
@@ -541,6 +553,25 @@ mod tests {
         std::fs::write(d.join("c.mp4"), b"old").unwrap();
         assert!(write_video(&d.join("c.mp4"), &frames(2), &VideoOptions { ffmpeg: Some(d.join("nope")), ..Default::default() }).is_err());
         assert_eq!(std::fs::read(d.join("c.mp4")).unwrap(), b"old");
+        // …nor when ffmpeg is there but will not run (a damaged ffmpeg.exe).
+        let broken = d.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+        std::fs::write(&broken, b"not a program").unwrap();
+        assert!(write_video(&d.join("c.mp4"), &frames(2), &VideoOptions { ffmpeg: Some(broken), ..Default::default() }).is_err());
+        assert_eq!(std::fs::read(d.join("c.mp4")).unwrap(), b"old");
+        // …nor when a video over it is stopped; one that is finished replaces it.
+        for name in ["c.gif", "c.png"] {
+            let path = d.join(name);
+            std::fs::write(&path, b"old").unwrap();
+            stop.cancel.store(false, Ordering::Relaxed);
+            assert_eq!(encode_to(&path, 6, &mut draw, &opts).unwrap_err(), CANCELLED);
+            assert_eq!(std::fs::read(&path).unwrap(), b"old", "{name}");
+            write_video(&path, &frames(3), &VideoOptions { fps: 10.0, ..Default::default() }).unwrap();
+            assert_ne!(std::fs::read(&path).unwrap(), b"old", "{name}");
+        }
+        let left: Vec<_> =
+            std::fs::read_dir(&d).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name()).filter(|n| n.to_string_lossy().contains(".part.")).collect();
+        assert!(left.is_empty(), "{left:?}");
+        std::fs::remove_dir_all(d).ok();
     }
 
     #[test]
