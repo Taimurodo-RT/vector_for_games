@@ -20,6 +20,8 @@ pub struct Document {
     pub time: f64,
     /// What the scene is for (`artboard … ui` or `game`): the editor shows the tools for it.
     pub purpose: Purpose,
+    /// The sides a character is shot from for a top-down game (`directions 8 turn …`).
+    pub directions: Option<crate::Directions>,
 }
 
 /// What a scene is made for. The editor hides what the other kind of work needs.
@@ -893,6 +895,7 @@ impl Document {
             fields: Vec::new(),
             time: 0.0,
             purpose: Purpose::Any,
+            directions: None,
         }
     }
 

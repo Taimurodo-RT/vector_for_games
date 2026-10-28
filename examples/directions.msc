@@ -1,0 +1,42 @@
+// Стороны для игр с видом сверху: персонаж снимается с 8 сторон одной строкой directions.
+// Тело — шар (body), глаза, рот, рюкзак и ноги лежат на нём (on body), поэтому при повороте
+// они сами уезжают вбок и за спину. turn body поворачивает тело на каждую сторону, mirror
+// не рисует левые стороны: в игре это правые, отражённые скриптом.
+// Анимация Walk_up заменяет Walk только для вида со спины: там рюкзак качается сильнее.
+artboard "Стороны" 240x240 bg #20263a
+directions 8 turn body mirror
+
+let ink = #11141f
+let skin = #7bd389
+
+ellipse shadow "Тень" at 120 196 size 92 24 fill #00000055
+ellipse footL "Нога Л" size 26 20 on body lat -62 lon -28 alt 4 fill #4a8f5c stroke ink 3
+ellipse footR "Нога П" size 26 20 on body lat -62 lon 28 alt 4 fill #4a8f5c stroke ink 3
+ellipse body "Тело" at 120 128 size 110 120 fill skin stroke ink 4
+rect pack "Рюкзак" size 54 48 r 12 on body lat 0 lon 180 alt 6 wrap fill #e0a24a stroke ink 3
+ellipse eyeL "Глаз Л" size 14 20 on body lat 18 lon -20 wrap fill ink
+ellipse eyeR "Глаз П" size 14 20 on body lat 18 lon 20 wrap fill ink
+rect mouth "Рот" size 26 7 r 3 on body lat -10 wrap fill #c2405a
+ellipse nose "Нос" size 16 13 on body lat 4 alt 5 fill #5fb872 stroke ink 3
+ellipse cheekL "Щека Л" size 16 9 on body lat 2 lon -38 wrap fill #ff8fa3
+ellipse cheekR "Щека П" size 16 9 on body lat 2 lon 38 wrap fill #ff8fa3
+
+anim Idle 1.6s loop {
+  body.h 0: 120 ease-in-out-sine | 0.8: 114 ease-in-out-sine | 1.6: 120
+  body.w 0: 110 ease-in-out-sine | 0.8: 114 ease-in-out-sine | 1.6: 110
+}
+
+anim Walk 0.6s loop {
+  body.y   0: 128 ease-out | 0.15: 120 ease-in | 0.3: 128 ease-out | 0.45: 120 ease-in | 0.6: 128
+  footL.lat 0: -62 ease-in-out | 0.3: -45 ease-in-out | 0.6: -62
+  footR.lat 0: -45 ease-in-out | 0.3: -62 ease-in-out | 0.6: -45
+  shadow.w 0: 92 | 0.15: 80 | 0.3: 92 | 0.45: 80 | 0.6: 92
+}
+
+anim Walk_up 0.6s loop {
+  body.y   0: 128 ease-out | 0.15: 120 ease-in | 0.3: 128 ease-out | 0.45: 120 ease-in | 0.6: 128
+  footL.lat 0: -62 ease-in-out | 0.3: -45 ease-in-out | 0.6: -62
+  footR.lat 0: -45 ease-in-out | 0.3: -62 ease-in-out | 0.6: -45
+  pack.lat 0: 0 ease-in-out | 0.15: 8 ease-in-out | 0.3: 0 ease-in-out | 0.45: 8 ease-in-out | 0.6: 0
+  shadow.w 0: 92 | 0.15: 80 | 0.3: 92 | 0.45: 80 | 0.6: 92
+}

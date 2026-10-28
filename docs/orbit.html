@@ -88,10 +88,37 @@
 }</code></pre>
 <p class="muted">Грани сортируются по глубине целиком, поэтому сложные невыпуклые тела под некоторыми углами могут перекрываться неточно. Перспективы нет: тела рисуются в изометрии, как в большинстве 2D-игр.</p>
 
+<h2 id="sides">Стороны для вида сверху</h2>
+<p>В играх с видом сверху и в изометрии персонажа рисуют с 4 или 8 сторон. В Motif это одна строка под артбордом: <code>directions 8 turn body mirror</code>. Глаза, нос и рюкзак стоят на шаре-теле (<code>on body</code>), поэтому при повороте тела они сами уезжают вбок и за спину: каждую сторону не нужно рисовать заново.</p>
+<figure><img src="img/sides-render.png" alt="Персонаж-шар с восьми сторон: лицом, вполоборота, боком, спиной с рюкзаком"><figcaption>Пример <code>directions.msc</code>: анимация Walk с восьми сторон, от «вниз» по часовой стрелке.</figcaption></figure>
+<ul>
+  <li><b><code>directions 4</code> или <code>8</code></b> — сколько сторон снимать. Сторона «вниз» — лицом к зрителю, дальше по часовой: <code>down</code>, <code>down_right</code>, <code>right</code>, <code>up_right</code>, <code>up</code>, <code>up_left</code>, <code>left</code>, <code>down_left</code>.</li>
+  <li><b><code>turn body …</code></b> — какие объекты поворачиваются: шары, на которых что-то стоит, и 3D-тела. Каждая сторона прибавляет к их <code>yaw</code> свой угол: «вправо» — 90°, «спиной» — 180°. Тень и пол, которых нет в списке, не поворачиваются.</li>
+  <li><b><code>mirror</code></b> — левые стороны не рисуются: в игре это правые, отражённые скриптом. Атлас становится почти вдвое меньше.</li>
+  <li><b>Своя анимация для стороны.</b> Анимация <code>Walk_up</code> заменяет <code>Walk</code> только для вида со спины: например, там сильнее качается рюкзак. Остальные стороны играют обычную <code>Walk</code>.</li>
+</ul>
+<div class="side">
+  <figure><img src="img/sides-panel.png" alt="Раздел «Стороны» в панели артборда"></figure>
+  <div>
+    <p>В редакторе это раздел <b>«Стороны»</b> в панели артборда (когда ничего не выбрано): число сторон, отражение левых, какие объекты поворачиваются. <b>Компас «Вид на холсте»</b> показывает персонажа с любой стороны прямо на холсте, в Design и в Animate, середина возвращает вид из скрипта. Открытая анимация <code>Walk_up</code> сама показывает вид со спины.</p>
+    <p>Кадры PNG и видео из окна «Экспорт» снимаются с той стороны, которую показывает холст.</p>
+  </div>
+</div>
+<p><b>В Godot</b> «Экспорт → Выгрузить в Godot…» снимает каждую анимацию со всех сторон в один атлас: <code>Walk_down</code>, <code>Walk_right</code> и так далее. Скрипт сцены получает переменную <code>facing</code>: передайте в неё направление движения, и спрайт сам покажет ближайшую сторону, а левые отразит. С машиной состояний состояния играют анимацию с той стороны, куда смотрит персонаж; без машины играйте её методом <code>play_facing("Walk")</code>.</p>
+<pre><code>func _physics_process(delta):
+    var dir := Input.get_vector("left", "right", "up", "down")
+    if dir != Vector2.ZERO:
+        $Hero.facing = dir
+    $Hero.speed = dir.length()   # вход машины состояний</code></pre>
+<figure><img src="img/sides-godot.png" alt="Восемь персонажей в Godot смотрят в разные стороны"><figcaption>Та же сцена в Godot 4.3: восемь копий с разным <code>facing</code>, левые — отражённые правые.</figcaption></figure>
+<p>В командной строке одну сторону снимает <code>--side</code>: <code>motif render hero.msc --side up_right</code>, а также <code>frames</code> и <code>video</code>.</p>
+
 <h2 id="script">В скрипте</h2>
 <pre><code><span class="k">ellipse</span> head <span class="p">at</span> <span class="n">420 170</span> <span class="p">size</span> <span class="n">150 170</span>
 <span class="k">ellipse</span> eye  <span class="p">size</span> <span class="n">18 24</span> <span class="p">on</span> head <span class="p">lat</span> <span class="n">12</span> <span class="p">lon</span> <span class="n">-22</span> <span class="p">wrap</span>
 <span class="k">ellipse</span> moon <span class="p">size</span> <span class="n">26</span> <span class="p">on</span> planet <span class="p">alt</span> <span class="n">50</span>
+
+<span class="k">directions</span> <span class="n">8</span> <span class="p">turn</span> head <span class="p">mirror</span>
 
 <span class="k">anim</span> Turn <span class="n">2s</span> {
   head.yaw <span class="n">0</span>: <span class="n">0</span> | <span class="n">1</span>: <span class="n">50</span> | <span class="n">2</span>: <span class="n">0</span>
