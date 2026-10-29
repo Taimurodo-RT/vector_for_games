@@ -16,3 +16,4 @@ motif-script.workspace = true
 motif-render.workspace = true
 motif-pixel.workspace = true
 motif-web.workspace = true
+serde_json.workspace = true

@@ -1896,25 +1896,40 @@ impl App {
     // ---------- properties ----------
 
     fn props_panel(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| {
-            if self.check.is_some() {
-                self.check_panel(ui);
-                return;
-            }
+        egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| self.props_contents(ui, None));
+    }
+
+    fn props_contents(&mut self, ui: &mut egui::Ui, category: Option<&canvas_menu::InspectorCategory>) {
+        use canvas_menu::InspectorCategory as Cat;
+        if self.check.is_some() {
+            self.check_panel(ui);
+            return;
+        }
+        let show = |part| category.is_none_or(|c| *c == part);
+        if category.is_none() {
             self.parameter_work_panel(ui);
             self.parameter_panel(ui);
+        }
+        if let Some(Cat::Parameter(parameter)) = category {
+            self.parameter_category_panel(ui, Some(parameter));
+        }
+        if show(Cat::Deformer) {
             self.deformer_panel(ui);
-            if self.workspace() == crate::workspace::Workspace::Drawing { self.character_panel(ui); }
-            let Some(id) = self.selected.clone() else {
-                self.artboard_info(ui);
-                return;
-            };
-            if !self.also.is_empty() {
-                self.multi_panel(ui);
-                return;
-            }
-            let Some(node) = self.display_doc().node(&id).cloned() else { return };
-            let generated = self.scene.sites.get(&id).is_some_and(|s| s.generated);
+        }
+        if show(Cat::Character) && self.workspace() == crate::workspace::Workspace::Drawing {
+            self.character_panel(ui);
+        }
+        let Some(id) = self.selected.clone() else {
+            self.artboard_info(ui);
+            return;
+        };
+        if !self.also.is_empty() {
+            self.multi_panel(ui);
+            return;
+        }
+        let Some(node) = self.display_doc().node(&id).cloned() else { return };
+        let generated = self.scene.sites.get(&id).is_some_and(|s| s.generated);
+        if category.is_none() {
             section(ui, |ui| {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(16.0, 18.0), Sense::hover());
@@ -1923,23 +1938,25 @@ impl App {
                 });
                 ui.label(RichText::new(format!("{} · id {}", kind_name(node.kind), node.id)).size(11.5).color(FAINT));
             });
+        }
 
-            let mut changes: Vec<(Prop, Value)> = Vec::new();
-            let mut diamonds: Vec<Prop> = Vec::new();
-            let mut styles: Vec<crate::style_ui::StyleEdit> = Vec::new();
-            let half = (ui.available_width() - 24.0 - 6.0) / 2.0;
-            let mut field =
-                |app: &App, ui: &mut egui::Ui, label: &str, prop: Prop, speed: f64, range: std::ops::RangeInclusive<f64>, scale: f64, decimals: usize| {
-                    let v = node.get(prop).as_num().unwrap_or(0.0) * scale;
-                    let r = (*range.start() * scale)..=(*range.end() * scale);
-                    let out = theme::num_field(ui, half, label, v, speed * scale, r, decimals, app.key_state(&id, prop));
-                    if let Some(nv) = out.changed {
-                        changes.push((prop, Value::Num(nv / scale)));
-                    }
-                    if out.diamond {
-                        diamonds.push(prop);
-                    }
-                };
+        let mut changes: Vec<(Prop, Value)> = Vec::new();
+        let mut diamonds: Vec<Prop> = Vec::new();
+        let mut styles: Vec<crate::style_ui::StyleEdit> = Vec::new();
+        let half = (ui.available_width() - 24.0 - 6.0) / 2.0;
+        let mut field =
+            |app: &App, ui: &mut egui::Ui, label: &str, prop: Prop, speed: f64, range: std::ops::RangeInclusive<f64>, scale: f64, decimals: usize| {
+                let v = node.get(prop).as_num().unwrap_or(0.0) * scale;
+                let r = (*range.start() * scale)..=(*range.end() * scale);
+                let out = theme::num_field(ui, half, label, v, speed * scale, r, decimals, app.key_state(&id, prop));
+                if let Some(nv) = out.changed {
+                    changes.push((prop, Value::Num(nv / scale)));
+                }
+                if out.diamond {
+                    diamonds.push(prop);
+                }
+            };
+        if show(Cat::Transform) {
             fold(ui, "Трансформация", |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 ui.horizontal(|ui| {
@@ -1968,13 +1985,15 @@ impl App {
                 });
                 crate::style_ui::pivot_row(ui, &node, &mut styles);
             });
-            let mut pick_font = false;
-            let mut outline_text = false;
-            if node.kind == ShapeKind::Text {
-                let font = self.scene.prop_spans.get(&(id.clone(), "font".to_string())).map(|s| {
-                    let t = self.src[s.start..s.end].trim_start_matches("font").trim();
-                    t.trim_matches('"').to_string()
-                });
+        }
+        let mut pick_font = false;
+        let mut outline_text = false;
+        if node.kind == ShapeKind::Text {
+            let font = self.scene.prop_spans.get(&(id.clone(), "font".to_string())).map(|s| {
+                let t = self.src[s.start..s.end].trim_start_matches("font").trim();
+                t.trim_matches('"').to_string()
+            });
+            if show(Cat::Text) {
                 fold(ui, "Текст", |ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                     crate::text_ui::content_row(ui, &node, &mut styles);
@@ -1990,6 +2009,8 @@ impl App {
                         outline_text = true;
                     }
                 });
+            }
+            if show(Cat::Letters) {
                 fold(ui, "Анимация букв", |ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                     ui.horizontal(|ui| {
@@ -2006,48 +2027,62 @@ impl App {
                     );
                 });
             }
-            if matches!(node.kind, ShapeKind::Rect | ShapeKind::Star | ShapeKind::Polygon) {
-                fold(ui, "Форма", |ui| {
-                    let corners = node.kind == ShapeKind::Rect && node.radii.is_some();
-                    if !corners {
-                        ui.horizontal(|ui| match node.kind {
-                            ShapeKind::Rect => {
-                                if !corners {
-                                    field(self, ui, "Скругл.", Prop::Radius, 0.5, 0.0..=10_000.0, 1.0, 1);
-                                }
+        }
+        if matches!(node.kind, ShapeKind::Rect | ShapeKind::Star | ShapeKind::Polygon) && show(Cat::Shape) {
+            fold(ui, "Форма", |ui| {
+                let corners = node.kind == ShapeKind::Rect && node.radii.is_some();
+                if !corners {
+                    ui.horizontal(|ui| match node.kind {
+                        ShapeKind::Rect => {
+                            if !corners {
+                                field(self, ui, "Скругл.", Prop::Radius, 0.5, 0.0..=10_000.0, 1.0, 1);
                             }
-                            ShapeKind::Star => {
-                                field(self, ui, "Лучи", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0);
-                                field(self, ui, "Внутр.", Prop::Inner, 0.01, 0.05..=1.0, 1.0, 2);
-                            }
-                            _ => field(self, ui, "Стороны", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0),
-                        });
-                    }
-                    if node.kind == ShapeKind::Rect {
-                        crate::style_ui::corners_row(ui, &node, &mut styles);
-                    }
-                });
-            }
-            if node.kind == ShapeKind::Path {
-                fold(ui, "Контур", |ui| self.point_controls(ui, &node));
-            }
+                        }
+                        ShapeKind::Star => {
+                            field(self, ui, "Лучи", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0);
+                            field(self, ui, "Внутр.", Prop::Inner, 0.01, 0.05..=1.0, 1.0, 2);
+                        }
+                        _ => field(self, ui, "Стороны", Prop::Points, 0.1, 3.0..=64.0, 1.0, 0),
+                    });
+                }
+                if node.kind == ShapeKind::Rect {
+                    crate::style_ui::corners_row(ui, &node, &mut styles);
+                }
+            });
+        }
+        if node.kind == ShapeKind::Path && show(Cat::Contour) {
+            fold(ui, "Контур", |ui| self.point_controls(ui, &node));
+        }
+        if show(Cat::Mask) {
             self.mask_ui(ui, &node);
+        }
+        if show(Cat::Symbol) {
             self.symbol_section(ui, &node);
-            // Interface work needs no skeletons or physics; game art needs no kit.
-            let game = self.tool_profile() != Purpose::Ui;
-            let interface = self.tool_profile() != Purpose::Game;
-            if game {
+        }
+        // Interface work needs no skeletons or physics; game art needs no kit.
+        let game = category.is_some() || self.tool_profile() != Purpose::Ui;
+        let interface = category.is_some() || self.tool_profile() != Purpose::Game;
+        if game {
+            if show(Cat::Bones) {
                 self.bone_section(ui, &node);
+            }
+            if show(Cat::Weights) {
                 self.weights_section(ui, &node);
+            }
+            if show(Cat::Physics) {
                 self.physics_section(ui, &node);
             }
-            if !node.kind.is_container() {
+        }
+        if !node.kind.is_container() {
+            if show(Cat::Fill) {
                 fold(ui, "Заливка", |ui| {
                     if self.fill_kind_ui(ui, &node) {
                         ui.add_space(6.0);
                         self.paint_row(ui, &id, Prop::Fill, node.fill, &mut changes, &mut diamonds);
                     }
                 });
+            }
+            if show(Cat::Stroke) {
                 fold(ui, "Обводка", |ui| {
                     if self.stroke_kind_ui(ui, &node) {
                         ui.add_space(6.0);
@@ -2069,82 +2104,94 @@ impl App {
                     crate::text_ui::outline_rows(ui, &node, &mut styles);
                 });
             }
-            // Blur, height and shadow: keyable, so they animate like position or colour.
-            let mut fx_changes = Vec::new();
-            let mut fx_diamonds = Vec::new();
-            if node.kind != ShapeKind::Bone {
-                fold(ui, "Эффекты", |ui| {
-                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                    let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
-                        let v = node.get(prop).as_num().unwrap_or(0.0);
-                        let (range, speed, step) = match prop {
-                            Prop::ShadowX | Prop::ShadowY | Prop::InsetX | Prop::InsetY => (-1000.0..=1000.0, 0.2, 10.0),
-                            Prop::Noise => (0.0..=1.0, 0.005, 100.0),
-                            _ => (0.0..=500.0, 0.2, 10.0),
-                        };
-                        let out = theme::num_field(ui, half, label, v, speed, range, if step > 10.0 { 2 } else { 1 }, self.key_state(&id, prop));
-                        if let Some(nv) = out.changed {
-                            fx_changes.push((prop, Value::Num((nv * step).round() / step)));
-                        }
-                        if out.diamond {
-                            fx_diamonds.push(prop);
-                        }
+        }
+        // Blur, height and shadow: keyable, so they animate like position or colour.
+        let mut fx_changes = Vec::new();
+        let mut fx_diamonds = Vec::new();
+        if node.kind != ShapeKind::Bone && show(Cat::Effects) {
+            fold(ui, "Эффекты", |ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                let mut fx = |ui: &mut egui::Ui, label: &str, prop: Prop| {
+                    let v = node.get(prop).as_num().unwrap_or(0.0);
+                    let (range, speed, step) = match prop {
+                        Prop::ShadowX | Prop::ShadowY | Prop::InsetX | Prop::InsetY => (-1000.0..=1000.0, 0.2, 10.0),
+                        Prop::Noise => (0.0..=1.0, 0.005, 100.0),
+                        _ => (0.0..=500.0, 0.2, 10.0),
                     };
+                    let out = theme::num_field(ui, half, label, v, speed, range, if step > 10.0 { 2 } else { 1 }, self.key_state(&id, prop));
+                    if let Some(nv) = out.changed {
+                        fx_changes.push((prop, Value::Num((nv * step).round() / step)));
+                    }
+                    if out.diamond {
+                        fx_diamonds.push(prop);
+                    }
+                };
+                ui.horizontal(|ui| {
+                    fx(ui, "Размытие", Prop::Blur);
+                    if node.kind != ShapeKind::Group {
+                        fx(ui, "Высота", Prop::Elevation);
+                    }
+                });
+                if node.kind == ShapeKind::Group {
+                    ui.label(RichText::new("Группа размывается целиком, вместе со всеми детьми.").size(11.5).color(FAINT));
+                    return;
+                }
+                if crate::style_ui::shadow_rows(ui, &node, &mut styles) {
                     ui.horizontal(|ui| {
-                        fx(ui, "Размытие", Prop::Blur);
-                        if node.kind != ShapeKind::Group {
-                            fx(ui, "Высота", Prop::Elevation);
-                        }
+                        fx(ui, "Тень X", Prop::ShadowX);
+                        fx(ui, "Тень Y", Prop::ShadowY);
                     });
-                    if node.kind == ShapeKind::Group {
-                        ui.label(RichText::new("Группа размывается целиком, вместе со всеми детьми.").size(11.5).color(FAINT));
-                        return;
-                    }
-                    if crate::style_ui::shadow_rows(ui, &node, &mut styles) {
-                        ui.horizontal(|ui| {
-                            fx(ui, "Тень X", Prop::ShadowX);
-                            fx(ui, "Тень Y", Prop::ShadowY);
-                        });
-                        ui.horizontal(|ui| fx(ui, "Мягкость", Prop::ShadowBlur));
-                    }
-                    if crate::style_ui::glow_rows(ui, &node, &mut styles) {
-                        ui.horizontal(|ui| fx(ui, "Размер", Prop::Glow));
-                    }
-                    if crate::style_ui::inset_rows(ui, &node, &mut styles) {
-                        ui.horizontal(|ui| {
-                            fx(ui, "Сдвиг X", Prop::InsetX);
-                            fx(ui, "Сдвиг Y", Prop::InsetY);
-                        });
-                        ui.horizontal(|ui| fx(ui, "Мягкость ", Prop::InsetBlur));
-                    }
-                    if crate::style_ui::noise_rows(ui, &node, &mut styles) {
-                        ui.horizontal(|ui| fx(ui, "Сила", Prop::Noise));
-                    }
-                    ui.label(
+                    ui.horizontal(|ui| fx(ui, "Мягкость", Prop::ShadowBlur));
+                }
+                if crate::style_ui::glow_rows(ui, &node, &mut styles) {
+                    ui.horizontal(|ui| fx(ui, "Размер", Prop::Glow));
+                }
+                if crate::style_ui::inset_rows(ui, &node, &mut styles) {
+                    ui.horizontal(|ui| {
+                        fx(ui, "Сдвиг X", Prop::InsetX);
+                        fx(ui, "Сдвиг Y", Prop::InsetY);
+                    });
+                    ui.horizontal(|ui| fx(ui, "Мягкость ", Prop::InsetBlur));
+                }
+                if crate::style_ui::noise_rows(ui, &node, &mut styles) {
+                    ui.horizontal(|ui| fx(ui, "Сила", Prop::Noise));
+                }
+                ui.label(
                         RichText::new(
                             "«Высота» поднимает объект над артбордом: тень уходит от света сцены, длиннее и мягче. Размытие 0 — жёсткая тень для пиксель-арта. Свечение — ореол вокруг, внутренняя тень вдавливает фигуру, шум — зерно поверх заливки. Размер свечения и сила шума анимируются: Hover может зажечь кнопку.",
                         )
                         .size(11.5)
                         .color(FAINT),
                     );
-                    crate::style_ui::blend_row(ui, &node, &mut styles);
-                });
-            }
-            changes.extend(fx_changes);
-            diamonds.extend(fx_diamonds);
-            if game {
+                crate::style_ui::blend_row(ui, &node, &mut styles);
+            });
+        }
+        changes.extend(fx_changes);
+        diamonds.extend(fx_diamonds);
+        if game {
+            if show(Cat::Orbit) {
                 self.orbit_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
+            }
+            if show(Cat::Body) {
                 self.body_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
             }
+        }
+        if show(Cat::Morph) {
             self.morph_section(ui, &node, &mut changes, &mut diamonds, &mut styles);
-            if game {
-                self.brush_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
-            }
-            let mut kit = crate::kit_ui::KitAction::default();
-            if interface {
+        }
+        if game && show(Cat::Brush) {
+            self.brush_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
+        }
+        let mut kit = crate::kit_ui::KitAction::default();
+        if interface {
+            if show(Cat::Layout) {
                 self.layout_section(ui, &node, half, &mut styles);
+            }
+            if show(Cat::Interface) {
                 kit = self.kit_section(ui, &node, half, &mut styles);
             }
+        }
+        if category.is_none() {
             section(ui, |ui| {
                 let mut job = egui::text::LayoutJob::default();
                 job.wrap.max_width = ui.available_width();
@@ -2171,33 +2218,33 @@ impl App {
                 }
                 ui.label(job);
             });
-            for prop in diamonds {
-                self.toggle_key(&id, prop);
-            }
-            for (prop, value) in changes {
-                self.edit(&id, prop, value);
-            }
-            self.apply_styles(&id, styles);
-            if pick_font {
-                self.pick_font(&id);
-            }
-            if outline_text {
-                self.select_only(Some(id.clone()));
-                self.boolean(motif_script::BoolOp::Union);
-            }
-            if kit.add_states {
-                self.add_ui_states();
-            }
-            if kit.add_value {
-                self.add_value_anim();
-            }
-            if kit.stretch {
-                self.stretch = Some(crate::stretch_ui::Stretch::new(&id));
-            }
-            if kit.crisp {
-                self.align_to_pixels(&id);
-            }
-        });
+        }
+        for prop in diamonds {
+            self.toggle_key(&id, prop);
+        }
+        for (prop, value) in changes {
+            self.edit(&id, prop, value);
+        }
+        self.apply_styles(&id, styles);
+        if pick_font {
+            self.pick_font(&id);
+        }
+        if outline_text {
+            self.select_only(Some(id.clone()));
+            self.boolean(motif_script::BoolOp::Union);
+        }
+        if kit.add_states {
+            self.add_ui_states();
+        }
+        if kit.add_value {
+            self.add_value_anim();
+        }
+        if kit.stretch {
+            self.stretch = Some(crate::stretch_ui::Stretch::new(&id));
+        }
+        if kit.crisp {
+            self.align_to_pixels(&id);
+        }
     }
 
     fn artboard_info(&mut self, ui: &mut egui::Ui) {
@@ -3476,6 +3523,10 @@ pub(crate) fn section(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 /// A properties section under a caption that folds it away. Whether a caption is folded is kept
 /// per caption, so «Эффекты» folded once stays folded for every object.
 pub(crate) fn fold(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
+    if ui.stack().iter().any(|frame| frame.tags().contains("motif-property-category")) {
+        section(ui, add);
+        return;
+    }
     let key = egui::Id::unique(("fold", title));
     let mut open = ui.data_mut(|d| d.get_persisted::<bool>(key)).unwrap_or(true);
     egui::Frame::new().inner_margin(egui::Margin::same(12)).show(ui, |ui| {

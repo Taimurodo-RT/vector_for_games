@@ -1,6 +1,7 @@
 // @motif-characters {"schema":1,"characters":[{"root":"portrait","name":"Аниме-лицо","rig":"lattice-portrait-v1","bones":[],"slots":[],"looks":[],"motions":[{"name":"Спокойная поза","clip":"Idle"},{"name":"Эмоции и поворот","clip":"Expressions"},{"name":"Разговор","clip":"Talk"}]}]}
 // Anime face: editable paths, nested 3x3 cages, gaze, blink and vector mouth forms.
 // All workspaces share the chosen clip and frame. Setup: select head / eye_l to edit the cage.
+// Turn: both silhouette edges compress toward the pivot; the convex center and nose move with the turn.
 artboard "Аниме — лицо и деформеры" 640x720 bg #f2f0fa game
 let ink = #252541
 let hair = #33334f
@@ -86,7 +87,7 @@ group portrait "Аниме-портрет" at 320 332 {
       }
       path brow_r at 51 -46 scale -1 1 d "M -32 -2 Q -3 -15 29 -4 Q 2 -10 -30 3 Z" fill #54506c
       ellipse blush_r at 72.93 52 size 41 18 fill #eea6ac opacity 0.35
-      path nose d "M 1 38 L -4 53 Q 0 57 5 54" fill none stroke #c48b8d 2 cap round
+      path nose d "M 1 38 L -4 53 Q 0 57 5 54" forms "M -4 38 L -11 53 Q -4 58 2 54" "M 4 38 L 11 53 Q 4 58 -2 54" fill none stroke #c48b8d 2 cap round
       path nose_light d "M 5 34 L 8 45" fill none stroke #fff5ee 3 cap round
       path mouth_line "Рот — векторные формы" at 0 88 d "M -16 0 C -6 5 6 5 16 0 C 7 7 -7 7 -16 0 Z" forms "M -17 -5 C -9 -12 9 -12 17 -5 C 21 26 -21 26 -17 -5 Z" "M -22 -2 C -8 5 8 5 22 -2 C 12 15 -12 15 -22 -2 Z" fill #9d4f68 stroke #87435a 1.5
       path lip_light at 0 102 d "M -8 0 Q 0 3 8 0" fill none stroke #f2b1b1 2 cap round
@@ -109,25 +110,27 @@ group ui_test "UI для проверки" at 534 670 ui button slice 10 {
   text ui_label content "UI рядом" font-size 12 fill #50496a part text
 }
 driver turn {
-  head.warp-x0 -1: 14 | 0: 0 | 1: -4
-  head.warp-x1 -1: -8 | 0: 0 | 1: 8
-  head.warp-x2 -1: 4 | 0: 0 | 1: -14
-  head.warp-x3 -1: 24 | 0: 0 | 1: -6
-  head.warp-x4 -1: -14 | 0: 0 | 1: 14
-  head.warp-x5 -1: 6 | 0: 0 | 1: -24
-  head.warp-x6 -1: 9 | 0: 0 | 1: -4
-  head.warp-x7 -1: -18 | 0: 0 | 1: 18
-  head.warp-x8 -1: 4 | 0: 0 | 1: -9
-  features.warp-x0 -1: -16 | 0: 0 | 1: 16
-  features.warp-x1 -1: -16 | 0: 0 | 1: 16
-  features.warp-x2 -1: -16 | 0: 0 | 1: 16
-  features.warp-x3 -1: -16 | 0: 0 | 1: 16
-  features.warp-x4 -1: -16 | 0: 0 | 1: 16
-  features.warp-x5 -1: -16 | 0: 0 | 1: 16
-  features.warp-x6 -1: -16 | 0: 0 | 1: 16
-  features.warp-x7 -1: -16 | 0: 0 | 1: 16
-  features.warp-x8 -1: -16 | 0: 0 | 1: 16
-  nose.x -1: -5 | 0: 0 | 1: 5
+  head.warp-x0 -1: 8 | 0: 0 | 1: 8
+  head.warp-x1 -1: -28 | 0: 0 | 1: 28
+  head.warp-x2 -1: -8 | 0: 0 | 1: -8
+  head.warp-x3 -1: 12 | 0: 0 | 1: 12
+  head.warp-x4 -1: -44 | 0: 0 | 1: 44
+  head.warp-x5 -1: -12 | 0: 0 | 1: -12
+  head.warp-x6 -1: 10 | 0: 0 | 1: 10
+  head.warp-x7 -1: -32 | 0: 0 | 1: 32
+  head.warp-x8 -1: -10 | 0: 0 | 1: -10
+  features.warp-x0 -1: -4 | 0: 0 | 1: 4
+  features.warp-x1 -1: -4 | 0: 0 | 1: 4
+  features.warp-x2 -1: -4 | 0: 0 | 1: 4
+  features.warp-x3 -1: -4 | 0: 0 | 1: 4
+  features.warp-x4 -1: -4 | 0: 0 | 1: 4
+  features.warp-x5 -1: -4 | 0: 0 | 1: 4
+  features.warp-x6 -1: -4 | 0: 0 | 1: 4
+  features.warp-x7 -1: -4 | 0: 0 | 1: 4
+  features.warp-x8 -1: -4 | 0: 0 | 1: 4
+  nose.x -1: -8 | 0: 0 | 1: 8
+  nose_light.x -1: -8 | 0: 0 | 1: 8
+  nose.contour -1: 1 | 0: 0 | 1: 2
 }
 driver look {
   iris_l.x -1: -9 | 0: 0 | 1: 9

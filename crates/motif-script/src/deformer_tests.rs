@@ -3,6 +3,67 @@ use motif_core::kurbo::{BezPath, Point, Shape, Vec2};
 use motif_core::{Prop, Value};
 
 #[test]
+fn anime_turn_has_a_convex_centerline_and_compresses_the_far_eye() {
+    let src = include_str!("../../../examples/character-anime.msc");
+    let scene = parse(src).unwrap();
+    for turn in [-1.0, 1.0] {
+        let mut pose = scene.doc.clone();
+        pose.set_parameter("turn", turn);
+        pose.apply_parameters();
+        pose.rig();
+        let head = pose.node("head").unwrap().lattice.as_ref().unwrap();
+        let left = head.map(Point::new(-150.0, 0.0));
+        let right = head.map(Point::new(150.0, 0.0));
+        assert!(((left.x + right.x) / 2.0).abs() < 1e-9, "silhouette must not slide against the turn");
+        assert!(left.x > -150.0 && right.x < 150.0, "both edges compress toward the pivot");
+        assert!(head.map(Point::ZERO).x * turn > 15.0, "the surface center protrudes with the turn");
+
+        let point = |id: &str, p: Point| {
+            let i = pose.index_of(id).unwrap();
+            pose.world_transform(i) * pose.map_lattice_point(i, p)
+        };
+        let nose_tip = match pose.node("nose").unwrap().editable_path().elements()[1] {
+            motif_core::kurbo::PathEl::LineTo(p) => p,
+            _ => panic!("nose tip landmark changed"),
+        };
+        let nose = point("nose", nose_tip);
+        let mouth = point("mouth_line", Point::ZERO);
+        assert!((nose.x - mouth.x) * turn > 10.0, "nose projects beyond the mouth's centerline");
+        let width = |id: &str| pose.node(id).unwrap().path().unwrap().bounding_box().width();
+        let (near, far) = if turn > 0.0 { ("white_l", "white_r") } else { ("white_r", "white_l") };
+        assert!(width(near) > width(far) + 5.0, "the eye toward the far silhouette must narrow");
+    }
+}
+
+#[test]
+fn anime_head_turn_stays_mirrored_and_unfolded_across_its_parameter_range() {
+    let src = include_str!("../../../examples/character-anime.msc");
+    let scene = parse(src).unwrap();
+    for amount in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        let mut poses = [scene.doc.clone(), scene.doc.clone()];
+        for (pose, sign) in poses.iter_mut().zip([-1.0, 1.0]) {
+            pose.set_parameter("turn", amount * sign);
+            pose.apply_parameters();
+        }
+        let negative = poses[0].node("head").unwrap().lattice.as_ref().unwrap();
+        let positive = poses[1].node("head").unwrap().lattice.as_ref().unwrap();
+        for y in (-180..=180).step_by(30) {
+            for x in (-150..=150).step_by(25) {
+                let p = Point::new(x as f64, y as f64);
+                let a = positive.map(p);
+                let b = negative.map(Point::new(-p.x, p.y));
+                assert!((a.x + b.x).abs() < 1e-9 && (a.y - b.y).abs() < 1e-9);
+                // Keep a positive local Jacobian: a visually hollow face must not be
+                // 'fixed' by turning its cage inside out or folding the far cheek.
+                let dx = (positive.map(p + Vec2::new(0.01, 0.0)) - a) / 0.01;
+                let dy = (positive.map(p + Vec2::new(0.0, 0.01)) - a) / 0.01;
+                assert!(dx.cross(dy) > 0.5);
+            }
+        }
+    }
+}
+
+#[test]
 fn anime_parameter_combinations_keep_masks_paths_and_ui_finite() {
     let src = include_str!("../../../examples/character-anime.msc");
     let scene = parse(src).unwrap();

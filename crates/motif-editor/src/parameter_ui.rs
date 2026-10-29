@@ -62,7 +62,11 @@ impl App {
     }
 
     pub(crate) fn parameter_panel(&mut self, ui: &mut egui::Ui) {
-        if self.scene.doc.parameters.is_empty() || self.tool_profile() == Purpose::Ui {
+        self.parameter_category_panel(ui, None);
+    }
+
+    pub(crate) fn parameter_category_panel(&mut self, ui: &mut egui::Ui, only: Option<&str>) {
+        if self.scene.doc.parameters.is_empty() || only.is_none() && self.tool_profile() == Purpose::Ui {
             return;
         }
         if self.selected.as_deref().is_some_and(|id| !self.protected_character_node(id)) {
@@ -82,7 +86,7 @@ impl App {
             } else {
                 "Без клипа изменяются исходные значения параметров."
             });
-            for parameter in &shown.parameters {
+            for parameter in shown.parameters.iter().filter(|p| only.is_none_or(|id| id == p.id)) {
                 ui.push_id(&parameter.id, |ui| {
                     ui.label(&parameter.name);
                     let field = theme::num_field(

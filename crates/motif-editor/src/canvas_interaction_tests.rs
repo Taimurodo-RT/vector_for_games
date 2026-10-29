@@ -93,7 +93,7 @@ fn context_inspector_stays_for_edits_and_closes_by_button_escape_or_outside() {
         let original = app.src.clone();
         let p = ball(&mut app);
         click(&mut app, p, egui::PointerButton::Secondary);
-        let item = label(&mut app, "Свойства и ключи…");
+        let item = label(&mut app, "Трансформация");
         click(&mut app, item, egui::PointerButton::Primary);
         assert!(app.floating.is_some());
         let auto = label(&mut app, "Автоключ");
@@ -126,7 +126,7 @@ fn floating_key_command_records_without_closing_and_can_be_undone() {
     let source = app.src.clone();
     let p = ball(&mut app);
     click(&mut app, p, egui::PointerButton::Secondary);
-    let item = label(&mut app, "Свойства и ключи…");
+    let item = label(&mut app, "Трансформация");
     click(&mut app, item, egui::PointerButton::Primary);
     let command = label(&mut app, "Записать ключи трансформации");
     click(&mut app, command, egui::PointerButton::Primary);
@@ -139,6 +139,83 @@ fn floating_key_command_records_without_closing_and_can_be_undone() {
     assert_eq!(app.undo.len(), 1);
     app.undo();
     assert_eq!(app.src, source);
+}
+
+fn rendered_labels(app: &mut App) -> Vec<String> {
+    let output = frame(app, vec![]);
+    let labels = output
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some(t.galley.job.text.clone()),
+            _ => None,
+        })
+        .collect();
+    output.drop_without_applying_deltas();
+    labels
+}
+
+#[test]
+fn category_popup_contains_only_fill_and_ignores_sidebar_fold_state() {
+    let mut app = fixture(include_str!("../../../examples/bounce.msc"));
+    app.ctx.data_mut(|d| d.insert_persisted(egui::Id::unique(("fold", "Заливка")), false));
+    let p = ball(&mut app);
+    click(&mut app, p, egui::PointerButton::Secondary);
+    let item = label(&mut app, "Заливка");
+    click(&mut app, item, egui::PointerButton::Primary);
+    let labels = rendered_labels(&mut app);
+    assert!(labels.iter().any(|s| s == "Заливка · ball"));
+    assert!(labels.iter().any(|s| s.starts_with('#')), "fill controls must be open even when collapsed in the sidebar");
+    assert!(!labels.iter().any(|s| s == "Толщина" || s == "Масшт. X" || s == "Параметры движения"));
+    let bounds = app.ctx.memory(|m| m.area_rect(egui::Id::unique("object-inspector"))).unwrap();
+    assert!(bounds.height() < 350.0, "one fill category should fit without a tall inspector: {bounds:?}");
+    assert_eq!(app.ctx.data_mut(|d| d.get_persisted::<bool>(egui::Id::unique(("fold", "Заливка")))), Some(false));
+}
+
+#[test]
+fn parameter_popup_is_scoped_to_one_control_and_ui_categories_stay_available() {
+    use canvas_menu::InspectorCategory as Cat;
+    let mut app = fixture(include_str!("../../../examples/character-anime.msc"));
+    app.select_only(Some("portrait".into()));
+    let categories = app.inspector_categories("portrait");
+    assert!(categories.contains(&Cat::Parameter("turn".into())));
+    assert!(categories.contains(&Cat::Parameter("blink".into())));
+    let category = Cat::Parameter("blink".into());
+    let ctx = app.ctx.clone();
+    let output = ctx.run_ui(egui::RawInput::default(), |ui| app.props_contents(ui, Some(&category)));
+    let labels: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some(t.galley.job.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(labels.contains(&"Моргание"));
+    assert!(!labels.contains(&"Поворот лица") && !labels.contains(&"Взгляд"));
+    output.drop_without_applying_deltas();
+    app.profile = Some(Purpose::Game);
+    assert!(app.inspector_categories("ui_test").contains(&Cat::Interface));
+    assert!(app.inspector_categories("ui_test").contains(&Cat::Layout));
+    assert!(!app.inspector_categories("ui_test").iter().any(|c| matches!(c, Cat::Parameter(_))));
+}
+
+#[test]
+fn context_click_inside_selected_group_keeps_its_deformer_and_parameter_categories() {
+    let mut app = fixture(include_str!("../../../examples/character-anime.msc"));
+    app.select_only(Some("head".into()));
+    frame(&mut app, vec![]).drop_without_applying_deltas();
+    let doc = app.display_doc();
+    let i = doc.index_of("face").unwrap();
+    let at = app.view.unwrap().to_screen(app.canvas_bounds, doc.world_transform(i) * doc.map_lattice_point(i, Point::new(0.0, 100.0)));
+    click(&mut app, at, egui::PointerButton::Secondary);
+    assert_eq!(app.selected.as_deref(), Some("head"));
+    let item = label(&mut app, "Деформер группы");
+    click(&mut app, item, egui::PointerButton::Primary);
+    let labels = rendered_labels(&mut app);
+    assert!(labels.iter().any(|s| s == "Деформер группы · head"));
+    assert!(labels.iter().any(|s| s == "Править сетку на холсте"));
+    assert!(!labels.iter().any(|s| s == "Масшт. X"));
 }
 
 #[test]
