@@ -101,6 +101,24 @@ impl App {
                 .add_enabled(current.is_none(), egui::Button::new("Сохранить как комплект"))
                 .on_hover_text("Запомнить выбранные варианты всех слотов для быстрого возврата")
                 .clicked();
+            ui.label("Движение");
+            ui.horizontal_wrapped(|ui| {
+                if ui.selectable_label(self.anim.is_none(), "Настройка").clicked() {
+                    motion = Some(None);
+                }
+                for m in &character.motions {
+                    if self.scene.doc.animation(&m.clip).is_some() && ui.selectable_label(self.anim.as_deref() == Some(&m.clip), &m.name).clicked() {
+                        motion = Some(Some(m.clip.clone()));
+                    }
+                }
+            });
+            if self.anim.is_some() && ui.button(if self.playing { "Пауза" } else { "Проиграть" }).clicked() {
+                if !self.playing && self.current_anim().is_some_and(|a| self.time >= a.duration) {
+                    self.time = 0.0;
+                }
+                self.playing = !self.playing;
+            }
+            ui.small("Меняйте одежду прямо во время движения. «Своя копия» возвращает в позу настройки для рисования.");
             ui.collapsing("Части и одежда", |ui| {
                 for slot in &character.slots {
                     let selected = slot.selected(&self.scene);
@@ -131,24 +149,6 @@ impl App {
                     });
                 }
             });
-            ui.label("Движение");
-            ui.horizontal_wrapped(|ui| {
-                if ui.selectable_label(self.anim.is_none(), "Настройка").clicked() {
-                    motion = Some(None);
-                }
-                for m in &character.motions {
-                    if self.scene.doc.animation(&m.clip).is_some() && ui.selectable_label(self.anim.as_deref() == Some(&m.clip), &m.name).clicked() {
-                        motion = Some(Some(m.clip.clone()));
-                    }
-                }
-            });
-            if self.anim.is_some() && ui.button(if self.playing { "Пауза" } else { "Проиграть" }).clicked() {
-                if !self.playing && self.current_anim().is_some_and(|a| self.time >= a.duration) {
-                    self.time = 0.0;
-                }
-                self.playing = !self.playing;
-            }
-            ui.small("Меняйте одежду прямо во время движения. «Своя копия» возвращает в позу настройки для рисования.");
         });
         if let Some(choices) = choices {
             self.character_choice(&character.root, &choices);
