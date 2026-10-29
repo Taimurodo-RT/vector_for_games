@@ -174,6 +174,7 @@ pub struct App {
     preview: crate::preview::Preview,
     preview_canvas: preview_ui::PreviewCanvas,
     preview_tab: bool,
+    deformer: deformer_ui::DeformerEdit,
     pub(crate) pose_preview: std::collections::BTreeMap<String, f64>,
     /// The side of `directions` the canvas shows (the compass in «Стороны»), or the scene as written.
     pub(crate) side: Option<usize>,
@@ -318,7 +319,7 @@ impl App {
             workspace_store: None,
             profile: None,
             clip_times: Default::default(),
-            auto_key: false,
+            auto_key: true,
             draft_pose: Default::default(),
             play_needs_record: false,
             floating: None,
@@ -326,6 +327,7 @@ impl App {
             preview: Default::default(),
             preview_canvas: Default::default(),
             preview_tab: true,
+            deformer: Default::default(),
             pose_preview: Default::default(),
             side: None,
             time: 0.0,
@@ -407,7 +409,7 @@ impl App {
                 {
                     self.anim = None;
                 }
-                if self.workspace() == crate::workspace::Workspace::Animate && self.anim.is_none() {
+                if self.anim.is_none() {
                     self.anim = self
                         .last_anim
                         .clone()
@@ -445,7 +447,31 @@ impl App {
     /// Replaces the script with the result of an edit, as one undo step.
     pub(crate) fn apply(&mut self, kind: &str, new_src: Option<String>) -> bool {
         match new_src {
-            Some(s) if s != self.src => {
+            Some(mut s) if s != self.src => {
+                if let Some((clip, time)) = self.key_time()
+                    && time > 0.0
+                    && matches!(kind, "create" | "paste" | "duplicate" | "add-use")
+                {
+                    let base = self.path.as_ref().and_then(|p| p.parent());
+                    if let Ok(next) = motif_script::parse_in(&s, base) {
+                        let new: Vec<String> = next
+                            .doc
+                            .nodes
+                            .iter()
+                            .filter(|n| {
+                                n.visible
+                                    && self.scene.doc.node(&n.id).is_none()
+                                    && n.parent.is_none_or(|p| self.scene.doc.node(&next.doc.nodes[p].id).is_some())
+                            })
+                            .map(|n| n.id.clone())
+                            .collect();
+                        for id in new {
+                            let Ok(parsed) = motif_script::parse_in(&s, base) else { return false };
+                            let Some(out) = motif_script::forms::key_appearance(&s, &parsed, &clip, &id, time, base) else { return false };
+                            s = out;
+                        }
+                    }
+                }
                 if !self.parameter_edit_allowed(kind, &s) {
                     return false;
                 }
@@ -474,8 +500,7 @@ impl App {
         false
     }
 
-    /// Applies a visual edit: in Design it changes the value in the script, in Animate it records
-    /// a key at the current time instead.
+    /// A selected clip authors the shared current frame in every workspace; without a clip, edits change the base.
     pub(crate) fn edit(&mut self, node: &str, prop: Prop, value: Value) {
         if !self.can_edit() {
             return;
@@ -490,26 +515,18 @@ impl App {
             }
             return;
         }
-        if self.protected_character_node(node) && self.workspace() != crate::workspace::Workspace::Drawing && prop != Prop::Parameter {
-            self.status = "Этой деталью управляет персонаж. Для рисунка выберите «Рисование», для позы — параметры движения".into();
-            return;
-        }
-        if let Some(parameter) = self.scene.doc.driven_by(node, prop) {
-            self.status = format!("Свойством управляет {parameter}: меняйте параметр движения или его опорные значения");
-            return;
-        }
-        if self.workspace() == crate::workspace::Workspace::Animate {
-            let Some(at) = self.key_time() else {
-                self.status = "Сначала создайте или выберите клип; исходный рисунок сохранён".into();
-                return;
-            };
+        if let Some(at) = self.key_time() {
             if !self.auto_key {
                 self.playing = false;
                 self.draft_pose.set(at, node, prop, value);
                 self.status = "Пробная поза. Ромб или «Записать позу» сохраняет ключи; автоключ выключен".into();
                 return;
             }
+        } else if self.workspace() == crate::workspace::Workspace::Animate {
+            self.status = "Создайте клип для записи ключей".into();
+            return;
         }
+        self.pose_preview.clear();
         let new_src = match self.key_time() {
             Some((anim, t)) => {
                 self.playing = false;
@@ -641,6 +658,7 @@ impl App {
     }
 
     pub(crate) fn reset_workspace_document(&mut self) {
+        self.deformer = Default::default();
         self.preview = Default::default();
         self.preview_canvas = Default::default();
         self.floating = None;
@@ -652,7 +670,7 @@ impl App {
         self.run = None;
         self.check = None;
         self.playing = false;
-        self.auto_key = false;
+        self.auto_key = true;
     }
 
     fn remember_clip_time(&mut self) {
@@ -663,22 +681,28 @@ impl App {
     }
 
     pub(crate) fn set_workspace(&mut self, space: crate::workspace::Workspace) {
-        if self.drag.is_some() || self.key_drag.is_some() || !self.pen.is_empty() {
+        if self.drag.is_some()
+            || self.key_drag.is_some()
+            || self.deformer.grab.is_some()
+            || self.point_edit.as_ref().is_some_and(|e| e.live.is_some())
+            || !self.pen.is_empty()
+        {
             self.status = "Завершите действие на холсте или нажмите Esc перед сменой пространства".into();
             return;
         }
         self.remember_clip_time();
         self.panels.switch(space);
+        self.deformer.form = None;
         self.playing = false;
         self.run = None;
         self.check = None;
-        self.draft_pose.clear();
+        self.pose_preview.clear();
         self.point_edit = None;
         self.brush_w.on = None;
         self.live.clear();
         self.sel_keys.clear();
         self.tool = Tool::Select;
-        if space == crate::workspace::Workspace::Animate {
+        if self.anim.is_none() {
             self.anim = self
                 .last_anim
                 .clone()
@@ -687,8 +711,6 @@ impl App {
             if let Some(name) = &self.anim {
                 self.time = self.clip_times.get(&(self.boards.active, name.clone())).copied().unwrap_or(0.0);
             }
-        } else {
-            self.anim = None;
         }
     }
 
@@ -704,7 +726,7 @@ impl App {
         let (out, name) = motif_script::add_anim(&self.src, &self.scene);
         if self.apply_once("anim", Some(out)) {
             self.select_anim(name.clone());
-            self.status = format!("Создан клип «{name}». Ромб записывает ключ; автоключ включается отдельно");
+            self.status = format!("Создан клип «{name}». Общий кадр для рисования, настройки и анимации");
         }
     }
 
@@ -766,8 +788,9 @@ impl App {
         if self.scene.doc.animation(&name).is_none() {
             return;
         }
+        self.pose_preview.clear();
+        self.deformer.form = None;
         self.remember_clip_time();
-        self.panels.switch(crate::workspace::Workspace::Animate);
         self.panels.set(crate::workspace::Panel::Timeline, true);
         self.run = None;
         self.check = None;
@@ -825,18 +848,30 @@ impl App {
             (None, Some(a)) => self.pose_anim(a, self.time),
             (None, None) => self.scene.doc.clone(),
         };
-        if self.anim.is_none() && self.run.is_none() && !doc.parameters.is_empty() {
+        if self.run.is_none() && (self.anim.is_none() || !self.pose_preview.is_empty()) && !doc.parameters.is_empty() {
             for p in &mut doc.parameters {
-                p.value =
-                    if self.workspace() == crate::workspace::Workspace::Drawing { p.default } else { self.pose_preview.get(&p.id).copied().unwrap_or(p.value) };
+                p.value = self.pose_preview.get(&p.id).copied().unwrap_or(p.value);
             }
             doc.apply_parameters();
         }
         if self.draft_pose.matches(&self.key_time()) {
+            let parameters_changed = self.draft_pose.values.keys().any(|(_, prop)| *prop == Prop::Parameter);
             for ((node, prop), value) in &self.draft_pose.values {
-                doc.set_animated_value(node, *prop, *value);
+                if *prop == Prop::Parameter {
+                    doc.set_animated_value(node, *prop, *value);
+                }
             }
-            doc.apply_parameters();
+            if parameters_changed {
+                doc.apply_parameters();
+                if let Some(a) = self.current_anim() {
+                    a.apply_node_keys(&mut doc, self.time);
+                }
+            }
+            for ((node, prop), value) in &self.draft_pose.values {
+                if *prop != Prop::Parameter {
+                    doc.set_animated_value(node, *prop, *value);
+                }
+            }
         }
         if let Some(c) = &self.check {
             doc = c.pose(&self.scene.doc, &doc);
@@ -846,6 +881,8 @@ impl App {
             && let Some(i) = doc.index_of(&e.node)
         {
             doc.nodes[i].geometry = o.to_bez();
+            doc.nodes[i].forms = None;
+            doc.nodes[i].morph = None;
         }
         for (node, prop, value) in &self.live {
             if let Some(i) = doc.index_of(node) {
@@ -1597,7 +1634,7 @@ impl App {
             {
                 self.panels.toggle_focus();
             }
-            if self.workspace() == Workspace::Animate && !self.panels.layout().timeline {
+            if !self.panels.layout().timeline {
                 if self.anim.is_some() {
                     if theme::icon_button(ui, if self.playing { Icon::Pause } else { Icon::Play }, "Пуск / пауза").clicked() {
                         self.toggle_playback();
@@ -1866,11 +1903,7 @@ impl App {
             }
             self.parameter_work_panel(ui);
             self.parameter_panel(ui);
-            if self.workspace() != crate::workspace::Workspace::Drawing
-                && self.selected.as_deref().is_some_and(|id| self.protected_character_node(id)) {
-                if ui.button("Редактировать рисунок детали").clicked() { self.set_mode_animate(false); }
-                return;
-            }
+            self.deformer_panel(ui);
             if self.workspace() == crate::workspace::Workspace::Drawing { self.character_panel(ui); }
             let Some(id) = self.selected.clone() else {
                 self.artboard_info(ui);
@@ -2422,7 +2455,9 @@ impl App {
         // The boards' names and size handle, and clicks on other boards.
         let board_ui = !pan_gesture && !live && self.eyedrop.is_none() && self.boards_input(ui, &resp, rect, view, &grid);
         // The pen and point editing take the pointer themselves.
-        let special = live
+        let deforming = !pan_gesture && !live && self.deformer_input(ui, &resp, rect, view, &doc);
+        let special = deforming
+            || live
             || board_ui
             || (!pan_gesture
                 && self.drag.is_none()
@@ -3263,7 +3298,14 @@ impl App {
             }
         }
         if plain(Key::Escape) {
-            if !self.pen.is_empty() {
+            if self.deformer.grab.is_some() {
+                self.deformer.grab = None;
+                self.live.clear();
+            } else if self.deformer.target.is_some() {
+                self.deformer.target = None;
+                self.deformer.form = None;
+                self.pose_preview.clear();
+            } else if !self.pen.is_empty() {
                 self.pen.clear();
             } else if self.brush_w.on.is_some() {
                 self.brush_w.on = None;
@@ -3622,51 +3664,41 @@ mod editing_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    fn character_work_modes_separate_appearance_setup_and_animation() {
+    fn character_work_modes_share_the_frame_and_allow_deliberate_key_overrides() {
         use crate::workspace::Workspace;
         let source = include_str!("../../../examples/character-portrait.msc");
         let mut app = fixture(source);
         let original = app.file_text();
-        let clips = app.scene.doc.animations.clone();
         let drivers = app.scene.doc.drivers.clone();
-        app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
-        assert_ne!(app.file_text(), original);
-        assert_eq!(app.scene.doc.animations, clips);
-        assert_eq!(app.scene.doc.drivers, drivers);
-        app.undo();
-        assert_eq!(app.file_text(), original);
-
-        app.parameter_preview("turn", 0.8);
-        assert_eq!(app.workspace(), Workspace::Setup);
-        assert_eq!(app.file_text(), original, "pose preview must not dirty the drawing or author keys");
-        assert!((app.display_doc().node("head").unwrap().yaw - 27.2).abs() < 1e-9);
-        app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
-        assert_eq!(app.file_text(), original, "setup protects appearance");
-        app.parameter_form_edit("turn", "head", Prop::Yaw, 1.0, 40.0);
-        assert_ne!(app.file_text(), original);
-        assert_eq!(app.scene.doc.animations, clips);
-        app.undo();
-        assert_eq!(app.file_text(), original);
-
         app.select_anim("Look".into());
-        app.auto_key = true;
         app.time = 0.4;
-        app.edit("turn", Prop::Parameter, Value::Num(0.75));
-        let animated = app.file_text();
-        assert_ne!(animated, original);
-        assert_eq!(app.scene.doc.drivers, drivers);
-        assert_eq!(app.display_doc().parameter("turn").unwrap().value, 0.75);
+        assert!(app.auto_key);
         app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
-        app.parameter_form_edit("turn", "head", Prop::Yaw, 1.0, 60.0);
-        app.character_look("hero", "Зелёная кепка");
-        assert_eq!(app.file_text(), animated, "animation protects styling, outfits and setup");
+        let keyed = app.file_text();
+        assert_ne!(keyed, original);
+        assert_eq!(app.scene.doc.drivers, drivers);
+        assert_ne!(app.scene.doc.node("shirt").unwrap().fill, Some(motif_core::Color::WHITE));
+        let pose = app.display_doc();
+        for space in Workspace::ALL {
+            app.set_workspace(space);
+            assert_eq!(app.time, 0.4);
+            assert_eq!(app.display_doc(), pose);
+            assert_eq!(app.file_text(), keyed);
+        }
+        app.edit("head", Prop::Yaw, Value::Num(42.0));
+        assert_eq!(app.display_doc().node("head").unwrap().yaw, 42.0);
+        assert_eq!(app.scene.doc.drivers, drivers);
+        app.undo();
+        assert_eq!(app.file_text(), keyed);
         app.undo();
         assert_eq!(app.file_text(), original);
         app.redo();
-        assert_eq!(app.file_text(), animated);
-        assert!(app.errors.is_empty());
-        app.set_mode_animate(false);
-        assert_eq!(app.display_doc().node("head").unwrap().yaw, 0.0, "appearance always uses neutral pose");
+        assert_eq!(app.file_text(), keyed);
+        app.parameter_preview("turn", 0.8);
+        assert_eq!(app.file_text(), keyed);
+        assert!((app.display_doc().node("head").unwrap().yaw - 27.2).abs() < 1e-9);
+        app.set_workspace(Workspace::Drawing);
+        assert_eq!(app.display_doc(), pose);
     }
 
     #[test]
@@ -3893,6 +3925,7 @@ mod editing_tests {
         let rig = &catalog.characters[0];
         app.select_anim("Walk".into());
         app.time = 0.35;
+        app.set_workspace(crate::workspace::Workspace::Animate);
         app.playing = true;
         app.character_choice(&rig.root, &rig.looks[1].slots);
         assert!(app.file_text() == original && app.undo.is_empty(), "animation must protect wardrobe");
@@ -3910,7 +3943,7 @@ mod editing_tests {
         app.character_copy(&rig.root, "head");
         let custom = app.file_text();
         assert_eq!(app.undo.len(), 2);
-        assert!(app.anim.is_none());
+        assert_eq!(app.anim.as_deref(), Some("Walk"));
         assert!(!app.playing);
         app.undo();
         assert_eq!(app.file_text(), clothed);
@@ -4024,7 +4057,7 @@ mod editing_tests {
         assert_eq!(app.anim.as_deref(), Some("Run"));
         assert_eq!(app.time, 0.25);
         app.set_mode_animate(false);
-        assert!(app.anim.is_none());
+        assert_eq!(app.anim.as_deref(), Some("Run"));
         assert_eq!(app.undo.len(), 3);
         app.undo();
         assert_eq!(app.file_text(), resized);
@@ -4088,3 +4121,10 @@ mod canvas_interaction_tests;
 #[cfg(test)]
 #[path = "preview_tests.rs"]
 mod preview_tests;
+
+#[path = "deformer_ui.rs"]
+mod deformer_ui;
+
+#[cfg(test)]
+#[path = "deformer_tests.rs"]
+mod deformer_tests;

@@ -171,10 +171,14 @@ pub enum Prop {
     Gust,
     /// Numeric pose control, keyed as `turn.value`; never a drawable node property.
     Parameter,
+    WarpX(u8),
+    WarpY(u8),
+    Contour,
+    Visible,
 }
 
 impl Prop {
-    pub const ALL: [Prop; 42] = [
+    pub const ALL: [Prop; 62] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -217,6 +221,26 @@ impl Prop {
         Prop::Depth,
         Prop::Taper,
         Prop::Rough,
+        Prop::WarpX(0),
+        Prop::WarpY(0),
+        Prop::WarpX(1),
+        Prop::WarpY(1),
+        Prop::WarpX(2),
+        Prop::WarpY(2),
+        Prop::WarpX(3),
+        Prop::WarpY(3),
+        Prop::WarpX(4),
+        Prop::WarpY(4),
+        Prop::WarpX(5),
+        Prop::WarpY(5),
+        Prop::WarpX(6),
+        Prop::WarpY(6),
+        Prop::WarpX(7),
+        Prop::WarpY(7),
+        Prop::WarpX(8),
+        Prop::WarpY(8),
+        Prop::Contour,
+        Prop::Visible,
     ];
 
     /// Name used in `node.prop` paths of the scene script (`ball.y`, `star.rot`).
@@ -270,6 +294,16 @@ impl Prop {
             Prop::WindY => "wind-y",
             Prop::Gust => "gust",
             Prop::Parameter => "value",
+            Prop::WarpX(i) => ["warp-x0", "warp-x1", "warp-x2", "warp-x3", "warp-x4", "warp-x5", "warp-x6", "warp-x7", "warp-x8"]
+                .get(i as usize)
+                .copied()
+                .unwrap_or("invalid-warp"),
+            Prop::WarpY(i) => ["warp-y0", "warp-y1", "warp-y2", "warp-y3", "warp-y4", "warp-y5", "warp-y6", "warp-y7", "warp-y8"]
+                .get(i as usize)
+                .copied()
+                .unwrap_or("invalid-warp"),
+            Prop::Contour => "contour",
+            Prop::Visible => "visible",
         }
     }
 
@@ -389,6 +423,9 @@ pub struct Node {
     pub skin: Option<Skin>,
     /// The outline bent by `skin` or by a soft-body simulation; `path` returns it when present.
     pub deformed: Option<BezPath>,
+    pub lattice: Option<crate::Lattice>,
+    pub forms: Option<crate::Forms>,
+    pub(crate) lattice_path: Option<BezPath>,
     /// A soft body: the outline is simulated as an elastic ring while an animation plays.
     pub soft: Option<crate::Soft>,
     /// Soft bodies cannot pass through this shape.
@@ -619,6 +656,9 @@ impl Node {
             ik: None,
             skin: None,
             deformed: None,
+            lattice: None,
+            forms: None,
+            lattice_path: None,
             soft: None,
             solid: false,
             spring: None,
@@ -671,6 +711,10 @@ impl Node {
     pub fn get(&self, prop: Prop) -> Value {
         let paint = |c: Option<Color>| c.map_or(Value::None, Value::Color);
         match prop {
+            Prop::WarpX(i) => Value::Num(self.lattice.as_ref().and_then(|l| l.offsets.get(i as usize)).map_or(0.0, |p| p.x)),
+            Prop::WarpY(i) => Value::Num(self.lattice.as_ref().and_then(|l| l.offsets.get(i as usize)).map_or(0.0, |p| p.y)),
+            Prop::Contour => Value::Num(self.forms.as_ref().map_or(0.0, |f| f.amount)),
+            Prop::Visible => Value::Num(if self.visible { 1.0 } else { 0.0 }),
             Prop::X => Value::Num(self.x),
             Prop::Y => Value::Num(self.y),
             Prop::Width => Value::Num(self.width),
@@ -737,6 +781,23 @@ impl Node {
         }
         let Value::Num(v) = value else { return };
         match prop {
+            Prop::WarpX(i) => {
+                if let Some(p) = self.lattice.as_mut().and_then(|l| l.offsets.get_mut(i as usize)) {
+                    p.x = v;
+                }
+            }
+            Prop::WarpY(i) => {
+                if let Some(p) = self.lattice.as_mut().and_then(|l| l.offsets.get_mut(i as usize)) {
+                    p.y = v;
+                }
+            }
+            Prop::Contour => {
+                if let Some(f) = &mut self.forms {
+                    f.amount = v;
+                    f.mix = None;
+                }
+            }
+            Prop::Visible => self.visible = v >= 0.5,
             Prop::X => self.x = v,
             Prop::Y => self.y = v,
             Prop::Width => self.width = v,
@@ -807,6 +868,9 @@ impl Node {
 
     /// Geometry in local space, centered on the origin, bent by bones when skinned. Groups have none.
     pub fn path(&self) -> Option<BezPath> {
+        if let Some(p) = &self.lattice_path {
+            return Some(p.clone());
+        }
         match &self.deformed {
             Some(d) => Some(d.clone()),
             None => self.base_path(),
@@ -814,7 +878,14 @@ impl Node {
     }
 
     /// Geometry as drawn, before bones bend it: the morphed shape while a morph is under way.
+    pub fn editable_path(&self) -> BezPath {
+        self.forms.as_ref().and_then(|f| f.path.clone()).or_else(|| self.morph.as_ref().and_then(|m| m.path.clone())).unwrap_or_else(|| self.geometry.clone())
+    }
+
     pub fn base_path(&self) -> Option<BezPath> {
+        if let Some(path) = self.forms.as_ref().and_then(|f| f.path.clone()) {
+            return Some(path);
+        }
         match self.morph.as_ref().and_then(|m| m.path.clone()) {
             Some(p) => Some(p),
             None => self.shape_path(),
@@ -995,7 +1066,9 @@ impl Document {
             return false;
         }
         // Text is picked by its whole box, not only the letters.
-        if let Some(t) = &node.text {
+        if let Some(t) = &node.text
+            && node.lattice_path.is_none()
+        {
             return t.bounds(&node.text_style).inflate(2.0, 2.0).contains(local);
         }
         if let Some(faces) = node.body_faces(self.light) {
@@ -1034,19 +1107,23 @@ pub struct Track {
 }
 
 impl Track {
-    pub fn sample(&self, t: f64) -> Option<Value> {
+    pub fn sample_segment(&self, t: f64) -> Option<(Value, Value, f64)> {
         let first = self.keys.first()?;
         if t <= first.time {
-            return Some(first.value);
+            return Some((first.value, first.value, 0.0));
         }
         for pair in self.keys.windows(2) {
             let (a, b) = (&pair[0], &pair[1]);
             if t < b.time {
                 let span = (b.time - a.time).max(1e-9);
-                return Some(a.value.lerp(b.value, a.ease.apply((t - a.time) / span)));
+                return Some((a.value, b.value, a.ease.apply((t - a.time) / span)));
             }
         }
-        self.keys.last().map(|k| k.value)
+        self.keys.last().map(|k| (k.value, k.value, 0.0))
+    }
+    pub fn sample(&self, t: f64) -> Option<Value> {
+        let (a, b, k) = self.sample_segment(t)?;
+        Some(if self.prop == Prop::Visible { a } else { a.lerp(b, k) })
     }
 }
 
@@ -1117,12 +1194,30 @@ impl Animation {
         let t = self.local_time(t);
         let mut out = doc.clone();
         out.time = t;
-        for track in &self.tracks {
-            let Some(v) = track.sample(t) else { continue };
-            out.set_animated_value(&track.node, track.prop, v);
+        for track in self.tracks.iter().filter(|t| t.prop == Prop::Parameter) {
+            if let Some(v) = track.sample(t) {
+                out.set_animated_value(&track.node, track.prop, v);
+            }
         }
         out.apply_parameters();
+        self.apply_node_keys(&mut out, t);
         out
+    }
+
+    /// Explicit node keys take precedence over parameter responses, including while previewing a draft parameter.
+    pub fn apply_node_keys(&self, out: &mut Document, t: f64) {
+        let t = self.local_time(t);
+        for track in self.tracks.iter().filter(|t| t.prop != Prop::Parameter) {
+            if let Some(v) = track.sample(t) {
+                out.set_animated_value(&track.node, track.prop, v);
+            }
+            if track.prop == Prop::Contour
+                && let Some(i) = out.index_of(&track.node)
+                && let Some(forms) = &mut out.nodes[i].forms
+            {
+                forms.mix = track.sample_segment(t).and_then(|(a, b, k)| Some((a.as_num()? as usize, b.as_num()? as usize, k)));
+            }
+        }
     }
 }
 

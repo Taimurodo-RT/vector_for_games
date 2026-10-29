@@ -89,6 +89,7 @@ fn context_inspector_stays_for_edits_and_closes_by_button_escape_or_outside() {
     for close in ["button", "escape", "outside"] {
         let mut app = fixture(include_str!("../../../examples/bounce.msc"));
         app.select_anim("Idle".into());
+        app.auto_key = false;
         let original = app.src.clone();
         let p = ball(&mut app);
         click(&mut app, p, egui::PointerButton::Secondary);

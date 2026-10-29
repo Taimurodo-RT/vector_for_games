@@ -15,12 +15,17 @@ impl Document {
     /// with their bones and wrapped shapes over their balls.
     /// Animations call it after posing, the editor before drawing.
     pub fn rig(&mut self) {
+        for node in &mut self.nodes {
+            node.lattice_path = None;
+        }
         self.layout();
         self.morph_all();
+        self.forms_all();
         self.place_orbits();
         self.solve_ik();
         self.skin_all();
         self.hang_ropes();
+        self.deform_lattices();
     }
 
     /// Bends skinned shapes with their bones as they are posed now.

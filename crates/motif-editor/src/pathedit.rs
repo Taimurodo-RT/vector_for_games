@@ -8,7 +8,7 @@ use crate::canvas::View;
 use crate::compound::{Anchor, Compound};
 use crate::theme::{self, SEL};
 use egui::{Color32, Pos2, Rect, Shape, Stroke, StrokeKind, vec2};
-use motif_core::kurbo::{Affine, BezPath, CubicBez, ParamCurve, PathEl, Point, Vec2};
+use motif_core::kurbo::{BezPath, CubicBez, ParamCurve, PathEl, Point, Vec2};
 use motif_core::{Document, ShapeKind};
 use motif_script::{add_path, set_path};
 
@@ -292,11 +292,12 @@ impl App {
     /// Starts point editing of the selected path.
     pub(crate) fn begin_point_edit(&mut self) {
         let Some(id) = self.selected.clone() else { return };
-        let Some(node) = self.scene.doc.node(&id) else { return };
+        let doc = self.display_doc();
+        let Some(node) = doc.node(&id) else { return };
         if node.kind != ShapeKind::Path {
             return;
         }
-        if Compound::from_bez(&node.geometry).is_none() {
+        if Compound::from_bez(&node.editable_path()).is_none() {
             self.status = "Контур пуст или содержит неподдерживаемую последовательность команд".into();
             return;
         }
@@ -316,7 +317,7 @@ impl App {
             self.point_edit = None;
             return false;
         };
-        let Some(outline) = Compound::from_bez(&doc.nodes[i].geometry) else {
+        let Some(outline) = Compound::from_bez(&doc.nodes[i].editable_path()) else {
             self.point_edit = None;
             return false;
         };
@@ -326,8 +327,8 @@ impl App {
             return true;
         }
         let sel = sel.filter(|&a| outline.contains(a));
-        let screen = |p: Point| view.to_screen(rect, world * p);
-        let local = |s: Pos2| world.inverse() * view.to_doc(rect, s);
+        let screen = |p: Point| view.to_screen(rect, world * doc.map_lattice_point(i, p));
+        let local = |s: Pos2| doc.unmap_lattice_point(i, world.inverse() * view.to_doc(rect, s));
         let alt = ui.input(|i| i.modifiers.alt);
 
         let hit = |s: Pos2| -> Option<PointGrab> {
@@ -373,7 +374,7 @@ impl App {
         {
             let grab = match hit(origin) {
                 Some(g) => Some(g),
-                None => near_segment(&outline, local(origin), view, world).map(|(part, seg, t)| {
+                None => near_segment(&outline, origin, screen).map(|(part, seg, t)| {
                     let mut o = outline.clone();
                     let k = o.split(part, seg, t);
                     changed = Some(o);
@@ -440,7 +441,7 @@ impl App {
                     }
                 }
                 Some(_) => {}
-                None => match near_segment(&outline, local(p), view, world) {
+                None => match near_segment(&outline, p, screen) {
                     Some((part, seg, t)) => {
                         let mut o = outline.clone();
                         let k = o.split(part, seg, t);
@@ -493,8 +494,9 @@ impl App {
     pub(crate) fn delete_point(&mut self) -> bool {
         let Some(edit) = &self.point_edit else { return false };
         let Some(k) = edit.selected else { return true };
-        let Some(node) = self.scene.doc.node(&edit.node) else { return true };
-        let Some(mut o) = Compound::from_bez(&node.geometry) else { return true };
+        let doc = self.display_doc();
+        let Some(node) = doc.node(&edit.node) else { return true };
+        let Some(mut o) = Compound::from_bez(&node.editable_path()) else { return true };
         if !o.contains(k) {
             return true;
         }
@@ -512,7 +514,7 @@ impl App {
 
     /// Inspector for the active contour and anchor, including topology operations.
     pub(crate) fn point_controls(&mut self, ui: &mut egui::Ui, node: &motif_core::Node) {
-        let Some(mut shape) = Compound::from_bez(&node.geometry) else {
+        let Some(mut shape) = Compound::from_bez(&node.editable_path()) else {
             ui.label("Пустой контур");
             return;
         };
@@ -628,8 +630,17 @@ impl App {
         if discrete {
             self.write_outline(&shape);
         } else if numeric && self.can_edit() {
-            let out = set_path(&self.src, &self.scene, &node.id, &shape.to_bez());
+            let out = self.outline_edit_source(&node.id, &shape.to_bez());
             self.apply(&format!("{}.coordinates.{}.{}", node.id, at.part, at.vertex), out);
+        }
+    }
+
+    pub(crate) fn outline_edit_source(&self, id: &str, path: &BezPath) -> Option<String> {
+        match self.key_time() {
+            Some((clip, time)) => {
+                motif_script::forms::set_contour_key(&self.src, &self.scene, &clip, id, time, path, self.path.as_ref().and_then(|p| p.parent()))
+            }
+            None => set_path(&self.src, &self.scene, id, path),
         }
     }
 
@@ -638,18 +649,17 @@ impl App {
         if !self.can_edit() {
             return;
         }
-        let out = set_path(&self.src, &self.scene, &id, &o.to_bez());
+        let out = self.outline_edit_source(&id, &o.to_bez());
         self.apply_once(&format!("{id}.d"), out);
     }
 }
 
 /// The nearest segment within a few screen pixels of local point `p`.
-fn near_segment(o: &Compound, p: Point, view: View, world: Affine) -> Option<(usize, usize, f64)> {
-    let screen = |p: Point| {
-        let p = world * p;
-        Point::new(p.x * view.zoom as f64, p.y * view.zoom as f64)
-    };
-    o.nearest(screen(p), screen)
+fn near_segment(o: &Compound, p: Pos2, screen: impl Fn(Point) -> Pos2) -> Option<(usize, usize, f64)> {
+    o.nearest(Point::new(p.x as f64, p.y as f64), |p| {
+        let s = screen(p);
+        Point::new(s.x as f64, s.y as f64)
+    })
 }
 
 fn paint_outline(painter: &egui::Painter, o: &Outline, to_screen: impl Fn(Point) -> Pos2, stroke: Stroke) {

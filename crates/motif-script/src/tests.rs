@@ -84,13 +84,15 @@ fn every_prop_round_trips_through_edit() {
         // Grain strength is 0..1.
         let value = if prop.is_color() {
             Value::Color(Color::rgb(1, 2, 3))
+        } else if prop == Prop::Visible {
+            Value::Num(0.0)
         } else if prop == Prop::Noise {
             Value::Num(0.5)
         } else {
             Value::Num(7.0)
         };
         // How far a morph goes means nothing without shapes to flow into, a taper without depth.
-        if matches!(prop, Prop::Morph | Prop::Taper) {
+        if matches!(prop, Prop::Morph | Prop::Taper | Prop::WarpX(_) | Prop::WarpY(_) | Prop::Contour) {
             assert_eq!(set_prop(src, &s, "p", prop, value), None);
             continue;
         }

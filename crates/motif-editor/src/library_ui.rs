@@ -20,7 +20,7 @@ pub struct Template {
 /// The shelves of the library; «Все» shows every template.
 pub const GROUPS: [&str; 7] = ["Все", "Начать", "Меню", "В игре", "Итоги", "Переходы", "Персонажи"];
 
-pub const TEMPLATES: [Template; 16] = [
+pub const TEMPLATES: [Template; 17] = [
     Template {
         name: "Пустая сцена", group: 1, about: "Холст 320×240 с прыгающим мячом — для персонажей и анимации", src: crate::app::NEW_SCENE
     },
@@ -98,6 +98,12 @@ pub const TEMPLATES: [Template; 16] = [
         group: 6,
         about: "В стиле Марио: пропорции, палитра, кепка, перчатки и готовые движения",
         src: include_str!("../../../examples/character-platformer.msc"),
+    },
+    Template {
+        name: "Аниме-лицо",
+        group: 6,
+        about: "Вложенные сетки лица и глаз, моргание, взгляд, векторные формы рта и UI рядом",
+        src: include_str!("../../../examples/character-anime.msc"),
     },
     Template {
         name: "Голова героя",

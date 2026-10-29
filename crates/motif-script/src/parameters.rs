@@ -63,6 +63,14 @@ pub(crate) fn evaluate(src: &str, scene: &mut Scene, stmts: &[Stmt]) -> Vec<Scri
                 error(t.span, "для связи morph у фигуры нужны цели морфинга".into());
                 continue;
             }
+            if matches!(prop, Prop::WarpX(_) | Prop::WarpY(_)) && node.lattice.is_none() {
+                error(t.span, "для связи warp у группы нужна сетка deform".into());
+                continue;
+            }
+            if prop == Prop::Contour && node.forms.is_none() {
+                error(t.span, "для связи contour нужны forms".into());
+                continue;
+            }
             if !targets.insert((t.node.clone(), prop)) {
                 error(t.span, format!("{}.{} уже управляется связью: используйте одну связь на свойство", t.node, t.prop));
                 continue;
@@ -75,6 +83,10 @@ pub(crate) fn evaluate(src: &str, scene: &mut Scene, stmts: &[Stmt]) -> Vec<Scri
                 };
                 if !k.time.is_finite() || k.time < p.min || k.time > p.max || !value.is_finite() {
                     error(k.span, "позиция опоры должна быть в диапазоне параметра, значение — конечным числом".into());
+                    continue;
+                }
+                if prop == Prop::Contour && (value < 0.0 || value.fract() != 0.0 || value as usize > node.forms.as_ref().map_or(0, |f| f.shapes.len())) {
+                    error(k.span, "опора contour должна ссылаться на существующую целую форму: 0 — исходный контур".into());
                     continue;
                 }
                 keys.push(Keyframe { time: k.time, value: Value::Num(value), ease: k.ease.unwrap_or(Ease::Linear) });
@@ -188,7 +200,6 @@ mod tests {
             SIMPLE.replace("-1: -30 | 0: 0", "-1: -30 | -1: 0"),
             SIMPLE.replace("-1: -30", "-0.5: -30"),
             SIMPLE.replace("turn.value 0: -1", "turn.yaw 0: -1"),
-            SIMPLE.replace("turn.value 0: -1", "head.yaw 0: -1"),
             SIMPLE.replace("turn.value 0: -1", "turn.value 0: -2"),
             SIMPLE.replace("turn.value 0: -1", "turn.value 0: #ffffff"),
             format!("parameter shared range 0 1 default 0 value 0\n{SIMPLE}"),

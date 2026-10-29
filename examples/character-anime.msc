@@ -1,0 +1,186 @@
+// @motif-characters {"schema":1,"characters":[{"root":"portrait","name":"Аниме-лицо","rig":"lattice-portrait-v1","bones":[],"slots":[],"looks":[],"motions":[{"name":"Спокойная поза","clip":"Idle"},{"name":"Эмоции и поворот","clip":"Expressions"},{"name":"Разговор","clip":"Talk"}]}]}
+// Anime face: editable paths, nested 3x3 cages, gaze, blink and vector mouth forms.
+// All workspaces share the chosen clip and frame. Setup: select head / eye_l to edit the cage.
+artboard "Аниме — лицо и деформеры" 640x720 bg #f2f0fa game
+let ink = #252541
+let hair = #33334f
+let hair_light = #595878
+let skin = #ffe2d4
+let shade = #efb6ad
+let violet = #9488dc
+parameter turn "Поворот лица" range -1 1 default 0 value 0
+parameter look "Взгляд" range -1 1 default 0 value 0
+parameter blink "Моргание" range 0 1 default 0 value 0
+parameter mouth "Рот: улыбка / речь" range -1 1 default 0 value 0
+parameter mood "Брови" range -1 1 default 0 value 0
+ellipse backdrop at 320 316 size 462 490 fill #e5e0f4
+ellipse halo at 320 300 size 400 420 fill #eeeafa
+ellipse ground at 320 646 size 334 24 fill #d9d3e8
+star spark0 at 105 180 size 12 points 4 inner 0.18 fill #b5a9df
+star spark1 at 526 260 size 18 points 4 inner 0.18 fill #b5a9df
+star spark2 at 499 128 size 10 points 4 inner 0.18 fill #b5a9df
+star spark3 at 127 478 size 14 points 4 inner 0.18 fill #b5a9df
+group portrait "Аниме-портрет" at 320 332 {
+  group body "Плечи и одежда" at 0 205 {
+    path coat d "M -158 105 C -159 40 -116 13 -52 0 L 52 0 C 116 13 159 40 158 105 Z" fill #42435f stroke ink 3
+    path neck d "M -26 -44 L 26 -44 L 30 16 Q 0 47 -30 16 Z" fill skin stroke ink 2
+    path neck_shade d "M -26 -44 L 26 -44 L 26 -14 Q 0 0 -26 -14 Z" fill shade
+    path shirt d "M -45 0 L 0 32 L 45 0 L 73 105 L -73 105 Z" fill #faf9ff
+    path collar_l d "M -46 -3 L 0 32 L -24 63 L -74 13 Z" fill #e0dff1 stroke #78768f 2
+    path collar_r d "M 46 -3 L 0 32 L 24 63 L 74 13 Z" fill #fffaff stroke #78768f 2
+    path ribbon_l d "M -5 37 C -55 14 -70 33 -47 61 L -5 48 Z" fill violet stroke #5d518c 2
+    path ribbon_r d "M 5 37 C 55 14 70 33 47 61 L 5 48 Z" fill #b1a3ee stroke #5d518c 2
+    path ribbon_tail d "M -7 45 L -17 102 L 3 85 L 19 102 L 8 45 Z" fill #887bc8
+    ellipse brooch at 0 43 size 17 22 fill #e9dfff stroke #5d518c 2
+  }
+  group head "Лицо — общая сетка" at 0 -20 deform 300 360 {
+    path back_hair d "M -116 -75 C -136 -194 115 -211 130 -76 C 146 28 112 111 139 198 L 86 176 L 49 200 L -82 198 L -130 185 C -110 113 -140 16 -116 -75 Z" fill hair stroke ink 4
+    path back_light d "M -105 -65 C -117 15 -104 119 -121 174 L -86 185 C -94 105 -77 38 -82 -53 Z" fill #464660
+    ellipse ear_l at -103 26 size 31 48 fill skin stroke #b1787d 2
+    ellipse ear_r at 103 26 size 31 48 fill skin stroke #b1787d 2
+    path ear_fold_l d "M -109 16 Q -94 12 -100 38" fill none stroke shade 4 cap round
+    path ear_fold_r d "M 109 16 Q 94 12 100 38" fill none stroke shade 4 cap round
+    path face "Овал лица" d "M -101 -86 C -94 -159 94 -159 101 -86 C 115 -10 101 63 65 105 C 41 131 13 147 0 150 C -13 147 -41 131 -65 105 C -101 63 -115 -10 -101 -86 Z" fill skin stroke #9e7079 2.5
+    path face_side d "M -101 -86 C -105 -3 -95 73 -54 112 C -80 96 -106 59 -109 6 Z" fill #f2c0b6
+    path chin_light d "M -30 118 Q 0 137 30 118 Q 0 143 -30 118 Z" fill #fff0e7
+    group features "Черты — вложенная сетка" at 0 0 deform 228 248 {
+      group eye_l "Глаз L — моргание" at -51 4 scale 1 1 deform 100 80 {
+        group eye_mask_l clip {
+          path eye_clip_l d "M -39 -8 C -23 -29 12 -29 36 -9 C 21 15 -12 23 -34 9 Z" fill #ffffff
+          path white_l d "M -39 -8 C -23 -29 12 -29 36 -9 C 21 15 -12 23 -34 9 Z" fill #fffafa
+          group iris_l at 0 -4 {
+            ellipse iris_ring_l size 43 50 fill #282d57
+            ellipse iris_color_l at 0 2 size 35 43 gradient linear 90 #655bb6 #6cb8dd #b1e8ed
+            ellipse iris_top_l at 0 -11 size 38 23 fill #504881
+            ellipse pupil_l at 0 -2 size 13 30 fill #28233e
+            path iris_bottom_l d "M -13 14 Q 0 24 13 14" fill none stroke #b4f0ed 3 cap round
+            ellipse eye_glint_l at -10 -13 size 12 17 fill #ffffff
+            ellipse eye_glint_small_l at 10 8 size 6 7 fill #ffffff
+          }
+          path eye_shadow_l d "M -45 -28 L 41 -28 L 41 -11 Q 0 -24 -45 -4 Z" fill #3e325b opacity 0.25
+        }
+        path lash_l d "M -40 -10 C -22 -31 14 -29 37 -10 L 46 -20 L 41 -4 C 18 -24 -17 -25 -35 -5 Z" fill ink
+        path lash_tip_l d "M -33 -15 L -44 -25 L -39 -8 Z" fill ink
+        path lower_lash_l d "M -31 11 Q -6 24 22 13" fill none stroke #72516b 2 cap round
+      }
+      path brow_l at -51 -46 scale 1 1 d "M -32 -2 Q -3 -15 29 -4 Q 2 -10 -30 3 Z" fill #54506c
+      ellipse blush_l at -72.93 52 size 41 18 fill #eea6ac opacity 0.35
+      group eye_r "Глаз R — моргание" at 51 4 scale -1 1 deform 100 80 {
+        group eye_mask_r clip {
+          path eye_clip_r d "M -39 -8 C -23 -29 12 -29 36 -9 C 21 15 -12 23 -34 9 Z" fill #ffffff
+          path white_r d "M -39 -8 C -23 -29 12 -29 36 -9 C 21 15 -12 23 -34 9 Z" fill #fffafa
+          group iris_r at 0 -4 {
+            ellipse iris_ring_r size 43 50 fill #282d57
+            ellipse iris_color_r at 0 2 size 35 43 gradient linear 90 #655bb6 #6cb8dd #b1e8ed
+            ellipse iris_top_r at 0 -11 size 38 23 fill #504881
+            ellipse pupil_r at 0 -2 size 13 30 fill #28233e
+            path iris_bottom_r d "M -13 14 Q 0 24 13 14" fill none stroke #b4f0ed 3 cap round
+            ellipse eye_glint_r at -10 -13 size 12 17 fill #ffffff
+            ellipse eye_glint_small_r at 10 8 size 6 7 fill #ffffff
+          }
+          path eye_shadow_r d "M -45 -28 L 41 -28 L 41 -11 Q 0 -24 -45 -4 Z" fill #3e325b opacity 0.25
+        }
+        path lash_r d "M -40 -10 C -22 -31 14 -29 37 -10 L 46 -20 L 41 -4 C 18 -24 -17 -25 -35 -5 Z" fill ink
+        path lash_tip_r d "M -33 -15 L -44 -25 L -39 -8 Z" fill ink
+        path lower_lash_r d "M -31 11 Q -6 24 22 13" fill none stroke #72516b 2 cap round
+      }
+      path brow_r at 51 -46 scale -1 1 d "M -32 -2 Q -3 -15 29 -4 Q 2 -10 -30 3 Z" fill #54506c
+      ellipse blush_r at 72.93 52 size 41 18 fill #eea6ac opacity 0.35
+      path nose d "M 1 38 L -4 53 Q 0 57 5 54" fill none stroke #c48b8d 2 cap round
+      path nose_light d "M 5 34 L 8 45" fill none stroke #fff5ee 3 cap round
+      path mouth_line "Рот — векторные формы" at 0 88 d "M -16 0 C -6 5 6 5 16 0 C 7 7 -7 7 -16 0 Z" forms "M -17 -5 C -9 -12 9 -12 17 -5 C 21 26 -21 26 -17 -5 Z" "M -22 -2 C -8 5 8 5 22 -2 C 12 15 -12 15 -22 -2 Z" fill #9d4f68 stroke #87435a 1.5
+      path lip_light at 0 102 d "M -8 0 Q 0 3 8 0" fill none stroke #f2b1b1 2 cap round
+    }
+    path fringe "Чёлка" d "M -117 -63 C -130 -168 -39 -197 24 -182 C 98 -183 137 -130 124 -56 L 103 -18 C 93 -57 73 -87 44 -110 C 43 -66 30 -39 17 -17 C 21 -71 2 -101 -12 -116 C -20 -73 -39 -38 -57 -18 C -44 -63 -49 -93 -51 -106 C -67 -74 -91 -41 -114 -25 Z" fill hair stroke ink 3
+    path fringe_shine_l d "M -105 -104 C -68 -158 -24 -162 -6 -153 C -45 -148 -69 -117 -91 -86 Z" fill hair_light
+    path fringe_shine_r d "M 15 -157 C 64 -162 105 -120 111 -88 C 86 -116 64 -136 30 -141 Z" fill #5e5c7e
+    path strand_l d "M -110 -46 C -102 2 -107 77 -84 129 C -111 104 -130 30 -123 -45 Z" fill #3b3c59 stroke ink 2
+    path strand_r d "M 107 -40 C 96 26 111 96 89 136 C 125 100 131 27 122 -55 Z" fill #45445f stroke ink 2
+    path strand_glint d "M 115 -26 Q 109 54 111 84" fill none stroke #6c698c 3 cap round
+    path hairpin_1 at 96 -50 rot -24 d "M -13 0 L 13 0" fill none stroke #c7b6f5 5 cap round
+    path hairpin_2 at 100 -37 rot -24 d "M -11 0 L 11 0" fill none stroke #a7daf0 4 cap round
+    ellipse earring at 111 59 size 9 16 fill #edd7a0 stroke #9c8094 1.5
+  }
+}
+text title at 320 48 content "АНИМЕ · ВЕКТОРНЫЙ РИГ" font bold font-size 17 fill #69617d
+text caption at 320 681 content "Общий кадр • сетки • формы • появление" font-size 13 fill #8c819f
+group ui_test "UI для проверки" at 534 670 ui button slice 10 {
+  rect ui_plate size 100 30 r 12 fill #d8d0ee
+  text ui_label content "UI рядом" font-size 12 fill #50496a part text
+}
+driver turn {
+  head.warp-x0 -1: 14 | 0: 0 | 1: -4
+  head.warp-x1 -1: -8 | 0: 0 | 1: 8
+  head.warp-x2 -1: 4 | 0: 0 | 1: -14
+  head.warp-x3 -1: 24 | 0: 0 | 1: -6
+  head.warp-x4 -1: -14 | 0: 0 | 1: 14
+  head.warp-x5 -1: 6 | 0: 0 | 1: -24
+  head.warp-x6 -1: 9 | 0: 0 | 1: -4
+  head.warp-x7 -1: -18 | 0: 0 | 1: 18
+  head.warp-x8 -1: 4 | 0: 0 | 1: -9
+  features.warp-x0 -1: -16 | 0: 0 | 1: 16
+  features.warp-x1 -1: -16 | 0: 0 | 1: 16
+  features.warp-x2 -1: -16 | 0: 0 | 1: 16
+  features.warp-x3 -1: -16 | 0: 0 | 1: 16
+  features.warp-x4 -1: -16 | 0: 0 | 1: 16
+  features.warp-x5 -1: -16 | 0: 0 | 1: 16
+  features.warp-x6 -1: -16 | 0: 0 | 1: 16
+  features.warp-x7 -1: -16 | 0: 0 | 1: 16
+  features.warp-x8 -1: -16 | 0: 0 | 1: 16
+  nose.x -1: -5 | 0: 0 | 1: 5
+}
+driver look {
+  iris_l.x -1: -9 | 0: 0 | 1: 9
+  iris_r.x -1: 9 | 0: 0 | 1: -9
+}
+driver blink {
+  eye_l.warp-y0 0: 0 | 1: 40
+  eye_l.warp-y1 0: 0 | 1: 40
+  eye_l.warp-y2 0: 0 | 1: 40
+  eye_l.warp-y3 0: 0 | 1: 0
+  eye_l.warp-y4 0: 0 | 1: 0
+  eye_l.warp-y5 0: 0 | 1: 0
+  eye_l.warp-y6 0: 0 | 1: -40
+  eye_l.warp-y7 0: 0 | 1: -40
+  eye_l.warp-y8 0: 0 | 1: -40
+  eye_r.warp-y0 0: 0 | 1: 40
+  eye_r.warp-y1 0: 0 | 1: 40
+  eye_r.warp-y2 0: 0 | 1: 40
+  eye_r.warp-y3 0: 0 | 1: 0
+  eye_r.warp-y4 0: 0 | 1: 0
+  eye_r.warp-y5 0: 0 | 1: 0
+  eye_r.warp-y6 0: 0 | 1: -40
+  eye_r.warp-y7 0: 0 | 1: -40
+  eye_r.warp-y8 0: 0 | 1: -40
+}
+driver mouth {
+  mouth_line.contour -1: 2 | 0: 0 | 1: 1
+}
+driver mood {
+  brow_l.rot -1: -12 | 0: 0 | 1: 10
+  brow_r.rot -1: 12 | 0: 0 | 1: -10
+  brow_l.y -1: -40 | 0: -46 | 1: -51
+  brow_r.y -1: -40 | 0: -46 | 1: -51
+}
+anim Idle 4s loop {
+  turn.value 0: 0 | 1.4: 0.35 | 2.8: -0.25 | 4: 0
+  look.value 0: 0 | 1.3: 0.6 | 2.8: -0.35 | 4: 0
+  blink.value 0: 0 hold | 1.5: 0 | 1.63: 1 | 1.76: 0 hold | 3.2: 0 | 3.32: 1 | 3.45: 0 hold | 4: 0
+}
+anim Expressions 5s loop {
+  turn.value 0: 0 | 1: -1 | 2: 0 | 3: 1 | 4: 0 | 5: 0
+  look.value 0: 0 | 1: -0.8 | 2: 0.8 | 3: 0.5 | 5: 0
+  mouth.value 0: 0 | 1: -1 | 2: 0.8 | 3: 0.4 | 4: -0.8 | 5: 0
+  mood.value 0: 0 | 1: 1 | 2: -1 | 3: 0.7 | 5: 0
+  blink.value 0: 0 hold | 3.9: 0 | 4.1: 1 hold | 4.4: 1 | 4.6: 0 hold | 5: 0
+}
+anim Talk 2s loop {
+  mouth.value 0: 0 | 0.18: 0.8 | 0.35: 0.1 | 0.55: 0.5 | 0.75: 0 | 1: 1 | 1.2: 0.1 | 1.4: 0.7 | 1.6: 0 | 2: 0
+  mood.value 0: 0 | 1: 0.6 | 2: 0
+}
+anim Hover 0.2s {
+  ui_plate.fill 0: #d8d0ee | 0.2: #b6a5e4
+}
+anim Press 0.15s {
+  ui_plate.fill 0: #d8d0ee | 0.15: #9480c6
+}

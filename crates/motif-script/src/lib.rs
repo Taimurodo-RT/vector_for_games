@@ -28,6 +28,7 @@ mod edit;
 mod eval;
 mod expr;
 pub mod fonts;
+pub mod forms;
 mod lexer;
 mod machine;
 mod parser;
@@ -389,3 +390,6 @@ pub fn fmt_num(v: f64) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod deformer_tests;

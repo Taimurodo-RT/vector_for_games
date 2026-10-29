@@ -38,6 +38,9 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
         return None;
     }
     let current = scene.doc.node(node)?;
+    if matches!(prop, Prop::WarpX(_) | Prop::WarpY(_)) && current.lattice.is_none() || prop == Prop::Contour && current.forms.is_none() {
+        return None;
+    }
     let format = |v| match v {
         Value::Num(n) if precise => n.to_string(),
         _ => fmt_value(v),
@@ -99,6 +102,7 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
     let stroke_width = if current.stroke_width > 0.0 { current.stroke_width } else { 2.0 };
     let addition = match prop {
         Prop::Parameter => return None,
+        Prop::WarpX(_) | Prop::WarpY(_) | Prop::Contour | Prop::Visible => format!("{} {text}", prop.path_name()),
         Prop::X | Prop::Y => format!("at {} {}", pick(Prop::X), pick(Prop::Y)),
         Prop::Width | Prop::Height if current.kind == ShapeKind::Bone => format!("len {}", pick(Prop::Width)),
         Prop::Width | Prop::Height => format!("size {} {}", pick(Prop::Width), pick(Prop::Height)),
@@ -520,6 +524,9 @@ pub fn set_anim_loop(src: &str, scene: &Scene, anim: &str, looping: bool) -> Opt
 /// Returns the script with the key of `node.prop` at `from` moved to `to`. `None` when there is no
 /// such key or another key of the track already sits at `to`.
 pub fn move_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, from: f64, to: f64) -> Option<String> {
+    if prop == Prop::Visible {
+        return retime_keys(src, scene, anim, &[KeyAt { node: node.into(), prop, time: from }], |_| to);
+    }
     let track = find_track(scene, anim, node, prop)?;
     let (from, to) = (key_time(from), key_time(to));
     let key = track.keys.iter().find(|k| (k.time - from).abs() < SAME_TIME)?;
@@ -656,6 +663,13 @@ pub fn retime_keys(src: &str, scene: &Scene, anim: &str, keys: &[KeyAt], map: im
         list.iter().find(|x| (x.time - k.time).abs() < SAME_TIME)?;
     }
     for (node, prop, list) in &mut tracks {
+        // Moving an appearance to the beginning replaces its initial hidden baseline.
+        // Other collisions still fail instead of silently deleting authored keys.
+        if *prop == Prop::Visible
+            && list.iter().any(|k| is_picked(keys, node, *prop, k.time) && key_time(map(k.time)) == 0.0 && k.value.parse::<f64>().is_ok_and(|v| v >= 0.5))
+        {
+            list.retain(|k| k.time != 0.0 || is_picked(keys, node, *prop, k.time) || k.value.parse::<f64>() != Ok(0.0));
+        }
         for key in list.iter_mut() {
             if is_picked(keys, node, *prop, key.time) {
                 key.time = key_time(map(key.time));

@@ -10,12 +10,14 @@ impl App {
     pub(crate) fn parameter_work_panel(&mut self, ui: &mut egui::Ui) {
         section(ui, |ui| {
             let label = match self.workspace() {
-                Workspace::Drawing => "Исходник: рисунок и постоянные свойства".into(),
-                Workspace::Setup => "Настройка: связи и опорные формы; поза — пробная".into(),
+                Workspace::Drawing => self.anim.as_ref().map_or_else(|| "Рисунок без клипа".into(), |name| format!("Рисование · {name} · {:.2} с", self.time)),
+                Workspace::Setup => {
+                    self.anim.as_ref().map_or_else(|| "Настройка связей и опор".into(), |name| format!("Настройка · {name} · {:.2} с", self.time))
+                }
                 Workspace::Animate => self.anim.as_ref().map_or_else(|| "Анимация: клип не выбран".into(), |name| format!("Клип {name} · {:.2} с", self.time)),
             };
             ui.strong(label);
-            if self.workspace() == Workspace::Animate {
+            if self.anim.is_some() || self.workspace() == Workspace::Animate {
                 self.pose_actions(ui);
                 if self.anim.is_none() && ui.button("Создать клип").clicked() {
                     self.create_animation();
@@ -28,50 +30,15 @@ impl App {
         protected_node(&self.scene.doc, &self.src, id)
     }
 
-    /// Protect the target data, including commands reached from menus and shortcuts.
-    /// UI nodes on a board containing a rig remain editable and keyable.
-    pub(crate) fn parameter_edit_allowed(&mut self, kind: &str, src: &str) -> bool {
-        let mode = if self.run.is_some() { Workspace::Animate } else { self.workspace() };
-        if self.scene.doc.parameters.is_empty() && mode != Workspace::Animate {
-            return true;
-        }
-        let allowed = motif_script::parse_in(src, self.path.as_ref().and_then(|p| p.parent())).is_ok_and(|new| {
-            let old = &self.scene.doc;
-            match mode {
-                Workspace::Drawing => {
-                    new.doc.animations == old.animations
-                        && new.doc.machines == old.machines
-                        && new.doc.parameters == old.parameters
-                        && new.doc.drivers == old.drivers
-                }
-                Workspace::Setup => {
-                    if new.doc.animations != old.animations || new.doc.parameters != old.parameters {
-                        return false;
-                    }
-                    if !kind.starts_with("form-") && new.doc.drivers != old.drivers {
-                        return false;
-                    }
-                    let unchanged = |a: &motif_core::Document, text: &str, b: &motif_core::Document| {
-                        a.nodes.iter().filter(|node| protected_node(a, text, &node.id)).all(|node| b.node(&node.id) == Some(node))
-                    };
-                    unchanged(old, &self.src, &new.doc) && unchanged(&new.doc, src, old)
-                }
-                Workspace::Animate => {
-                    let mut a = old.clone();
-                    let mut b = new.doc;
-                    a.animations.clear();
-                    b.animations.clear();
-                    a.machines.clear();
-                    b.machines.clear();
-                    a == b
-                }
+    /// Keep visual commands parseable; workspace choice does not restrict authored properties.
+    pub(crate) fn parameter_edit_allowed(&mut self, _kind: &str, src: &str) -> bool {
+        match motif_script::parse_in(src, self.path.as_ref().and_then(|p| p.parent())) {
+            Ok(_) => true,
+            Err(errors) => {
+                self.status = errors.first().map(|e| e.to_string()).unwrap_or_default();
+                false
             }
-        });
-        if !allowed {
-            self.status =
-                "Эта правка меняет данные другого пространства. Для рисунка выберите «Рисование», для связей — «Настройка», для клипов — «Анимация»".into();
         }
-        allowed
     }
 
     pub(crate) fn parameter_preview(&mut self, id: &str, value: f64) {
@@ -95,7 +62,7 @@ impl App {
     }
 
     pub(crate) fn parameter_panel(&mut self, ui: &mut egui::Ui) {
-        if self.scene.doc.parameters.is_empty() || self.tool_profile() == Purpose::Ui || self.workspace() == Workspace::Drawing {
+        if self.scene.doc.parameters.is_empty() || self.tool_profile() == Purpose::Ui {
             return;
         }
         if self.selected.as_deref().is_some_and(|id| !self.protected_character_node(id)) {
@@ -110,8 +77,10 @@ impl App {
                 } else {
                     "Проба позы. Ромб или «Записать позу» сохраняет ключи."
                 }
-            } else {
+            } else if self.workspace() == Workspace::Setup {
                 "Проба позы не меняет файл. Для записи движения выберите «Анимация»."
+            } else {
+                "Без клипа изменяются исходные значения параметров."
             });
             for parameter in &shown.parameters {
                 ui.push_id(&parameter.id, |ui| {
@@ -141,7 +110,7 @@ impl App {
                     }
                     if self.workspace() == Workspace::Setup {
                         ui.collapsing("Опорные значения", |ui| {
-                            ui.small("Правки здесь меняют все клипы. Кнопка позиции показывает опору в Design.");
+                            ui.small("Правки здесь меняют все клипы. Кнопка позиции временно показывает опорную форму.");
                             let Some(driver) = self.scene.doc.drivers.iter().find(|d| d.parameter == parameter.id).cloned() else { return };
                             for track in &driver.tracks {
                                 ui.push_id((&track.node, track.prop), |ui| {
@@ -155,7 +124,7 @@ impl App {
                                                     self.parameter_preview(&parameter.id, key.time);
                                                 }
                                                 let mut value = key.value.as_num().unwrap_or(0.0);
-                                                let enabled = self.anim.is_none() && self.run.is_none();
+                                                let enabled = self.run.is_none();
                                                 if ui
                                                     .add_enabled(enabled, egui::DragValue::new(&mut value).speed(0.05).max_decimals(3))
                                                     .on_disabled_hover_text("Нажмите кнопку позиции слева, чтобы перейти в настройку опоры")
@@ -177,7 +146,7 @@ impl App {
 }
 
 // A UI element remains a UI element inside a character group. Metadata roots and the
-// top-level owners of driven objects define the protected artwork, not the entire board.
+// top-level owners of driven objects define the parameter panel's scope, not the entire board.
 fn protected_node(doc: &motif_core::Document, src: &str, id: &str) -> bool {
     if doc.parameters.is_empty() {
         return false;

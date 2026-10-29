@@ -8,6 +8,7 @@ fn preview_owns_time_and_linked_pose_excludes_unrecorded_changes() {
     app.select_anim("Idle".into());
     app.time = 0.4;
     app.select_only(Some("ball".into()));
+    app.auto_key = false;
     app.edit("ball", Prop::X, Value::Num(310.0));
     let source = app.src.clone();
     let history = app.undo.clone();

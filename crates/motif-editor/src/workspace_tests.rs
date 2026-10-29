@@ -51,10 +51,12 @@ fn artwork_edit_returns_to_remembered_clip_and_time_without_resuming_playback() 
     app.select_anim("Look".into());
     app.time = 1.25;
     app.playing = true;
+    app.set_workspace(Workspace::Animate);
     app.panels.layout_mut().timeline_height = 310.0;
     app.set_workspace(Workspace::Drawing);
-    assert!(app.anim.is_none() && !app.playing);
-    assert_eq!(app.display_doc().node("head").unwrap().yaw, 0.0);
+    assert_eq!(app.anim.as_deref(), Some("Look"));
+    assert!(!app.playing);
+    assert_eq!(app.time, 1.25);
     app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
     app.set_workspace(Workspace::Setup);
     app.panels.toggle_focus();
@@ -72,6 +74,7 @@ fn autokey_off_previews_properties_and_diamonds_record_only_the_chosen_property(
     let mut app = fixture(SIMPLE);
     app.create_animation();
     app.time = 0.4;
+    app.auto_key = false;
     let original = app.file_text();
     let undo = app.undo.len();
     assert!(!app.auto_key);
@@ -97,6 +100,7 @@ fn recording_a_parameter_pose_is_atomic_and_recomputes_the_driven_artwork() {
     let mut app = fixture(include_str!("../../../examples/character-portrait.msc"));
     app.select_anim("Look".into());
     app.time = 0.75;
+    app.auto_key = false;
     let original = app.file_text();
     app.edit("turn", Prop::Parameter, Value::Num(0.5));
     app.edit("blink", Prop::Parameter, Value::Num(1.0));
@@ -111,9 +115,9 @@ fn recording_a_parameter_pose_is_atomic_and_recomputes_the_driven_artwork() {
     assert_eq!(app.display_doc().parameter("turn").unwrap().value, 0.5);
     app.edit("turn", Prop::Parameter, Value::Num(-0.5));
     app.set_workspace(Workspace::Drawing);
-    assert!(!app.has_draft_pose());
+    assert!(app.has_draft_pose());
     app.set_workspace(Workspace::Animate);
-    assert_eq!(app.display_doc().parameter("turn").unwrap().value, 0.5);
+    assert_eq!(app.display_doc().parameter("turn").unwrap().value, -0.5);
 }
 
 #[test]
@@ -127,7 +131,7 @@ fn ui_properties_and_states_survive_on_the_same_board_as_a_parameter_character()
     assert_eq!(app.undo.len(), 1, "UI styling is not mistaken for character artwork");
     let styled = app.file_text();
     app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
-    assert!(app.file_text() == styled, "character artwork remains protected in Setup");
+    assert!(app.file_text() != styled, "an explicit property edit records a key in the shared frame");
     app.add_ui_states();
     assert!(app.scene.doc.animation("Hover").is_some() && app.scene.doc.animation("Press").is_some());
     app.auto_key = true;
@@ -137,7 +141,9 @@ fn ui_properties_and_states_survive_on_the_same_board_as_a_parameter_character()
     let keyed = app.file_text();
     app.edit("head", Prop::Yaw, Value::Num(40.0));
     app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::BLACK));
-    assert!(app.file_text() == keyed, "neither driven properties nor wardrobe become accidental keys");
+    assert!(app.file_text() != keyed);
+    assert_eq!(app.display_doc().node("head").unwrap().yaw, 40.0);
+    let keyed = app.file_text();
     app.set_workspace(Workspace::Drawing);
     app.toggle_check();
     assert!(app.check.is_some());
@@ -261,15 +267,11 @@ fn top_workspace_buttons_and_focus_are_clickable_without_document_edits() {
 }
 
 #[test]
-fn animation_rejects_structural_deletion_and_the_drawing_workspace_retains_it() {
+fn explicit_structural_deletion_is_available_and_undoable_in_animation() {
     let mut app = fixture(SIMPLE);
     app.create_animation();
     app.select_only(Some("box".into()));
     let before = app.file_text();
-    assert_eq!(app.delete_selected_nodes(), 0);
-    assert_eq!(app.selected.as_deref(), Some("box"));
-    assert!(app.file_text() == before);
-    app.set_workspace(Workspace::Drawing);
     assert_eq!(app.delete_selected_nodes(), 1);
     assert!(app.scene.doc.node("box").is_none());
     app.undo();
@@ -282,6 +284,7 @@ fn explicit_transform_keys_still_record_with_autokey_off_and_preserve_other_prob
     app.create_animation();
     app.select_only(Some("box".into()));
     app.time = 0.3;
+    app.auto_key = false;
     let before = app.file_text();
     let history = app.undo.len();
     app.edit("box", Prop::X, Value::Num(80.0));

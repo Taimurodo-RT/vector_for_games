@@ -361,7 +361,7 @@ impl MachinePlayer {
         let Some((prev, prev_t)) = self.prev.filter(|_| w < 1.0) else {
             return out;
         };
-        let old = pose_of(prev, prev_t);
+        let mut old = pose_of(prev, prev_t);
         let mut props: Vec<(&str, Prop)> = Vec::new();
         for s in [prev, self.state] {
             if let Some(a) = m.states.get(s).and_then(|s| doc.animation(&s.anim)) {
@@ -370,12 +370,30 @@ impl MachinePlayer {
         }
         props.sort_unstable();
         props.dedup();
-        for (node, prop) in props {
+        let mut target = out.clone();
+        old.forms_all();
+        target.forms_all();
+        for &(node, prop) in props.iter().filter(|(_, p)| *p == Prop::Parameter) {
             if let (Some(a), Some(b)) = (old.animated_value(node, prop), out.animated_value(node, prop)) {
                 out.set_animated_value(node, prop, a.lerp(b, w));
             }
         }
         out.apply_parameters();
+        for (node, prop) in props.into_iter().filter(|(_, p)| *p != Prop::Parameter) {
+            if prop == Prop::Contour {
+                if let (Some(a), Some(b), Some(i)) = (old.node(node), target.node(node), out.index_of(node)) {
+                    let path = crate::forms::blend_forms(&a.editable_path(), &b.editable_path(), w);
+                    if let Some(forms) = &mut out.nodes[i].forms {
+                        forms.shapes.push(path);
+                        forms.amount = forms.shapes.len() as f64;
+                        forms.mix = None;
+                    }
+                }
+            } else if let (Some(a), Some(b)) = (old.animated_value(node, prop), target.animated_value(node, prop)) {
+                let value = if prop == Prop::Visible { if w < 0.5 { a } else { b } } else { a.lerp(b, w) };
+                out.set_animated_value(node, prop, value);
+            }
+        }
         out
     }
 }
