@@ -41,7 +41,8 @@ impl Timing {
                         return None;
                     }
                     Self::Cubic(nums[0], nums[1], nums[2], nums[3])
-                } else if let Some(body) = value.strip_prefix("steps(").and_then(|v| v.strip_suffix(')')) {
+                } else {
+                    let body = value.strip_prefix("steps(").and_then(|v| v.strip_suffix(')'))?;
                     let parts = css::split(body, ',');
                     if !(1..=2).contains(&parts.len()) {
                         return None;
@@ -55,8 +56,6 @@ impl Timing {
                         _ => return None,
                     };
                     Self::Steps(n, pos)
-                } else {
-                    return None;
                 }
             }
         })
