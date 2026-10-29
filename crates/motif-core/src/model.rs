@@ -8,6 +8,8 @@ pub struct Document {
     /// Nodes in paint order (parents always come before their children).
     pub nodes: Vec<Node>,
     pub animations: Vec<Animation>,
+    pub parameters: Vec<crate::PoseParameter>,
+    pub drivers: Vec<crate::PoseDriver>,
     /// State machines that switch between the animations.
     pub machines: Vec<crate::Machine>,
     /// Direction shadows fall from raised objects (`elevation`), in degrees: 90 is straight down.
@@ -167,6 +169,8 @@ pub enum Prop {
     WindX,
     WindY,
     Gust,
+    /// Numeric pose control, keyed as `turn.value`; never a drawable node property.
+    Parameter,
 }
 
 impl Prop {
@@ -265,11 +269,12 @@ impl Prop {
             Prop::WindX => "wind-x",
             Prop::WindY => "wind-y",
             Prop::Gust => "gust",
+            Prop::Parameter => "value",
         }
     }
 
     pub fn from_path_name(s: &str) -> Option<Self> {
-        Prop::ALL.into_iter().chain(crate::World::PROPS).find(|p| p.path_name() == s).or(match s {
+        Prop::ALL.into_iter().chain(crate::World::PROPS).chain([Prop::Parameter]).find(|p| p.path_name() == s).or(match s {
             "rotation" => Some(Prop::Rotation),
             "width" | "len" => Some(Prop::Width),
             "height" => Some(Prop::Height),
@@ -708,7 +713,7 @@ impl Node {
             Prop::Depth => Value::Num(self.body.map_or(0.0, |b| b.depth)),
             Prop::Taper => Value::Num(self.body.map_or(1.0, |b| b.taper)),
             Prop::Rough => Value::Num(self.brush.rough),
-            Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => Value::None,
+            Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust | Prop::Parameter => Value::None,
         }
     }
 
@@ -784,7 +789,7 @@ impl Node {
             }
             Prop::Rough => self.brush.rough = v.max(0.0),
             Prop::Fill | Prop::StrokeColor => unreachable!(),
-            Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust => {}
+            Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust | Prop::Parameter => {}
         }
     }
 
@@ -889,6 +894,8 @@ impl Document {
             artboard,
             nodes: Vec::new(),
             animations: Vec::new(),
+            parameters: Vec::new(),
+            drivers: Vec::new(),
             machines: Vec::new(),
             light: 90.0,
             world: crate::World::default(),
@@ -1112,12 +1119,9 @@ impl Animation {
         out.time = t;
         for track in &self.tracks {
             let Some(v) = track.sample(t) else { continue };
-            if track.prop.is_world() {
-                out.world.set(track.prop, v);
-            } else if let Some(i) = out.index_of(&track.node) {
-                out.nodes[i].set(track.prop, v);
-            }
+            out.set_animated_value(&track.node, track.prop, v);
         }
+        out.apply_parameters();
         out
     }
 }

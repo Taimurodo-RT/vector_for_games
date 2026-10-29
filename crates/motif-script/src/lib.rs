@@ -35,6 +35,7 @@ mod svg;
 mod symbol;
 
 mod palette;
+pub mod parameters;
 pub use boards::{
     BOARD_GAP, BoardGrid, BoardSize, board_file_name, board_layout, boards, head_end, new_board, parse_boards, rename_artboard, set_artboard_size,
     set_board_cell,
@@ -140,6 +141,8 @@ pub struct Scene {
     pub override_close: Option<usize>,
     /// Where each animation and its tracks are written, by animation name.
     pub anims: HashMap<String, AnimSite>,
+    pub parameter_values: HashMap<String, Span>,
+    pub driver_sites: HashMap<String, Vec<TrackSite>>,
     /// Offset of the first top-level `anim` or `override`: new objects are inserted before it.
     pub blocks_start: Option<usize>,
     /// Every `override` entry: the node it changes and the span of the whole entry.

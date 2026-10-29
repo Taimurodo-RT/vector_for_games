@@ -166,6 +166,8 @@ impl App {
         self.also.clear();
         self.anim = None;
         self.last_anim = None;
+        self.pose_preview.clear();
+        self.character_work = Default::default();
         self.run = None;
         self.check = None;
         self.playing = false;

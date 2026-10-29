@@ -262,8 +262,9 @@ pub fn copy_variant(src: &str, scene: &Scene, root: &str, slot_id: &str, base: O
             scene.sites.get(*id).is_none_or(|s| s.generated)
                 || scene.doc.node(id).is_some_and(|n| n.skin.is_some() || n.morph.is_some())
                 || scene.anims.values().any(|a| a.tracks.iter().any(|t| &t.node == *id))
+                || scene.driver_sites.values().any(|tracks| tracks.iter().any(|t| &t.node == *id))
         }) {
-            return Err("Копия варианта пока доступна для обычных деталей без своих дорожек, циклов, весов и морфинга".into());
+            return Err("Копия варианта пока доступна для обычных деталей без своих дорожек, связей параметров, циклов, весов и морфинга; используйте общую опору вне детали".into());
         }
         let snippet = copy_nodes(scene, src, std::slice::from_ref(group)).into_iter().next().ok_or("Деталь не копируется")?;
         let mut text = snippet.text;

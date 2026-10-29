@@ -38,6 +38,7 @@ impl SimState {
     pub fn new(keys: &Document) -> SimState {
         let values = spring::sprung(keys);
         let mut pose = keys.clone();
+        pose.morph_all();
         pose.place_orbits();
         pose.solve_ik();
         let tips = spring::tips(&pose);
@@ -67,6 +68,7 @@ impl SimState {
     /// Moves on by `dt` seconds (at most one frame) towards `keys`.
     pub fn step(&mut self, keys: &Document, dt: f64) {
         let mut pose = keys.clone();
+        pose.morph_all();
         pose.world.time = self.time;
         if keys.has_fields() {
             let mut rigged = keys.clone();
@@ -103,6 +105,7 @@ impl SimState {
     /// skins and soft bodies.
     pub fn apply(&self, keys: &Document) -> Document {
         let mut out = keys.clone();
+        out.morph_all();
         spring::apply_values(&self.values, &mut out);
         roll::apply_rollers(&self.rollers, &mut out);
         out.place_orbits();

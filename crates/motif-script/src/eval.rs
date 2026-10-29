@@ -59,6 +59,8 @@ impl<'a> Evaluator<'a> {
                 sites: HashMap::new(),
                 override_close: None,
                 anims: HashMap::new(),
+                parameter_values: HashMap::new(),
+                driver_sites: HashMap::new(),
                 blocks_start: None,
                 override_entries: Vec::new(),
                 path_sources: HashMap::new(),
@@ -139,6 +141,8 @@ impl<'a> Evaluator<'a> {
             }
         }
         // The setup pose is the one skinned shapes were drawn in.
+        self.errors.extend(crate::parameters::evaluate(self.src, &mut self.scene, stmts));
+        self.scene.doc.apply_parameters();
         self.scene.doc.bind_skins();
         self.scene.doc.rig();
         for s in stmts {
@@ -167,11 +171,20 @@ impl<'a> Evaluator<'a> {
                 anim.events.sort_by(|a, b| a.time.total_cmp(&b.time));
                 for t in tracks {
                     let world = t.node == "world" && self.scene.doc.index_of(&t.node).is_none();
-                    if !world && self.scene.doc.index_of(&t.node).is_none() {
+                    let parameter = self.scene.doc.parameter(&t.node).cloned();
+                    if !world && parameter.is_none() && self.scene.doc.index_of(&t.node).is_none() {
                         self.err(t.span, format!("нет объекта «{}»", t.node));
                         continue;
                     }
                     let Some(prop) = self.prop_path(&t.prop, t.span) else { continue };
+                    if parameter.is_some() != (prop == Prop::Parameter) {
+                        self.err(t.span, "параметр движения анимируется дорожкой имя.value; у фигуры свойства value нет");
+                        continue;
+                    }
+                    if let Some(driver) = self.scene.doc.driven_by(&t.node, prop) {
+                        self.err(t.span, format!("{}.{} управляется параметром {driver}: анимируйте {driver}.value", t.node, t.prop));
+                        continue;
+                    }
                     if world != prop.is_world() {
                         let msg = if world {
                             "у мира ключи gravity-x, gravity-y, wind-x, wind-y и gust: world.wind-x 0: 0 | 2: 300".to_string()
@@ -185,6 +198,12 @@ impl<'a> Evaluator<'a> {
                     for k in &t.keys {
                         let ease = k.ease.unwrap_or(Ease::EaseInOut);
                         if let Some(value) = self.value(&k.value) {
+                            if let Some(p) = &parameter
+                                && !matches!(value, Value::Num(v) if v.is_finite() && v >= p.min && v <= p.max)
+                            {
+                                self.err(k.value.span, format!("ключ параметра должен быть числом от {} до {}", p.min, p.max));
+                                continue;
+                            }
                             keys.push(Keyframe { time: k.time, value, ease });
                         }
                     }
@@ -704,9 +723,9 @@ impl<'a> Evaluator<'a> {
                         None => self.vars.remove(var),
                     };
                 }
-                Stmt::Anim { .. } | Stmt::Override { .. } | Stmt::Machine { .. } | Stmt::Weights { .. } => {
-                    if parent.is_some() {
-                        self.err(Span::new(0, 0), "anim, machine, weights и override пишутся на верхнем уровне");
+                Stmt::Anim { .. } | Stmt::Override { .. } | Stmt::Machine { .. } | Stmt::Weights { .. } | Stmt::Parameter { .. } | Stmt::Driver { .. } => {
+                    if parent.is_some() || generated {
+                        self.err(Span::new(0, 0), "anim, machine, weights, override, parameter и driver пишутся на верхнем уровне");
                     }
                 }
             }

@@ -65,6 +65,7 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::WindX => "Ветер X",
         Prop::WindY => "Ветер Y",
         Prop::Gust => "Порывы",
+        Prop::Parameter => "Значение",
     }
 }
 
@@ -754,6 +755,17 @@ impl App {
         let mut rows = Vec::new();
         let doc = &self.scene.doc;
         let picked: Vec<usize> = self.selection().iter().filter_map(|id| doc.index_of(id)).collect();
+        for parameter in &doc.parameters {
+            if let Some(track) = anim.tracks.iter().find(|t| t.node == parameter.id && t.prop == Prop::Parameter) {
+                rows.push(Row::Head {
+                    id: parameter.id.clone(),
+                    name: parameter.name.clone(),
+                    kind: ShapeKind::Group,
+                    times: track.keys.iter().map(|k| k.time).collect(),
+                });
+                rows.push(Row::Prop { id: parameter.id.clone(), prop: Prop::Parameter });
+            }
+        }
         for (i, n) in doc.nodes.iter().enumerate().rev() {
             let tracks: Vec<_> = Prop::ALL.iter().filter_map(|p| anim.tracks.iter().find(|t| t.node == n.id && t.prop == *p)).collect();
             let chosen = picked.contains(&i);
