@@ -451,6 +451,13 @@ fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Vec<Span>> {
     for tracks in scene.driver_sites.values() {
         spans.extend(tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
+    for corrective in scene.corrective_sites.values() {
+        for track in &corrective.tracks {
+            if ids.contains(&track.node.as_str()) {
+                spans.push(whole_lines(src, track.span));
+            }
+        }
+    }
     spans.extend(scene.override_entries.iter().filter(|(n, _)| ids.contains(&n.as_str())).map(|(_, s)| whole_lines(src, *s)));
     for m in &doc.machines {
         let Some(site) = scene.machines.get(&m.name) else { continue };

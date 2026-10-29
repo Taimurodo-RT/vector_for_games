@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 motif-core.workspace = true
+motif-html.workspace = true
 motif-script.workspace = true
 motif-render = { workspace = true, features = ["gpu"] }
 motif-pixel.workspace = true

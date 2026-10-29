@@ -14,6 +14,7 @@ motif-script = { path = "crates/motif-script" }
 motif-render = { path = "crates/motif-render", default-features = false }
 motif-pixel = { path = "crates/motif-pixel" }
 motif-web = { path = "crates/motif-web" }
+motif-html = { path = "crates/motif-html" }
 kurbo = "0.13.1"
 tiny-skia = "0.12"
 png = "0.18"

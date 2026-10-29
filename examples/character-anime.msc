@@ -1,4 +1,4 @@
-// @motif-characters {"schema":1,"characters":[{"root":"portrait","name":"Аниме-лицо","rig":"lattice-portrait-v1","bones":[],"slots":[],"looks":[],"motions":[{"name":"Спокойная поза","clip":"Idle"},{"name":"Эмоции и поворот","clip":"Expressions"},{"name":"Разговор","clip":"Talk"}]}]}
+// @motif-characters {"schema":1,"characters":[{"root":"portrait","name":"Аниме-лицо","rig":"lattice-portrait-v1","bones":[],"slots":[],"looks":[],"motions":[{"name":"Спокойная поза","clip":"Idle"},{"name":"Эмоции и поворот","clip":"Expressions"},{"name":"Разговор","clip":"Talk"},{"name":"Сочетания: поворот / веки / рот","clip":"Combinations"}]}]}
 // Anime face: editable paths, nested 3x3 cages, gaze, blink and vector mouth forms.
 // All workspaces share the chosen clip and frame. Setup: select head / eye_l to edit the cage.
 // Turn: both silhouette edges compress toward the pivot; the convex center and nose move with the turn.
@@ -89,8 +89,10 @@ group portrait "Аниме-портрет" at 320 332 {
       ellipse blush_r at 72.93 52 size 41 18 fill #eea6ac opacity 0.35
       path nose d "M 1 38 L -4 53 Q 0 57 5 54" forms "M -4 38 L -11 53 Q -4 58 2 54" "M 4 38 L 11 53 Q 4 58 -2 54" fill none stroke #c48b8d 2 cap round
       path nose_light d "M 5 34 L 8 45" fill none stroke #fff5ee 3 cap round
-      path mouth_line "Рот — векторные формы" at 0 88 d "M -16 0 C -6 5 6 5 16 0 C 7 7 -7 7 -16 0 Z" forms "M -17 -5 C -9 -12 9 -12 17 -5 C 21 26 -21 26 -17 -5 Z" "M -22 -2 C -8 5 8 5 22 -2 C 12 15 -12 15 -22 -2 Z" fill #9d4f68 stroke #87435a 1.5
-      path lip_light at 0 102 d "M -8 0 Q 0 3 8 0" fill none stroke #f2b1b1 2 cap round
+      group mouth_rig "Рот — поправки поворота" at 0 88 deform 64 44 {
+        path mouth_line "Рот — векторные формы" at 0 0 d "M -16 0 C -6 5 6 5 16 0 C 7 7 -7 7 -16 0 Z" forms "M -17 -5 C -9 -12 9 -12 17 -5 C 21 26 -21 26 -17 -5 Z" "M -22 -2 C -8 5 8 5 22 -2 C 12 15 -12 15 -22 -2 Z" fill #9d4f68 stroke #87435a 1.5
+        path lip_light at 0 14 d "M -8 0 Q 0 3 8 0" fill none stroke #f2b1b1 2 cap round
+      }
     }
     path fringe "Чёлка" d "M -117 -63 C -130 -168 -39 -197 24 -182 C 98 -183 137 -130 124 -56 L 103 -18 C 93 -57 73 -87 44 -110 C 43 -66 30 -39 17 -17 C 21 -71 2 -101 -12 -116 C -20 -73 -39 -38 -57 -18 C -44 -63 -49 -93 -51 -106 C -67 -74 -91 -41 -114 -25 Z" fill hair stroke ink 3
     path fringe_shine_l d "M -105 -104 C -68 -158 -24 -162 -6 -153 C -45 -148 -69 -117 -91 -86 Z" fill hair_light
@@ -165,6 +167,49 @@ driver mood {
   brow_l.y -1: -40 | 0: -46 | 1: -51
   brow_r.y -1: -40 | 0: -46 | 1: -51
 }
+// Correctives add residuals only in a joint pose. The zero turn row leaves ordinary motions unchanged.
+corrective turned_lids parameters turn blink {
+  eye_l.warp-y0 -1 0: 0 | -1 0.5: 1.25 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 0.75 | 1 1: 0.5
+  eye_l.warp-y1 -1 0: 0 | -1 0.5: 1.25 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 0.75 | 1 1: 0.5
+  eye_l.warp-y2 -1 0: 0 | -1 0.5: 1.25 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 0.75 | 1 1: 0.5
+  eye_l.warp-y3 -1 0: 0 | -1 0.5: -0.75 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 0.25 | 1 1: 0.5
+  eye_l.warp-y4 -1 0: 0 | -1 0.5: -0.75 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 0.25 | 1 1: 0.5
+  eye_l.warp-y5 -1 0: 0 | -1 0.5: -0.75 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 0.25 | 1 1: 0.5
+  eye_l.warp-y6 -1 0: 0 | -1 0.5: -2.75 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -0.25 | 1 1: 0.5
+  eye_l.warp-y7 -1 0: 0 | -1 0.5: -2.75 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -0.25 | 1 1: 0.5
+  eye_l.warp-y8 -1 0: 0 | -1 0.5: -2.75 | -1 1: -1.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -0.25 | 1 1: 0.5
+  eye_r.warp-y0 -1 0: 0 | -1 0.5: 0.75 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 1.25 | 1 1: -1.5
+  eye_r.warp-y1 -1 0: 0 | -1 0.5: 0.75 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 1.25 | 1 1: -1.5
+  eye_r.warp-y2 -1 0: 0 | -1 0.5: 0.75 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: 1.25 | 1 1: -1.5
+  eye_r.warp-y3 -1 0: 0 | -1 0.5: 0.25 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -0.75 | 1 1: -1.5
+  eye_r.warp-y4 -1 0: 0 | -1 0.5: 0.25 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -0.75 | 1 1: -1.5
+  eye_r.warp-y5 -1 0: 0 | -1 0.5: 0.25 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -0.75 | 1 1: -1.5
+  eye_r.warp-y6 -1 0: 0 | -1 0.5: -0.25 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -2.75 | 1 1: -1.5
+  eye_r.warp-y7 -1 0: 0 | -1 0.5: -0.25 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -2.75 | 1 1: -1.5
+  eye_r.warp-y8 -1 0: 0 | -1 0.5: -0.25 | -1 1: 0.5 | 0 0: 0 | 0 0.5: 0 | 0 1: 0 | 1 0: 0 | 1 0.5: -2.75 | 1 1: -1.5
+}
+
+corrective turned_mouth parameters turn mouth {
+  mouth_rig.warp-x0 -1 -1: 2 | -1 0: 0 | -1 1: 4 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: 0.5 | 1 0: 0 | 1 1: 1
+  mouth_rig.warp-y0 -1 -1: -0.9 | -1 0: 0 | -1 1: 0.5 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.2 | 1 0: 0 | 1 1: 0.5
+  mouth_rig.warp-x1 -1 -1: -1.5 | -1 0: 0 | -1 1: -3 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: 1.5 | 1 0: 0 | 1 1: 3
+  mouth_rig.warp-y1 -1 -1: -0.2 | -1 0: 0 | -1 1: 0.5 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.2 | 1 0: 0 | 1 1: 0.5
+  mouth_rig.warp-x2 -1 -1: -0.5 | -1 0: 0 | -1 1: -1 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -2 | 1 0: 0 | 1 1: -4
+  mouth_rig.warp-y2 -1 -1: -0.2 | -1 0: 0 | -1 1: 0.5 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.9 | 1 0: 0 | 1 1: 0.5
+  mouth_rig.warp-x3 -1 -1: 2 | -1 0: 0 | -1 1: 4 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: 0.5 | 1 0: 0 | 1 1: 1
+  mouth_rig.warp-y3 -1 -1: -0.9 | -1 0: 0 | -1 1: -0.5 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.2 | 1 0: 0 | 1 1: -0.5
+  mouth_rig.warp-x4 -1 -1: -1.5 | -1 0: 0 | -1 1: -3 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: 1.5 | 1 0: 0 | 1 1: 3
+  mouth_rig.warp-y4 -1 -1: -0.2 | -1 0: 0 | -1 1: -0.5 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.2 | 1 0: 0 | 1 1: -0.5
+  mouth_rig.warp-x5 -1 -1: -0.5 | -1 0: 0 | -1 1: -1 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -2 | 1 0: 0 | 1 1: -4
+  mouth_rig.warp-y5 -1 -1: -0.2 | -1 0: 0 | -1 1: -0.5 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.9 | 1 0: 0 | 1 1: -0.5
+  mouth_rig.warp-x6 -1 -1: 2 | -1 0: 0 | -1 1: 4 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: 0.5 | 1 0: 0 | 1 1: 1
+  mouth_rig.warp-y6 -1 -1: -0.9 | -1 0: 0 | -1 1: -2 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.2 | 1 0: 0 | 1 1: -2
+  mouth_rig.warp-x7 -1 -1: -1.5 | -1 0: 0 | -1 1: -3 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: 1.5 | 1 0: 0 | 1 1: 3
+  mouth_rig.warp-y7 -1 -1: -0.2 | -1 0: 0 | -1 1: -2 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.2 | 1 0: 0 | 1 1: -2
+  mouth_rig.warp-x8 -1 -1: -0.5 | -1 0: 0 | -1 1: -1 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -2 | 1 0: 0 | 1 1: -4
+  mouth_rig.warp-y8 -1 -1: -0.2 | -1 0: 0 | -1 1: -2 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.9 | 1 0: 0 | 1 1: -2
+}
+
 anim Idle 4s loop {
   turn.value 0: 0 | 1.4: 0.35 | 2.8: -0.25 | 4: 0
   look.value 0: 0 | 1.3: 0.6 | 2.8: -0.35 | 4: 0
@@ -186,4 +231,12 @@ anim Hover 0.2s {
 }
 anim Press 0.15s {
   ui_plate.fill 0: #d8d0ee | 0.15: #9480c6
+}
+
+// A deliberate combination test: full turn + half/closed lids + open mouth, in both directions.
+anim Combinations 8s loop {
+  turn.value 0: 0 | 1: 1 | 3: 1 | 4: 0 | 5: -1 | 7: -1 | 8: 0
+  blink.value 0: 0 | 1: 0.5 | 2: 1 | 3: 0 | 4: 0 | 5: 0.5 | 6: 1 | 7: 0 | 8: 0
+  mouth.value 0: 0 | 1: 1 | 2: 1 | 3: -1 | 4: 0 | 5: 1 | 6: 1 | 7: -1 | 8: 0
+  look.value 0: 0 | 1: 0.5 | 3: 0 | 4: 0 | 5: -0.5 | 7: 0 | 8: 0
 }

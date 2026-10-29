@@ -6,6 +6,7 @@ use motif_render::{CpuOptions, render_cpu};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod html_import;
 mod inspect;
 
 const HELP: &str = "\
@@ -13,6 +14,7 @@ motif — скрипты сцен Motif без окна редактора
 
 Использование:
   motif check   <сцена.msc>
+  motif import-html <фрагмент.html> [--css стиль.css] [-o сцена.msc]
   motif inspect <сцена.msc> [--board ИМЯ] [--anim ИМЯ --time СЕК] [--node ID] [-o отчёт.json]
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
@@ -92,6 +94,7 @@ struct Args {
     side: Option<String>,
     web_profile: Option<motif_web::Profile>,
     strict: bool,
+    css: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -126,6 +129,7 @@ fn parse_args() -> Result<Args, String> {
         side: None,
         web_profile: None,
         strict: false,
+        css: None,
     };
     let num = |v: Option<String>, flag: &str| v.and_then(|s| s.parse::<f64>().ok()).ok_or(format!("после {flag} нужно число"));
     while let Some(arg) = it.next() {
@@ -153,6 +157,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-aa" => a.antialias = false,
             "--profile" => a.web_profile = Some(motif_web::Profile::parse(&it.next().ok_or("после --profile нужен профиль")?)?),
             "--strict" => a.strict = true,
+            "--css" => a.css = Some(it.next().ok_or("после --css нужен файл стилей")?.into()),
             "--pixelize" => a.pixelize = true,
             "--transparent" => a.background = false,
             s if s.starts_with('-') => return Err(format!("неизвестный параметр {s}\n\n{HELP}")),
@@ -169,6 +174,9 @@ fn parse_args() -> Result<Args, String> {
 fn run() -> Result<(), String> {
     let a = parse_args()?;
     let src = std::fs::read_to_string(&a.scene).map_err(|e| format!("{}: {e}", a.scene.display()))?;
+    if a.cmd == "import-html" {
+        return html_import::run(&a, &src);
+    }
     let scenes = motif_script::parse_boards(&src, a.scene.parent())
         .map_err(|errs| errs.iter().map(|e| format!("{}: {e}", a.scene.display())).collect::<Vec<_>>().join("\n"))?;
     let total = scenes.len();

@@ -12,6 +12,8 @@ Copy-Item "$BinaryDir/motif-editor.exe", "$BinaryDir/motif.exe" $Out
 Copy-Item "$root/examples/*.msc" "$Out/examples/"
 # Templates of game screens behind «Файл → Новое…».
 Copy-Item "$root/examples/screens" "$Out/examples/screens" -Recurse -Force
+# HTML/CSS fixtures for the editable UI importer.
+Copy-Item "$root/examples/import" "$Out/examples/import" -Recurse -Force
 # Fonts the examples use, with their licences.
 Copy-Item "$root/examples/fonts" "$Out/examples/fonts" -Recurse -Force
 Copy-Item "$root/docs" "$Out/docs" -Recurse -Force

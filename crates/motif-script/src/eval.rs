@@ -61,6 +61,7 @@ impl<'a> Evaluator<'a> {
                 anims: HashMap::new(),
                 parameter_values: HashMap::new(),
                 driver_sites: HashMap::new(),
+                corrective_sites: HashMap::new(),
                 blocks_start: None,
                 override_entries: Vec::new(),
                 path_sources: HashMap::new(),
@@ -142,6 +143,7 @@ impl<'a> Evaluator<'a> {
         }
         // The setup pose is the one skinned shapes were drawn in.
         self.errors.extend(crate::parameters::evaluate(self.src, &mut self.scene, stmts));
+        self.errors.extend(crate::correctives::evaluate(self.src, &mut self.scene, stmts));
         self.scene.doc.apply_parameters();
         self.scene.doc.bind_skins();
         self.scene.doc.rig();
@@ -739,9 +741,15 @@ impl<'a> Evaluator<'a> {
                         None => self.vars.remove(var),
                     };
                 }
-                Stmt::Anim { .. } | Stmt::Override { .. } | Stmt::Machine { .. } | Stmt::Weights { .. } | Stmt::Parameter { .. } | Stmt::Driver { .. } => {
+                Stmt::Anim { .. }
+                | Stmt::Override { .. }
+                | Stmt::Machine { .. }
+                | Stmt::Weights { .. }
+                | Stmt::Parameter { .. }
+                | Stmt::Driver { .. }
+                | Stmt::Corrective { .. } => {
                     if parent.is_some() || generated {
-                        self.err(Span::new(0, 0), "anim, machine, weights, override, parameter и driver пишутся на верхнем уровне");
+                        self.err(Span::new(0, 0), "anim, machine, weights, override, parameter, driver и corrective пишутся на верхнем уровне");
                     }
                 }
             }

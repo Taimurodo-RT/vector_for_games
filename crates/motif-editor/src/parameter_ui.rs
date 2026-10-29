@@ -168,11 +168,13 @@ fn protected_node(doc: &motif_core::Document, src: &str, id: &str) -> bool {
     {
         return true;
     }
-    doc.drivers.iter().flat_map(|d| &d.tracks).any(|track| {
-        let Some(mut root) = doc.index_of(&track.node) else { return false };
-        while let Some(parent) = doc.nodes[root].parent {
-            root = parent;
-        }
-        index == root || doc.is_inside(index, root)
-    })
+    doc.drivers.iter().flat_map(|d| &d.tracks).map(|t| t.node.as_str()).chain(doc.correctives.iter().flat_map(|c| &c.tracks).map(|t| t.node.as_str())).any(
+        |target| {
+            let Some(mut root) = doc.index_of(target) else { return false };
+            while let Some(parent) = doc.nodes[root].parent {
+                root = parent;
+            }
+            index == root || doc.is_inside(index, root)
+        },
+    )
 }

@@ -24,6 +24,7 @@
 mod boards;
 mod bone;
 mod boolean;
+pub mod correctives;
 mod edit;
 mod eval;
 mod expr;
@@ -144,6 +145,7 @@ pub struct Scene {
     pub anims: HashMap<String, AnimSite>,
     pub parameter_values: HashMap<String, Span>,
     pub driver_sites: HashMap<String, Vec<TrackSite>>,
+    pub corrective_sites: HashMap<String, correctives::CorrectiveSite>,
     /// Offset of the first top-level `anim` or `override`: new objects are inserted before it.
     pub blocks_start: Option<usize>,
     /// Every `override` entry: the node it changes and the span of the whole entry.
@@ -393,3 +395,6 @@ mod tests;
 
 #[cfg(test)]
 mod deformer_tests;
+
+#[cfg(test)]
+mod face_combination_tests;

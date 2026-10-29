@@ -224,7 +224,37 @@ impl App {
         (2..).map(|i| format!("{base} {i}")).find(|n| !names.contains(n)).expect("some number is free")
     }
 
-    /// Adds an empty board the size of the active one after the last board and opens it.
+    /// Imports an independent UI board without replacing the current document.
+    pub(crate) fn add_imported_ui_board(&mut self, source: &str) -> bool {
+        if !self.can_edit() {
+            return false;
+        }
+        let Ok(parsed) = motif_script::parse(source) else { return false };
+        self.set_workspace(crate::workspace::Workspace::Drawing);
+        if self.workspace() != crate::workspace::Workspace::Drawing {
+            return false;
+        }
+        let name = self.free_board_name(&parsed.doc.artboard.name);
+        let source = motif_script::rename_artboard(source, &name).unwrap_or_else(|| source.into());
+        let source = motif_script::set_board_cell(&source, Some(self.free_cell())).unwrap_or(source);
+        let mut texts = self.current_texts();
+        texts.push(format!("\n{source}\n"));
+        let full = format!("{}{}", self.boards.head, texts.concat());
+        if motif_script::parse_boards(&full, self.path.as_ref().and_then(|p| p.parent())).is_err() {
+            self.status = "Импорт не добавлен: конфликт с исходным документом".into();
+            return false;
+        }
+        let active = texts.len() - 1;
+        self.apply_boards("import-html", texts, active);
+        self.reset_workspace_document();
+        self.time = 0.0;
+        self.reparse();
+        self.boards.reveal = true;
+        self.status = format!("Добавлен UI-холст «{name}» из HTML + CSS");
+        true
+    }
+
+    /// Adds an empty board the size of the active one.
     pub(crate) fn add_board(&mut self) {
         let ab = self.scene.doc.artboard.clone();
         let mut texts = self.current_texts();

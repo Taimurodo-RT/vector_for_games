@@ -85,6 +85,21 @@ pub struct TrackAst {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct CorrectiveKeyAst {
+    pub x: f64,
+    pub y: f64,
+    pub value: ValueAst,
+    pub span: Span,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct CorrectiveTrackAst {
+    pub node: String,
+    pub prop: String,
+    pub span: Span,
+    pub keys: Vec<CorrectiveKeyAst>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct OverrideAst {
     pub node: String,
     pub prop: String,
@@ -164,6 +179,13 @@ pub enum Stmt {
         parameter: String,
         tracks: Vec<TrackAst>,
         span: Span,
+    },
+    Corrective {
+        id: String,
+        parameters: [String; 2],
+        tracks: Vec<CorrectiveTrackAst>,
+        span: Span,
+        close: usize,
     },
     Artboard {
         name: Option<String>,
@@ -475,6 +497,7 @@ impl<'a> Parser<'a> {
             "anim" => self.anim(span),
             "parameter" => self.pose_parameter(span),
             "driver" => self.pose_driver(span),
+            "corrective" => self.pose_corrective(span),
             "machine" => self.machine(span),
             "weights" => self.weights(span),
             "symbol" => {
@@ -837,6 +860,48 @@ impl<'a> Parser<'a> {
         }
         let close = self.close_block()?;
         Ok(Stmt::Driver { parameter, tracks, span: Span::new(start.start, close + 1) })
+    }
+
+    fn pose_corrective(&mut self, start: Span) -> Result<Stmt, ScriptError> {
+        let (id, _) = self.ident("имя корректирующей формы")?;
+        let (keyword, span) = self.ident("parameters")?;
+        if keyword != "parameters" {
+            return Err(self.err(span, "после имени корректирующей формы нужно parameters и два параметра"));
+        }
+        let (x, _) = self.ident("первый параметр")?;
+        let (y, _) = self.ident("второй параметр")?;
+        self.expect(Tok::BlockOpen, "«{»")?;
+        let mut tracks = Vec::new();
+        loop {
+            match self.peek() {
+                Some(Tok::Newline) => self.pos += 1,
+                Some(Tok::BlockClose) | None => break,
+                _ => {
+                    let (node, prop, span) = self.path()?;
+                    let mut keys = Vec::new();
+                    loop {
+                        let (x, xspan) = self.num("первая координата опоры")?;
+                        let (y, _) = self.num("вторая координата опоры")?;
+                        self.expect(Tok::Colon, "«:» после двух координат опоры")?;
+                        let value = self.value()?;
+                        let keyspan = Span::new(xspan.start, value.span.end);
+                        keys.push(CorrectiveKeyAst { x, y, value, span: keyspan });
+                        if self.peek() == Some(&Tok::Pipe) {
+                            self.pos += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let end = keys.last().map_or(span.end, |k| k.span.end);
+                    tracks.push(CorrectiveTrackAst { node, prop, span: Span::new(span.start, end), keys });
+                    if !self.at_line_end() {
+                        return Err(self.err(self.peek_span(), "лишнее после опор corrective"));
+                    }
+                }
+            }
+        }
+        let close = self.close_block()?;
+        Ok(Stmt::Corrective { id, parameters: [x, y], tracks, span: Span::new(start.start, close + 1), close })
     }
 
     fn anim(&mut self, span: Span) -> Result<Stmt, ScriptError> {

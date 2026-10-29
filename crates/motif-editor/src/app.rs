@@ -175,6 +175,7 @@ pub struct App {
     preview_canvas: preview_ui::PreviewCanvas,
     preview_tab: bool,
     deformer: deformer_ui::DeformerEdit,
+    html_import: html_ui::HtmlImport,
     pub(crate) pose_preview: std::collections::BTreeMap<String, f64>,
     /// The side of `directions` the canvas shows (the compass in «Стороны»), or the scene as written.
     pub(crate) side: Option<usize>,
@@ -328,6 +329,7 @@ impl App {
             preview_canvas: Default::default(),
             preview_tab: true,
             deformer: Default::default(),
+            html_import: Default::default(),
             pose_preview: Default::default(),
             side: None,
             time: 0.0,
@@ -419,6 +421,7 @@ impl App {
                 let keys = std::mem::take(&mut self.sel_keys);
                 self.sel_keys = keys.into_iter().filter(|k| self.key_exists(k)).collect();
                 self.prune_selection();
+                self.prune_deformer_reference();
                 self.prune_machine();
                 self.refresh_check();
             }
@@ -515,6 +518,9 @@ impl App {
             }
             return;
         }
+        self.pose_preview.clear();
+        self.deformer.form = None;
+        self.deformer.corrective = None;
         if let Some(at) = self.key_time() {
             if !self.auto_key {
                 self.playing = false;
@@ -526,7 +532,6 @@ impl App {
             self.status = "Создайте клип для записи ключей".into();
             return;
         }
-        self.pose_preview.clear();
         let new_src = match self.key_time() {
             Some((anim, t)) => {
                 self.playing = false;
@@ -693,6 +698,7 @@ impl App {
         self.remember_clip_time();
         self.panels.switch(space);
         self.deformer.form = None;
+        self.deformer.corrective = None;
         self.playing = false;
         self.run = None;
         self.check = None;
@@ -790,6 +796,7 @@ impl App {
         }
         self.pose_preview.clear();
         self.deformer.form = None;
+        self.deformer.corrective = None;
         self.remember_clip_time();
         self.panels.set(crate::workspace::Panel::Timeline, true);
         self.run = None;
@@ -854,7 +861,7 @@ impl App {
             }
             doc.apply_parameters();
         }
-        if self.draft_pose.matches(&self.key_time()) {
+        if self.draft_pose.matches(&self.key_time()) && (self.workspace() != crate::workspace::Workspace::Setup || self.pose_preview.is_empty()) {
             let parameters_changed = self.draft_pose.values.keys().any(|(_, prop)| *prop == Prop::Parameter);
             for ((node, prop), value) in &self.draft_pose.values {
                 if *prop == Prop::Parameter {
@@ -1525,6 +1532,7 @@ impl App {
                 {
                     self.pick_svg();
                 }
+                if ui.button("Импорт HTML + CSS…").clicked() { self.html_import.open = true; }
                 if ui.add(egui::Button::new("Подложка PNG или PSD…")).on_hover_text("Картинка-референс под фигурами, только в редакторе. У PSD слои включаются по отдельности").clicked()
                 {
                     self.pick_backdrop();
@@ -3229,7 +3237,14 @@ impl App {
             return;
         }
         if i.modifiers.command && i.modifiers.shift && i.key_pressed(Key::Space) {
-            if self.pending_file.is_some() || self.show_export || self.show_help || self.show_recovery || self.show_syntax || self.stretch.is_some() {
+            if self.html_import.open
+                || self.pending_file.is_some()
+                || self.show_export
+                || self.show_help
+                || self.show_recovery
+                || self.show_syntax
+                || self.stretch.is_some()
+            {
                 return;
             }
             self.panels.toggle_focus();
@@ -3351,6 +3366,7 @@ impl App {
             } else if self.deformer.target.is_some() {
                 self.deformer.target = None;
                 self.deformer.form = None;
+                self.deformer.corrective = None;
                 self.pose_preview.clear();
             } else if !self.pen.is_empty() {
                 self.pen.clear();
@@ -3669,6 +3685,7 @@ impl eframe::App for App {
         self.syntax_window(&ctx);
         self.stretch_window(&ctx);
         self.library_window(&ctx);
+        self.html_import_window(&ctx);
         self.floating_inspector(&ctx);
     }
 }
@@ -4179,3 +4196,8 @@ mod deformer_ui;
 #[cfg(test)]
 #[path = "deformer_tests.rs"]
 mod deformer_tests;
+
+#[path = "corrective_ui.rs"]
+mod corrective_ui;
+#[path = "html_ui.rs"]
+mod html_ui;

@@ -151,3 +151,90 @@ fn ui_color_keys_in_drawing_share_the_frame_without_changing_other_clips_or_layo
     assert!(app.scene.doc.node("button").unwrap().ui);
     assert_eq!(app.scene.doc.node("plate").unwrap().fill, Some(Color::WHITE));
 }
+
+#[test]
+fn corrective_grid_drag_authors_a_reusable_residual_without_changing_clips() {
+    let source = format!(
+        "{SCENE}\nparameter turn range -1 1 default 0 value 0\nparameter blink range 0 1 default 0 value 0\ndriver turn {{\nhead.warp-x0 -1: -10 | 0: 0 | 1: 10\n}}\n"
+    );
+    let mut app = fixture(&source);
+    app.time = 0.75;
+    app.select_only(Some("head".into()));
+    let clips = app.scene.doc.animations.clone();
+    let drivers = app.scene.doc.drivers.clone();
+    app.create_corrective("head", ["turn", "blink"]);
+    assert!(app.deformer.corrective.is_some());
+    let before = app.src.clone();
+    let history = app.undo.len();
+    drag_control(&mut app, vec2(25.0, -18.0));
+    assert_eq!(app.scene.doc.animations, clips);
+    assert_eq!(app.scene.doc.drivers, drivers);
+    assert_eq!(app.undo.len(), history + 1);
+    assert_eq!(app.time, 0.75);
+    let c = &app.scene.doc.correctives[0];
+    let track = c.tracks.iter().find(|t| t.node == "head" && t.prop == Prop::WarpX(4)).unwrap();
+    assert!(track.sample(1.0, 1.0) > 1.0);
+    assert_eq!(track.sample(0.0, 0.0), 0.0);
+    app.undo();
+    assert_eq!(app.src, before);
+    app.redo();
+    app.set_workspace(Workspace::Drawing);
+    assert!(app.deformer.corrective.is_none());
+    assert_eq!(app.time, 0.75);
+}
+
+#[test]
+fn reference_corrective_preview_ignores_drafts_and_normal_edits_return_to_the_frame() {
+    let source = format!("{SCENE}\nparameter turn range -1 1 default 0 value 0\nparameter blink range 0 1 default 0 value 0\n");
+    let mut app = fixture(&source);
+    app.select_only(Some("head".into()));
+    app.create_corrective("head", ["turn", "blink"]);
+    let id = app.scene.doc.correctives[0].id.clone();
+    app.set_workspace(Workspace::Drawing);
+    app.auto_key = false;
+    let before = app.src.clone();
+    app.edit("turn", Prop::Parameter, Value::Num(-1.0));
+    assert!(app.has_draft_pose());
+    app.begin_corrective(&id, 1.0, 1.0);
+    assert_eq!(app.display_doc().parameter("turn").unwrap().value, 1.0);
+    assert!(app.has_draft_pose());
+    assert_eq!(app.src, before);
+    app.edit("turn", Prop::Parameter, Value::Num(0.5));
+    assert!(app.deformer.corrective.is_none() && app.pose_preview.is_empty());
+    assert_eq!(app.display_doc().parameter("turn").unwrap().value, 0.5);
+    assert_eq!(app.src, before);
+}
+
+#[test]
+fn dragging_a_partial_corrective_authors_missing_axis_instead_of_reverting() {
+    let source = format!(
+        "{SCENE}\nparameter turn range -1 1 default 0 value 0\nparameter blink range 0 1 default 0 value 0\ncorrective lids parameters turn blink {{\nhead.warp-y4 -1 0: 0 | -1 1: 8 | 0 0: 0 | 0 1: 0 | 1 0: 0 | 1 1: 8\n}}\n"
+    );
+    let mut app = fixture(&source);
+    app.select_only(Some("head".into()));
+    app.begin_corrective("lids", 1.0, 1.0);
+    drag_control(&mut app, vec2(24.0, 0.0));
+    let track = app.scene.doc.correctives[0].tracks.iter().find(|t| t.prop == Prop::WarpX(4)).unwrap();
+    assert!(track.sample(1.0, 1.0) > 1.0);
+    assert_eq!(app.undo.len(), 1);
+}
+
+#[test]
+fn correction_reference_exits_when_target_changes_or_creation_is_undone() {
+    let source = format!(
+        "{SCENE}\nparameter turn range -1 1 default 0 value 0\nparameter blink range 0 1 default 0 value 0\ngroup other deform 100 100 {{\nrect plate size 30\n}}\n"
+    );
+    let mut app = fixture(&source);
+    app.select_only(Some("head".into()));
+    app.create_corrective("head", ["turn", "blink"]);
+    let id = app.scene.doc.correctives[0].id.clone();
+    assert!(app.deformer.corrective.is_some());
+    app.deformer.target = Some("other".into());
+    app.prune_deformer_reference();
+    assert!(app.deformer.corrective.is_none() && app.pose_preview.is_empty());
+    app.select_only(Some("head".into()));
+    app.begin_corrective(&id, 1.0, 1.0);
+    app.undo();
+    assert!(app.scene.doc.correctives.is_empty());
+    assert!(app.deformer.corrective.is_none() && app.pose_preview.is_empty());
+}
