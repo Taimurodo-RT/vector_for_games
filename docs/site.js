@@ -4,6 +4,7 @@
 (function () {
   const pages = [
     ["index.html", "Начало"],
+    ["workspace-use.html", "Пространства и панели"],
     ["tools.html", "Инструменты и холст"],
     ["properties.html", "Панель свойств"],
     ["animation.html", "Анимация"],

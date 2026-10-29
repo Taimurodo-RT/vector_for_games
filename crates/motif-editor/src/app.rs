@@ -162,7 +162,12 @@ pub struct App {
     pub(crate) anim: Option<String>,
     /// Animation to return to when switching back to Animate.
     pub(crate) last_anim: Option<String>,
-    pub(crate) character_work: crate::parameter_ui::CharacterWork,
+    pub(crate) panels: crate::workspace::Panels,
+    workspace_store: Option<crate::workspace::Store>,
+    profile: Option<Purpose>,
+    clip_times: std::collections::BTreeMap<(usize, String), f64>,
+    pub(crate) auto_key: bool,
+    draft_pose: crate::workspace::DraftPose,
     pub(crate) pose_preview: std::collections::BTreeMap<String, f64>,
     /// The side of `directions` the canvas shows (the compass in «Стороны»), or the scene as written.
     pub(crate) side: Option<usize>,
@@ -224,7 +229,6 @@ pub struct App {
     /// The property whose curve is edited in the graph.
     pub(crate) curve_focus: Option<(String, Prop)>,
     pub(crate) curve_drag: Option<crate::timeline::CurveDrag>,
-    pub(crate) show_script: bool,
     show_export: bool,
     /// A file action waiting for an answer about unsaved changes.
     pending_file: Option<FileAction>,
@@ -251,7 +255,18 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
-        Self::initialize(cc.egui_ctx.clone(), path, crate::pixabridge::Bridge::load(), crate::storage::Recovery::new(crate::storage::recovery_dir()))
+        let mut app =
+            Self::initialize(cc.egui_ctx.clone(), path, crate::pixabridge::Bridge::load(), crate::storage::Recovery::new(crate::storage::recovery_dir()));
+        let path = crate::storage::recovery_dir().with_file_name("workspaces.json");
+        let (store, settings, warning) = crate::workspace::Store::load(path);
+        let space = settings.workspace;
+        app.panels.settings = settings;
+        app.workspace_store = Some(store);
+        app.set_workspace(space);
+        if let Some(warning) = warning {
+            app.status = warning;
+        }
+        app
     }
 
     fn initialize(ctx: egui::Context, path: Option<PathBuf>, pixa: crate::pixabridge::Bridge, recovery: crate::storage::Recovery) -> Self {
@@ -293,7 +308,12 @@ impl App {
             view: None,
             anim: None,
             last_anim: None,
-            character_work: Default::default(),
+            panels: Default::default(),
+            workspace_store: None,
+            profile: None,
+            clip_times: Default::default(),
+            auto_key: false,
+            draft_pose: Default::default(),
             pose_preview: Default::default(),
             side: None,
             time: 0.0,
@@ -331,7 +351,6 @@ impl App {
             curves: false,
             curve_focus: None,
             curve_drag: None,
-            show_script: true,
             show_export: false,
             show_help: false,
             show_syntax: false,
@@ -360,6 +379,7 @@ impl App {
     // ---------- script state ----------
 
     pub(crate) fn reparse(&mut self) {
+        self.draft_pose.clear();
         self.split_active();
         match motif_script::parse_in(&self.src, self.path.as_ref().and_then(|p| p.parent())) {
             Ok(scene) => {
@@ -374,6 +394,13 @@ impl App {
                     && self.scene.doc.animation(a).is_none()
                 {
                     self.anim = None;
+                }
+                if self.workspace() == crate::workspace::Workspace::Animate && self.anim.is_none() {
+                    self.anim = self
+                        .last_anim
+                        .clone()
+                        .filter(|name| self.scene.doc.animation(name).is_some())
+                        .or_else(|| self.scene.doc.animations.first().map(|a| a.name.clone()));
                 }
                 let keys = std::mem::take(&mut self.sel_keys);
                 self.sel_keys = keys.into_iter().filter(|k| self.key_exists(k)).collect();
@@ -445,22 +472,31 @@ impl App {
             self.status = "Для записи параметров остановите машину состояний и выберите клип на таймлайне".into();
             return;
         }
-        if prop == Prop::Parameter && self.anim.is_none() && self.character_work == crate::parameter_ui::CharacterWork::Setup {
+        if prop == Prop::Parameter && self.anim.is_none() && self.workspace() == crate::workspace::Workspace::Setup {
             if let Value::Num(value) = value {
                 self.parameter_preview(node, value);
             }
             return;
         }
-        if !self.scene.doc.parameters.is_empty()
-            && (self.character_work == crate::parameter_ui::CharacterWork::Animate || self.anim.is_some() || self.run.is_some())
-            && prop != Prop::Parameter
-        {
-            self.status = "В режиме «Анимация» этого персонажа записываются параметры движения. Для рисунка выберите «Внешность»".into();
+        if self.protected_character_node(node) && self.workspace() != crate::workspace::Workspace::Drawing && prop != Prop::Parameter {
+            self.status = "Этой деталью управляет персонаж. Для рисунка выберите «Рисование», для позы — параметры движения".into();
             return;
         }
         if let Some(parameter) = self.scene.doc.driven_by(node, prop) {
             self.status = format!("Свойством управляет {parameter}: меняйте параметр движения или его опорные значения");
             return;
+        }
+        if self.workspace() == crate::workspace::Workspace::Animate {
+            let Some(at) = self.key_time() else {
+                self.status = "Сначала создайте или выберите клип; исходный рисунок сохранён".into();
+                return;
+            };
+            if !self.auto_key {
+                self.playing = false;
+                self.draft_pose.set(at, node, prop, value);
+                self.status = "Пробная поза. Ромб или «Записать позу» сохраняет ключи; автоключ выключен".into();
+                return;
+            }
         }
         let new_src = match self.key_time() {
             Some((anim, t)) => {
@@ -482,13 +518,67 @@ impl App {
     /// The diamond next to a property: removes the key at the current time, or keys the current value.
     pub(crate) fn toggle_key(&mut self, node: &str, prop: Prop) {
         let Some((anim, t)) = self.key_time() else { return };
-        if self.key_state(node, prop) == KeyState::Key {
+        if self.key_state(node, prop) == KeyState::Key && !(self.has_draft_pose() && self.draft_pose.values.contains_key(&(node.into(), prop))) {
             let out = delete_key(&self.src, &self.scene, &anim, node, prop, t);
             self.apply("key", out);
             self.status = format!("Ключ {node}.{} на {} с удалён", prop.path_name(), fmt_num(t));
         } else if let Some(value) = self.display_doc().animated_value(node, prop) {
+            let auto_key = self.auto_key;
+            let draft = self.draft_pose.clone();
+            self.auto_key = true;
             self.edit(node, prop, value);
+            self.auto_key = auto_key;
+            self.draft_pose = draft;
+            self.draft_pose.values.remove(&(node.into(), prop));
         }
+    }
+
+    pub(crate) fn has_draft_pose(&self) -> bool {
+        self.draft_pose.matches(&self.key_time()) && !self.draft_pose.values.is_empty()
+    }
+
+    pub(crate) fn clear_draft_pose(&mut self) {
+        self.draft_pose.clear();
+    }
+
+    pub(crate) fn record_draft_pose(&mut self) {
+        if !self.can_edit() || !self.has_draft_pose() {
+            return;
+        }
+        let Some((anim, time)) = self.key_time() else { return };
+        let mut source = self.src.clone();
+        for ((node, prop), value) in &self.draft_pose.values {
+            let Ok(scene) = motif_script::parse_in(&source, self.path.as_ref().and_then(|p| p.parent())) else { return };
+            let Some(next) = set_key(&source, &scene, &anim, node, *prop, time, *value) else { return };
+            source = next;
+        }
+        if self.apply_once("record-pose", Some(source)) {
+            self.status = "Пробная поза записана одним действием".into();
+        }
+    }
+
+    fn record_transform(&mut self) {
+        let Some(id) = self.selected.clone() else { return };
+        let Some(node) = self.display_doc().node(&id).cloned() else { return };
+        if self.key_time().is_none() {
+            return;
+        }
+        let props = [Prop::X, Prop::Y, Prop::Rotation, Prop::ScaleX, Prop::ScaleY];
+        let mut draft = self.draft_pose.clone();
+        let auto_key = self.auto_key;
+        self.auto_key = true;
+        self.last_checkpoint.0.clear();
+        self.edit_group = Some("key-transform".into());
+        for prop in props {
+            self.edit(&id, prop, node.get(prop));
+        }
+        self.edit_group = None;
+        self.last_checkpoint.0.clear();
+        self.auto_key = auto_key;
+        for prop in props {
+            draft.values.remove(&(id.clone(), prop));
+        }
+        self.draft_pose = draft;
     }
 
     pub(crate) fn current_anim(&self) -> Option<&motif_core::Animation> {
@@ -509,41 +599,98 @@ impl App {
         if track.keys.iter().any(|k| (k.time - t).abs() < 0.005) { KeyState::Key } else { KeyState::Track }
     }
 
-    pub(crate) fn set_mode_animate(&mut self, on: bool) {
-        self.character_work = if on { crate::parameter_ui::CharacterWork::Animate } else { crate::parameter_ui::CharacterWork::Appearance };
-        if on {
-            let name =
-                self.last_anim.clone().filter(|a| self.scene.doc.animation(a).is_some()).or_else(|| self.scene.doc.animations.first().map(|a| a.name.clone()));
-            match name {
-                Some(n) => self.select_anim(n),
-                None => {
-                    let (out, name) = motif_script::add_anim(&self.src, &self.scene);
-                    if self.apply("anim", Some(out)) {
-                        self.select_anim(name);
-                    }
-                }
-            }
-        } else {
-            if self.anim.is_some() {
-                self.last_anim = self.anim.clone();
-            }
-            self.anim = None;
-            self.playing = false;
-            self.sel_keys.clear();
+    pub(crate) fn workspace(&self) -> crate::workspace::Workspace {
+        self.panels.settings.workspace
+    }
+
+    pub(crate) fn tool_profile(&self) -> Purpose {
+        self.profile.unwrap_or(self.scene.doc.purpose)
+    }
+
+    fn set_tool_profile(&mut self, profile: Purpose) {
+        self.profile = Some(profile);
+        self.status = "Профиль инструментов изменён; сцена и экспортные данные сохранены".into();
+    }
+
+    fn set_document_purpose(&mut self, purpose: Purpose) {
+        if !self.can_edit() || self.scene.doc.purpose == purpose {
+            return;
+        }
+        if self.apply_once("purpose", motif_script::set_purpose(&self.src, purpose)) {
+            self.profile = None;
+            self.status = "Назначение артборда сохранено в документе".into();
         }
     }
 
-    /// Marks the scene for interface or game work; the panels follow.
-    fn set_purpose(&mut self, purpose: Purpose) {
-        if purpose == self.scene.doc.purpose || !self.can_edit() {
+    pub(crate) fn reset_workspace_document(&mut self) {
+        self.profile = None;
+        self.clip_times.clear();
+        self.draft_pose.clear();
+        self.last_anim = None;
+        self.run = None;
+        self.check = None;
+        self.playing = false;
+        self.auto_key = false;
+    }
+
+    fn remember_clip_time(&mut self) {
+        if let Some(name) = &self.anim {
+            self.clip_times.insert((self.boards.active, name.clone()), self.time);
+            self.last_anim = Some(name.clone());
+        }
+    }
+
+    pub(crate) fn set_workspace(&mut self, space: crate::workspace::Workspace) {
+        if self.drag.is_some() || self.key_drag.is_some() || !self.pen.is_empty() {
+            self.status = "Завершите действие на холсте или нажмите Esc перед сменой пространства".into();
             return;
         }
-        if self.apply("purpose", motif_script::set_purpose(&self.src, purpose)) {
-            self.status = match purpose {
-                Purpose::Ui => "Режим UI: экспорт UI-набора и состояния кнопок на виду, кости, физика и 3D спрятаны".into(),
-                Purpose::Game => "Режим «Игра»: кости, физика, 3D и кисти; раздел «Интерфейс» спрятан".into(),
-                Purpose::Any => "Все инструменты на виду".into(),
-            };
+        self.remember_clip_time();
+        self.panels.switch(space);
+        self.playing = false;
+        self.run = None;
+        self.check = None;
+        self.draft_pose.clear();
+        self.point_edit = None;
+        self.brush_w.on = None;
+        self.live.clear();
+        self.sel_keys.clear();
+        self.tool = Tool::Select;
+        if space == crate::workspace::Workspace::Animate {
+            self.anim = self
+                .last_anim
+                .clone()
+                .filter(|name| self.scene.doc.animation(name).is_some())
+                .or_else(|| self.scene.doc.animations.first().map(|a| a.name.clone()));
+            if let Some(name) = &self.anim {
+                self.time = self.clip_times.get(&(self.boards.active, name.clone())).copied().unwrap_or(0.0);
+            }
+        } else {
+            self.anim = None;
+        }
+    }
+
+    pub(crate) fn set_mode_animate(&mut self, on: bool) {
+        self.set_workspace(if on { crate::workspace::Workspace::Animate } else { crate::workspace::Workspace::Drawing });
+    }
+
+    pub(crate) fn create_animation(&mut self) {
+        if !self.can_edit() {
+            return;
+        }
+        self.set_workspace(crate::workspace::Workspace::Animate);
+        let (out, name) = motif_script::add_anim(&self.src, &self.scene);
+        if self.apply_once("anim", Some(out)) {
+            self.select_anim(name.clone());
+            self.status = format!("Создан клип «{name}». Ромб записывает ключ; автоключ включается отдельно");
+        }
+    }
+
+    fn persist_workspace(&mut self) {
+        if let Some(store) = &mut self.workspace_store
+            && let Err(e) = store.save(&self.panels.settings)
+        {
+            self.status = format!("Не удалось сохранить раскладку: {e}");
         }
     }
 
@@ -568,14 +715,15 @@ impl App {
         if !self.can_edit() {
             return;
         }
+        self.set_mode_animate(true);
         let (out, added) = motif_script::add_states(&self.src, &self.scene, &["Hover", "Press"], 0.25);
         self.apply("states", Some(out));
         self.set_mode_animate(true);
         self.select_anim("Hover".into());
         self.status = if added.is_empty() {
-            "Анимации Hover и Press уже есть: правки в Animate ставят в них ключи".into()
+            "Анимации Hover и Press уже есть: записывайте позу ромбом или включите автоключ".into()
         } else {
-            format!("Добавлены анимации {}: меняйте свойства в Animate, последний кадр станет состоянием", added.join(", "))
+            format!("Добавлены анимации {}: записывайте свойства в ключи, последний кадр станет состоянием", added.join(", "))
         };
     }
 
@@ -584,6 +732,7 @@ impl App {
         if !self.can_edit() {
             return;
         }
+        self.set_mode_animate(true);
         let (out, _) = motif_script::add_states(&self.src, &self.scene, &["Value"], 1.0);
         self.apply("value", Some(out));
         self.set_mode_animate(true);
@@ -592,11 +741,19 @@ impl App {
     }
 
     pub(crate) fn select_anim(&mut self, name: String) {
-        self.character_work = crate::parameter_ui::CharacterWork::Animate;
+        if self.scene.doc.animation(&name).is_none() {
+            return;
+        }
+        self.remember_clip_time();
+        self.panels.switch(crate::workspace::Workspace::Animate);
+        self.panels.set(crate::workspace::Panel::Timeline, true);
         self.run = None;
         self.check = None;
+        self.tool = Tool::Select;
+        self.point_edit = None;
+        self.draft_pose.clear();
         if self.anim.as_deref() != Some(name.as_str()) {
-            self.time = 0.0;
+            self.time = self.clip_times.get(&(self.boards.active, name.clone())).copied().unwrap_or(0.0);
             self.sel_keys.clear();
         }
         self.last_anim = Some(name.clone());
@@ -648,11 +805,14 @@ impl App {
         };
         if self.anim.is_none() && self.run.is_none() && !doc.parameters.is_empty() {
             for p in &mut doc.parameters {
-                p.value = if self.character_work == crate::parameter_ui::CharacterWork::Appearance {
-                    p.default
-                } else {
-                    self.pose_preview.get(&p.id).copied().unwrap_or(p.value)
-                };
+                p.value =
+                    if self.workspace() == crate::workspace::Workspace::Drawing { p.default } else { self.pose_preview.get(&p.id).copied().unwrap_or(p.value) };
+            }
+            doc.apply_parameters();
+        }
+        if self.draft_pose.matches(&self.key_time()) {
+            for ((node, prop), value) in &self.draft_pose.values {
+                doc.set_animated_value(node, *prop, *value);
             }
             doc.apply_parameters();
         }
@@ -876,7 +1036,7 @@ impl App {
 
     fn new_scene(&mut self, template: &str) {
         self.pose_preview.clear();
-        self.character_work = Default::default();
+        self.reset_workspace_document();
         self.recovery.clear();
         self.checkpoint("file");
         self.set_file(template, 0);
@@ -897,7 +1057,7 @@ impl App {
         match std::fs::read_to_string(&p) {
             Ok(s) => {
                 self.pose_preview.clear();
-                self.character_work = Default::default();
+                self.reset_workspace_document();
                 self.recovery.clear();
                 self.undo.push((self.boards.active, self.file_text()));
                 self.set_file(&s, 0);
@@ -1257,14 +1417,11 @@ impl App {
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
-        ui.horizontal_centered(|ui| {
-            ui.add_space(4.0);
-            // Brand mark.
-            let (m, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-            ui.painter().rect_filled(m, 5.0, ACCENT);
-            ui.painter().text(m.center() + vec2(0.0, 0.5), Align2::CENTER_CENTER, "M", theme::semibold(13.0), ACCENT_INK);
-            ui.label(RichText::new("Motif").font(theme::semibold(13.5)).color(FG));
-            ui.add_space(4.0);
+        let split = rect.left() + rect.width() * 0.42;
+        let left_rect = Rect::from_min_max(rect.min, pos2(split, rect.top() + 34.0));
+        let mut left = ui.new_child(egui::UiBuilder::new().max_rect(left_rect));
+        left.set_clip_rect(left_rect);
+        left.horizontal_centered(|ui| {
             let file = ui.add(egui::Button::new(RichText::new("Файл").color(MUTED)).frame(false));
             egui::Popup::menu(&file).show(|ui| {
                 ui.set_min_width(220.0);
@@ -1321,33 +1478,12 @@ impl App {
                 }
             });
             let name = self.path.as_ref().and_then(|p| p.file_name()).map_or("без имени.msc".into(), |n| n.to_string_lossy().into_owned());
-            let folder = self.path.as_ref().and_then(|p| p.parent()).and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
-            let mut job = egui::text::LayoutJob::default();
-            let fmt = |c: Color32, f: egui::FontId| egui::TextFormat { color: c, font_id: f, ..Default::default() };
-            if let Some(f) = folder {
-                job.append(&format!("{f} / "), 0.0, fmt(MUTED, theme::ui_font(13.0)));
-            }
-            job.append(&name, 0.0, fmt(FG, theme::ui_font(13.0)));
-            if self.dirty() {
-                job.append(" •", 0.0, fmt(ACCENT, theme::ui_font(15.0)));
-            }
-            job.append(&format!(" · артборд «{}»", self.scene.doc.artboard.name), 0.0, fmt(MUTED, theme::ui_font(13.0)));
-            ui.label(job);
+            let text = format!("{}{} · {}", name, if self.dirty() { " •" } else { "" }, self.scene.doc.artboard.name);
+            ui.add(egui::Label::new(text).truncate()).on_hover_text(self.path.as_ref().map_or_else(|| "Новая сцена".into(), |p| p.display().to_string()));
         });
-
-        // Mode switch in the middle of the bar.
-        let seg_w = 176.0;
-        let seg_rect = Rect::from_center_size(rect.center(), vec2(seg_w, 30.0));
-        let mut seg_ui = ui.new_child(egui::UiBuilder::new().max_rect(seg_rect).layout(egui::Layout::left_to_right(egui::Align::Center)));
-        let mode = usize::from(self.anim.is_some());
-        if let Some(i) = theme::segmented(&mut seg_ui, &["Design", "Animate"], mode, true) {
-            self.set_mode_animate(i == 1);
-        }
-
-        // Right side.
-        let right = Rect::from_min_max(pos2(rect.center().x + seg_w / 2.0 + 8.0, rect.top()), rect.max);
+        let right = Rect::from_min_max(pos2(split + 8.0, rect.top()), pos2(rect.right(), rect.top() + 34.0));
         let mut rui = ui.new_child(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)));
-        rui.add_space(4.0);
+        rui.set_clip_rect(right);
         if theme::button(&mut rui, "?", ButtonKind::Normal).on_hover_text("Горячие клавиши и версия").clicked() {
             self.show_help = !self.show_help;
         }
@@ -1385,16 +1521,205 @@ impl App {
                 self.view = None;
             }
         }
-        let script_kind = if self.show_script { ButtonKind::On } else { ButtonKind::Normal };
-        if theme::button(&mut rui, "Скрипт", script_kind).on_hover_text("Показать или скрыть скрипт сцены (Ctrl+E)").clicked()
-        {
-            self.show_script = !self.show_script;
+        let lower = Rect::from_min_max(pos2(rect.left(), rect.top() + 38.0), rect.max);
+        let mut lower_ui = ui.new_child(egui::UiBuilder::new().max_rect(lower));
+        lower_ui.horizontal_wrapped(|ui| {
+            use crate::workspace::{Panel, Workspace};
+            let labels = Workspace::ALL.map(Workspace::name);
+            if let Some(index) = theme::segmented(ui, &labels, self.workspace().index(), true) {
+                self.set_workspace(Workspace::ALL[index]);
+            }
+            ui.separator();
+            let profile = self.tool_profile();
+            egui::ComboBox::from_id_salt("tool-profile")
+                .width(70.0)
+                .selected_text(match profile {
+                    Purpose::Any => "Всё",
+                    Purpose::Ui => "UI",
+                    Purpose::Game => "Игра",
+                })
+                .show_ui(ui, |ui| {
+                    ui.label("Профиль инструментов");
+                    for (value, label) in [(Purpose::Any, "Все инструменты"), (Purpose::Ui, "Интерфейсы UI"), (Purpose::Game, "Игровая графика")]
+                    {
+                        if ui.selectable_label(profile == value, label).clicked() {
+                            self.set_tool_profile(value);
+                        }
+                    }
+                    if ui.button("По документу").clicked() {
+                        self.profile = None;
+                    }
+                })
+                .response
+                .on_hover_text("Фильтр инструментов. Не меняет назначение сцены в файле");
+            let response = ui.button("Панели");
+            egui::Popup::menu(&response).show(|ui| {
+                for panel in Panel::ALL {
+                    let mut shown = self.panels.layout().shown(panel);
+                    if ui.checkbox(&mut shown, panel.name()).changed() {
+                        self.panels.set(panel, shown);
+                    }
+                }
+                ui.separator();
+                if ui.button("Сбросить раскладку пространства").clicked() {
+                    self.panels.reset();
+                }
+            });
+            if theme::button(
+                ui,
+                if self.panels.focus.is_some() { "Вернуть панели" } else { "Фокус" },
+                if self.panels.focus.is_some() { ButtonKind::On } else { ButtonKind::Normal },
+            )
+            .on_hover_text("Временно скрыть панели / вернуть раскладку (Ctrl+Shift+Space)")
+            .clicked()
+            {
+                self.panels.toggle_focus();
+            }
+            if self.workspace() == Workspace::Animate && !self.panels.layout().timeline {
+                if self.anim.is_some() {
+                    if theme::icon_button(ui, if self.playing { Icon::Pause } else { Icon::Play }, "Пуск / пауза").clicked() {
+                        self.playing = !self.playing;
+                    }
+                    if ui.add(egui::DragValue::new(&mut self.time).speed(1.0 / 60.0).range(0.0..=600.0).suffix(" с").max_decimals(2)).changed() {
+                        self.playing = false;
+                        self.draft_pose.clear();
+                    }
+                } else if ui.button("Создать клип").clicked() {
+                    self.create_animation();
+                }
+            }
+        });
+    }
+
+    // Panel geometry is user state, never document history. Each workspace has its own sizes.
+    fn panel_seed(&self, ui: &egui::Ui, panel: crate::workspace::Panel, size: f32) -> (u8, usize, bool) {
+        let salt = (panel as u8, self.workspace().index(), self.panels.focus.is_some());
+        let id = ui.scope_id().with(salt);
+        if !ui.ctx().read_response(id.with("__resize")).is_some_and(|r| r.dragged() || r.drag_stopped()) {
+            let rect = Rect::from_min_size(pos2(0.0, 0.0), if panel == crate::workspace::Panel::Timeline { vec2(800.0, size) } else { vec2(size, 600.0) });
+            ui.ctx().data_mut(|data| data.insert_persisted(id, egui::containers::panel::PanelState { outer_rect: rect }));
         }
-        rui.add_space(6.0);
-        let purposes = [Purpose::Any, Purpose::Ui, Purpose::Game];
-        let at = purposes.iter().position(|p| *p == self.scene.doc.purpose).unwrap_or(0);
-        if let Some(i) = theme::segmented(&mut rui, &["Всё", "UI", "Игра"], at, false) {
-            self.set_purpose(purposes[i]);
+        salt
+    }
+
+    fn panel_resized(&mut self, ui: &egui::Ui, panel: crate::workspace::Panel, salt: (u8, usize, bool), rect: Rect) {
+        let id = ui.scope_id().with(salt).with("__resize");
+        if ui.ctx().read_response(id).is_some_and(|r| r.dragged() || r.drag_stopped()) {
+            let layout = self.panels.layout_mut();
+            match panel {
+                crate::workspace::Panel::Layers => layout.layers_width = rect.width(),
+                crate::workspace::Panel::Script => layout.script_width = rect.width(),
+                crate::workspace::Panel::Inspector => layout.inspector_width = rect.width(),
+                crate::workspace::Panel::Timeline => layout.timeline_height = rect.height(),
+                crate::workspace::Panel::Tools => {}
+            }
+        }
+    }
+
+    fn panel_header(&mut self, ui: &mut egui::Ui, panel: crate::workspace::Panel) {
+        ui.horizontal(|ui| {
+            if ui.small_button("−").on_hover_text("Свернуть панель").clicked() {
+                self.panels.set(panel, false);
+            }
+            ui.small(panel.name());
+        });
+    }
+
+    fn collapsed_panel(&mut self, ui: &mut egui::Ui, panel: crate::workspace::Panel) {
+        let rect = ui.max_rect();
+        let response = ui.interact(rect, ui.scope_id().with("open-panel"), Sense::click()).on_hover_text(format!("Развернуть: {}", panel.name()));
+        if response.hovered() {
+            ui.painter().rect_filled(rect, 0.0, theme::PANEL_2);
+        }
+        for (i, ch) in panel.name().to_uppercase().chars().enumerate() {
+            ui.painter().text(pos2(rect.center().x, rect.top() + 22.0 + i as f32 * 15.0), Align2::CENTER_CENTER, ch, theme::semibold(11.0), MUTED);
+        }
+        if response.clicked() {
+            self.panels.set(panel, true);
+        }
+    }
+
+    fn workspace_panels(&mut self, ui: &mut egui::Ui) {
+        use crate::workspace::Panel;
+        let layout = self.panels.layout().fit_prioritizing(ui.available_width(), ui.available_height(), self.panels.priority);
+        let strips = self.panels.focus.is_none();
+        let frame = egui::Frame::new().fill(PANEL);
+        if layout.timeline {
+            let salt = self.panel_seed(ui, Panel::Timeline, layout.timeline_height);
+            let max = (ui.available_height() - 220.0).clamp(120.0, 520.0);
+            let response = egui::Panel::bottom(salt).resizable(true).default_size(layout.timeline_height).size_range(120.0..=max).frame(frame).show(ui, |ui| {
+                self.panel_header(ui, Panel::Timeline);
+                self.timeline(ui);
+            });
+            self.panel_resized(ui, Panel::Timeline, salt, response.response.rect);
+        } else if strips {
+            egui::Panel::bottom("timeline-closed").exact_size(24.0).frame(frame).show(ui, |ui| {
+                if ui.small_button("Развернуть таймлайн / машину состояний").clicked() {
+                    self.panels.set(Panel::Timeline, true);
+                }
+            });
+        }
+        if layout.inspector {
+            let salt = self.panel_seed(ui, Panel::Inspector, layout.inspector_width);
+            let reserved = 320.0
+                + if layout.tools { 48.0 } else { 0.0 }
+                + if layout.layers {
+                    layout.layers_width
+                } else if strips {
+                    28.0
+                } else {
+                    0.0
+                }
+                + if layout.script {
+                    layout.script_width
+                } else if strips {
+                    28.0
+                } else {
+                    0.0
+                };
+            let max = (ui.available_width() - reserved).clamp(240.0, 560.0);
+            let response = egui::Panel::right(salt).resizable(true).default_size(layout.inspector_width).size_range(240.0..=max).frame(frame).show(ui, |ui| {
+                self.panel_header(ui, Panel::Inspector);
+                self.props_panel(ui);
+            });
+            self.panel_resized(ui, Panel::Inspector, salt, response.response.rect);
+        } else if strips {
+            egui::Panel::right("inspector-closed").exact_size(28.0).frame(frame).show(ui, |ui| self.collapsed_panel(ui, Panel::Inspector));
+        }
+        if layout.tools {
+            egui::Panel::left("tools").exact_size(48.0).frame(frame).show(ui, |ui| self.tool_rail(ui));
+        }
+        if layout.layers {
+            let salt = self.panel_seed(ui, Panel::Layers, layout.layers_width);
+            let reserved = 320.0
+                + if layout.script {
+                    layout.script_width
+                } else if strips {
+                    28.0
+                } else {
+                    0.0
+                };
+            let max = (ui.available_width() - reserved).clamp(160.0, 360.0);
+            let response = egui::Panel::left(salt).resizable(true).default_size(layout.layers_width).size_range(160.0..=max).frame(frame).show(ui, |ui| {
+                self.panel_header(ui, Panel::Layers);
+                self.layers_panel(ui);
+            });
+            self.panel_resized(ui, Panel::Layers, salt, response.response.rect);
+        } else if strips {
+            egui::Panel::left("layers-closed").exact_size(28.0).frame(frame).show(ui, |ui| self.collapsed_panel(ui, Panel::Layers));
+        }
+        if layout.script {
+            let salt = self.panel_seed(ui, Panel::Script, layout.script_width);
+            let max = (ui.available_width() - 320.0).clamp(240.0, 900.0);
+            let response = egui::Panel::left(salt)
+                .resizable(true)
+                .default_size(layout.script_width)
+                .size_range(240.0..=max)
+                .frame(frame)
+                .show(ui, |ui| self.script_panel(ui));
+            self.panel_resized(ui, Panel::Script, salt, response.response.rect);
+        } else if strips {
+            egui::Panel::left("script-strip").exact_size(28.0).frame(frame).show(ui, |ui| self.script_strip(ui));
         }
     }
 
@@ -1412,26 +1737,28 @@ impl App {
             }
             let (r, _) = ui.allocate_exact_size(vec2(24.0, 9.0), Sense::hover());
             ui.painter().line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, LINE));
-            let shapes = [
-                (ShapeKind::Rect, "R", "Прямоугольник: тяните по холсту"),
-                (ShapeKind::Ellipse, "O", "Эллипс: тяните по холсту"),
-                (ShapeKind::Star, "S", "Звезда: тяните по холсту"),
-                (ShapeKind::Polygon, "N", "Многоугольник: тяните по холсту"),
-                (ShapeKind::Text, "T", "Текст: клик по холсту (протяжка задаёт высоту букв)"),
-            ];
-            for (kind, key, tip) in shapes {
-                let tool = Tool::Create(kind);
-                if theme::tool_button(ui, theme::shape_icon(kind), self.tool == tool, key, tip).clicked() {
-                    self.tool = tool;
+            if self.workspace() != crate::workspace::Workspace::Animate {
+                let shapes = [
+                    (ShapeKind::Rect, "R", "Прямоугольник: тяните по холсту"),
+                    (ShapeKind::Ellipse, "O", "Эллипс: тяните по холсту"),
+                    (ShapeKind::Star, "S", "Звезда: тяните по холсту"),
+                    (ShapeKind::Polygon, "N", "Многоугольник: тяните по холсту"),
+                    (ShapeKind::Text, "T", "Текст: клик по холсту (протяжка задаёт высоту букв)"),
+                ];
+                for (kind, key, tip) in shapes {
+                    let tool = Tool::Create(kind);
+                    if theme::tool_button(ui, theme::shape_icon(kind), self.tool == tool, key, tip).clicked() {
+                        self.tool = tool;
+                    }
                 }
-            }
-            let tip = "Кость: тяните от сустава к кончику. С выбранной костью новая становится её продолжением";
-            if self.scene.doc.purpose != Purpose::Ui && theme::tool_button(ui, Icon::Bone, self.bone_tool(), "B", tip).clicked() {
-                self.tool = Tool::Create(ShapeKind::Bone);
-            }
-            let tip = "Перо: клик — угол, протяжка — плавная точка, клик по первой точке замыкает";
-            if theme::tool_button(ui, Icon::Pen, self.tool == Tool::Pen, "P", tip).clicked() {
-                self.tool = Tool::Pen;
+                let tip = "Кость: тяните от сустава к кончику. С выбранной костью новая становится её продолжением";
+                if self.tool_profile() != Purpose::Ui && theme::tool_button(ui, Icon::Bone, self.bone_tool(), "B", tip).clicked() {
+                    self.tool = Tool::Create(ShapeKind::Bone);
+                }
+                let tip = "Перо: клик — угол, протяжка — плавная точка, клик по первой точке замыкает";
+                if theme::tool_button(ui, Icon::Pen, self.tool == Tool::Pen, "P", tip).clicked() {
+                    self.tool = Tool::Pen;
+                }
             }
             let (r, _) = ui.allocate_exact_size(vec2(24.0, 9.0), Sense::hover());
             ui.painter().line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, LINE));
@@ -1475,7 +1802,7 @@ impl App {
             self.show_syntax = !self.show_syntax;
         }
         if small(ui, 18.0, Icon::CollapseLeft, false, "Свернуть скрипт (Ctrl+E)", "collapse") {
-            self.show_script = false;
+            self.panels.set(crate::workspace::Panel::Script, false);
         }
         let errors_h = if self.errors.is_empty() { 0.0 } else { 10.0 + 18.0 * self.errors.len().min(4) as f32 };
         let error_lines: Vec<usize> = self.errors.iter().map(|e| e.line).collect();
@@ -1542,8 +1869,12 @@ impl App {
             }
             self.parameter_work_panel(ui);
             self.parameter_panel(ui);
-            if !self.scene.doc.parameters.is_empty() && self.character_work != crate::parameter_ui::CharacterWork::Appearance { return; }
-            self.character_panel(ui);
+            if self.workspace() != crate::workspace::Workspace::Drawing
+                && self.selected.as_deref().is_some_and(|id| self.protected_character_node(id)) {
+                if ui.button("Редактировать рисунок детали").clicked() { self.set_mode_animate(false); }
+                return;
+            }
+            if self.workspace() == crate::workspace::Workspace::Drawing { self.character_panel(ui); }
             let Some(id) = self.selected.clone() else {
                 self.artboard_info(ui);
                 return;
@@ -1673,8 +2004,8 @@ impl App {
             self.mask_ui(ui, &node);
             self.symbol_section(ui, &node);
             // Interface work needs no skeletons or physics; game art needs no kit.
-            let game = self.scene.doc.purpose != Purpose::Ui;
-            let interface = self.scene.doc.purpose != Purpose::Game;
+            let game = self.tool_profile() != Purpose::Ui;
+            let interface = self.tool_profile() != Purpose::Game;
             if game {
                 self.bone_section(ui, &node);
                 self.weights_section(ui, &node);
@@ -1842,12 +2173,23 @@ impl App {
     fn artboard_info(&mut self, ui: &mut egui::Ui) {
         self.board_section(ui);
         section(ui, |ui| {
+            ui.strong("Назначение артборда в файле");
+            ui.add_enabled_ui(self.workspace() != crate::workspace::Workspace::Animate, |ui| {
+                let values = [Purpose::Any, Purpose::Ui, Purpose::Game];
+                let selected = values.iter().position(|p| *p == self.scene.doc.purpose).unwrap_or(0);
+                if let Some(i) = theme::segmented(ui, &["Всё", "UI", "Игра"], selected, false) {
+                    self.set_document_purpose(values[i]);
+                }
+            });
+            ui.small("Сохраняется в сцене. Профиль сверху только фильтрует инструменты.");
+        });
+        section(ui, |ui| {
             ui.label(RichText::new("Выберите объект на холсте, в слоях или кликом по его строке в скрипте.").size(12.0).color(FAINT));
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG или PSD — подложкой.").size(12.0).color(FAINT));
         });
         self.palette_section(ui);
-        if self.scene.doc.purpose == Purpose::Ui {
+        if self.tool_profile() == Purpose::Ui {
             self.symbols_library(ui);
             self.backdrop_section(ui);
             return;
@@ -2476,7 +2818,7 @@ impl App {
                 self.export_boards_choice(ui);
                 self.web_export(ui);
                 // An interface scene is exported as a kit first of all; game art has no kit.
-                let purpose = self.scene.doc.purpose;
+                let purpose = self.tool_profile();
                 if purpose == Purpose::Ui {
                     self.kit_export(ui);
                 } else {
@@ -2633,7 +2975,7 @@ impl App {
 
     fn kit_export(&mut self, ui: &mut egui::Ui) {
         theme::caption(ui, "UI-набор для Godot");
-        if theme::button(ui, "Сохранить UI-набор…", if self.scene.doc.purpose == Purpose::Ui { ButtonKind::Primary } else { ButtonKind::Normal })
+        if theme::button(ui, "Сохранить UI-набор…", if self.tool_profile() == Purpose::Ui { ButtonKind::Primary } else { ButtonKind::Normal })
             .on_hover_text("Каждая деталь с ui или slice — отдельные PNG по состояниям и тема .tres со StyleBoxTexture")
             .clicked()
         {
@@ -2718,7 +3060,8 @@ impl App {
                     ("P", "Перо; Enter — закончить, клик по первой точке — замкнуть"),
                     ("B", "Кость: протяжка от сустава к кончику, следующая продолжает цепочку"),
                     ("Enter", "Редактировать точки контура (или двойной клик)"),
-                    ("Tab", "Переключить Design / Animate"),
+                    ("Tab", "Переключить Рисование / Анимацию без изменения сцены"),
+                    ("Ctrl+Shift+Space", "Фокус на холсте / вернуть панели"),
                     ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),
                     ("K", "Ключ на позицию, поворот и масштаб выделенного"),
                     (", .", "Кадр назад / вперёд"),
@@ -2787,13 +3130,21 @@ impl App {
         if cmd(Key::N) && self.library.is_none() {
             self.library = Some(crate::library_ui::Library::new());
         }
-        if cmd(Key::E) {
-            self.show_script = !self.show_script;
+        if cmd(Key::E) && !typing {
+            self.panels.toggle(crate::workspace::Panel::Script);
         }
         if i.key_pressed(Key::F1) {
             self.show_syntax = !self.show_syntax;
         }
         if typing {
+            return;
+        }
+        if i.modifiers.command && i.modifiers.shift && i.key_pressed(Key::Space) {
+            if self.pending_file.is_some() || self.show_export || self.show_help || self.show_recovery || self.show_syntax || self.stretch.is_some() {
+                return;
+            }
+            self.panels.toggle_focus();
+            self.space_used_for_pan = true;
             return;
         }
         for e in &i.events {
@@ -2843,7 +3194,7 @@ impl App {
         if i.key_released(Key::Space) {
             if !self.space_used_for_pan && self.bottom_machine {
                 self.toggle_run();
-            } else if !self.space_used_for_pan && self.anim.is_some() {
+            } else if !self.space_used_for_pan && self.anim.is_some() && !i.modifiers.command && !i.modifiers.shift {
                 self.playing = !self.playing;
             }
             self.space_used_for_pan = false;
@@ -2860,11 +3211,15 @@ impl App {
             (Key::B, Tool::Create(ShapeKind::Bone)),
         ] {
             if plain(k) {
-                self.tool = tool;
+                if self.workspace() == crate::workspace::Workspace::Animate && matches!(tool, Tool::Create(_) | Tool::Pen) {
+                    self.status = "Для создания фигур выберите «Рисование». Поза и клип сохранятся".into();
+                } else {
+                    self.tool = tool;
+                }
             }
         }
         if plain(Key::Tab) {
-            let on = self.anim.is_none();
+            let on = self.workspace() != crate::workspace::Workspace::Animate;
             self.set_mode_animate(on);
         }
         if plain(Key::G) {
@@ -2914,13 +3269,8 @@ impl App {
                 self.time = (anim.local_time(self.time) + step).min(anim.duration);
                 self.playing = false;
             }
-            if plain(Key::K)
-                && let Some(id) = self.selected.clone()
-                && let Some(n) = self.display_doc().node(&id).cloned()
-            {
-                for prop in [Prop::X, Prop::Y, Prop::Rotation, Prop::ScaleX, Prop::ScaleY] {
-                    self.edit(&id, prop, n.get(prop));
-                }
+            if plain(Key::K) {
+                self.record_transform();
             }
         }
         if let Some(id) = self.selected.clone() {
@@ -3136,6 +3486,10 @@ pub(crate) fn mtime(p: &std::path::Path) -> Option<SystemTime> {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self) {
+        self.persist_workspace();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let dt = ctx.input(|i| i.stable_dt);
@@ -3158,6 +3512,12 @@ impl eframe::App for App {
         if let Some(status) = self.video.poll() {
             self.status = status;
         }
+        if !ctx.input(|i| i.pointer.any_down()) {
+            self.persist_workspace();
+        }
+        if !self.draft_pose.matches(&self.key_time()) {
+            self.draft_pose.clear();
+        }
         self.shortcuts(&ctx);
         if let Some(c) = &mut self.check {
             c.advance(&self.scene.doc, dt.min(0.1) as f64);
@@ -3178,17 +3538,12 @@ impl eframe::App for App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
 
         let panel = egui::Frame::new().fill(PANEL);
-        egui::Panel::top("top").exact_size(44.0).frame(panel.inner_margin(egui::Margin::symmetric(8, 0))).show(ui, |ui| self.top_bar(ui));
+        egui::Panel::top("top")
+            .exact_size(if ui.available_width() < 900.0 { 110.0 } else { 80.0 })
+            .frame(panel.inner_margin(egui::Margin::symmetric(8, 0)))
+            .show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("status").exact_size(26.0).frame(panel.inner_margin(egui::Margin::symmetric(12, 0))).show(ui, |ui| self.status_bar(ui));
-        egui::Panel::right("props").resizable(true).default_size(264.0).size_range(240.0..=560.0).frame(panel).show(ui, |ui| self.props_panel(ui));
-        egui::Panel::bottom("timeline").resizable(true).default_size(236.0).size_range(120.0..=520.0).frame(panel).show(ui, |ui| self.timeline(ui));
-        egui::Panel::left("tools").exact_size(48.0).frame(panel).show(ui, |ui| self.tool_rail(ui));
-        egui::Panel::left("layers").resizable(true).default_size(210.0).size_range(160.0..=360.0).frame(panel).show(ui, |ui| self.layers_panel(ui));
-        if self.show_script {
-            egui::Panel::left("script").resizable(true).default_size(440.0).size_range(240.0..=900.0).frame(panel).show(ui, |ui| self.script_panel(ui));
-        } else {
-            egui::Panel::left("script-strip").exact_size(30.0).frame(panel).show(ui, |ui| self.script_strip(ui));
-        }
+        self.workspace_panels(ui);
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, frame));
         self.export_window(&ctx);
         self.web_window(&ctx);
@@ -3244,7 +3599,7 @@ mod editing_tests {
 
     #[test]
     fn character_work_modes_separate_appearance_setup_and_animation() {
-        use crate::parameter_ui::CharacterWork;
+        use crate::workspace::Workspace;
         let source = include_str!("../../../examples/character-portrait.msc");
         let mut app = fixture(source);
         let original = app.file_text();
@@ -3258,7 +3613,7 @@ mod editing_tests {
         assert_eq!(app.file_text(), original);
 
         app.parameter_preview("turn", 0.8);
-        assert_eq!(app.character_work, CharacterWork::Setup);
+        assert_eq!(app.workspace(), Workspace::Setup);
         assert_eq!(app.file_text(), original, "pose preview must not dirty the drawing or author keys");
         assert!((app.display_doc().node("head").unwrap().yaw - 27.2).abs() < 1e-9);
         app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
@@ -3270,6 +3625,7 @@ mod editing_tests {
         assert_eq!(app.file_text(), original);
 
         app.select_anim("Look".into());
+        app.auto_key = true;
         app.time = 0.4;
         app.edit("turn", Prop::Parameter, Value::Num(0.75));
         let animated = app.file_text();
@@ -3297,6 +3653,7 @@ mod editing_tests {
         app.parameter_preview("turn", 1.0);
         app.parameter_form_edit("turn", "head", Prop::Yaw, 1.0, 38.0);
         app.select_anim("Look".into());
+        app.auto_key = true;
         app.time = 0.5;
         app.edit("blink", Prop::Parameter, Value::Num(0.7));
         app.toggle_key("blink", Prop::Parameter);
@@ -3312,7 +3669,7 @@ mod editing_tests {
         assert!(app.scene.doc.parameters.is_empty());
     }
 
-    fn fixture(src: &str) -> App {
+    pub(super) fn fixture(src: &str) -> App {
         static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
         let recovery = std::env::temp_dir().join(format!("motif-editor-fixture-{}-{}", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
         // No user settings, recovery directory, GPU surface or external tools are touched.
@@ -3514,12 +3871,17 @@ mod editing_tests {
         app.time = 0.35;
         app.playing = true;
         app.character_choice(&rig.root, &rig.looks[1].slots);
+        assert!(app.file_text() == original && app.undo.is_empty(), "animation must protect wardrobe");
+        app.set_mode_animate(false);
+        app.character_choice(&rig.root, &rig.looks[1].slots);
+        app.set_mode_animate(true);
         let clothed = app.file_text();
         assert_ne!(clothed, original);
         assert_eq!(app.undo.len(), 1);
         assert_eq!(app.anim.as_deref(), Some("Walk"));
         assert_eq!(app.time, 0.35);
-        assert!(app.playing);
+        assert!(!app.playing);
+        app.set_mode_animate(false);
         assert!(clothed.ends_with("artboard \"Other\" 30x30\nrect keep size 5\n"));
         app.character_copy(&rig.root, "head");
         let custom = app.file_text();
@@ -3536,12 +3898,13 @@ mod editing_tests {
     }
 
     #[test]
-    fn character_ui_selects_a_look_by_mouse_without_restarting_the_clip() {
+    fn character_ui_selects_a_look_by_mouse_and_returns_to_the_same_clip_time() {
         let mut app = fixture(include_str!("../../../examples/character-side.msc"));
         app.select_anim("Run".into());
         app.time = 0.2;
         app.playing = true;
         let original = app.file_text();
+        app.set_mode_animate(false);
         let frame = |app: &mut App, events| {
             let ctx = app.ctx.clone();
             ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(380.0, 800.0))), events, ..Default::default() }, |ui| {
@@ -3581,9 +3944,10 @@ mod editing_tests {
         click(&mut app, traveler);
         assert!(app.scene.doc.node("head_traveler").unwrap().visible);
         assert!(!app.scene.doc.node("head_base").unwrap().visible);
+        app.set_mode_animate(true);
         assert_eq!(app.anim.as_deref(), Some("Run"));
         assert_eq!(app.time, 0.2);
-        assert!(app.playing);
+        assert!(!app.playing);
         assert_eq!(app.undo.len(), 1);
         app.undo();
         assert_eq!(app.file_text(), original);
@@ -3619,9 +3983,10 @@ mod editing_tests {
         app.select_anim("Run".into());
         app.time = 0.25;
         app.playing = true;
+        app.set_mode_animate(false);
         app.character_look("hero", "Зелёный герой");
         assert_eq!(app.time, 0.25);
-        assert!(app.playing);
+        assert!(!app.playing);
         let green = app.file_text();
         let config = character::Settings { parameters: std::collections::BTreeMap::from([("head_size".into(), 1.1)]), ..Default::default() };
         app.character_configure("hero", &config);
@@ -3631,6 +3996,10 @@ mod editing_tests {
         let resized = app.file_text();
         app.character_copy_look("hero");
         let copied = app.file_text();
+        app.set_mode_animate(true);
+        assert_eq!(app.anim.as_deref(), Some("Run"));
+        assert_eq!(app.time, 0.25);
+        app.set_mode_animate(false);
         assert!(app.anim.is_none());
         assert_eq!(app.undo.len(), 3);
         app.undo();
@@ -3677,3 +4046,7 @@ mod editing_tests {
         assert!(app.undo.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "workspace_tests.rs"]
+mod workspace_tests;

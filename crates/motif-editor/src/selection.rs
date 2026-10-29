@@ -200,7 +200,9 @@ impl App {
                 return 0;
             }
         };
-        self.apply_once("delete", Some(out));
+        if !self.apply_once("delete", Some(out)) {
+            return 0;
+        }
         self.select_only(None);
         self.status = match (removed, skipped.is_empty()) {
             (_, false) => format!("Удалено: {removed}. Из циклов не удаляются: {}", skipped.join(", ")),

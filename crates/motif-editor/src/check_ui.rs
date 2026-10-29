@@ -36,11 +36,14 @@ impl App {
             self.status = "Проверка остановлена".into();
             return;
         }
+        self.clear_draft_pose();
+        if self.has_ui() {
+            self.set_mode_animate(false);
+        }
         if self.shown_machine().is_some_and(|m| !m.listeners.is_empty()) {
             self.toggle_run();
         }
         if self.has_ui() {
-            self.set_mode_animate(false);
             self.check = Some(UiCheck::new(&self.scene.doc));
             self.status = "Проверка: наводите, нажимайте и тяните мышью детали на холсте — так они будут работать в Godot".into();
         }

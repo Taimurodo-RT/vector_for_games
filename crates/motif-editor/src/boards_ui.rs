@@ -167,7 +167,7 @@ impl App {
         self.anim = None;
         self.last_anim = None;
         self.pose_preview.clear();
-        self.character_work = Default::default();
+        self.reset_workspace_document();
         self.run = None;
         self.check = None;
         self.playing = false;
@@ -183,6 +183,10 @@ impl App {
 
     /// Replaces the texts of the boards as one undo step; `active` becomes the edited board.
     pub(crate) fn apply_boards(&mut self, kind: &str, texts: Vec<String>, active: usize) {
+        if self.workspace() == crate::workspace::Workspace::Animate {
+            self.status = "Для изменения состава холстов выберите «Рисование» или «Настройка»".into();
+            return;
+        }
         self.checkpoint(kind);
         let switching = active != self.boards.active;
         let file = format!("{}{}", self.boards.head, texts.concat());

@@ -4,61 +4,71 @@ use crate::app::{App, section};
 use crate::theme;
 use motif_core::{Prop, Purpose, Value};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum CharacterWork {
-    #[default]
-    Appearance,
-    Setup,
-    Animate,
-}
+use crate::workspace::Workspace;
 
 impl App {
     pub(crate) fn parameter_work_panel(&mut self, ui: &mut egui::Ui) {
-        if self.scene.doc.parameters.is_empty() {
-            return;
-        }
-        if self.anim.is_some() || self.run.is_some() {
-            self.character_work = CharacterWork::Animate;
-        }
         section(ui, |ui| {
-            ui.strong("Работа с персонажем");
-            ui.horizontal_wrapped(|ui| {
-                for (mode, name) in
-                    [(CharacterWork::Appearance, "Внешность"), (CharacterWork::Setup, "Настройка движений"), (CharacterWork::Animate, "Анимация")]
-                {
-                    if ui.selectable_label(self.character_work == mode, name).clicked() {
-                        self.set_mode_animate(mode == CharacterWork::Animate);
-                        self.character_work = mode;
-                        self.run = None;
-                        self.playing = false;
-                    }
+            let label = match self.workspace() {
+                Workspace::Drawing => "Исходник: рисунок и постоянные свойства".into(),
+                Workspace::Setup => "Настройка: связи и опорные формы; поза — пробная".into(),
+                Workspace::Animate => self.anim.as_ref().map_or_else(|| "Анимация: клип не выбран".into(), |name| format!("Клип {name} · {:.2} с", self.time)),
+            };
+            ui.strong(label);
+            if self.workspace() == Workspace::Animate {
+                ui.checkbox(&mut self.auto_key, "Автоключ")
+                    .on_hover_text("Записывать изменения разрешённых свойств в клип. Выключено: только пробная поза, запись ромбом или кнопкой");
+                if self.has_draft_pose() {
+                    ui.small("Пробная поза — ещё не записана");
+                    ui.horizontal(|ui| {
+                        if ui.button("Записать позу").clicked() {
+                            self.record_draft_pose();
+                        }
+                        if ui.button("Сбросить пробу").clicked() {
+                            self.clear_draft_pose();
+                        }
+                    });
                 }
-            });
-            ui.small(match self.character_work {
-                CharacterWork::Appearance => "Нейтральная поза. Рисунок и одежда; связи и ключи защищены.",
-                CharacterWork::Setup => "Проба позы и опорные значения. Рисунок и ключи защищены.",
-                CharacterWork::Animate => "Ключи и проигрывание. Рисунок, одежда и опорные значения защищены.",
-            });
+                if self.anim.is_none() && ui.button("Создать клип").clicked() {
+                    self.create_animation();
+                }
+            }
         });
     }
 
-    /// All visual commands pass through this guard, including canvas shortcuts. Legacy
-    /// scenes without pose controls retain their existing Design/Animate workflow.
+    pub(crate) fn protected_character_node(&self, id: &str) -> bool {
+        protected_node(&self.scene.doc, &self.src, id)
+    }
+
+    /// Protect the target data, including commands reached from menus and shortcuts.
+    /// UI nodes on a board containing a rig remain editable and keyable.
     pub(crate) fn parameter_edit_allowed(&mut self, kind: &str, src: &str) -> bool {
-        if self.scene.doc.parameters.is_empty() {
+        let mode = if self.run.is_some() { Workspace::Animate } else { self.workspace() };
+        if self.scene.doc.parameters.is_empty() && mode != Workspace::Animate {
             return true;
         }
-        let mode = if self.anim.is_some() || self.run.is_some() { CharacterWork::Animate } else { self.character_work };
-        let allowed = match mode {
-            CharacterWork::Setup => kind.starts_with("form-"),
-            mode => motif_script::parse_in(src, self.path.as_ref().and_then(|p| p.parent())).is_ok_and(|new| {
-                let old = &self.scene.doc;
-                if mode == CharacterWork::Appearance {
+        let allowed = motif_script::parse_in(src, self.path.as_ref().and_then(|p| p.parent())).is_ok_and(|new| {
+            let old = &self.scene.doc;
+            match mode {
+                Workspace::Drawing => {
                     new.doc.animations == old.animations
                         && new.doc.machines == old.machines
                         && new.doc.parameters == old.parameters
                         && new.doc.drivers == old.drivers
-                } else {
+                }
+                Workspace::Setup => {
+                    if new.doc.animations != old.animations || new.doc.parameters != old.parameters {
+                        return false;
+                    }
+                    if !kind.starts_with("form-") && new.doc.drivers != old.drivers {
+                        return false;
+                    }
+                    let unchanged = |a: &motif_core::Document, text: &str, b: &motif_core::Document| {
+                        a.nodes.iter().filter(|node| protected_node(a, text, &node.id)).all(|node| b.node(&node.id) == Some(node))
+                    };
+                    unchanged(old, &self.src, &new.doc) && unchanged(&new.doc, src, old)
+                }
+                Workspace::Animate => {
                     let mut a = old.clone();
                     let mut b = new.doc;
                     a.animations.clear();
@@ -67,10 +77,11 @@ impl App {
                     b.machines.clear();
                     a == b
                 }
-            }),
-        };
+            }
+        });
         if !allowed {
-            self.status = "Правка защищена текущим режимом. Выберите «Внешность», «Настройка движений» или «Анимация» в панели персонажа".into();
+            self.status =
+                "Эта правка меняет данные другого пространства. Для рисунка выберите «Рисование», для связей — «Настройка», для клипов — «Анимация»".into();
         }
         allowed
     }
@@ -79,8 +90,7 @@ impl App {
         if !self.can_edit() {
             return;
         }
-        self.set_mode_animate(false);
-        self.character_work = CharacterWork::Setup;
+        self.set_workspace(Workspace::Setup);
         self.run = None;
         self.playing = false;
         if let Some(p) = self.scene.doc.parameter(id) {
@@ -97,14 +107,21 @@ impl App {
     }
 
     pub(crate) fn parameter_panel(&mut self, ui: &mut egui::Ui) {
-        if self.scene.doc.parameters.is_empty() || self.scene.doc.purpose == Purpose::Ui || self.character_work == CharacterWork::Appearance {
+        if self.scene.doc.parameters.is_empty() || self.tool_profile() == Purpose::Ui || self.workspace() == Workspace::Drawing {
+            return;
+        }
+        if self.selected.as_deref().is_some_and(|id| !self.protected_character_node(id)) {
             return;
         }
         let shown = self.display_doc();
         section(ui, |ui| {
             ui.strong("Параметры движения");
             ui.small(if self.anim.is_some() {
-                "Animate: изменение записывает ключ. Ромб добавляет или удаляет ключ."
+                if self.auto_key {
+                    "Автоключ включён: изменение записывает ключ."
+                } else {
+                    "Проба позы. Ромб или «Записать позу» сохраняет ключи."
+                }
             } else {
                 "Проба позы не меняет файл. Для записи движения выберите «Анимация»."
             });
@@ -134,7 +151,7 @@ impl App {
                     if ui.small_button("Нейтрально").clicked() {
                         self.edit(&parameter.id, Prop::Parameter, Value::Num(parameter.default));
                     }
-                    if self.character_work == CharacterWork::Setup {
+                    if self.workspace() == Workspace::Setup {
                         ui.collapsing("Опорные значения", |ui| {
                             ui.small("Правки здесь меняют все клипы. Кнопка позиции показывает опору в Design.");
                             let Some(driver) = self.scene.doc.drivers.iter().find(|d| d.parameter == parameter.id).cloned() else { return };
@@ -169,4 +186,32 @@ impl App {
             }
         });
     }
+}
+
+// A UI element remains a UI element inside a character group. Metadata roots and the
+// top-level owners of driven objects define the protected artwork, not the entire board.
+fn protected_node(doc: &motif_core::Document, src: &str, id: &str) -> bool {
+    if doc.parameters.is_empty() {
+        return false;
+    }
+    let Some(index) = doc.index_of(id) else { return false };
+    let mut at = Some(index);
+    while let Some(i) = at {
+        if doc.nodes[i].ui {
+            return false;
+        }
+        at = doc.nodes[i].parent;
+    }
+    if let Ok(Some(catalog)) = motif_script::character::read(src)
+        && catalog.characters.iter().any(|c| doc.index_of(&c.root).is_some_and(|root| index == root || doc.is_inside(index, root)))
+    {
+        return true;
+    }
+    doc.drivers.iter().flat_map(|d| &d.tracks).any(|track| {
+        let Some(mut root) = doc.index_of(&track.node) else { return false };
+        while let Some(parent) = doc.nodes[root].parent {
+            root = parent;
+        }
+        index == root || doc.is_inside(index, root)
+    })
 }

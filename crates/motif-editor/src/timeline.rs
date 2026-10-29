@@ -7,7 +7,7 @@ use crate::theme::{self, ACCENT, ButtonKind, DANGER, FAINT, FG, Icon, LINE, MUTE
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Align, Align2, Color32, Layout, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
 use motif_core::{Animation, Ease, Prop, ShapeKind};
-use motif_script::{add_anim, copy_keys, fmt_num, paste_keys, retime_keys, set_anim_duration, set_anim_loop, set_keys_ease};
+use motif_script::{copy_keys, fmt_num, paste_keys, retime_keys, set_anim_duration, set_anim_loop, set_keys_ease};
 
 const NAMES_W: f32 = 172.0;
 const ROW_H: f32 = 24.0;
@@ -162,7 +162,7 @@ impl App {
                 ui.painter().text(
                     body.left_top() + vec2(12.0, 16.0),
                     Align2::LEFT_TOP,
-                    "Анимаций пока нет. Нажмите «+» или Tab: появится анимация, а правки объектов начнут ставить ключи.",
+                    "Анимаций пока нет. Нажмите «+» для создания клипа. Переключение пространства не создаёт клип.",
                     theme::ui_font(12.5),
                     FAINT,
                 );
@@ -174,11 +174,7 @@ impl App {
     fn timeline_bar(&mut self, ui: &mut Ui, anim: Option<&Animation>) {
         self.anim_picker(ui, anim);
         if theme::icon_button(ui, Icon::Plus, "Новая анимация").clicked() && self.errors.is_empty() {
-            let (out, name) = add_anim(&self.src, &self.scene);
-            if self.apply("anim", Some(out)) {
-                self.select_anim(name.clone());
-                self.status = format!("Новая анимация «{name}»: двигайте объекты, ключи появятся сами");
-            }
+            self.create_animation();
         }
         let Some(anim) = anim else { return };
         self.anim_menu(ui, anim);
@@ -519,7 +515,7 @@ impl App {
                 ui.painter().text(
                     pos2(lanes.left() + LANE_PAD_L, r.center().y),
                     Align2::LEFT_CENTER,
-                    "В анимации пока нет ключей. Выберите объект и измените свойство в режиме Animate.",
+                    "Ключей пока нет. Измените свойство и запишите позу ромбом, либо включите автоключ.",
                     theme::ui_font(12.0),
                     FAINT,
                 );
@@ -535,7 +531,7 @@ impl App {
         // Design mode: the lanes are only a preview.
         if !animate {
             painter.rect_filled(lanes, 0.0, PANEL.gamma_multiply(0.45));
-            let text = "Design: правки меняют сцену. Клик по таймлайну или Tab включает Animate";
+            let text = "Исходник: правки меняют сцену. Клик по таймлайну или Tab открывает анимацию";
             let g = painter.layout_no_wrap(text.into(), theme::ui_font(12.0), MUTED);
             let r = Rect::from_center_size(pos2(lanes.center().x, lanes.bottom() - 22.0), g.size() + vec2(20.0, 10.0));
             painter.rect(r, 6.0, PANEL_2, Stroke::new(1.0, LINE), StrokeKind::Inside);
@@ -896,7 +892,7 @@ impl App {
                     p.text(
                         pos2(scale.x0, lanes.center().y),
                         Align2::LEFT_CENTER,
-                        "Режим Animate + изменение свойства = новый ключ",
+                        "Пробная поза: запись ромбом или включённым автоключом",
                         theme::ui_font(11.5),
                         FAINT,
                     );
