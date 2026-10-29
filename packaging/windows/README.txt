@@ -257,6 +257,8 @@ H, колесо мыши. Подробнее — docs\runtime.html.
 узел покажет ближайшую сторону, со спины сыграет Walk_up вместо Walk, шаг не
 собьётся, левые стороны отразятся при рисовании. Как устроен MotifSprite и
 почему он на GDExtension — docs\runtime.html#how.
+Проверить путь до game.exe на своём ПК за десять минут — список шагов
+в docs\runtime.html#delivery (сборка проходит его сама перед выпуском).
 
 motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out

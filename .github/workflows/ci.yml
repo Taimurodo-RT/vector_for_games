@@ -86,6 +86,28 @@ jobs:
           mkdir -p target/runtime-check/ui && echo 'config_version=5' > target/runtime-check/project.godot
           cargo run -p motif-cli -- runtime examples/modern-button.msc -o target/runtime-check/ui
           test -f target/runtime-check/addons/motif/motif.gdextension && test -f target/runtime-check/ui/fonts/Inter-Medium.ttf
+      # Export templates are a gigabyte: kept between runs.
+      - uses: actions/cache@v4
+        with:
+          path: templates.tpz
+          key: godot-templates-4.3-stable
+      - name: Godot 4.3 export templates
+        run: test -f templates.tpz || curl -sSL -o templates.tpz https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
+      - run: sudo apt-get install -y -qq xvfb libgl1-mesa-dri >/dev/null
+      # Install, a person's edit, reinstall, export, the game from another folder: exit code 0.
+      - name: Delivery end to end
+        run: |
+          cargo build -p motif-cli
+          mkdir -p target/e2e-addon && cp -r godot-addon/addons/motif target/e2e-addon/
+          mkdir -p target/e2e-addon/motif/bin && cp target/debug/libmotif_godot.so target/e2e-addon/motif/bin/
+          echo ci > target/e2e-addon/motif/version.txt
+          xvfb-run -s "-screen 0 1280x800x24" godot-addon/test/e2e/e2e.sh "$PWD/Godot_v4.3-stable_linux.x86_64" "$PWD/target/debug/motif" "$PWD/target/e2e-addon/motif" "$PWD/templates.tpz" "$PWD/target/e2e-shot.png"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-shot-linux
+          path: target/e2e-shot.png
+          if-no-files-found: ignore
 
   # Windows build. On main it is also published as the release that update.bat downloads.
   windows-build:
@@ -111,6 +133,19 @@ jobs:
       - name: Collect the build
         shell: pwsh
         run: packaging/windows/package.ps1 -Out Motif -Version $env:MOTIF_BUILD
+      - uses: actions/cache@v4
+        with:
+          path: templates.tpz
+          key: godot-templates-4.3-stable
+      # The packed build itself, as it reaches the PC: its motif.exe and addon go into a fresh
+      # project, which is exported with the 4.3 templates into game.exe, run from another folder.
+      - name: Delivery end to end (game.exe)
+        shell: bash
+        run: |
+          test -f templates.tpz || curl -sSL -o templates.tpz https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
+          curl -sSL -o godot.zip https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_win64.exe.zip
+          7z x -y -bd godot.zip >/dev/null
+          godot-addon/test/e2e/e2e.sh "$PWD/Godot_v4.3-stable_win64_console.exe" "$PWD/Motif/motif.exe" "$PWD/Motif/godot-addon/addons/motif" "$PWD/templates.tpz"
       - uses: actions/upload-artifact@v4
         with:
           name: Motif-windows-x64
