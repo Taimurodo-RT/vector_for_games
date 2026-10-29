@@ -126,6 +126,7 @@ impl App {
     }
 
     pub(crate) fn timeline(&mut self, ui: &mut Ui) {
+        self.pose_actions(ui);
         let full = ui.available_rect_before_wrap();
         ui.painter().line_segment([full.left_top(), full.right_top()], Stroke::new(1.0, LINE));
         let anim = self.shown_anim();
@@ -203,7 +204,7 @@ impl App {
         let play_icon = if self.playing { Icon::Pause } else { Icon::Play };
         if theme::icon_button(ui, play_icon, "Пуск и пауза (пробел)").clicked() {
             self.ensure_anim(&anim.name);
-            self.playing = !self.playing;
+            self.toggle_playback();
         }
         let loop_kind = if anim.looping { ButtonKind::On } else { ButtonKind::Normal };
         if theme::button(ui, "Повтор", loop_kind).on_hover_text("Повторять анимацию по кругу").clicked() {

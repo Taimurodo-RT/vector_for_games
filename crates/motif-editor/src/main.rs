@@ -29,6 +29,7 @@ mod parameter_ui;
 mod pathedit;
 mod physics_ui;
 mod pixabridge;
+mod preview;
 mod psd;
 mod rope_ui;
 mod runtime_ui;

@@ -16,19 +16,7 @@ impl App {
             };
             ui.strong(label);
             if self.workspace() == Workspace::Animate {
-                ui.checkbox(&mut self.auto_key, "Автоключ")
-                    .on_hover_text("Записывать изменения разрешённых свойств в клип. Выключено: только пробная поза, запись ромбом или кнопкой");
-                if self.has_draft_pose() {
-                    ui.small("Пробная поза — ещё не записана");
-                    ui.horizontal(|ui| {
-                        if ui.button("Записать позу").clicked() {
-                            self.record_draft_pose();
-                        }
-                        if ui.button("Сбросить пробу").clicked() {
-                            self.clear_draft_pose();
-                        }
-                    });
-                }
+                self.pose_actions(ui);
                 if self.anim.is_none() && ui.button("Создать клип").clicked() {
                     self.create_animation();
                 }
