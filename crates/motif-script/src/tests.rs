@@ -1752,3 +1752,104 @@ fn directions_parse_and_edit() {
     let out = delete_node(grouped, &scene(grouped), "floor").unwrap();
     assert!(out.contains("directions 4 turn head body\n"), "{out}");
 }
+#[test]
+fn batch_layers_keep_stacking_comments_and_selected_descendants() {
+    let src = "artboard \"Batch\" 100x100\n// a note\nrect a size 10\ngroup g {\n rect child size 5\n}\nrect b size 10\nrect c size 10\n";
+    let scene = parse(src).unwrap();
+    let chosen = vec!["g".into(), "child".into(), "a".into()];
+    for (place, expected) in [(Place::Before, vec!["b", "a", "g", "child", "c"]), (Place::After, vec!["b", "c", "a", "g", "child"])] {
+        let text = move_nodes(src, &scene, &chosen, "c", place, None).unwrap();
+        let after = parse(&text).unwrap();
+        assert_eq!(after.doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), expected);
+        assert!(text.contains("// a note\nrect a"));
+    }
+    assert!(move_nodes(src, &scene, &chosen, "child", Place::Into, None).is_err());
+}
+
+#[test]
+fn reparenting_preserves_full_world_transform_with_pivot_reflection_and_skew() {
+    let src = "artboard \"Transform\" 800x600\ngroup old at 40 70 rot 25 scale 2 -1 {\n path p at 12 34 rot 17 scale 1.5 0.7 skew 8 -5 pivot 7 9 d \"M0 0 C10 20 30 20 40 0 Z\"\n}\ngroup target at 200 100 rot -30 scale 0.8 1.2 {\n rect other size 10\n}\n";
+    let before = parse(src).unwrap();
+    let text = move_nodes(src, &before, &["p".into()], "target", Place::Into, None).unwrap();
+    let after = parse(&text).unwrap();
+    let a = before.doc.world_transform(before.doc.index_of("p").unwrap()).as_coeffs();
+    let b = after.doc.world_transform(after.doc.index_of("p").unwrap()).as_coeffs();
+    for (a, b) in a.into_iter().zip(b) {
+        assert!((a - b).abs() < 1e-9, "{a} != {b}\n{text}");
+    }
+    assert_eq!(before.doc.node("p").unwrap().geometry, after.doc.node("p").unwrap().geometry);
+}
+
+#[test]
+fn reparenting_shifts_position_keys_and_keeps_other_animation_tracks() {
+    let src = "artboard \"Motion\" 200x200\ngroup old at 20 30 {\n rect p at 4 5 size 10\n}\ngroup target at 100 120 {\n}\nanim Idle 1s loop {\n p.x 0: 4 | 1: 14\n p.y 0: 5 | 1: 15\n p.rot 0: 0 | 1: 90\n}\n";
+    let before = parse(src).unwrap();
+    let out = move_nodes(src, &before, &["p".into()], "target", Place::Into, None).unwrap();
+    let after = parse(&out).unwrap();
+    assert!(out.contains("p.x 0: -76 | 1: -66"));
+    assert!(out.contains("p.y 0: -85 | 1: -75"));
+    assert!(out.contains("p.rot 0: 0 | 1: 90"));
+    assert_eq!(after.doc.node("p").unwrap().x, -76.0);
+}
+
+#[test]
+fn batch_reorder_moves_blocks_without_reversing_them() {
+    let src = "artboard \"Order\" 100x100\nrect a size 10\nrect b size 10\nrect c size 10\nrect d size 10\n";
+    let scene = parse(src).unwrap();
+    let up = restack_nodes(src, &scene, &["b".into(), "a".into()], true, None).unwrap();
+    let a = parse(&up).unwrap();
+    assert_eq!(a.doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["c", "a", "b", "d"]);
+    let down = restack_nodes(&up, &a, &["a".into(), "b".into()], false, None).unwrap();
+    assert_eq!(parse(&down).unwrap().doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["a", "b", "c", "d"]);
+}
+
+#[test]
+fn batch_styles_and_reparenting_fail_without_partial_edits() {
+    let src = "artboard \"Safe\" 100x100\nrect a size 10\nfor i in 0..2 {\n rect generated{i} size 10\n}\ngroup target scale 0 1 {\n}\n";
+    let scene = parse(src).unwrap();
+    assert!(style_nodes(src, &scene, &["a".into(), "generated0".into()], "hidden", true, None).is_err());
+    assert!(move_nodes(src, &scene, &["a".into()], "target", Place::Into, None).is_err());
+    assert!(scene.doc.node("a").unwrap().visible);
+    let changed = style_nodes(src, &scene, &["a".into()], "locked", true, None).unwrap();
+    assert!(parse(&changed).unwrap().doc.node("a").unwrap().locked);
+    let animated = "artboard \"Animated\" 100x100\ngroup old {\n rect a size 10\n}\ngroup target {\n}\nanim Idle 1s loop {\n old.rot 0: 0 | 1: 90\n}\n";
+    assert!(move_nodes(animated, &parse(animated).unwrap(), &["a".into()], "target", Place::Into, None).is_err());
+}
+
+#[test]
+fn reparenting_under_shared_animation_keeps_every_pose_and_key_precision() {
+    let src = "artboard \"Motion\" 200x200\ngroup common at 20 30 {\n group old at 0.123456789 0.987654321 {\n  rect p at 4 5 size 10\n }\n group target at 10 15 {\n }\n}\nanim Idle 1s loop {\n common.rot 0: -10 | 1: 90\n p.x 0: 4.123456789 | 1: 14.987654321\n p.y 0: 5.987654321 | 1: 15.123456789\n p.rot 0: 0 | 1: 90\n}\n";
+    let before = parse(src).unwrap();
+    let out = move_nodes(src, &before, &["p".into()], "target", Place::Into, None).unwrap();
+    let after = parse(&out).unwrap();
+    for t in [0.0, 0.1, 0.45, 0.9] {
+        let a = before.doc.animations[0].pose(&before.doc, t);
+        let b = after.doc.animations[0].pose(&after.doc, t);
+        for (x, y) in a.world_transform(a.index_of("p").unwrap()).as_coeffs().into_iter().zip(b.world_transform(b.index_of("p").unwrap()).as_coeffs()) {
+            assert!((x - y).abs() < 1e-9, "pose {t}: {x} != {y}\n{out}");
+        }
+    }
+}
+
+#[test]
+fn reparenting_refuses_rig_and_layout_dependencies_but_allows_restacking() {
+    for property in ["anchor left top", "spring 3 0.2", "squash 0.2", "stack row"] {
+        let src = format!("artboard \"Safe\" 100x100\ngroup old {property} {{\n rect a size 10\n rect b size 10\n}}\ngroup target {{\n}}\n");
+        let s = parse(&src).unwrap();
+        assert!(move_nodes(&src, &s, &["a".into()], "target", Place::Into, None).is_err(), "{property}");
+        assert!(move_nodes(&src, &s, &["a".into()], "b", Place::After, None).is_ok(), "same-parent order is still editable: {property}");
+    }
+}
+
+#[test]
+fn batch_delete_removes_mutually_dependent_nodes_and_direction_references_together() {
+    let src = "artboard 100x100\ndirections 4 turn target source\nrect target size 10\nrect source size 20 morph target\nrect keep size 5\nfor i in 0..2 {\n rect generated{i} size 2\n}\nanim Flow 1s {\n source.morph 0: 0 | 1: 1\n}\n";
+    let s = parse(src).unwrap();
+    let (out, count, skipped) = delete_nodes(src, &s, &["target".into(), "source".into(), "generated0".into()], None).unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(skipped, ["generated0"]);
+    let after = parse(&out).unwrap();
+    assert_eq!(after.doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["keep", "generated0", "generated1"]);
+    assert!(after.doc.directions.unwrap().turn.is_empty());
+    assert!(after.doc.animations[0].tracks.is_empty());
+}

@@ -27,11 +27,19 @@ pub(crate) fn splice(src: &str, span: Span, text: &str) -> String {
 /// * A value computed from `let`, an expression or a loop is left alone; the change goes into
 ///   an `override { }` block instead, so the formula keeps working.
 pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) -> Option<String> {
+    set_prop_formatted(src, scene, node, prop, value, false)
+}
+
+fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value, precise: bool) -> Option<String> {
     if prop.is_world() {
         return None;
     }
     let current = scene.doc.node(node)?;
-    let text = fmt_value(value);
+    let format = |v| match v {
+        Value::Num(n) if precise => n.to_string(),
+        _ => fmt_value(v),
+    };
+    let text = format(value);
     let key = (node.to_string(), prop);
 
     if let Some(s) = scene.sources.get(&key) {
@@ -46,7 +54,7 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
         }
         let repl = match s.paired {
             Some(other) => {
-                let other_text = fmt_value(current.get(other));
+                let other_text = format(current.get(other));
                 if matches!(prop, Prop::Width | Prop::ScaleX | Prop::SkewX) { format!("{text} {other_text}") } else { format!("{other_text} {text}") }
             }
             None => text,
@@ -305,7 +313,8 @@ pub(crate) fn insert_declaration(src: &str, scene: &Scene, line: &str) -> String
 
 /// SVG path data with short numbers: `M 0 -40 C 20 -40 30 -20 30 0 L 0 40 Z`.
 pub fn path_to_d(path: &BezPath) -> String {
-    let pt = |p: Point| format!("{} {}", fmt_num(p.x), fmt_num(p.y));
+    // Geometry must round-trip: editing one subpath must not quantize its neighbours.
+    let pt = |p: Point| format!("{} {}", p.x, p.y);
     let parts: Vec<String> = path
         .elements()
         .iter()
@@ -411,26 +420,23 @@ pub fn delete_node(src: &str, scene: &Scene, node: &str) -> Option<String> {
 /// The whole lines declaring `node` and its children, with their animation tracks, overrides and
 /// pointer listeners.
 pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Span>> {
-    let site = scene.sites.get(node)?;
-    if site.generated {
-        return None;
-    }
+    nodes_spans(src, scene, &[node])
+}
+
+fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Vec<Span>> {
     let doc = &scene.doc;
-    let root = doc.index_of(node)?;
-    let ids: Vec<&str> = (0..doc.nodes.len())
-        .filter(|&i| {
-            let mut cur = Some(i);
-            while let Some(c) = cur {
-                if c == root {
-                    return true;
-                }
-                cur = doc.nodes[c].parent;
-            }
-            false
-        })
-        .map(|i| doc.nodes[i].id.as_str())
-        .collect();
-    let mut spans = vec![whole_lines(src, site.span)];
+    let mut roots = Vec::new();
+    let mut spans = Vec::new();
+    for node in nodes {
+        let site = scene.sites.get(*node)?;
+        if site.generated {
+            return None;
+        }
+        roots.push(doc.index_of(node)?);
+        spans.push(whole_lines(src, site.span));
+    }
+    let ids: Vec<&str> =
+        (0..doc.nodes.len()).filter(|&i| roots.iter().any(|&root| i == root || doc.is_inside(i, root))).map(|i| doc.nodes[i].id.as_str()).collect();
     for anim in scene.anims.values() {
         spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
@@ -1307,7 +1313,7 @@ fn shift_position_keys(src: &str, scene: &Scene, nodes: &[&str], d: (f64, f64)) 
             for k in &track.keys {
                 let text = src[k.value.start..k.value.end].trim();
                 let v: f64 = text.parse().map_err(|_| format!("ключ {}.{} = {text} — формула, его не сдвинуть", track.node, track.prop.path_name()))?;
-                edits.push((k.value, fmt_num(v + by)));
+                edits.push((k.value, (v + by).to_string()));
             }
         }
     }
@@ -1418,4 +1424,163 @@ pub fn restack(src: &str, scene: &Scene, id: &str, up: bool) -> Option<String> {
     let sibling = |k: &usize| doc.nodes[*k].parent == parent;
     let other = if up { (i + 1..doc.nodes.len()).find(sibling) } else { (0..i).rev().find(sibling) }?;
     move_node(src, scene, id, &doc.nodes[other].id, if up { Place::After } else { Place::Before })
+}
+
+/// Selected roots in draw order: a selected descendant travels with its selected ancestor.
+pub fn selected_roots(scene: &Scene, ids: &[String]) -> Vec<String> {
+    let doc = &scene.doc;
+    let picked: Vec<_> = (0..doc.nodes.len()).filter(|&i| ids.contains(&doc.nodes[i].id)).collect();
+    picked.iter().filter(|&&i| !picked.iter().any(|&p| p != i && doc.is_inside(i, p))).map(|&i| doc.nodes[i].id.clone()).collect()
+}
+
+/// Remove a selection in one splice, so references between selected objects never dangle
+/// in intermediate parses. Generated declarations are reported, preserving the editor's policy.
+pub fn delete_nodes(src: &str, scene: &Scene, ids: &[String], base: Option<&std::path::Path>) -> Result<(String, usize, Vec<String>), String> {
+    let (editable, skipped): (Vec<_>, Vec<_>) = selected_roots(scene, ids).into_iter().partition(|id| scene.sites.get(id).is_some_and(|s| !s.generated));
+    let refs: Vec<_> = editable.iter().map(String::as_str).collect();
+    let spans = nodes_spans(src, scene, &refs).ok_or("не удалось найти все строки выбранных объектов")?;
+    let out = remove_spans(src, spans);
+    reparse(&out, base)?;
+    Ok((out, editable.len(), skipped))
+}
+
+/// A batch style change is all-or-nothing, including generated or malformed declarations.
+pub fn style_nodes(src: &str, scene: &Scene, ids: &[String], flag: &str, on: bool, base: Option<&std::path::Path>) -> Result<String, String> {
+    if flag != "locked" && flag != "hidden" {
+        return Err("неизвестный флаг слоя".into());
+    }
+    let mut out = src.to_string();
+    for id in ids {
+        if scene.doc.node(id).is_none() {
+            return Err(format!("слой «{id}» не найден"));
+        }
+        let current = reparse(&out, base)?;
+        out = set_style(&out, &current, id, flag, on.then_some(flag)).ok_or_else(|| format!("«{id}» создан циклом: измените флаг в скрипте"))?;
+    }
+    reparse(&out, base)?;
+    Ok(out)
+}
+
+pub fn restack_nodes(src: &str, scene: &Scene, ids: &[String], up: bool, base: Option<&std::path::Path>) -> Result<String, String> {
+    let mut roots = selected_roots(scene, ids);
+    if up {
+        roots.reverse();
+    }
+    let mut out = src.to_string();
+    for id in &roots {
+        let current = reparse(&out, base)?;
+        let doc = &current.doc;
+        let i = doc.index_of(id).ok_or("слой не найден")?;
+        let siblings = |k: &usize| doc.nodes[*k].parent == doc.nodes[i].parent;
+        let target = if up { (i + 1..doc.nodes.len()).find(siblings) } else { (0..i).rev().find(siblings) };
+        if let Some(t) = target
+            && !roots.contains(&doc.nodes[t].id)
+        {
+            out = move_node(&out, &current, id, &doc.nodes[t].id, if up { Place::After } else { Place::Before })
+                .ok_or("слой из цикла или общей строки не переставляется")?;
+        }
+    }
+    reparse(&out, base)?;
+    Ok(out)
+}
+
+/// Move an ordered selection with stable stacking and world transforms, committing only a valid result.
+/// Reparenting animated ancestors or nonlinear transform tracks requires baking and is refused.
+pub fn move_nodes(src: &str, scene: &Scene, ids: &[String], target: &str, place: Place, base: Option<&std::path::Path>) -> Result<String, String> {
+    let doc = &scene.doc;
+    let roots = selected_roots(scene, ids);
+    let t = doc.index_of(target).ok_or("цель не найдена")?;
+    if place == Place::Into && doc.nodes[t].kind != ShapeKind::Group {
+        return Err("цель не является группой".into());
+    }
+    let parent = if place == Place::Into { Some(t) } else { doc.nodes[t].parent };
+    let world = |p: Option<usize>| p.map_or(Affine::IDENTITY, |p| doc.world_transform(p));
+    let transform_props = [Prop::X, Prop::Y, Prop::Rotation, Prop::ScaleX, Prop::ScaleY, Prop::SkewX, Prop::SkewY];
+    let animated = |i: usize| scene.anims.values().any(|a| a.tracks.iter().any(|track| track.node == doc.nodes[i].id && transform_props.contains(&track.prop)));
+    // These positions depend on layout, a rig or a simulation, not only the authored affine.
+    let dependent = |n: &motif_core::Node| {
+        n.anchor.is_some()
+            || n.fit
+            || n.offset.hypot() > 1e-10
+            || n.warp.is_some()
+            || n.swing.abs() > 1e-10
+            || n.ik.is_some()
+            || n.spring.is_some()
+            || n.jiggle.is_some()
+            || n.squash.is_some()
+            || n.on.is_some()
+            || n.hang.is_some()
+            || n.kind == ShapeKind::Bone
+    };
+    let mut transforms = Vec::new();
+    let mut key_edits = Vec::new();
+    for id in &roots {
+        let i = doc.index_of(id).ok_or("слой не найден")?;
+        if i == t || doc.is_inside(t, i) {
+            return Err("нельзя перенести слой в себя или своего потомка".into());
+        }
+        if scene.sites.get(id).is_none_or(|s| s.generated) {
+            return Err(format!("«{id}» создан циклом"));
+        }
+        let n = &doc.nodes[i];
+        if n.parent == parent {
+            continue;
+        }
+        if dependent(n) {
+            return Err("слой имеет привязку, автоматический размер или деформацию; сначала перенесите его группу целиком".into());
+        }
+        for mut ancestor in [n.parent, parent] {
+            while let Some(p) = ancestor {
+                let shared = n.parent.is_some_and(|old| old == p || doc.is_inside(old, p)) && parent.is_some_and(|new| new == p || doc.is_inside(new, p));
+                if ((animated(p) || dependent(&doc.nodes[p])) && !shared) || doc.nodes[p].stack.is_some() {
+                    return Err("у родительской группы анимация или автоматическая раскладка; перенос изменил бы результат".into());
+                }
+                ancestor = doc.nodes[p].parent;
+            }
+        }
+        if transform_props.iter().any(|p| scene.sources.get(&(id.clone(), *p)).is_some_and(|s| !s.editable || s.from_override)) {
+            return Err(format!("трансформация «{id}» задана формулой или override"));
+        }
+        if world(parent).determinant().abs() < 1e-12 {
+            return Err("у целевой группы нулевой масштаб".into());
+        }
+        let relative = world(parent).inverse() * world(n.parent);
+        let [a, b, c, d, e, f] = relative.as_coeffs();
+        let translation = (a - 1.0).abs() < 1e-10 && b.abs() < 1e-10 && c.abs() < 1e-10 && (d - 1.0).abs() < 1e-10;
+        if translation {
+            key_edits.extend(shift_position_keys(src, scene, &[id], (e, f))?);
+            transforms.push((id.clone(), vec![(Prop::X, n.x + e), (Prop::Y, n.y + f)]));
+            continue;
+        } else if animated(i) {
+            return Err(format!("анимация трансформации «{id}» требует запекания перед переносом между повёрнутыми группами"));
+        }
+        let desired = relative * n.local_transform();
+        let [a, b, c, d, e, f] = desired.as_coeffs();
+        let sx = a.hypot(b);
+        let sy = desired.determinant() / sx;
+        if sx < 1e-12 || sy.abs() < 1e-12 {
+            return Err("вырожденная трансформация не переносится между группами".into());
+        }
+        let skew = ((a * c + b * d) / (sx * sy)).atan().to_degrees();
+        if skew.abs() > 89.0 {
+            return Err("скос после переноса выходит за поддерживаемый диапазон".into());
+        }
+        let x = e + a * n.pivot.x + c * n.pivot.y - n.pivot.x;
+        let y = f + b * n.pivot.x + d * n.pivot.y - n.pivot.y;
+        transforms.push((id.clone(), transform_props.into_iter().zip([x, y, b.atan2(a).to_degrees(), sx, sy, skew, 0.0]).collect()));
+    }
+    let mut out = splice_all(src, key_edits);
+    let order: Vec<_> = if place == Place::After { roots.iter().rev().collect() } else { roots.iter().collect() };
+    for id in order {
+        let current = reparse(&out, base)?;
+        out = move_node(&out, &current, id, target, place).ok_or_else(|| format!("«{id}» не переносится: общая строка, цикл или недопустимая цель"))?;
+    }
+    for (id, values) in transforms {
+        for (prop, value) in values {
+            let current = reparse(&out, base)?;
+            out = set_prop_formatted(&out, &current, &id, prop, Value::Num(value), true).ok_or("не удалось сохранить трансформацию")?;
+        }
+    }
+    reparse(&out, base)?;
+    Ok(out)
 }

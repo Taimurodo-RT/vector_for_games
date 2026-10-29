@@ -1,0 +1,20 @@
+// Учебная сцена: Enter на badge — точки внешнего края и двух отверстий.
+// В «Контуре» выберите часть, разорвите её, соедините концы, затем Ctrl+Z.
+// В «Слоях»: поиск «линия», Shift-диапазон, Ctrl-клик, перенос набора в target.
+let ink = #182b45
+let accent = #63d5c4
+
+artboard "Контуры и слои" 640x400 bg #f0f4fa
+rect background "Фон (заблокирован)" at 320 200 size 640 400 fill #f0f4fa locked
+group badge_set "Знак с отверстиями" at 170 180 rot -8 {
+  path badge "Знак — три замкнутые части" d "M-105 -90 C-105 -110 -85 -120 -65 -120 L65 -120 C90 -120 105 -100 105 -80 L105 80 C105 105 85 120 60 120 L-60 120 C-85 120 -105 100 -105 80 Z M-65 -40 L-65 40 Q-35 65 -5 40 L-5 -40 Q-35 -65 -65 -40 Z M30 -40 L30 40 Q55 60 80 40 L80 -40 Q55 -60 30 -40 Z" fill accent stroke ink 4
+  path seams "Линия — две открытые части" d "M-70 -80 Q-25 -105 10 -80 M25 80 C45 60 65 60 80 80" fill none stroke ink 3 cap round
+}
+group target "Цель переноса (поворот и отражение)" at 460 180 rot 15 scale -0.9 1.1 {
+  path frame "Рамка" d "M-100 -100 L100 -100 L100 100 L-100 100 Z M-80 -80 L-80 80 L80 80 L80 -80 Z" fill #c1cfe1
+  path detail_a "Линия А" d "M-50 -35 C-30 -65 30 -65 50 -35" fill none stroke #e16b63 5 cap round
+  path detail_b "Линия Б" d "M-50 35 C-30 65 30 65 50 35" fill none stroke #5977be 5 cap round
+}
+group guides "Скрытые направляющие" hidden locked {
+  path axis "Оси" d "M0 200 L640 200 M320 0 L320 400" fill none stroke #ababb5 1
+}

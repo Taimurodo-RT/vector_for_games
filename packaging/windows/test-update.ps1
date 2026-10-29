@@ -32,6 +32,28 @@ try {
     Assert (-not (Test-Path "$dest/.motif-update")) 'Successful transaction was not cleaned'
     Write-Host 'PASS: installation preserves custom files and edited examples'
 
+    # A real BAT launched through cmd must not inherit PowerShell 7's incompatible module path.
+    $bootstrap = "$testRoot/bootstrap"
+    New-Item -ItemType Directory -Path $bootstrap -Force | Out-Null
+    Copy-Item "$PSScriptRoot/update.bat", "$PSScriptRoot/update.ps1" $bootstrap
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $env:ComSpec
+    $start.Arguments = '/d /c ""' + "$bootstrap/update.bat" + '" -InstallDir "' + $dest + '" -Package "' + "$testRoot/good.zip" + '" < NUL"'
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.EnvironmentVariables['PSModulePath'] = "$testRoot/incompatible-pwsh-modules"
+    $child = [Diagnostics.Process]::Start($start)
+    try {
+        $stdout = $child.StandardOutput.ReadToEnd()
+        $stderr = $child.StandardError.ReadToEnd()
+        $child.WaitForExit()
+        Assert ($child.ExitCode -eq 0) "BAT failed with inherited module path: $stdout $stderr"
+        Assert ($stdout -match 'Motif updated: new') 'BAT did not run the offline updater'
+    } finally { $child.Dispose() }
+    Write-Host 'PASS: actual BAT isolates the Windows PowerShell module path and forwards arguments'
+
     Put "$source/motif.exe" 'corrupt'
     Compress-Archive "$source/*" "$testRoot/corrupt.zip"
     MustFail { Invoke-MotifUpdate $dest "$testRoot/corrupt.zip" } 'checksum mismatch'
