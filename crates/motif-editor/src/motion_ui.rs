@@ -55,6 +55,38 @@ fn key_times(anim: &Animation, node: &str) -> Vec<f64> {
     out
 }
 
+fn motion_is_affine(doc: &motif_core::Document) -> bool {
+    !doc.has_sim() && doc.nodes.iter().all(|n| n.on.is_none() && n.ik.is_none() && n.hang.is_none() && n.stack.is_none() && n.anchor.is_none() && !n.fit)
+}
+
+fn affine_motion_candidate(doc: &motif_core::Document, anim: &Animation, id: &str) -> bool {
+    let Some(mut i) = doc.index_of(id) else { return false };
+    let mut ancestors = Vec::new();
+    loop {
+        ancestors.push(doc.nodes[i].id.as_str());
+        match doc.nodes[i].parent {
+            Some(parent) => i = parent,
+            None => break,
+        }
+    }
+    let transform = |prop| matches!(prop, Prop::X | Prop::Y | Prop::Rotation | Prop::ScaleX | Prop::ScaleY | Prop::SkewX | Prop::SkewY);
+    let changes = |track: &motif_core::Track| track.keys.first().is_some_and(|first| track.keys.iter().any(|key| key.value != first.value));
+    anim.tracks.iter().any(|t| {
+        if !changes(t) {
+            return false;
+        }
+        if t.prop == Prop::Parameter {
+            doc.drivers
+                .iter()
+                .filter(|d| d.parameter == t.node)
+                .flat_map(|d| &d.tracks)
+                .any(|driven| ancestors.contains(&driven.node.as_str()) && transform(driven.prop) && changes(driven))
+        } else {
+            ancestors.contains(&t.node.as_str()) && transform(t.prop)
+        }
+    })
+}
+
 impl App {
     /// Whether motion paths are shown and can be picked now.
     fn motion_on(&self) -> bool {
@@ -85,13 +117,25 @@ impl App {
     }
 
     fn compute_paths(&self, anim: &Animation, selection: &[String]) -> Vec<MotionPath> {
+        if selection.is_empty() {
+            return Vec::new();
+        }
+        // Warp/forms change the artwork, but not the affine origin used by this overlay.
+        // Full rig/simulation is retained whenever layout, orbit, IK or physics can move it.
+        let affine_only = motion_is_affine(&self.scene.doc);
+        let selection: Vec<_> = selection.iter().take(8).filter(|id| !affine_only || affine_motion_candidate(&self.scene.doc, anim, id)).collect();
+        if selection.is_empty() {
+            return Vec::new();
+        }
         let n = ((anim.duration * FPS).ceil() as usize).clamp(1, MAX_SAMPLES);
         // A looping animation wraps its last moment back to the start: pose just before it.
         let end = if anim.looping { (anim.duration - 1e-6).max(0.0) } else { anim.duration };
-        let poses: Vec<(f64, motif_core::Document)> =
-            (0..=n).map(|k| anim.duration * k as f64 / n as f64).map(|t| (t, self.pose_anim(anim, t.min(end)))).collect();
+        let poses: Vec<(f64, motif_core::Document)> = (0..=n)
+            .map(|k| anim.duration * k as f64 / n as f64)
+            .map(|t| (t, if affine_only { anim.keys_at(&self.scene.doc, t.min(end)) } else { self.pose_anim(anim, t.min(end)) }))
+            .collect();
         let mut out = Vec::new();
-        for id in selection.iter().take(8) {
+        for id in selection {
             let samples: Vec<(f64, Point, Affine)> = poses
                 .iter()
                 .filter_map(|(t, d)| {
@@ -222,6 +266,56 @@ fn time_label(painter: &egui::Painter, at: Pos2, t: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn face_warp_controls_and_empty_selection_need_no_origin_trajectory() {
+        let mut app = crate::app::editing_tests::fixture(include_str!("../../../examples/character-anime.msc"));
+        app.select_anim("Combinations".into());
+        let anim = app.current_anim().unwrap();
+        assert!(motion_is_affine(&app.scene.doc));
+        for id in ["portrait", "head", "face", "mouth_rig", "eye_l"] {
+            assert!(!affine_motion_candidate(&app.scene.doc, anim, id));
+            assert!(app.compute_paths(anim, &[id.into()]).is_empty());
+        }
+        assert!(app.compute_paths(anim, &[]).is_empty());
+    }
+
+    #[test]
+    fn affine_samples_keep_parent_rotation_and_driven_position_without_deforming_art() {
+        let mut app = crate::app::editing_tests::fixture(
+            "artboard 300x300\nparameter p range -1 1 default 0 value 0\ngroup root at 150 150 deform 180 180 {\nellipse ball at 35 0 size 30\n}\ndriver p {\nball.x -1: 20 | 1: 70\nroot.warp-x4 -1: -25 | 1: 25\n}\nanim A 2s {\nroot.rot 0: 0 linear | 2: 90\np.value 0: -1 linear | 2: 1\n}\n",
+        );
+        app.select_anim("A".into());
+        let anim = app.current_anim().unwrap();
+        assert!(motion_is_affine(&app.scene.doc));
+        let paths = app.compute_paths(anim, &["ball".into()]);
+        assert_eq!(paths.len(), 1);
+        for (t, point, parent) in &paths[0].samples {
+            let pose = app.pose_anim(anim, *t);
+            let i = pose.index_of("ball").unwrap();
+            assert!((*point - pose.world_transform(i) * Point::ZERO).hypot() < 1e-9);
+            assert_eq!(*parent, pose.world_transform(pose.nodes[i].parent.unwrap()).inverse());
+        }
+    }
+
+    #[test]
+    fn layout_or_simulation_keeps_the_full_pose_path() {
+        let scene =
+            motif_script::parse("artboard 300x300\ngroup row stack row {\nrect a size 40\nrect b size 40\n}\nanim A 1s {\na.w 0: 40 | 1: 80\n}\n").unwrap();
+        assert!(!motion_is_affine(&scene.doc));
+        let sim = motif_script::parse(include_str!("../../../examples/bounce.msc")).unwrap();
+        let mut doc = sim.doc;
+        doc.nodes[0].spring = Some(motif_core::Spring::default());
+        assert!(!motion_is_affine(&doc));
+    }
+
+    #[test]
+    fn recorded_constant_transform_does_not_require_trajectory_samples() {
+        let scene =
+            motif_script::parse("artboard 200x200\nrect box at 50 50 size 30\nanim A 2s {\nbox.x 0: 50 | 1: 50 | 2: 50\nbox.y 0: 50\nbox.rot 0: 0 | 2: 0\n}\n")
+                .unwrap();
+        assert!(!affine_motion_candidate(&scene.doc, &scene.doc.animations[0], "box"));
+    }
 
     #[test]
     fn key_times_merge_x_and_y() {

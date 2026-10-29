@@ -30,17 +30,6 @@ impl App {
         protected_node(&self.scene.doc, &self.src, id)
     }
 
-    /// Keep visual commands parseable; workspace choice does not restrict authored properties.
-    pub(crate) fn parameter_edit_allowed(&mut self, _kind: &str, src: &str) -> bool {
-        match motif_script::parse_in(src, self.path.as_ref().and_then(|p| p.parent())) {
-            Ok(_) => true,
-            Err(errors) => {
-                self.status = errors.first().map(|e| e.to_string()).unwrap_or_default();
-                false
-            }
-        }
-    }
-
     pub(crate) fn parameter_preview(&mut self, id: &str, value: f64) {
         if !self.can_edit() {
             return;

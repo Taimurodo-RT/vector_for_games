@@ -1,4 +1,52 @@
 use super::*;
+
+#[test]
+fn recording_a_later_stroke_key_animates_from_absence_without_rewriting_the_drawing() {
+    let src = "artboard \"Button\" 100x100 ui\nrect button at 50 50 size 40 fill #ffffff\nanim Hover 1s {\n}\n";
+    let before = crate::parse(src).unwrap();
+    let out = set_key(src, &before, "Hover", "button", Prop::StrokeColor, 0.5, Value::Color(Color::rgb(40, 120, 230))).unwrap();
+    let after = crate::parse(&out).unwrap();
+    let anim = after.doc.animation("Hover").unwrap();
+    assert_eq!(after.doc.node("button").unwrap(), before.doc.node("button").unwrap());
+    assert_eq!(anim.pose(&after.doc, 0.0).node("button").unwrap().stroke, None);
+    let middle = anim.pose(&after.doc, 0.25);
+    let button = middle.node("button").unwrap();
+    assert_eq!(button.stroke, Some(Color { r: 40, g: 120, b: 230, a: 128 }));
+    assert_eq!(button.stroke_width, 2.0);
+    assert_eq!(anim.pose(&after.doc, 0.5).node("button").unwrap().stroke, Some(Color::rgb(40, 120, 230)));
+    let removed = delete_key(&out, &after, "Hover", "button", Prop::StrokeColor, 0.5).unwrap();
+    let removed = crate::parse(&removed).unwrap();
+    assert_eq!(removed.doc.animations[0].pose(&removed.doc, 0.5).node("button").unwrap().stroke, None);
+}
+
+#[test]
+fn machine_blends_outline_appearance_and_removal_with_explicit_width_priority() {
+    let src = "artboard 100x100 ui\nrect button at 50 50 size 40 fill #ffffff\nanim Bare 1s loop {\n}\nanim Ink 1s loop {\nbutton.stroke 0: #2878e6\n}\nmachine States {\ninput ink false\nstate Bare anim Bare\nstate Ink anim Ink\nBare -> Ink when ink blend 1s\nInk -> Bare when ink == false blend 1s\n}\n";
+    let scene = crate::parse(src).unwrap();
+    let m = &scene.doc.machines[0];
+    let mut player = motif_core::MachinePlayer::new(m);
+    player.set(m, "ink", 1.0);
+    player.advance(m, &scene.doc, 0.01);
+    player.advance(m, &scene.doc, 0.5);
+    let pose = player.pose(m, &scene.doc);
+    assert_eq!(pose.node("button").unwrap().stroke, Some(Color { r: 40, g: 120, b: 230, a: 128 }));
+    assert_eq!(pose.node("button").unwrap().stroke_width, 2.0);
+    player.advance(m, &scene.doc, 0.5);
+    player.set(m, "ink", 0.0);
+    player.advance(m, &scene.doc, 0.01);
+    player.advance(m, &scene.doc, 0.5);
+    let pose = player.pose(m, &scene.doc);
+    assert_eq!(pose.node("button").unwrap().stroke, Some(Color { r: 40, g: 120, b: 230, a: 128 }));
+    assert_eq!(pose.node("button").unwrap().stroke_width, 2.0);
+    let explicit = src.replace("button.stroke 0: #2878e6", "button.stroke_w 0: 0\nbutton.stroke 0: #2878e6");
+    let scene = crate::parse(&explicit).unwrap();
+    let m = &scene.doc.machines[0];
+    let mut player = motif_core::MachinePlayer::new(m);
+    player.set(m, "ink", 1.0);
+    player.advance(m, &scene.doc, 0.01);
+    player.advance(m, &scene.doc, 0.5);
+    assert_eq!(player.pose(m, &scene.doc).node("button").unwrap().stroke_width, 0.0);
+}
 use motif_core::{Color, Prop, ShapeKind, Value};
 
 const EXAMPLE: &str = include_str!("../../../examples/bounce.msc");

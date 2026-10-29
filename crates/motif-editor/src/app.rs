@@ -398,35 +398,37 @@ impl App {
         self.draft_pose.clear();
         self.split_active();
         match motif_script::parse_in(&self.src, self.path.as_ref().and_then(|p| p.parent())) {
-            Ok(scene) => {
-                self.scene = scene;
-                self.errors.clear();
-                if let Some(id) = &self.selected
-                    && self.scene.doc.node(id).is_none()
-                {
-                    self.selected = None;
-                }
-                if let Some(a) = &self.anim
-                    && self.scene.doc.animation(a).is_none()
-                {
-                    self.anim = None;
-                }
-                if self.anim.is_none() {
-                    self.anim = self
-                        .last_anim
-                        .clone()
-                        .filter(|name| self.scene.doc.animation(name).is_some())
-                        .or_else(|| self.scene.doc.animations.first().map(|a| a.name.clone()));
-                }
-                let keys = std::mem::take(&mut self.sel_keys);
-                self.sel_keys = keys.into_iter().filter(|k| self.key_exists(k)).collect();
-                self.prune_selection();
-                self.prune_deformer_reference();
-                self.prune_machine();
-                self.refresh_check();
-            }
+            Ok(scene) => self.accept_scene(scene),
             Err(errors) => self.errors = errors,
         }
+    }
+
+    fn accept_scene(&mut self, scene: Scene) {
+        self.scene = scene;
+        self.errors.clear();
+        if let Some(id) = &self.selected
+            && self.scene.doc.node(id).is_none()
+        {
+            self.selected = None;
+        }
+        if let Some(a) = &self.anim
+            && self.scene.doc.animation(a).is_none()
+        {
+            self.anim = None;
+        }
+        if self.anim.is_none() {
+            self.anim = self
+                .last_anim
+                .clone()
+                .filter(|name| self.scene.doc.animation(name).is_some())
+                .or_else(|| self.scene.doc.animations.first().map(|a| a.name.clone()));
+        }
+        let keys = std::mem::take(&mut self.sel_keys);
+        self.sel_keys = keys.into_iter().filter(|k| self.key_exists(k)).collect();
+        self.prune_selection();
+        self.prune_deformer_reference();
+        self.prune_machine();
+        self.refresh_check();
     }
 
     fn key_exists(&self, k: &KeyRef) -> bool {
@@ -475,12 +477,21 @@ impl App {
                         }
                     }
                 }
-                if !self.parameter_edit_allowed(kind, &s) {
-                    return false;
-                }
+                let parsed = match motif_script::parse_in(&s, self.path.as_ref().and_then(|p| p.parent())) {
+                    Ok(scene) => scene,
+                    Err(errors) => {
+                        self.status = errors.first().map(ToString::to_string).unwrap_or_default();
+                        return false;
+                    }
+                };
                 self.checkpoint(kind);
                 self.src = s;
-                self.reparse();
+                self.draft_pose.clear();
+                if motif_script::boards(&self.src).1.len() > 1 {
+                    self.reparse();
+                } else {
+                    self.accept_scene(parsed);
+                }
                 true
             }
             _ => false,
@@ -855,21 +866,25 @@ impl App {
             (None, Some(a)) => self.pose_anim(a, self.time),
             (None, None) => self.scene.doc.clone(),
         };
+        let mut needs_rig = false;
         if self.run.is_none() && (self.anim.is_none() || !self.pose_preview.is_empty()) && !doc.parameters.is_empty() {
             for p in &mut doc.parameters {
                 p.value = self.pose_preview.get(&p.id).copied().unwrap_or(p.value);
             }
             doc.apply_parameters();
+            needs_rig = true;
         }
         if self.draft_pose.matches(&self.key_time()) && (self.workspace() != crate::workspace::Workspace::Setup || self.pose_preview.is_empty()) {
             let parameters_changed = self.draft_pose.values.keys().any(|(_, prop)| *prop == Prop::Parameter);
             for ((node, prop), value) in &self.draft_pose.values {
                 if *prop == Prop::Parameter {
                     doc.set_animated_value(node, *prop, *value);
+                    needs_rig = true;
                 }
             }
             if parameters_changed {
                 doc.apply_parameters();
+                needs_rig = true;
                 if let Some(a) = self.current_anim() {
                     a.apply_node_keys(&mut doc, self.time);
                 }
@@ -877,23 +892,27 @@ impl App {
             for ((node, prop), value) in &self.draft_pose.values {
                 if *prop != Prop::Parameter {
                     doc.set_animated_value(node, *prop, *value);
+                    needs_rig = true;
                 }
             }
         }
         if let Some(c) = &self.check {
             doc = c.pose(&self.scene.doc, &doc);
+            needs_rig = true;
         }
         if let Some(e) = &self.point_edit
             && let Some(o) = &e.live
             && let Some(i) = doc.index_of(&e.node)
         {
             doc.nodes[i].geometry = o.to_bez();
+            needs_rig = true;
             doc.nodes[i].forms = None;
             doc.nodes[i].morph = None;
         }
         for (node, prop, value) in &self.live {
             if let Some(i) = doc.index_of(node) {
                 doc.nodes[i].set(*prop, *value);
+                needs_rig = true;
             }
         }
         // The weight stroke being drawn bends the shape at once.
@@ -901,12 +920,18 @@ impl App {
             && let Some(skin) = doc.index_of(node).and_then(|i| doc.nodes[i].skin.as_mut())
         {
             skin.paint.push(stroke);
+            needs_rig = true;
         }
         if let Some(k) = self.shown_side() {
-            doc.rig();
+            if needs_rig {
+                doc.rig();
+            }
             doc.face(k);
+            needs_rig = true;
         }
-        doc.rig();
+        if needs_rig {
+            doc.rig();
+        }
         if !self.web.preview_theme.is_empty()
             && let Ok(config) = motif_web::read(&self.src)
         {
@@ -3233,7 +3258,7 @@ impl App {
             self.show_syntax = !self.show_syntax;
         }
         // Keep global file commands, but let floating controls own Esc and property shortcuts.
-        if typing || self.floating.is_some() {
+        if typing || self.floating.is_some() || self.html_import.open {
             return;
         }
         if i.modifiers.command && i.modifiers.shift && i.key_pressed(Key::Space) {
@@ -3726,7 +3751,7 @@ fn job_progress(ui: &mut egui::Ui, job: &crate::pixabridge::Job) {
 }
 
 #[cfg(test)]
-mod editing_tests {
+pub(crate) mod editing_tests {
     use super::*;
     use crate::compound::{Anchor, Compound};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -3793,7 +3818,7 @@ mod editing_tests {
         assert!(app.scene.doc.parameters.is_empty());
     }
 
-    pub(super) fn fixture(src: &str) -> App {
+    pub(crate) fn fixture(src: &str) -> App {
         static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
         let recovery = std::env::temp_dir().join(format!("motif-editor-fixture-{}-{}", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
         // No user settings, recovery directory, GPU surface or external tools are touched.
@@ -4201,3 +4226,6 @@ mod deformer_tests;
 mod corrective_ui;
 #[path = "html_ui.rs"]
 mod html_ui;
+#[cfg(test)]
+#[path = "performance_tests.rs"]
+mod performance_tests;

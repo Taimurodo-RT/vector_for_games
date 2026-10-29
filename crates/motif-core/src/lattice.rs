@@ -134,15 +134,16 @@ impl Document {
 /// Adaptive subdivision measures error in artboard units, including nested/reflected cages.
 /// The editable Bézier source is never replaced by this render-only polyline.
 fn map_path(path: &BezPath, map: impl Fn(Point) -> Point, world: Affine) -> BezPath {
-    fn segment(out: &mut BezPath, s: PathSeg, map: &impl Fn(Point) -> Point, world: Affine, range: (f64, f64), depth: u8) {
+    fn segment(out: &mut BezPath, s: PathSeg, map: &impl Fn(Point) -> Point, world: Affine, range: (f64, f64), depth: u8, samples: [Point; 5]) {
         let (a, b) = range;
-        let start = map(s.eval(a));
-        let end = map(s.eval(b));
-        let error = [0.25, 0.5, 0.75]
+        let start = samples[0];
+        let end = samples[4];
+        let error = samples[1..4]
             .iter()
-            .map(|t| {
-                let actual = world * map(s.eval(a + (b - a) * t));
-                let chord = world * start.lerp(end, *t);
+            .enumerate()
+            .map(|(i, point)| {
+                let actual = world * *point;
+                let chord = world * start.lerp(end, (i + 1) as f64 * 0.25);
                 (actual - chord).hypot()
             })
             .fold(0.0_f64, f64::max);
@@ -150,9 +151,18 @@ fn map_path(path: &BezPath, map: impl Fn(Point) -> Point, world: Affine) -> BezP
             out.line_to(end);
         } else {
             let mid = (a + b) * 0.5;
-            segment(out, s, map, world, (a, mid), depth + 1);
-            segment(out, s, map, world, (mid, b), depth + 1);
+            // The parent's endpoints and quarter samples are exactly the children's
+            // endpoints and midpoints. Reuse them instead of projecting them again.
+            let at = |fraction| map(s.eval(a + (b - a) * fraction));
+            let left = [samples[0], at(0.125), samples[1], at(0.375), samples[2]];
+            let right = [samples[2], at(0.625), samples[3], at(0.875), samples[4]];
+            segment(out, s, map, world, (a, mid), depth + 1, left);
+            segment(out, s, map, world, (mid, b), depth + 1, right);
         }
+    }
+    fn append(out: &mut BezPath, s: PathSeg, map: &impl Fn(Point) -> Point, world: Affine) {
+        let samples = std::array::from_fn(|i| map(s.eval(i as f64 * 0.25)));
+        segment(out, s, map, world, (0.0, 1.0), 0, samples);
     }
     let mut out = BezPath::new();
     let mut at = Point::ZERO;
@@ -170,15 +180,56 @@ fn map_path(path: &BezPath, map: impl Fn(Point) -> Point, world: Affine) -> BezP
             PathEl::CurveTo(a, b, p) => PathSeg::Cubic(CubicBez::new(at, a, b, p)),
             PathEl::ClosePath => {
                 if at != start {
-                    segment(&mut out, PathSeg::Line(Line::new(at, start)), &map, world, (0.0, 1.0), 0);
+                    append(&mut out, PathSeg::Line(Line::new(at, start)), &map, world);
                 }
                 out.close_path();
                 at = start;
                 continue;
             }
         };
-        segment(&mut out, curve, &map, world, (0.0, 1.0), 0);
+        append(&mut out, curve, &map, world);
         at = curve.eval(1.0);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kurbo::ParamCurveNearest;
+    use std::cell::Cell;
+
+    #[test]
+    fn adaptive_projection_reuses_work_while_preserving_artboard_error() {
+        let curve = CubicBez::new((-90.0, -50.0), (-60.0, -130.0), (70.0, 130.0), (90.0, 50.0));
+        let mut source = BezPath::new();
+        source.move_to(curve.p0);
+        source.curve_to(curve.p1, curve.p2, curve.p3);
+        let mut inner = Lattice::new(220.0, 180.0);
+        inner.offsets = std::array::from_fn(|i| Vec2::new((i % 3) as f64 * (i / 3) as f64 * 5.0, (i % 3) as f64 * -7.0));
+        let mut outer = Lattice::new(280.0, 220.0);
+        outer.offsets[4] = Vec2::new(-26.0, 21.0);
+        outer.offsets[8] = Vec2::new(15.0, -13.0);
+        let project = |p| outer.map(inner.map(p));
+        let calls = Cell::new(0);
+        let counted = |p| {
+            calls.set(calls.get() + 1);
+            project(p)
+        };
+        let world = Affine::rotate(0.31) * Affine::scale_non_uniform(-2.0, 1.7);
+        let mapped = map_path(&source, counted, world);
+        let lines = mapped.segments().count();
+        assert!(lines > 10);
+        // A naive recursive projection recomputes about ten samples per output
+        // segment. This budget catches that regression without timing hardware.
+        assert!(calls.get() < 6 * lines, "{} projections for {lines} lines", calls.get());
+        assert_eq!(mapped.elements().first(), Some(&PathEl::MoveTo(project(curve.p0))));
+        assert_eq!(mapped.elements().last(), Some(&PathEl::LineTo(project(curve.p3))));
+        let artboard = world * mapped;
+        for i in 0..=2000 {
+            let actual = world * project(curve.eval(i as f64 / 2000.0));
+            let distance_sq = artboard.segments().map(|s| s.nearest(actual, 1e-5).distance_sq).fold(f64::INFINITY, f64::min);
+            assert!(distance_sq <= 0.15_f64.powi(2), "artboard error {}", distance_sq.sqrt());
+        }
+    }
 }
