@@ -137,12 +137,14 @@ pub enum Prop {
     ShadowX,
     ShadowY,
     ShadowBlur,
+    ShadowColor,
     /// How far the glow reaches.
     Glow,
     /// Inner shadow offset and softness.
     InsetX,
     InsetY,
     InsetBlur,
+    InsetColor,
     /// Strength of the film grain, 0..1.
     Noise,
     /// Height above the artboard: casts a shadow away from the scene light, longer and softer when higher.
@@ -179,7 +181,7 @@ pub enum Prop {
 }
 
 impl Prop {
-    pub const ALL: [Prop; 62] = [
+    pub const ALL: [Prop; 64] = [
         Prop::X,
         Prop::Y,
         Prop::Width,
@@ -205,10 +207,12 @@ impl Prop {
         Prop::ShadowX,
         Prop::ShadowY,
         Prop::ShadowBlur,
+        Prop::ShadowColor,
         Prop::Glow,
         Prop::InsetX,
         Prop::InsetY,
         Prop::InsetBlur,
+        Prop::InsetColor,
         Prop::Noise,
         Prop::Elevation,
         Prop::Lat,
@@ -272,10 +276,12 @@ impl Prop {
             Prop::ShadowX => "shadow-x",
             Prop::ShadowY => "shadow-y",
             Prop::ShadowBlur => "shadow-blur",
+            Prop::ShadowColor => "shadow-color",
             Prop::Glow => "glow",
             Prop::InsetX => "inset-x",
             Prop::InsetY => "inset-y",
             Prop::InsetBlur => "inset-blur",
+            Prop::InsetColor => "inset-color",
             Prop::Noise => "noise",
             Prop::Elevation => "elevation",
             Prop::Lat => "lat",
@@ -326,7 +332,7 @@ impl Prop {
     }
 
     pub fn is_color(self) -> bool {
-        matches!(self, Prop::Fill | Prop::StrokeColor)
+        matches!(self, Prop::Fill | Prop::StrokeColor | Prop::ShadowColor | Prop::InsetColor)
     }
 }
 
@@ -761,10 +767,12 @@ impl Node {
             Prop::ShadowX => Value::Num(self.shadow.map_or(0.0, |s| s.dx)),
             Prop::ShadowY => Value::Num(self.shadow.map_or(0.0, |s| s.dy)),
             Prop::ShadowBlur => Value::Num(self.shadow.map_or(0.0, |s| s.blur)),
+            Prop::ShadowColor => paint(self.shadow.map(|s| s.color)),
             Prop::Glow => Value::Num(self.glow.map_or(0.0, |g| g.size)),
             Prop::InsetX => Value::Num(self.inset.map_or(0.0, |s| s.dx)),
             Prop::InsetY => Value::Num(self.inset.map_or(0.0, |s| s.dy)),
             Prop::InsetBlur => Value::Num(self.inset.map_or(0.0, |s| s.blur)),
+            Prop::InsetColor => paint(self.inset.map(|s| s.color)),
             Prop::Noise => Value::Num(self.noise.map_or(0.0, |n| n.amount)),
             Prop::Elevation => Value::Num(self.elevation),
             Prop::Lat => Value::Num(self.lat),
@@ -793,6 +801,12 @@ impl Node {
             if let Some(p) = paint {
                 if prop == Prop::Fill {
                     self.fill = p
+                } else if prop == Prop::ShadowColor || prop == Prop::InsetColor {
+                    let effect = if prop == Prop::ShadowColor { &mut self.shadow } else { &mut self.inset };
+                    match p {
+                        Some(color) => effect.get_or_insert(Shadow::DEFAULT).color = color,
+                        None => *effect = None,
+                    }
                 } else {
                     // Match the ordinary `stroke COLOR` authoring default when an
                     // animation first enables a previously absent outline. An existing
@@ -802,7 +816,9 @@ impl Node {
                     }
                     self.stroke = p
                 }
-                self.forget_morph_paint();
+                if matches!(prop, Prop::Fill | Prop::StrokeColor) {
+                    self.forget_morph_paint();
+                }
             }
             return;
         }
@@ -878,7 +894,7 @@ impl Node {
                 }
             }
             Prop::Rough => self.brush.rough = v.max(0.0),
-            Prop::Fill | Prop::StrokeColor => unreachable!(),
+            Prop::Fill | Prop::StrokeColor | Prop::ShadowColor | Prop::InsetColor => unreachable!(),
             Prop::GravityX | Prop::GravityY | Prop::WindX | Prop::WindY | Prop::Gust | Prop::Parameter => {}
         }
     }
@@ -1237,11 +1253,15 @@ impl Animation {
     /// Explicit node keys take precedence over parameter responses, including while previewing a draft parameter.
     pub fn apply_node_keys(&self, out: &mut Document, t: f64) {
         let t = self.local_time(t);
-        let paints_and_properties = self.tracks.iter().filter(|t| !matches!(t.prop, Prop::Parameter | Prop::StrokeWidth));
+        let paints_and_properties =
+            self.tracks.iter().filter(|t| !matches!(t.prop, Prop::Parameter | Prop::StrokeWidth | Prop::ShadowColor | Prop::InsetColor));
         let widths = self.tracks.iter().filter(|t| t.prop == Prop::StrokeWidth);
+        let effect_colors = self.tracks.iter().filter(|t| matches!(t.prop, Prop::ShadowColor | Prop::InsetColor));
         // Explicit width keys, including zero, take precedence over the implicit
         // width of a newly enabled stroke, independently of the source track order.
-        for track in paints_and_properties.chain(widths) {
+        // Effect colors run after their numeric geometry. A final `none` must not
+        // be resurrected by a later blur/offset key in a differently ordered source.
+        for track in paints_and_properties.chain(widths).chain(effect_colors) {
             if let Some(v) = track.sample(t) {
                 out.set_animated_value(&track.node, track.prop, v);
             }
@@ -1258,6 +1278,48 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shadow_color_keys_preserve_dimensions_and_absence_independently_of_track_order() {
+        let color = Color { r: 30, g: 190, b: 110, a: 200 };
+        for (color_prop, x_prop, blur_prop) in [(Prop::ShadowColor, Prop::ShadowX, Prop::ShadowBlur), (Prop::InsetColor, Prop::InsetX, Prop::InsetBlur)] {
+            assert!(color_prop.is_color());
+            assert_eq!(Prop::from_path_name(color_prop.path_name()), Some(color_prop));
+            let mut doc = Document::new(Artboard::default());
+            let mut node = Node::new("well", ShapeKind::Rect);
+            node.set(x_prop, Value::Num(3.0));
+            node.set(blur_prop, Value::Num(7.0));
+            node.set(color_prop, Value::Color(color));
+            assert_eq!(node.get(x_prop), Value::Num(3.0));
+            assert_eq!(node.get(blur_prop), Value::Num(7.0));
+            doc.nodes.push(node);
+            let track = |prop, value| Track { node: "well".into(), prop, keys: vec![Keyframe { time: 0.0, value, ease: Ease::Linear }] };
+            for reversed in [false, true] {
+                let mut tracks = vec![
+                    Track {
+                        node: "well".into(),
+                        prop: color_prop,
+                        keys: vec![
+                            Keyframe { time: 0.0, value: Value::None, ease: Ease::Linear },
+                            Keyframe { time: 1.0, value: Value::Color(color), ease: Ease::Linear },
+                        ],
+                    },
+                    track(x_prop, Value::Num(17.0)),
+                    track(blur_prop, Value::Num(8.0)),
+                ];
+                if reversed {
+                    tracks.reverse();
+                }
+                let anim = Animation { name: "Hover".into(), duration: 1.0, looping: false, tracks, events: vec![] };
+                assert_eq!(anim.pose(&doc, 0.0).nodes[0].get(color_prop), Value::None, "offset/blur must not resurrect a removed effect");
+                let pose = anim.pose(&doc, 0.5);
+                assert_eq!(pose.nodes[0].get(color_prop), Value::Color(Color { a: 100, ..color }));
+                assert_eq!(pose.nodes[0].get(x_prop), Value::Num(17.0));
+                assert_eq!(pose.nodes[0].get(blur_prop), Value::Num(8.0));
+                assert_eq!(doc.nodes[0].get(blur_prop), Value::Num(7.0), "posing must not change the source effect");
+            }
+        }
+    }
 
     #[test]
     fn absent_paint_fades_with_the_other_colors_rgb_and_exact_endpoints() {

@@ -1,4 +1,4 @@
-use crate::Element;
+use crate::{Element, animation};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,7 +54,53 @@ impl Rule {
     }
 }
 
+pub(crate) struct Stylesheet {
+    pub rules: Vec<Rule>,
+    pub keyframes: BTreeMap<String, animation::Keyframes>,
+}
+
+#[cfg(test)]
 pub(crate) fn parse(css: &str, warnings: &mut Vec<String>) -> Result<Vec<Rule>, String> {
+    Ok(parse_stylesheet(css, warnings)?.rules)
+}
+
+pub(crate) fn block_end(text: &str, open: usize) -> Option<usize> {
+    let mut depth = 1;
+    let mut quote = None;
+    let mut escape = false;
+    for (at, c) in text[open + 1..].char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if c == '\\' {
+            escape = true;
+            continue;
+        }
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        if c == '\'' || c == '"' {
+            quote = Some(c);
+            continue;
+        }
+        if c == '{' {
+            depth += 1;
+        }
+        if c == '}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(open + 1 + at);
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn parse_stylesheet(css: &str, warnings: &mut Vec<String>) -> Result<Stylesheet, String> {
     let mut clean = String::new();
     let mut rest = css;
     while let Some(at) = rest.find("/*") {
@@ -64,6 +110,7 @@ pub(crate) fn parse(css: &str, warnings: &mut Vec<String>) -> Result<Vec<Rule>, 
     }
     clean.push_str(rest);
     let mut rules = Vec::new();
+    let mut keyframes = BTreeMap::new();
     let mut rest = clean.as_str();
     while !rest.trim().is_empty() {
         // Statement at-rules (commonly font @import) end at ';', not at a later selector block.
@@ -78,43 +125,20 @@ pub(crate) fn parse(css: &str, warnings: &mut Vec<String>) -> Result<Vec<Rule>, 
             break;
         };
         let head = rest[..open].trim();
-        let mut end = None;
-        let mut depth = 1;
-        let mut quote = None;
-        let mut escape = false;
-        for (at, c) in rest[open + 1..].char_indices() {
-            if escape {
-                escape = false;
-                continue;
-            }
-            if c == '\\' {
-                escape = true;
-                continue;
-            }
-            if let Some(q) = quote {
-                if c == q {
-                    quote = None;
-                }
-                continue;
-            }
-            if c == '\'' || c == '"' {
-                quote = Some(c);
-                continue;
-            }
-            if c == '{' {
-                depth += 1;
-            }
-            if c == '}' {
-                depth -= 1;
-                if depth == 0 {
-                    end = Some(open + 1 + at);
-                    break;
-                }
-            }
-        }
-        let Some(end) = end else { return Err("CSS: незакрытый блок".into()) };
+        let Some(end) = block_end(rest, open) else { return Err("CSS: незакрытый блок".into()) };
         let body = &rest[open + 1..end];
-        if head.starts_with('@') {
+        let header = words(head);
+        if header.first().is_some_and(|name| name.eq_ignore_ascii_case("@keyframes") || name.eq_ignore_ascii_case("@-webkit-keyframes")) {
+            let name = header.get(1).copied().unwrap_or("").trim_matches(['\'', '"']);
+            if header.len() != 2 || name.is_empty() || name == "none" {
+                warnings.push(format!("CSS keyframes: неверное имя {name}"));
+            } else {
+                keyframes.insert(name.to_owned(), animation::parse_keyframes(body, warnings)?);
+                if keyframes.len() > 64 {
+                    return Err("Не больше 64 CSS keyframes-анимаций".into());
+                }
+            }
+        } else if head.starts_with('@') {
             warnings.push(format!("CSS at-rule {head} пропущен"));
         } else {
             let decls = declarations(body, warnings);
@@ -130,7 +154,7 @@ pub(crate) fn parse(css: &str, warnings: &mut Vec<String>) -> Result<Vec<Rule>, 
         }
         rest = &rest[end + 1..];
     }
-    Ok(rules)
+    Ok(Stylesheet { rules, keyframes })
 }
 
 pub(crate) fn split(text: &str, separator: char) -> Vec<&str> {
@@ -176,7 +200,7 @@ pub(crate) fn words(text: &str) -> Vec<&str> {
     split(text, ' ').into_iter().filter(|s| !s.is_empty()).collect()
 }
 
-fn declarations(body: &str, warnings: &mut Vec<String>) -> Vec<(String, String, bool)> {
+pub(crate) fn declarations(body: &str, warnings: &mut Vec<String>) -> Vec<(String, String, bool)> {
     let mut out = Vec::new();
     for decl in split(body, ';') {
         let decl = decl.trim();
@@ -188,10 +212,22 @@ fn declarations(body: &str, warnings: &mut Vec<String>) -> Vec<(String, String, 
             continue;
         };
         let key = key.trim().to_lowercase();
+        let key = match key.as_str() {
+            "-webkit-transform" => "transform".into(),
+            "-webkit-transform-origin" => "transform-origin".into(),
+            "-webkit-clip-path" => "clip-path".into(),
+            _ => key,
+        };
         let value = value.trim();
         let important = value.ends_with("!important");
         let value = value.trim_end_matches("!important").trim();
-        if ["padding", "margin"].contains(&key.as_str()) {
+        if ["animation", "transition"].contains(&key.as_str()) {
+            if let Some(properties) = animation::expand_shorthand(&key, value, warnings) {
+                out.extend(properties.into_iter().map(|(key, value)| (key, value, important)));
+            } else {
+                warnings.push(format!("CSS {key}: неподдерживаемое или неверное значение {value}"));
+            }
+        } else if ["padding", "margin", "inset"].contains(&key.as_str()) {
             let vals = words(value);
             if !(1..=4).contains(&vals.len()) {
                 warnings.push(format!("CSS {key}: нужны 1–4 значения"));
@@ -205,19 +241,21 @@ fn declarations(body: &str, warnings: &mut Vec<String>) -> Vec<(String, String, 
                 _ => unreachable!(),
             };
             for (side, v) in ["top", "right", "bottom", "left"].iter().zip(four) {
-                out.push((format!("{key}-{side}"), v.into(), important));
+                out.push((if key == "inset" { side.to_string() } else { format!("{key}-{side}") }, v.into(), important));
             }
         } else if key == "border" {
             let mut width = "1px";
             let mut color = "currentColor";
+            let mut style = "solid";
             let mut none = false;
             for word in words(value) {
                 if ["none", "hidden"].contains(&word) {
                     none = true;
-                } else if ["solid"].contains(&word) {
-                } else if word.ends_with("px") || word == "0" {
+                } else if ["solid", "double"].contains(&word) {
+                    style = word;
+                } else if word.ends_with("px") || word.ends_with("em") || word.ends_with("rem") || word == "0" {
                     width = word;
-                } else if ["dashed", "dotted", "double", "groove", "ridge", "inset", "outset"].contains(&word) {
+                } else if ["dashed", "dotted", "groove", "ridge", "inset", "outset"].contains(&word) {
                     warnings.push(format!("CSS border {word}: импортирована сплошная обводка"));
                 } else {
                     color = word;
@@ -225,6 +263,7 @@ fn declarations(body: &str, warnings: &mut Vec<String>) -> Vec<(String, String, 
             }
             out.push(("border-width".into(), if none { "0".into() } else { width.into() }, important));
             out.push(("border-color".into(), if none { "transparent".into() } else { color.into() }, important));
+            out.push(("border-style".into(), if none { "none".into() } else { style.into() }, important));
         } else if key == "background" {
             // A background shorthand resets both components, even when it only names a color.
             out.push(("background-image".into(), "none".into(), important));
@@ -397,4 +436,48 @@ pub(crate) fn cascade(rules: &[Rule], nodes: &[Element], index: usize, state: St
         add(&declarations(inline, warnings), true, (0, 0, 0), rules.len());
     }
     values.into_iter().map(|(k, (_, v))| (k, v)).collect()
+}
+
+#[cfg(test)]
+mod animation_css_tests {
+    use super::*;
+    #[test]
+    fn keyframes_are_parsed_separately_and_duplicate_rules_replace_the_whole_definition() {
+        let mut warnings = Vec::new();
+        let sheet = parse_stylesheet(
+            "@keyframes pulse { from{opacity:0} to{opacity:1}} button:hover{animation:1s pulse} @keyframes\npulse { 25%,75%{opacity:.5} }",
+            &mut warnings,
+        )
+        .unwrap();
+        assert_eq!(sheet.rules.len(), 1);
+        assert_eq!(sheet.keyframes.len(), 1);
+        assert_eq!(sheet.keyframes["pulse"].offsets(), vec![0.25, 0.75]);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+    #[test]
+    fn shorthand_longhand_source_order_survives_cascade_and_double_border_is_retained() {
+        let nodes = vec![Element { tag: "root".into(), ..Default::default() }, Element { tag: "button".into(), parent: Some(0), ..Default::default() }];
+        let mut warnings = Vec::new();
+        let sheet=parse_stylesheet("button{animation:1s linear pulse;animation-duration:2s;transition-duration:5s;transition:left 200ms linear;inset:1px 2px;left:3px;border:5px double blue}",&mut warnings).unwrap();
+        let d = cascade(&sheet.rules, &nodes, 1, State::Base, &mut warnings);
+        let a = animation::parse_animations(&d, &mut warnings);
+        let t = animation::parse_transitions(&d, &mut warnings);
+        assert_eq!(a[0].duration, 2.0);
+        assert_eq!(a[0].timing, animation::Timing::Linear);
+        assert_eq!(t[0].duration, 0.2);
+        assert_eq!(t[0].property, "left");
+        assert_eq!(d["left"], "3px");
+        assert_eq!(d["top"], "1px");
+        assert_eq!(d["border-style"], "double");
+        assert_eq!(d["border-width"], "5px");
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+    #[test]
+    fn invalid_keyframe_positions_and_important_do_not_become_fake_animation_values() {
+        let mut warnings = Vec::new();
+        let sheet = parse_stylesheet("@keyframes bad{-10%,110%{color:red} from{opacity:0!important} to{opacity:1}}", &mut warnings).unwrap();
+        assert_eq!(sheet.keyframes["bad"].offsets(), vec![0.0, 1.0]);
+        assert!(!sheet.keyframes["bad"].frames[0].declarations.contains_key("opacity"));
+        assert_eq!(warnings.len(), 3);
+    }
 }

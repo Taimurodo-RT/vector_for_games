@@ -61,6 +61,8 @@ pub use machine::{
 };
 use motif_core::{Color, Document, Prop};
 pub use palette::{add_swatch, free_swatch_name, set_ref, set_swatch};
+/// Native node property names and their value arity, useful to avoid ambiguous generated IDs.
+pub use parser::prop_arity;
 use std::collections::HashMap;
 use std::fmt;
 pub use svg::import_svg;

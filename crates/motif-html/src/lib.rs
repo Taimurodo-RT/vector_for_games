@@ -1,9 +1,13 @@
 //! Converts a deliberately bounded HTML/CSS subset into ordinary editable MSC nodes.
 //! No browser, script evaluation, network, or external resource loading is involved.
+mod animation;
+mod canvas;
 mod css;
+mod interpolate;
 mod layout;
 mod semantic;
 mod style;
+mod timeline;
 
 use html5gum::{Token, Tokenizer};
 use motif_core::text::{BOLD_FONT, DEFAULT_FONT};
@@ -37,8 +41,9 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
     let mut warnings = Vec::new();
     let (mut nodes, embedded) = parse_html(html, &mut warnings)?;
     semantic::prepare(&mut nodes, &mut warnings)?;
-    let rules = css::parse(&format!("{embedded}\n{css}"), &mut warnings)?;
-    let styles = computed(&nodes, &rules, css::State::Base, &mut warnings);
+    let sheet = css::parse_stylesheet(&format!("{embedded}\n{css}"), &mut warnings)?;
+    let rules = &sheet.rules;
+    let styles = computed(&nodes, rules, css::State::Base, &mut warnings);
     semantic::normalize_text(&mut nodes, &styles);
     semantic::warn_inline_limits(&nodes, &styles, &mut warnings);
     let mut boxes = vec![BoxNode::default(); nodes.len()];
@@ -54,17 +59,19 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
         if id.is_empty() || !id.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
             id = format!("html_{id}");
         }
-        if ["world", "artboard", "anim", "group", "rect", "text", "path", "let", "parameter", "driver", "corrective"].contains(&id.as_str()) {
+        if motif_script::prop_arity(&id).is_some_and(|(_, max)| max == 0)
+            || ["world", "artboard", "anim", "group", "rect", "text", "path", "let", "parameter", "driver", "corrective"].contains(&id.as_str())
+        {
             id = format!("html_{id}");
         }
         let base = id.clone();
         let mut suffix = 2;
         let lines = n.text.split('\n').count();
-        while semantic::reserved_ids(&id, lines).iter().any(|candidate| used.contains(candidate)) {
+        while reserved_ids(&id, lines).iter().any(|candidate| used.contains(candidate)) {
             id = format!("{base}_{suffix}");
             suffix += 1;
         }
-        used.extend(semantic::reserved_ids(&id, lines));
+        used.extend(reserved_ids(&id, lines));
         ids.push(id);
     }
     let mut source =
@@ -72,72 +79,8 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
     for &child in &nodes[0].children {
         emit(child, 0, &nodes, &styles, &boxes, &ids, &mut source);
     }
-    for state in css::State::ANIMATED {
-        if !rules.iter().any(|r| r.stateful_for(state)) {
-            continue;
-        }
-        let styled = computed(&nodes, &rules, state, &mut warnings);
-        let mut tracks = String::new();
-        for i in 1..nodes.len() {
-            if styles[i].hidden || nodes[i].tag == "br" || nodes[i].tag == "#text" && nodes[i].text.is_empty() && !nodes[i].text_part {
-                continue;
-            }
-            let (base, next) = (&styles[i], &styled[i]);
-            let id = &ids[i];
-            let mut key = |node: &str, prop: &str, a: String, b: String| {
-                if a != b {
-                    tracks.push_str(&format!("  {node}.{prop} 0: {a} | 0.2: {b}\n"));
-                }
-            };
-            if nodes[i].tag == "#text" {
-                key(&format!("{id}_text"), "fill", base.color.clone(), next.color.clone());
-                key(&format!("{id}_text"), "font-size", num(base.font_size), num(next.font_size));
-                for suffix in ["underline", "strike"] {
-                    let decorated = if suffix == "underline" { base.underline } else { base.strike };
-                    if decorated {
-                        for line in 0..nodes[i].text.lines().count().max(1) {
-                            key(&format!("{id}_{suffix}_{line}"), "fill", base.color.clone(), next.color.clone());
-                        }
-                    }
-                }
-            } else {
-                if base.gradient == next.gradient {
-                    key(&format!("{id}_bg"), "fill", base.background.clone(), next.background.clone());
-                }
-                key(&format!("{id}_bg"), "r", num(surface_radius(base, &boxes[i])), num(surface_radius(next, &boxes[i])));
-                key(&format!("{id}_bg"), "stroke", base.border_color.clone(), next.border_color.clone());
-                key(&format!("{id}_bg"), "stroke_w", num(base.border_width), num(next.border_width));
-                key(id, "opacity", num(base.opacity), num(next.opacity));
-                match semantic::role(&nodes[i]) {
-                    "check" => key(
-                        &format!("{id}_mark"),
-                        if semantic::input_type(&nodes[i]) == "radio" { "fill" } else { "stroke" },
-                        base.color.clone(),
-                        next.color.clone(),
-                    ),
-                    "slider" => {
-                        key(&format!("{id}_fill"), "fill", base.color.clone(), next.color.clone());
-                        key(&format!("{id}_grabber"), "stroke", base.color.clone(), next.color.clone());
-                    }
-                    "option" => key(&format!("{id}_arrow"), "stroke", base.color.clone(), next.color.clone()),
-                    _ => {}
-                }
-            }
-            if base.geometry_differs(next) {
-                warnings.push(format!(
-                    "{}: изменение размеров/раскладки в :{} не импортировано; состояние сохраняет базовую геометрию",
-                    nodes[i].tag,
-                    state.pseudo()
-                ));
-            }
-            if base.gradient != next.gradient || base.shadow != next.shadow {
-                warnings.push(format!("{}: изменение градиента или тени в :{} не импортировано", nodes[i].tag, state.pseudo()));
-            }
-        }
-        if !tracks.is_empty() {
-            source.push_str(&format!("\nanim {} 0.2s {{\n{tracks}}}\n", state.clip()));
-        }
-    }
+    timeline::emit_clips(&nodes, &sheet, &ids, &styles, &mut source, &mut warnings)?;
+    canvas::fit(&mut source, &mut warnings)?;
     // Validate the result before returning it to a visual editor or generator.
     motif_script::parse(&source).map_err(|e| format!("Не удалось построить сцену: {}", e.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")))?;
     let mut seen = BTreeSet::new();
@@ -307,6 +250,24 @@ fn text_size(text: &str, s: &style::Style) -> (f64, f64) {
     let b = t.bounds(&style);
     (b.width(), b.height())
 }
+fn reserved_ids(id: &str, lines: usize) -> Vec<String> {
+    let mut all = semantic::reserved_ids(id, lines);
+    all.extend(["polygon", "polygon_mask", "overflow", "overflow_mask", "border_outer", "border_inner"].map(|suffix| format!("{id}__{suffix}")));
+    all
+}
+
+/// QR decomposition into Motif's rotation * skewX * scale convention.
+fn affine_parts(affine: motif_core::kurbo::Affine) -> [f64; 6] {
+    let [a, b, c, d, x, y] = affine.as_coeffs();
+    let sx = a.hypot(b);
+    if sx < 1e-12 {
+        return [x, y, (-c).atan2(d).to_degrees(), 0.0, c.hypot(d), 0.0];
+    }
+    let sy = (a * d - b * c) / sx;
+    let shear = if sy.abs() < 1e-12 { 0.0 } else { ((a * c + b * d) / (sx * sy)).atan().to_degrees() };
+    [x, y, b.atan2(a).to_degrees(), sx, sy, shear]
+}
+
 fn emit(i: usize, depth: usize, nodes: &[Element], styles: &[style::Style], boxes: &[BoxNode], ids: &[String], out: &mut String) {
     let n = &nodes[i];
     let s = &styles[i];
@@ -370,34 +331,86 @@ fn emit(i: usize, depth: usize, nodes: &[Element], styles: &[style::Style], boxe
     if kind == "slider" {
         role.push_str(&format!(" dial across value {}", num(semantic::range_value(n))));
     }
+    let [tx, ty, rotation, sx, sy, skew] = affine_parts(s.transform_matrix(b.w, b.h));
     out.push_str(&format!(
-        "{ind}group {id} {} at {} {}{role} opacity {} {{\n",
+        "{ind}group {id} {} at {} {}{role} opacity {} rot {} scale {} {} skew {} 0 {{\n",
         quote(n.attrs.get("aria-label").map_or(n.tag.as_str(), String::as_str)),
-        num(x),
-        num(y),
-        num(s.opacity)
+        num(x + tx),
+        num(y + ty),
+        num(s.opacity),
+        num(rotation),
+        num(sx),
+        num(sy),
+        num(skew)
     ));
+    let mut inner_depth = depth + 1;
+    if let Some(polygon) = &s.clip_path {
+        let child = "  ".repeat(inner_depth);
+        let mut path = String::new();
+        for (at, point) in polygon.iter().enumerate() {
+            path.push_str(&format!(
+                "{} {} {} ",
+                if at == 0 { "M" } else { "L" },
+                num(point[0].resolve(b.w) - b.w / 2.0),
+                num(point[1].resolve(b.h) - b.h / 2.0)
+            ));
+        }
+        path.push('Z');
+        out.push_str(&format!("{child}group {id}__polygon clip {{\n{child}  path {id}__polygon_mask d {} fill #ffffff\n", quote(&path)));
+        inner_depth += 1;
+    }
+    let child = "  ".repeat(inner_depth);
     let radius = surface_radius(s, b);
     let attrs = s.gradient.as_ref().map_or(String::new(), |g| format!(" gradient linear {} {}", num(g.0), g.1.join(" ")));
     let shadow = s.shadow.as_ref().map_or(String::new(), |v| format!(" shadow {} {} {} {}", num(v.0), num(v.1), num(v.2), v.3));
+    let inset = s.inset_shadow.as_ref().map_or(String::new(), |v| format!(" inset {} {} {} {}", num(v.0), num(v.1), num(v.2), v.3));
+    let double = s.border_double && s.border_width >= 3.0;
     out.push_str(&format!(
-        "{ind}  rect {id}_bg {} size {} {} r {} fill {} stroke {} {}{attrs}{shadow}\n",
+        "{child}rect {id}_bg {} size {} {} r {} fill {} stroke {} {}{attrs}{shadow}{inset}\n",
         quote("Фон"),
-        num((b.w - s.border_width).max(0.0)),
-        num((b.h - s.border_width).max(0.0)),
+        num((b.w - if double { 0.0 } else { s.border_width }).max(0.0)),
+        num((b.h - if double { 0.0 } else { s.border_width }).max(0.0)),
         num(radius),
         s.background,
-        s.border_color,
-        num(s.border_width)
+        if double { "none" } else { &s.border_color },
+        num(if double { 0.0 } else { s.border_width })
     ));
-    semantic::emit_parts(n, s, b, id, &format!("{ind}  "), out);
+    if double {
+        let band = s.border_width / 3.0;
+        for (suffix, inset) in [("outer", band / 2.0), ("inner", s.border_width - band / 2.0)] {
+            out.push_str(&format!(
+                "{child}rect {id}__border_{suffix} size {} {} r {} fill none stroke {} {}\n",
+                num((b.w - 2.0 * inset).max(0.0)),
+                num((b.h - 2.0 * inset).max(0.0)),
+                num((s.radius - inset).max(0.0)),
+                s.border_color,
+                num(band)
+            ));
+        }
+    }
+    semantic::emit_parts(n, s, b, id, &child, out);
+    if s.overflow_hidden {
+        out.push_str(&format!(
+            "{child}group {id}__overflow clip {{\n{child}  rect {id}__overflow_mask size {} {} r {} fill #ffffff\n",
+            num((b.w - 2.0 * s.border_width).max(0.0)),
+            num((b.h - 2.0 * s.border_width).max(0.0)),
+            num((s.radius - s.border_width).max(0.0))
+        ));
+        inner_depth += 1;
+    }
     for &c in &n.children {
-        emit(c, depth + 1, nodes, styles, boxes, ids, out);
+        emit(c, inner_depth, nodes, styles, boxes, ids, out);
+    }
+    if s.overflow_hidden {
+        out.push_str(&format!("{child}}}\n"));
+    }
+    if s.clip_path.is_some() {
+        out.push_str(&format!("{ind}  }}\n"));
     }
     out.push_str(&format!("{ind}}}\n"));
 }
 fn num(v: f64) -> String {
-    motif_script::fmt_num(v)
+    motif_script::fmt_num_with(v, 6)
 }
 fn surface_radius(s: &style::Style, b: &BoxNode) -> f64 {
     (s.radius - s.border_width / 2.0).max(0.0).min((b.w.min(b.h) - s.border_width).max(0.0) / 2.0)
@@ -408,3 +421,6 @@ fn quote(s: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod complex_tests;

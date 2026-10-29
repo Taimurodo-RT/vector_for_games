@@ -38,6 +38,11 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
         return None;
     }
     let current = scene.doc.node(node)?;
+    // The compact shadow/inset declarations require a color. Removing an effect
+    // uses the generic property override instead of producing `shadow ... none`.
+    if matches!(prop, Prop::ShadowColor | Prop::InsetColor) && value == Value::None {
+        return Some(write_override(src, scene, node, prop, "none"));
+    }
     if matches!(prop, Prop::WarpX(_) | Prop::WarpY(_)) && current.lattice.is_none() || prop == Prop::Contour && current.forms.is_none() {
         return None;
     }
@@ -51,10 +56,7 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
     if let Some(s) = scene.sources.get(&key) {
         // A palette color named on the node's own line (`fill main`) gives way to the picked color
         // there: the object leaves the palette. Numbers from `let` stay and get an override.
-        let named = matches!(prop, Prop::Fill | Prop::StrokeColor)
-            && scene.refs.contains_key(&key)
-            && !s.from_override
-            && scene.sites.get(node).is_some_and(|site| !site.generated);
+        let named = prop.is_color() && scene.refs.contains_key(&key) && !s.from_override && scene.sites.get(node).is_some_and(|site| !site.generated);
         if !s.editable && !named {
             return Some(write_override(src, scene, node, prop, &text));
         }
@@ -149,10 +151,12 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
             let color = current.shadow.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
             format!("shadow {} {} {} {color}", pick(Prop::ShadowX), pick(Prop::ShadowY), pick(Prop::ShadowBlur))
         }
+        Prop::ShadowColor => format!("shadow {} {} {} {text}", pick(Prop::ShadowX), pick(Prop::ShadowY), pick(Prop::ShadowBlur)),
         Prop::InsetX | Prop::InsetY | Prop::InsetBlur => {
             let color = current.inset.unwrap_or(motif_core::Shadow::DEFAULT).color.to_hex();
             format!("inset {} {} {} {color}", pick(Prop::InsetX), pick(Prop::InsetY), pick(Prop::InsetBlur))
         }
+        Prop::InsetColor => format!("inset {} {} {} {text}", pick(Prop::InsetX), pick(Prop::InsetY), pick(Prop::InsetBlur)),
         Prop::Glow => {
             let g = current.glow.unwrap_or(motif_core::Glow::DEFAULT);
             let spread = if g.spread > 0.0 { format!(" {}", fmt_num(g.spread)) } else { String::new() };

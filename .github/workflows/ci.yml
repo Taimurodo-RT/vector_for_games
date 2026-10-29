@@ -46,6 +46,9 @@ jobs:
       - run: cargo run -p motif-cli -- import-html examples/import/text-elements.html --css examples/import/text-elements.css -o target/imported-text.msc
       - run: cargo run -p motif-cli -- check target/imported-text.msc
       - run: cargo run -p motif-cli -- render target/imported-text.msc -o target/imported-text.png
+      - run: cargo run -p motif-cli -- import-html examples/import/uiverse-play.html --css examples/import/uiverse-play.css -o target/imported-play.msc
+      - run: cargo run -p motif-cli -- check target/imported-play.msc
+      - run: cargo run -p motif-cli -- render target/imported-play.msc --anim HoverLoop --time 0.3 -o target/imported-play.png
       - run: cargo run -p motif-cli -- godot examples/character-anime.msc --node portrait --fps 6 -o target/anime-check
       - run: cargo run -p motif-cli -- godot examples/character-portrait.msc --node hero -o target/portrait-check
       - run: cargo run -p motif-cli -- godot examples/character-platformer.msc --node hero -o target/platformer-check
