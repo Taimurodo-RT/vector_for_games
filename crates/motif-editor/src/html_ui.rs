@@ -279,6 +279,71 @@ mod tests {
     }
 
     #[test]
+    fn pasted_multiline_html_and_css_preserve_tabs_newlines_and_selection_replacement() {
+        let mut app = fixture("artboard 200x200\nrect old size 40\n");
+        app.html_import.open = true;
+        let original = app.src.clone();
+        let html = "<div class=\"card\">\n\t<button id=\"play\">Играть &amp; исследовать</button>\n</div>\n";
+        let css = ".card {\r\n\tdisplay: flex;\r\n\tpadding: 12px;\r\n}\r\n#play {\r\n\tbackground: #7667d9;\r\n\tcolor: #ffffff;\r\n}\r\n";
+        for (title, replacement) in [("HTML", html), ("CSS", css)] {
+            let initial = if title == "HTML" { app.html_import.html.clone() } else { app.html_import.css.clone() };
+            let point = field_point(&mut app, &initial);
+            focus_at(&mut app, point);
+            input_frame(&mut app, vec![select_all_event()]).drop_without_applying_deltas();
+            input_frame(&mut app, ctrl_v_paste(replacement)).drop_without_applying_deltas();
+            assert_eq!(if title == "HTML" { &app.html_import.html } else { &app.html_import.css }, replacement);
+            assert_eq!(app.ctx.memory(|memory| memory.focused()), Some(html_field_id(title)));
+        }
+        assert_eq!(app.html_import.html, html);
+        assert_eq!(app.html_import.css, css);
+        assert_eq!(app.src, original);
+        app.html_import.convert(&app.ctx.clone());
+        assert!(app.html_import.error.is_none());
+        let parsed = motif_script::parse(app.html_import.generated.as_ref().unwrap()).unwrap();
+        assert!(parsed.doc.nodes.iter().any(|n| n.ui));
+        assert!(parsed.doc.nodes.iter().any(|n| n.text.as_ref().is_some_and(|t| t.content == "Играть & исследовать")));
+        assert_eq!(app.src, original);
+        assert!(app.undo.is_empty());
+    }
+
+    #[test]
+    fn code_editor_tab_indents_and_shift_tab_dedents_without_changing_focus_or_workspace() {
+        let mut app = fixture("artboard 200x200\nrect old size 40\n");
+        app.html_import.open = true;
+        let original = app.src.clone();
+        let workspace = app.workspace();
+        for title in ["HTML", "CSS"] {
+            let initial = if title == "HTML" { app.html_import.html.clone() } else { app.html_import.css.clone() };
+            let point = field_point(&mut app, &initial);
+            focus_at(&mut app, point);
+            input_frame(&mut app, vec![select_all_event()]).drop_without_applying_deltas();
+            input_frame(&mut app, ctrl_v_paste("code")).drop_without_applying_deltas();
+            input_frame(&mut app, vec![egui::Event::Key { key: Key::Home, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }])
+                .drop_without_applying_deltas();
+            input_frame(&mut app, vec![egui::Event::Key { key: Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }])
+                .drop_without_applying_deltas();
+            assert_eq!(if title == "HTML" { &app.html_import.html } else { &app.html_import.css }, "\tcode");
+            assert_eq!(app.ctx.memory(|memory| memory.focused()), Some(html_field_id(title)));
+            input_frame(
+                &mut app,
+                vec![egui::Event::Key {
+                    key: Key::Tab,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers { shift: true, ..Default::default() },
+                }],
+            )
+            .drop_without_applying_deltas();
+            assert_eq!(if title == "HTML" { &app.html_import.html } else { &app.html_import.css }, "code");
+            assert_eq!(app.ctx.memory(|memory| memory.focused()), Some(html_field_id(title)));
+            assert_eq!(app.workspace(), workspace);
+        }
+        assert_eq!(app.src, original);
+        assert!(app.undo.is_empty());
+    }
+
+    #[test]
     fn paste_buttons_target_their_editor_and_right_click_offers_paste() {
         let mut app = fixture("artboard 200x200\nrect old size 40\n");
         app.html_import.open = true;

@@ -10,6 +10,8 @@ pub(crate) struct Style {
     pub margin: [f64; 4],
     pub gap: f64,
     pub row: bool,
+    pub flex: bool,
+    pub inline: bool,
     pub align_center: bool,
     pub justify_center: bool,
     pub hidden: bool,
@@ -18,6 +20,13 @@ pub(crate) struct Style {
     pub line_height: f64,
     pub letter_spacing: f64,
     pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strike: bool,
+    /// Vertical offset in em relative to this element's font size. Not inherited.
+    pub baseline_shift: f64,
+    pub preserve_space: bool,
+    pub tab_size: usize,
     pub color: String,
     pub background: String,
     pub border_color: String,
@@ -37,6 +46,8 @@ impl Default for Style {
             margin: [0.0; 4],
             gap: 0.0,
             row: false,
+            flex: false,
+            inline: false,
             align_center: false,
             justify_center: false,
             hidden: false,
@@ -45,6 +56,12 @@ impl Default for Style {
             line_height: 1.2,
             letter_spacing: 0.0,
             bold: false,
+            italic: false,
+            underline: false,
+            strike: false,
+            baseline_shift: 0.0,
+            preserve_space: false,
+            tab_size: 8,
             color: "#202635".into(),
             background: "none".into(),
             border_color: "none".into(),
@@ -64,11 +81,19 @@ impl Style {
             || self.padding != next.padding
             || self.margin != next.margin
             || self.row != next.row
+            || self.flex != next.flex
+            || self.inline != next.inline
             || self.gap != next.gap
             || self.align_center != next.align_center
             || self.justify_center != next.justify_center
             || self.hidden != next.hidden
             || self.border_width != next.border_width
+            || self.italic != next.italic
+            || self.underline != next.underline
+            || self.strike != next.strike
+            || self.baseline_shift != next.baseline_shift
+            || self.preserve_space != next.preserve_space
+            || self.tab_size != next.tab_size
     }
     pub fn compute(node: &Element, parent: Option<&Self>, declarations: &BTreeMap<String, String>, warnings: &mut Vec<String>) -> Self {
         let mut s = Self::default();
@@ -77,6 +102,11 @@ impl Style {
             s.line_height = p.line_height;
             s.letter_spacing = p.letter_spacing;
             s.bold = p.bold;
+            s.italic = p.italic;
+            s.underline = p.underline;
+            s.strike = p.strike;
+            s.preserve_space = p.preserve_space;
+            s.tab_size = p.tab_size;
             s.color = p.color.clone();
             s.hidden = p.hidden;
             s.vars = p.vars.clone();
@@ -90,18 +120,116 @@ impl Style {
             s.align_center = true;
             s.justify_center = true;
         }
-        if ["span", "strong", "b", "em", "i", "small", "button", "p", "label", "h1", "h2", "h3", "a"].contains(&node.tag.as_str()) {
+        if [
+            "#text", "span", "strong", "b", "em", "i", "u", "s", "del", "ins", "small", "sub", "sup", "code", "kbd", "samp", "mark", "button", "label",
+            "input", "textarea", "select", "a",
+        ]
+        .contains(&node.tag.as_str())
+        {
+            s.inline = true;
             s.row = true;
         }
-        if ["b", "strong", "h1", "h2", "h3"].contains(&node.tag.as_str()) {
+        if ["b", "strong", "h1", "h2", "h3", "h4", "h5", "h6"].contains(&node.tag.as_str()) {
             s.bold = true;
         }
-        if ["h1", "h2", "h3"].contains(&node.tag.as_str()) {
+        if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(&node.tag.as_str()) {
             s.font_size = match node.tag.as_str() {
                 "h1" => 32.0,
                 "h2" => 24.0,
-                _ => 20.0,
+                "h3" => 20.0,
+                "h4" => 16.0,
+                "h5" => 13.28,
+                _ => 10.72,
             };
+        }
+        if ["em", "i"].contains(&node.tag.as_str()) {
+            s.italic = true;
+        }
+        if ["u", "ins"].contains(&node.tag.as_str()) {
+            s.underline = true;
+        }
+        if ["s", "del"].contains(&node.tag.as_str()) {
+            s.strike = true;
+        }
+        if node.tag == "a" && node.attrs.contains_key("href") {
+            s.color = "#0066cc".into();
+            s.underline = true;
+        }
+        if node.tag == "ul" || node.tag == "ol" {
+            s.padding[3] = 24.0;
+            s.gap = 4.0;
+        }
+        if ["small", "sub", "sup"].contains(&node.tag.as_str()) {
+            s.font_size *= 0.8;
+        }
+        if node.tag == "sub" {
+            s.baseline_shift = 0.2;
+        }
+        if node.tag == "sup" {
+            s.baseline_shift = -0.35;
+        }
+        if node.tag == "pre" {
+            s.preserve_space = true;
+        }
+        if ["pre", "code", "kbd", "samp"].contains(&node.tag.as_str()) {
+            warnings.push(format!("HTML <{}>: использован встроенный IBM Plex Sans; моноширинный шрифт автоматически не подключается", node.tag));
+        }
+        if node.tag == "input" {
+            let input_type = node.attrs.get("type").map_or("text", String::as_str).to_ascii_lowercase();
+            match input_type.as_str() {
+                "hidden" => s.hidden = true,
+                "button" | "submit" | "reset" => {
+                    s.padding = [8.0, 16.0, 8.0, 16.0];
+                    s.background = "#e9edf5".into();
+                    s.border_color = "#7b8496".into();
+                    s.border_width = 1.0;
+                    s.radius = 4.0;
+                    s.align_center = true;
+                    s.justify_center = true;
+                }
+                "checkbox" | "radio" => {
+                    s.width = Some(18.0);
+                    s.height = Some(18.0);
+                    s.border_box = true;
+                    s.border_width = 1.0;
+                    s.border_color = "#7b8496".into();
+                    s.background = "#ffffff".into();
+                    s.radius = if input_type == "radio" { 9.0 } else { 3.0 };
+                }
+                "range" => {
+                    s.width = Some(160.0);
+                    s.height = Some(20.0);
+                    s.border_box = true;
+                }
+                _ => {
+                    s.width = Some(180.0);
+                    s.padding = [6.0, 8.0, 6.0, 8.0];
+                    s.border_box = true;
+                    s.border_width = 1.0;
+                    s.border_color = "#7b8496".into();
+                    s.background = "#ffffff".into();
+                    s.radius = 3.0;
+                }
+            }
+        }
+        if node.tag == "textarea" || node.tag == "select" {
+            s.width = Some(if node.tag == "textarea" { 220.0 } else { 180.0 });
+            s.height = Some(if node.tag == "textarea" { 72.0 } else { 34.0 });
+            s.padding = [6.0, 8.0, 6.0, 8.0];
+            s.border_box = true;
+            s.border_width = 1.0;
+            s.border_color = "#7b8496".into();
+            s.background = "#ffffff".into();
+            s.radius = 3.0;
+        }
+        if node.tag == "textarea" {
+            s.preserve_space = true;
+        }
+        if node.tag == "hr" {
+            s.width = Some(160.0);
+            s.height = Some(1.0);
+            s.background = "#7b8496".into();
+            s.border_box = true;
         }
         for (key, value) in declarations {
             if key.starts_with("--") {
@@ -175,9 +303,21 @@ impl Style {
                 }
                 "display" => match value.as_str() {
                     "none" => s.hidden = true,
-                    "flex" | "inline-flex" => s.row = true,
-                    "block" => s.row = false,
-                    "inline" | "inline-block" => s.row = true,
+                    "flex" | "inline-flex" => {
+                        s.flex = true;
+                        s.inline = value == "inline-flex";
+                        s.row = true;
+                    }
+                    "block" => {
+                        s.flex = false;
+                        s.inline = false;
+                        s.row = false;
+                    }
+                    "inline" | "inline-block" => {
+                        s.flex = false;
+                        s.inline = true;
+                        s.row = true;
+                    }
                     _ => bad(key, value, warnings),
                 },
                 "flex-direction" => match value.as_str() {
@@ -262,6 +402,38 @@ impl Style {
                 "font-weight" => match value.as_str() {
                     "bold" | "600" | "700" | "800" | "900" => s.bold = true,
                     "normal" | "100" | "200" | "300" | "400" | "500" => s.bold = false,
+                    _ => bad(key, value, warnings),
+                },
+                "font-style" => match value.as_str() {
+                    "normal" => s.italic = false,
+                    "italic" | "oblique" => s.italic = true,
+                    _ => bad(key, value, warnings),
+                },
+                "text-decoration" | "text-decoration-line" => {
+                    let parts: Vec<_> = value.split_whitespace().collect();
+                    if value == "none" {
+                        s.underline = false;
+                        s.strike = false;
+                    } else if !parts.is_empty() && parts.iter().all(|p| matches!(*p, "underline" | "line-through")) {
+                        s.underline = parts.contains(&"underline");
+                        s.strike = parts.contains(&"line-through");
+                    } else {
+                        bad(key, value, warnings);
+                    }
+                }
+                "white-space" => match value.as_str() {
+                    "normal" | "nowrap" => s.preserve_space = false,
+                    "pre" | "pre-wrap" | "break-spaces" => s.preserve_space = true,
+                    _ => bad(key, value, warnings),
+                },
+                "tab-size" => match value.parse::<usize>() {
+                    Ok(size) if (1..=16).contains(&size) => s.tab_size = size,
+                    _ => bad(key, value, warnings),
+                },
+                "vertical-align" => match value.as_str() {
+                    "baseline" => s.baseline_shift = 0.0,
+                    "sub" => s.baseline_shift = 0.2,
+                    "super" => s.baseline_shift = -0.35,
                     _ => bad(key, value, warnings),
                 },
                 "font-family" => {
@@ -438,4 +610,84 @@ fn shadow(value: &str, current: &str) -> Option<(f64, f64, f64, String)> {
         *words.get(3).unwrap_or(&"currentColor")
     };
     Some((dx, dy, blur, self::color(color, current)?))
+}
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+    fn element(tag: &str) -> Element {
+        Element { tag: tag.into(), ..Default::default() }
+    }
+    fn declarations(items: &[(&str, &str)]) -> BTreeMap<String, String> {
+        items.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+    #[test]
+    fn text_semantics_inherit_and_css_can_override_tag_defaults() {
+        let mut warnings = Vec::new();
+        let mut parent = Style::compute(
+            &element("p"),
+            None,
+            &declarations(&[("color", "#aabbcc"), ("font-size", "20px"), ("font-style", "italic"), ("text-decoration", "underline line-through")]),
+            &mut warnings,
+        );
+        parent.baseline_shift = 0.2;
+        let child = Style::compute(
+            &element("strong"),
+            Some(&parent),
+            &declarations(&[("font-weight", "normal"), ("font-style", "normal"), ("text-decoration-line", "none")]),
+            &mut warnings,
+        );
+        assert_eq!(child.color, "#aabbcc");
+        assert_eq!(child.font_size, 20.0);
+        assert!(!child.bold && !child.italic && !child.underline && !child.strike);
+        assert_eq!(child.baseline_shift, 0.0);
+        let sub = Style::compute(&element("sub"), Some(&parent), &BTreeMap::new(), &mut warnings);
+        let sup = Style::compute(&element("sup"), Some(&parent), &BTreeMap::new(), &mut warnings);
+        assert_eq!(sub.font_size, 16.0);
+        assert_eq!(sub.baseline_shift, 0.2);
+        assert_eq!(sup.baseline_shift, -0.35);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+    #[test]
+    fn whitespace_and_display_are_inherited_or_local_as_required() {
+        let mut warnings = Vec::new();
+        let pre = Style::compute(&element("pre"), None, &declarations(&[("tab-size", "4")]), &mut warnings);
+        assert!(pre.preserve_space && !pre.inline && !pre.flex);
+        assert_eq!(pre.tab_size, 4);
+        let span = Style::compute(
+            &element("span"),
+            Some(&pre),
+            &declarations(&[("white-space", "normal"), ("display", "inline-flex"), ("flex-direction", "column")]),
+            &mut warnings,
+        );
+        assert!(!span.preserve_space && span.inline && span.flex && !span.row);
+        assert_eq!(span.tab_size, 4);
+        let child = Style::compute(&element("span"), Some(&span), &BTreeMap::new(), &mut warnings);
+        assert!(!child.flex && child.inline && !child.preserve_space);
+        assert_eq!(child.tab_size, 4);
+        assert!(warnings.iter().all(|w| w.contains("моноширинный")), "{warnings:?}");
+    }
+    #[test]
+    fn simple_controls_lists_and_links_keep_overridable_defaults() {
+        let mut warnings = Vec::new();
+        let button = Style::compute(&element("button"), None, &BTreeMap::new(), &mut warnings);
+        let mut input = element("input");
+        input.attrs.insert("type".into(), "SUBMIT".into());
+        let submit = Style::compute(&input, None, &BTreeMap::new(), &mut warnings);
+        assert_eq!(submit, button);
+        input.attrs.insert("type".into(), "checkbox".into());
+        let check = Style::compute(&input, None, &declarations(&[("width", "24px"), ("background-color", "#123456")]), &mut warnings);
+        assert_eq!(check.width, Some(24.0));
+        assert_eq!(check.height, Some(18.0));
+        assert_eq!(check.background, "#123456");
+        let list = Style::compute(&element("ul"), None, &BTreeMap::new(), &mut warnings);
+        assert_eq!(list.padding[3], 24.0);
+        assert_eq!(list.gap, 4.0);
+        let mut link = element("a");
+        link.attrs.insert("href".into(), "/demo".into());
+        let link = Style::compute(&link, None, &declarations(&[("color", "#abcdef"), ("text-decoration", "none")]), &mut warnings);
+        assert_eq!(link.color, "#abcdef");
+        assert!(!link.underline);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
 }

@@ -1,6 +1,8 @@
 //! Converts a deliberately bounded HTML/CSS subset into ordinary editable MSC nodes.
 //! No browser, script evaluation, network, or external resource loading is involved.
 mod css;
+mod layout;
+mod semantic;
 mod style;
 
 use html5gum::{Token, Tokenizer};
@@ -22,6 +24,9 @@ struct Element {
     parent: Option<usize>,
     children: Vec<usize>,
     text: String,
+    suppressed: bool,
+    placeholder: bool,
+    text_part: bool,
 }
 
 /// Imports UTF-8 markup and an additional stylesheet. Embedded styles precede `css`.
@@ -30,12 +35,15 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
         return Err("Фрагмент HTML/CSS должен быть не больше 200 КБ на поле".into());
     }
     let mut warnings = Vec::new();
-    let (nodes, embedded) = parse_html(html, &mut warnings)?;
+    let (mut nodes, embedded) = parse_html(html, &mut warnings)?;
+    semantic::prepare(&mut nodes, &mut warnings)?;
     let rules = css::parse(&format!("{embedded}\n{css}"), &mut warnings)?;
     let styles = computed(&nodes, &rules, css::State::Base, &mut warnings);
+    semantic::normalize_text(&mut nodes, &styles);
+    semantic::warn_inline_limits(&nodes, &styles, &mut warnings);
     let mut boxes = vec![BoxNode::default(); nodes.len()];
-    measure(0, &nodes, &styles, &mut boxes);
-    position(0, 24.0, 24.0, &nodes, &styles, &mut boxes);
+    layout::measure(0, &nodes, &styles, &mut boxes);
+    layout::position(0, 24.0, 24.0, &nodes, &styles, &mut boxes);
     let width = (boxes[0].w + 48.0).clamp(64.0, 8192.0);
     let height = (boxes[0].h + 48.0).clamp(64.0, 8192.0);
     let mut ids = Vec::new();
@@ -51,11 +59,12 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
         }
         let base = id.clone();
         let mut suffix = 2;
-        while [&id, &format!("{id}_bg"), &format!("{id}_text")].iter().any(|candidate| used.contains(*candidate)) {
+        let lines = n.text.split('\n').count();
+        while semantic::reserved_ids(&id, lines).iter().any(|candidate| used.contains(candidate)) {
             id = format!("{base}_{suffix}");
             suffix += 1;
         }
-        used.extend([id.clone(), format!("{id}_bg"), format!("{id}_text")]);
+        used.extend(semantic::reserved_ids(&id, lines));
         ids.push(id);
     }
     let mut source =
@@ -70,7 +79,7 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
         let styled = computed(&nodes, &rules, state, &mut warnings);
         let mut tracks = String::new();
         for i in 1..nodes.len() {
-            if styles[i].hidden || nodes[i].tag == "#text" && nodes[i].text.is_empty() {
+            if styles[i].hidden || nodes[i].tag == "br" || nodes[i].tag == "#text" && nodes[i].text.is_empty() && !nodes[i].text_part {
                 continue;
             }
             let (base, next) = (&styles[i], &styled[i]);
@@ -83,6 +92,14 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
             if nodes[i].tag == "#text" {
                 key(&format!("{id}_text"), "fill", base.color.clone(), next.color.clone());
                 key(&format!("{id}_text"), "font-size", num(base.font_size), num(next.font_size));
+                for suffix in ["underline", "strike"] {
+                    let decorated = if suffix == "underline" { base.underline } else { base.strike };
+                    if decorated {
+                        for line in 0..nodes[i].text.lines().count().max(1) {
+                            key(&format!("{id}_{suffix}_{line}"), "fill", base.color.clone(), next.color.clone());
+                        }
+                    }
+                }
             } else {
                 if base.gradient == next.gradient {
                     key(&format!("{id}_bg"), "fill", base.background.clone(), next.background.clone());
@@ -91,6 +108,20 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
                 key(&format!("{id}_bg"), "stroke", base.border_color.clone(), next.border_color.clone());
                 key(&format!("{id}_bg"), "stroke_w", num(base.border_width), num(next.border_width));
                 key(id, "opacity", num(base.opacity), num(next.opacity));
+                match semantic::role(&nodes[i]) {
+                    "check" => key(
+                        &format!("{id}_mark"),
+                        if semantic::input_type(&nodes[i]) == "radio" { "fill" } else { "stroke" },
+                        base.color.clone(),
+                        next.color.clone(),
+                    ),
+                    "slider" => {
+                        key(&format!("{id}_fill"), "fill", base.color.clone(), next.color.clone());
+                        key(&format!("{id}_grabber"), "stroke", base.color.clone(), next.color.clone());
+                    }
+                    "option" => key(&format!("{id}_arrow"), "stroke", base.color.clone(), next.color.clone()),
+                    _ => {}
+                }
             }
             if base.geometry_differs(next) {
                 warnings.push(format!(
@@ -141,28 +172,23 @@ fn parse_html(html: &str, warnings: &mut Vec<String>) -> Result<(Vec<Element>, S
                     skipped = Some(name);
                     continue;
                 }
-                if ["link", "img", "video", "audio", "source", "input", "canvas", "svg"].contains(&name.as_str()) {
+                if ["link", "img", "video", "audio", "source", "canvas", "svg"].contains(&name.as_str()) {
                     warnings.push(format!("<{name}> не поддерживается; внешние ресурсы не загружаются"));
                     if name == "svg" || name == "canvas" {
                         skipped = Some(name);
                     }
                     continue;
                 }
-                if ["meta", "title", "head"].contains(&name.as_str()) {
+                if ["meta", "title", "head", "base"].contains(&name.as_str()) {
                     if name == "title" {
                         skipped = Some(name);
                     }
                     continue;
                 }
-                if name == "br" {
-                    let p = *stack.last().unwrap();
-                    add_text(&mut nodes, p, "\n");
-                    warnings.push("HTML <br>: перенос строки заменён пробелом; в этой версии задайте строки отдельными блоками".into());
-                    continue;
-                }
                 if ![
-                    "html", "body", "main", "section", "article", "div", "button", "span", "p", "label", "h1", "h2", "h3", "a", "strong", "b", "em", "i",
-                    "small",
+                    "html", "body", "main", "section", "article", "div", "button", "span", "p", "label", "h1", "h2", "h3", "a", "strong", "b", "em", "i", "h4",
+                    "h5", "h6", "small", "u", "s", "sub", "sup", "code", "pre", "br", "hr", "ul", "ol", "li", "input", "textarea", "select", "option", "form",
+                    "ins", "del", "header", "footer", "nav", "aside", "kbd", "samp", "mark",
                 ]
                 .contains(&name.as_str())
                 {
@@ -178,17 +204,18 @@ fn parse_html(html: &str, warnings: &mut Vec<String>) -> Result<(Vec<Element>, S
                 if name == "a" && attrs.contains_key("href") {
                     warnings.push("Ссылка импортирована как рисунок; переход по href не создаётся".into());
                 }
-                if name == "button" && attrs.contains_key("disabled") {
+                if ["button", "input", "select", "textarea"].contains(&name.as_str()) && attrs.contains_key("disabled") {
                     warnings.push("HTML disabled: импортирован базовый вид; недоступность поведения задайте в проверке UI или в игровом контроле".into());
                 }
                 let p = *stack.last().unwrap();
                 let i = nodes.len();
+                let void = ["br", "hr", "input"].contains(&name.as_str());
                 nodes.push(Element { tag: name, attrs, parent: Some(p), ..Default::default() });
                 nodes[p].children.push(i);
                 if nodes.len() > 2048 {
                     return Err("Не больше 2048 узлов в HTML-фрагменте".into());
                 }
-                if !tag.self_closing {
+                if !tag.self_closing && !void {
                     stack.push(i);
                     if stack.len() > 64 {
                         return Err("Глубина HTML не больше 64".into());
@@ -230,31 +257,6 @@ fn parse_html(html: &str, warnings: &mut Vec<String>) -> Result<(Vec<Element>, S
     if stack.len() > 1 {
         warnings.push("Незакрытые HTML-теги завершены в конце фрагмента".into());
     }
-    let collapsed: Vec<_> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, n)| {
-            if n.tag != "#text" {
-                return n.text.clone();
-            }
-            let text = n.text.split_ascii_whitespace().collect::<Vec<_>>().join(" ");
-            if text.is_empty() {
-                return text;
-            }
-            let siblings = &nodes[n.parent.unwrap()].children;
-            let prefix = siblings.first() != Some(&i) && n.text.starts_with(|c: char| c.is_ascii_whitespace());
-            let suffix = siblings.last() != Some(&i) && n.text.ends_with(|c: char| c.is_ascii_whitespace());
-            format!("{}{text}{}", if prefix { " " } else { "" }, if suffix { " " } else { "" })
-        })
-        .collect();
-    for (n, text) in nodes.iter_mut().zip(collapsed) {
-        n.text = text;
-    }
-    // Retain only meaningful text, keeping Unicode/entity-decoded content.
-    let blank: BTreeSet<usize> = nodes.iter().enumerate().filter(|(_, n)| n.tag == "#text" && n.text.is_empty()).map(|(i, _)| i).collect();
-    for n in &mut nodes {
-        n.children.retain(|i| !blank.contains(i));
-    }
     Ok((nodes, embedded))
 }
 
@@ -275,7 +277,9 @@ fn computed(nodes: &[Element], rules: &[css::Rule], state: css::State, warnings:
     for (i, node) in nodes.iter().enumerate() {
         let parent = node.parent.map(|p| &styles[p]);
         let declarations = css::cascade(rules, nodes, i, state, warnings);
-        styles.push(style::Style::compute(node, parent, &declarations, warnings));
+        let mut style = style::Style::compute(node, parent, &declarations, warnings);
+        style.hidden |= node.suppressed;
+        styles.push(style);
     }
     styles
 }
@@ -286,6 +290,7 @@ struct BoxNode {
     y: f64,
     w: f64,
     h: f64,
+    baseline: f64,
 }
 
 fn text_size(text: &str, s: &style::Style) -> (f64, f64) {
@@ -302,82 +307,10 @@ fn text_size(text: &str, s: &style::Style) -> (f64, f64) {
     let b = t.bounds(&style);
     (b.width(), b.height())
 }
-fn measure(i: usize, nodes: &[Element], styles: &[style::Style], boxes: &mut [BoxNode]) {
-    let n = &nodes[i];
-    let s = &styles[i];
-    if s.hidden {
-        return;
-    }
-    for &c in &n.children {
-        measure(c, nodes, styles, boxes);
-    }
-    if n.tag == "#text" {
-        let (w, h) = text_size(&n.text, s);
-        boxes[i].w = w;
-        boxes[i].h = h;
-        return;
-    }
-    let children: Vec<_> = n.children.iter().copied().filter(|c| !styles[*c].hidden).collect();
-    let (mut w, mut h) = (0.0_f64, 0.0_f64);
-    for &c in &children {
-        let b = &boxes[c];
-        let margin = styles[c].margin;
-        if s.row {
-            w += b.w + margin[1] + margin[3];
-            h = h.max(b.h + margin[0] + margin[2]);
-        } else {
-            w = w.max(b.w + margin[1] + margin[3]);
-            h += b.h + margin[0] + margin[2];
-        }
-    }
-    let gaps = s.gap * children.len().saturating_sub(1) as f64;
-    if s.row {
-        w += gaps;
-    } else {
-        h += gaps;
-    }
-    let px = s.padding[1] + s.padding[3] + 2.0 * s.border_width;
-    let py = s.padding[0] + s.padding[2] + 2.0 * s.border_width;
-    let width = s.width.map(|v| if s.border_box { v } else { v + px }).unwrap_or(w + px);
-    let height = s.height.map(|v| if s.border_box { v } else { v + py }).unwrap_or(h + py);
-    boxes[i].w = width.clamp(0.0, 8192.0);
-    boxes[i].h = height.clamp(0.0, 8192.0);
-}
-fn position(i: usize, x: f64, y: f64, nodes: &[Element], styles: &[style::Style], boxes: &mut [BoxNode]) {
-    boxes[i].x = x;
-    boxes[i].y = y;
-    let s = &styles[i];
-    let b = boxes[i].clone();
-    let children: Vec<_> = nodes[i].children.iter().copied().filter(|c| !styles[*c].hidden).collect();
-    let iw = (b.w - s.padding[1] - s.padding[3] - 2.0 * s.border_width).max(0.0);
-    let ih = (b.h - s.padding[0] - s.padding[2] - 2.0 * s.border_width).max(0.0);
-    let extent: f64 = children
-        .iter()
-        .map(|c| {
-            let m = styles[*c].margin;
-            if s.row { boxes[*c].w + m[1] + m[3] } else { boxes[*c].h + m[0] + m[2] }
-        })
-        .sum::<f64>()
-        + s.gap * children.len().saturating_sub(1) as f64;
-    let mut at = if s.justify_center { ((if s.row { iw } else { ih }) - extent) / 2.0 } else { 0.0 };
-    for c in children {
-        let m = styles[c].margin;
-        let cw = boxes[c].w;
-        let ch = boxes[c].h;
-        let (cx, cy) = if s.row {
-            (at + m[3], if s.align_center { (ih - ch) / 2.0 } else { m[0] })
-        } else {
-            (if s.align_center { (iw - cw) / 2.0 } else { m[3] }, at + m[0])
-        };
-        position(c, x + s.padding[3] + s.border_width + cx, y + s.padding[0] + s.border_width + cy, nodes, styles, boxes);
-        at += if s.row { cw + m[1] + m[3] } else { ch + m[0] + m[2] };
-        at += s.gap;
-    }
-}
 fn emit(i: usize, depth: usize, nodes: &[Element], styles: &[style::Style], boxes: &[BoxNode], ids: &[String], out: &mut String) {
     let n = &nodes[i];
     let s = &styles[i];
-    if s.hidden {
+    if s.hidden || n.tag == "br" {
         return;
     }
     let b = &boxes[i];
@@ -387,36 +320,56 @@ fn emit(i: usize, depth: usize, nodes: &[Element], styles: &[style::Style], boxe
     let ind = "  ".repeat(depth);
     let id = &ids[i];
     if n.tag == "#text" {
-        if !n.text.is_empty() {
+        if !n.text.is_empty() || n.text_part {
             let mut owner = n.parent;
             while let Some(p) = owner {
-                if nodes[p].tag == "button" || nodes[p].tag == "label" {
+                if !semantic::role(&nodes[p]).is_empty() {
                     break;
                 }
                 owner = nodes[p].parent;
             }
             let part = if owner.is_some() { " part text" } else { "" };
             out.push_str(&format!(
-                "{ind}text {id}_text at {} {} content {} font-size {} line-height {} letter-spacing {} fill {}{}{part}\n",
-                num(x),
+                "{ind}text {id}_text at {} {} content {} font-size {} line-height {} letter-spacing {} fill {}{}{}{} align left{part}\n",
+                num(x - b.w / 2.0),
                 num(y),
-                quote(&n.text),
+                motif_script::quoted_content(&n.text),
                 num(s.font_size),
                 num(s.line_height),
                 num(s.letter_spacing),
                 s.color,
-                if s.bold { " font bold" } else { "" }
+                if s.bold { " font bold" } else { "" },
+                if s.italic { " skew -12 0" } else { "" },
+                if n.placeholder { " opacity 0.45" } else { "" },
             ));
+            let lh = s.font_size * s.line_height;
+            for (line, text) in n.text.split('\n').enumerate() {
+                let width = text_size(text, s).0;
+                for (suffix, active, offset) in [("underline", s.underline, 0.36), ("strike", s.strike, -0.04)] {
+                    if active {
+                        out.push_str(&format!(
+                            "{ind}rect {id}_{suffix}_{line} at {} {} size {} {} fill {}\n",
+                            num(x - b.w / 2.0 + width / 2.0),
+                            num(y - b.h / 2.0 + lh * (line as f64 + 0.5) + s.font_size * offset),
+                            num(width),
+                            num((s.font_size / 16.0).max(1.0)),
+                            s.color
+                        ));
+                    }
+                }
+            }
         }
         return;
     }
-    let role = if n.tag == "button" {
-        " ui button"
-    } else if n.tag == "label" {
-        " ui label"
-    } else {
-        ""
-    };
+    let kind = semantic::role(n);
+    let mut role = if kind.is_empty() { String::new() } else { format!(" ui {kind}") };
+    if n.tag == "input" && semantic::input_type(n) == "radio" {
+        let name: String = n.attrs.get("name").unwrap_or(id).chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+        role.push_str(&format!(" radio html_radio_{name}"));
+    }
+    if kind == "slider" {
+        role.push_str(&format!(" dial across value {}", num(semantic::range_value(n))));
+    }
     out.push_str(&format!(
         "{ind}group {id} {} at {} {}{role} opacity {} {{\n",
         quote(n.attrs.get("aria-label").map_or(n.tag.as_str(), String::as_str)),
@@ -437,6 +390,7 @@ fn emit(i: usize, depth: usize, nodes: &[Element], styles: &[style::Style], boxe
         s.border_color,
         num(s.border_width)
     ));
+    semantic::emit_parts(n, s, b, id, &format!("{ind}  "), out);
     for &c in &n.children {
         emit(c, depth + 1, nodes, styles, boxes, ids, out);
     }
