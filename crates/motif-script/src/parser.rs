@@ -155,6 +155,16 @@ pub struct StrokeAst {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
+    Parameter {
+        parameter: motif_core::PoseParameter,
+        span: Span,
+        value_span: Span,
+    },
+    Driver {
+        parameter: String,
+        tracks: Vec<TrackAst>,
+        span: Span,
+    },
     Artboard {
         name: Option<String>,
         width: f64,
@@ -460,6 +470,8 @@ impl<'a> Parser<'a> {
                 Ok(Stmt::For { var, from, to, body })
             }
             "anim" => self.anim(span),
+            "parameter" => self.pose_parameter(span),
+            "driver" => self.pose_driver(span),
             "machine" => self.machine(span),
             "weights" => self.weights(span),
             "symbol" => {
@@ -767,6 +779,54 @@ impl<'a> Parser<'a> {
         self.expect(Tok::Eq, "«=»")?;
         let value = self.value()?;
         Ok(OverrideAst { node, prop, span, value })
+    }
+
+    fn pose_parameter(&mut self, start: Span) -> Result<Stmt, ScriptError> {
+        let (id, _) = self.ident("имя параметра движения")?;
+        let name = if matches!(self.peek(), Some(Tok::Str(_))) {
+            match self.next().unwrap().tok {
+                Tok::Str(s) => s,
+                _ => unreachable!(),
+            }
+        } else {
+            id.clone()
+        };
+        let (got, span) = self.ident("range")?;
+        if got != "range" {
+            return Err(self.err(span, "после имени параметра нужно range min max default n value n"));
+        }
+        let (min, _) = self.num("минимум параметра")?;
+        let (max, _) = self.num("максимум параметра")?;
+        let (word, span) = self.ident("default")?;
+        if word != "default" {
+            return Err(self.err(span, "нужно default — нейтральное значение"));
+        }
+        let (default, _) = self.num("нейтральное значение")?;
+        let (word, span) = self.ident("value")?;
+        if word != "value" {
+            return Err(self.err(span, "нужно value — текущее значение"));
+        }
+        let (value, value_span) = self.num("текущее значение")?;
+        if !self.at_line_end() {
+            return Err(self.err(self.peek_span(), "лишнее в конце параметра"));
+        }
+        let parameter = motif_core::PoseParameter { id, name, min, max, default, value };
+        Ok(Stmt::Parameter { parameter, span: Span::new(start.start, value_span.end), value_span })
+    }
+
+    fn pose_driver(&mut self, start: Span) -> Result<Stmt, ScriptError> {
+        let (parameter, _) = self.ident("имя параметра после driver")?;
+        self.expect(Tok::BlockOpen, "«{»")?;
+        let mut tracks = Vec::new();
+        loop {
+            match self.peek() {
+                Some(Tok::Newline) => self.pos += 1,
+                Some(Tok::BlockClose) | None => break,
+                Some(_) => tracks.push(self.track()?),
+            }
+        }
+        let close = self.close_block()?;
+        Ok(Stmt::Driver { parameter, tracks, span: Span::new(start.start, close + 1) })
     }
 
     fn anim(&mut self, span: Span) -> Result<Stmt, ScriptError> {

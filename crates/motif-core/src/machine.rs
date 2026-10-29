@@ -371,11 +371,11 @@ impl MachinePlayer {
         props.sort_unstable();
         props.dedup();
         for (node, prop) in props {
-            if let Some(i) = out.index_of(node) {
-                let v = old.nodes[i].get(prop).lerp(out.nodes[i].get(prop), w);
-                out.nodes[i].set(prop, v);
+            if let (Some(a), Some(b)) = (old.animated_value(node, prop), out.animated_value(node, prop)) {
+                out.set_animated_value(node, prop, a.lerp(b, w));
             }
         }
+        out.apply_parameters();
         out
     }
 }

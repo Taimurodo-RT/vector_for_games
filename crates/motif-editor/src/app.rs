@@ -162,6 +162,8 @@ pub struct App {
     pub(crate) anim: Option<String>,
     /// Animation to return to when switching back to Animate.
     pub(crate) last_anim: Option<String>,
+    pub(crate) character_work: crate::parameter_ui::CharacterWork,
+    pub(crate) pose_preview: std::collections::BTreeMap<String, f64>,
     /// The side of `directions` the canvas shows (the compass in «Стороны»), or the scene as written.
     pub(crate) side: Option<usize>,
     pub(crate) time: f64,
@@ -291,6 +293,8 @@ impl App {
             view: None,
             anim: None,
             last_anim: None,
+            character_work: Default::default(),
+            pose_preview: Default::default(),
             side: None,
             time: 0.0,
             playing: false,
@@ -403,6 +407,9 @@ impl App {
     pub(crate) fn apply(&mut self, kind: &str, new_src: Option<String>) -> bool {
         match new_src {
             Some(s) if s != self.src => {
+                if !self.parameter_edit_allowed(kind, &s) {
+                    return false;
+                }
                 self.checkpoint(kind);
                 self.src = s;
                 self.reparse();
@@ -434,6 +441,27 @@ impl App {
         if !self.can_edit() {
             return;
         }
+        if prop == Prop::Parameter && self.run.is_some() {
+            self.status = "Для записи параметров остановите машину состояний и выберите клип на таймлайне".into();
+            return;
+        }
+        if prop == Prop::Parameter && self.anim.is_none() && self.character_work == crate::parameter_ui::CharacterWork::Setup {
+            if let Value::Num(value) = value {
+                self.parameter_preview(node, value);
+            }
+            return;
+        }
+        if !self.scene.doc.parameters.is_empty()
+            && (self.character_work == crate::parameter_ui::CharacterWork::Animate || self.anim.is_some() || self.run.is_some())
+            && prop != Prop::Parameter
+        {
+            self.status = "В режиме «Анимация» этого персонажа записываются параметры движения. Для рисунка выберите «Внешность»".into();
+            return;
+        }
+        if let Some(parameter) = self.scene.doc.driven_by(node, prop) {
+            self.status = format!("Свойством управляет {parameter}: меняйте параметр движения или его опорные значения");
+            return;
+        }
         let new_src = match self.key_time() {
             Some((anim, t)) => {
                 self.playing = false;
@@ -458,11 +486,7 @@ impl App {
             let out = delete_key(&self.src, &self.scene, &anim, node, prop, t);
             self.apply("key", out);
             self.status = format!("Ключ {node}.{} на {} с удалён", prop.path_name(), fmt_num(t));
-        } else if prop.is_world() {
-            let value = self.display_doc().world.get(prop);
-            self.edit(node, prop, value);
-        } else if let Some(n) = self.display_doc().node(node) {
-            let value = n.get(prop);
+        } else if let Some(value) = self.display_doc().animated_value(node, prop) {
             self.edit(node, prop, value);
         }
     }
@@ -486,6 +510,7 @@ impl App {
     }
 
     pub(crate) fn set_mode_animate(&mut self, on: bool) {
+        self.character_work = if on { crate::parameter_ui::CharacterWork::Animate } else { crate::parameter_ui::CharacterWork::Appearance };
         if on {
             let name =
                 self.last_anim.clone().filter(|a| self.scene.doc.animation(a).is_some()).or_else(|| self.scene.doc.animations.first().map(|a| a.name.clone()));
@@ -567,6 +592,7 @@ impl App {
     }
 
     pub(crate) fn select_anim(&mut self, name: String) {
+        self.character_work = crate::parameter_ui::CharacterWork::Animate;
         self.run = None;
         self.check = None;
         if self.anim.as_deref() != Some(name.as_str()) {
@@ -620,6 +646,16 @@ impl App {
             (None, Some(a)) => self.pose_anim(a, self.time),
             (None, None) => self.scene.doc.clone(),
         };
+        if self.anim.is_none() && self.run.is_none() && !doc.parameters.is_empty() {
+            for p in &mut doc.parameters {
+                p.value = if self.character_work == crate::parameter_ui::CharacterWork::Appearance {
+                    p.default
+                } else {
+                    self.pose_preview.get(&p.id).copied().unwrap_or(p.value)
+                };
+            }
+            doc.apply_parameters();
+        }
         if let Some(c) = &self.check {
             doc = c.pose(&self.scene.doc, &doc);
         }
@@ -839,6 +875,8 @@ impl App {
     }
 
     fn new_scene(&mut self, template: &str) {
+        self.pose_preview.clear();
+        self.character_work = Default::default();
         self.recovery.clear();
         self.checkpoint("file");
         self.set_file(template, 0);
@@ -858,6 +896,8 @@ impl App {
         let Some(p) = rfd::FileDialog::new().add_filter("Сцена Motif", &["msc"]).pick_file() else { return };
         match std::fs::read_to_string(&p) {
             Ok(s) => {
+                self.pose_preview.clear();
+                self.character_work = Default::default();
                 self.recovery.clear();
                 self.undo.push((self.boards.active, self.file_text()));
                 self.set_file(&s, 0);
@@ -1500,6 +1540,9 @@ impl App {
                 self.check_panel(ui);
                 return;
             }
+            self.parameter_work_panel(ui);
+            self.parameter_panel(ui);
+            if !self.scene.doc.parameters.is_empty() && self.character_work != crate::parameter_ui::CharacterWork::Appearance { return; }
             self.character_panel(ui);
             let Some(id) = self.selected.clone() else {
                 self.artboard_info(ui);
@@ -3199,6 +3242,76 @@ mod editing_tests {
     use crate::compound::{Anchor, Compound};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    #[test]
+    fn character_work_modes_separate_appearance_setup_and_animation() {
+        use crate::parameter_ui::CharacterWork;
+        let source = include_str!("../../../examples/character-portrait.msc");
+        let mut app = fixture(source);
+        let original = app.file_text();
+        let clips = app.scene.doc.animations.clone();
+        let drivers = app.scene.doc.drivers.clone();
+        app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
+        assert_ne!(app.file_text(), original);
+        assert_eq!(app.scene.doc.animations, clips);
+        assert_eq!(app.scene.doc.drivers, drivers);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+
+        app.parameter_preview("turn", 0.8);
+        assert_eq!(app.character_work, CharacterWork::Setup);
+        assert_eq!(app.file_text(), original, "pose preview must not dirty the drawing or author keys");
+        assert!((app.display_doc().node("head").unwrap().yaw - 27.2).abs() < 1e-9);
+        app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
+        assert_eq!(app.file_text(), original, "setup protects appearance");
+        app.parameter_form_edit("turn", "head", Prop::Yaw, 1.0, 40.0);
+        assert_ne!(app.file_text(), original);
+        assert_eq!(app.scene.doc.animations, clips);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+
+        app.select_anim("Look".into());
+        app.time = 0.4;
+        app.edit("turn", Prop::Parameter, Value::Num(0.75));
+        let animated = app.file_text();
+        assert_ne!(animated, original);
+        assert_eq!(app.scene.doc.drivers, drivers);
+        assert_eq!(app.display_doc().parameter("turn").unwrap().value, 0.75);
+        app.edit("shirt", Prop::Fill, Value::Color(motif_core::Color::WHITE));
+        app.parameter_form_edit("turn", "head", Prop::Yaw, 1.0, 60.0);
+        app.character_look("hero", "Зелёная кепка");
+        assert_eq!(app.file_text(), animated, "animation protects styling, outfits and setup");
+        app.undo();
+        assert_eq!(app.file_text(), original);
+        app.redo();
+        assert_eq!(app.file_text(), animated);
+        assert!(app.errors.is_empty());
+        app.set_mode_animate(false);
+        assert_eq!(app.display_doc().node("head").unwrap().yaw, 0.0, "appearance always uses neutral pose");
+    }
+
+    #[test]
+    fn parameter_keys_and_forms_preserve_other_boards_and_roundtrip() {
+        let source = format!("{}\nartboard \"Other\" 20x20\nrect keep size 5\n", include_str!("../../../examples/character-portrait.msc"));
+        let mut app = fixture(&source);
+        let other = motif_script::parse_boards(&source, None).unwrap()[1].clone();
+        app.parameter_preview("turn", 1.0);
+        app.parameter_form_edit("turn", "head", Prop::Yaw, 1.0, 38.0);
+        app.select_anim("Look".into());
+        app.time = 0.5;
+        app.edit("blink", Prop::Parameter, Value::Num(0.7));
+        app.toggle_key("blink", Prop::Parameter);
+        assert!(app.key_state("blink", Prop::Parameter) == KeyState::Track);
+        app.toggle_key("blink", Prop::Parameter);
+        assert!(app.key_state("blink", Prop::Parameter) == KeyState::Key);
+        let file = app.file_text();
+        assert_eq!(motif_script::parse_boards(&file, None).unwrap()[1], other);
+        let reopened = fixture(&file);
+        assert_eq!(reopened.scene.doc, app.scene.doc);
+        app.switch_board(1);
+        assert!(app.pose_preview.is_empty());
+        assert!(app.scene.doc.parameters.is_empty());
+    }
+
     fn fixture(src: &str) -> App {
         static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
         let recovery = std::env::temp_dir().join(format!("motif-editor-fixture-{}-{}", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
@@ -3208,6 +3321,26 @@ mod editing_tests {
         app.saved_src = src.into();
         app.reparse();
         app
+    }
+
+    #[test]
+    fn portrait_parameter_frames_differ_and_copied_hat_renders_identically() {
+        let src = include_str!("../../../examples/character-portrait.msc");
+        let original = motif_script::parse(src).unwrap();
+        let (copy, _) = motif_script::character::copy_variant(src, &original, "hero", "hat", None).unwrap();
+        let copied = motif_script::parse(&copy).unwrap();
+        let mut previous = None;
+        for time in [0.0, 1.0, 1.5, 3.0] {
+            let a = original.doc.animation("Look").unwrap().pose(&original.doc, time);
+            let b = copied.doc.animation("Look").unwrap().pose(&copied.doc, time);
+            let a = motif_render::render_cpu(&a, Default::default()).unwrap();
+            let b = motif_render::render_cpu(&b, Default::default()).unwrap();
+            assert_eq!(a.data(), b.data(), "copy lost the shared hat mount at {time}");
+            if let Some(previous) = previous {
+                assert_ne!(a.data(), previous, "controls must change rendered frames");
+            }
+            previous = Some(a.data().to_vec());
+        }
     }
     #[test]
     fn editing_a_hole_and_undo_redo_keep_all_other_parts_and_boards() {

@@ -31,6 +31,9 @@ pub fn set_prop(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value) 
 }
 
 fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: Value, precise: bool) -> Option<String> {
+    if prop == Prop::Parameter {
+        return if let Value::Num(v) = value { crate::parameters::set_value(src, scene, node, v) } else { None };
+    }
     if prop.is_world() {
         return None;
     }
@@ -95,6 +98,7 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
     let stroke_color = current.stroke.unwrap_or(Color::BLACK).to_hex();
     let stroke_width = if current.stroke_width > 0.0 { current.stroke_width } else { 2.0 };
     let addition = match prop {
+        Prop::Parameter => return None,
         Prop::X | Prop::Y => format!("at {} {}", pick(Prop::X), pick(Prop::Y)),
         Prop::Width | Prop::Height if current.kind == ShapeKind::Bone => format!("len {}", pick(Prop::Width)),
         Prop::Width | Prop::Height => format!("size {} {}", pick(Prop::Width), pick(Prop::Height)),
@@ -205,7 +209,7 @@ fn find_track<'a>(scene: &'a Scene, anim: &str, node: &str, prop: Prop) -> Optio
 ///   the value for the whole animation.
 pub fn set_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, time: f64, value: Value) -> Option<String> {
     let site = scene.anims.get(anim)?;
-    let base = if prop.is_world() { scene.doc.world.get(prop) } else { scene.doc.node(node)?.get(prop) };
+    let base = scene.doc.animated_value(node, prop)?;
     let time = key_time(time);
     let key = format!("{}: {}", fmt_num(time), fmt_value(value));
     let Some(track) = find_track(scene, anim, node, prop) else {
@@ -267,7 +271,7 @@ pub(crate) fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
 
 /// A fresh id such as `rect3` that no node uses yet.
 pub(crate) fn free_id(scene: &Scene, base: &str) -> String {
-    (1..).map(|i| format!("{base}{i}")).find(|id| scene.doc.node(id).is_none()).expect("ids are unbounded")
+    (1..).map(|i| format!("{base}{i}")).find(|id| scene.doc.node(id).is_none() && scene.doc.parameter(id).is_none()).expect("ids are unbounded")
 }
 
 /// Returns the script with a new shape added on top of the others, and the new shape's id.
@@ -439,6 +443,9 @@ fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Vec<Span>> {
         (0..doc.nodes.len()).filter(|&i| roots.iter().any(|&root| i == root || doc.is_inside(i, root))).map(|i| doc.nodes[i].id.as_str()).collect();
     for anim in scene.anims.values() {
         spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
+    }
+    for tracks in scene.driver_sites.values() {
+        spans.extend(tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
     spans.extend(scene.override_entries.iter().filter(|(n, _)| ids.contains(&n.as_str())).map(|(_, s)| whole_lines(src, *s)));
     for m in &doc.machines {

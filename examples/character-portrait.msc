@@ -1,0 +1,121 @@
+// Портрет: три параметра движения вместо дорожки для каждой черты лица.
+// Design — двигайте ползунки; Animate — те же действия записывают ключи.
+artboard "Голова героя — параметры" 400x420 bg #202b40 game
+// @motif-characters {"schema":1,"characters":[{"root":"hero","name":"Голова героя","rig":"portrait-v1","bones":["portrait_root"],"slots":[{"id":"hat","name":"Кепка","variants":[{"id":"red","name":"Красная кепка","groups":["hat_red"]},{"id":"green","name":"Зелёная кепка","groups":["hat_green"]},{"id":"none","name":"Без кепки","groups":[]}]}],"looks":[{"name":"Красная кепка","slots":{"hat":"red"}},{"name":"Зелёная кепка","slots":{"hat":"green"}}],"motions":[{"name":"Осмотреться","clip":"Look"},{"name":"Разговор","clip":"Talk"},{"name":"Проверка сочетаний","clip":"Expressions"}]}]}
+
+let ink = #372426
+let skin = #f5ba83
+let shade = #d98b61
+let hair = #63382b
+let red = #e54339
+let blue = #3975bf
+
+parameter turn "Поворот головы" range -1 1 default 0 value 0
+parameter blink "Моргание" range 0 1 default 0 value 0
+parameter mouth "Рот" range 0 1 default 0 value 0
+
+ellipse shadow at 200 394 size 178 16 fill #101927 opacity 0.65
+group hero "Герой" at 200 233 {
+  bone portrait_root "Опора портрета" len 1 {
+    path shirt "Рубашка" at 0 128 d "M -87 26 L -79 -16 Q -69 -37 -28 -42 L 28 -42 Q 69 -37 79 -16 L 87 26 Z" fill red stroke ink 3
+    path overalls "Комбинезон" at 0 128 d "M -52 -37 L -36 -40 L -27 -9 L 27 -9 L 36 -40 L 52 -37 L 47 26 L -47 26 Z" fill blue stroke ink 3
+    ellipse button_l at -37 129 size 10 fill #ffd76c stroke ink 2
+    ellipse button_r at 37 129 size 10 fill #ffd76c stroke ink 2
+    path neck "Шея" at 0 61 d "M -23 -13 L 23 -13 L 27 23 Q 0 41 -27 23 Z" fill shade stroke ink 3
+
+    ellipse ear_l "Ухо слева" on head lat 0 lon -78 alt 6 size 27 42 fill skin stroke ink 3
+    ellipse ear_r "Ухо справа" on head lat 0 lon 78 alt 6 size 27 42 fill skin stroke ink 3
+    path head "Лицо" at 0 -23 size 160 180 d "M 0 -90 C 52 -91 76 -56 80 -8 C 84 44 41 89 -4 90 C -57 86 -72 43 -75 -8 C -79 -58 -51 -91 0 -90 Z" fill skin stroke ink 3 morph face_front face_right 1
+    path burn_l "Бакенбард слева" on head lat 0 lon -62 wrap d "M -9 -30 Q 11 -37 12 -17 L 7 23 Q -1 31 -10 17 Z" fill hair
+    path burn_r "Бакенбард справа" on head lat 0 lon 62 wrap d "M -12 -17 Q -11 -37 9 -30 L 10 17 Q 1 31 -7 23 Z" fill hair
+
+    ellipse eye_l "Белок слева" on head lat 17 lon -24 wrap size 27 36 fill #fff5e3 stroke ink 2
+    ellipse eye_r "Белок справа" on head lat 17 lon 24 wrap size 27 36 fill #fff5e3 stroke ink 2
+    ellipse iris_l "Радужка слева" on head lat 17 lon -21 wrap size 13 25 fill #4c9fcd
+    ellipse iris_r "Радужка справа" on head lat 17 lon 27 wrap size 13 25 fill #4c9fcd
+    ellipse pupil_l "Зрачок слева" on head lat 17 lon -20 wrap size 7 20 fill #243046
+    ellipse pupil_r "Зрачок справа" on head lat 17 lon 28 wrap size 7 20 fill #243046
+    ellipse glint_l on head lat 22 lon -23 wrap size 4 6 fill #ffffff
+    ellipse glint_r on head lat 22 lon 25 wrap size 4 6 fill #ffffff
+    path lid_l "Закрытое веко слева" on head lat 17 lon -24 wrap d "M -14 -1 Q 0 7 14 -1" fill none stroke ink 3 opacity 0
+    path lid_r "Закрытое веко справа" on head lat 17 lon 24 wrap d "M -14 -1 Q 0 7 14 -1" fill none stroke ink 3 opacity 0
+    path brow_l "Бровь слева" on head lat 36 lon -25 wrap d "M -17 3 Q 0 -7 16 0" fill none stroke hair 7 cap round
+    path brow_r "Бровь справа" on head lat 36 lon 25 wrap d "M -16 0 Q 0 -7 17 3" fill none stroke hair 7 cap round
+
+    ellipse mouth_cavity "Рот внутри" on head lat -37 wrap size 43 28 fill #542d33 stroke ink 2 scale 1 0.07
+    path tongue "Язык" on head lat -43 wrap d "M -13 3 Q 0 -5 13 3 Q 7 11 0 11 Q -7 11 -13 3 Z" fill #e88787 opacity 0
+    path teeth "Зубы" on head lat -32 wrap d "M -16 -3 L 16 -3 L 13 4 Q 0 7 -13 4 Z" fill #fff5e3 opacity 0
+    path moustache "Усы" on head lat -21 wrap d "M -47 -9 Q -32 1 -16 -9 Q -7 -14 0 -7 Q 7 -14 16 -9 Q 32 1 47 -9 Q 47 8 34 9 Q 27 22 15 14 Q 5 24 0 14 Q -5 24 -15 14 Q -27 22 -34 9 Q -47 8 -47 -9 Z" fill hair stroke ink 2
+    ellipse nose "Нос" on head lat -5 alt 18 size 39 33 fill #ffc796 stroke shade 2.5
+    ellipse nose_light on head lat 1 alt 18 size 19 10 fill #ffe0b3 opacity 0.65
+
+    group hat_mount "Общая опора кепки" on head lat 57 alt 9 {
+      group hat_red "Красная кепка" {
+        path crown_red "Тулья" at 0 -22 d "M -69 20 C -73 -12 -51 -44 -5 -43 C 43 -45 73 -25 70 17 Q 4 31 -69 20 Z" fill red stroke ink 3
+        path shine_red at 0 -22 d "M -54 1 C -48 -22 -21 -32 13 -30 C -14 -35 -44 -26 -54 1 Z" fill #ff7c62
+        path brim_red "Козырёк" at 0 3 d "M -72 -5 Q 0 -22 71 -5 L 83 7 Q 36 21 -12 12 L -72 6 Z" fill #b92531 stroke ink 3
+        ellipse badge_red at 0 -39 size 29 30 fill #fff5e3 stroke #b92531 2
+        path emblem_red at 0 -39 d "M -8 8 L -7 -8 L 0 0 L 7 -8 L 8 8" fill none stroke red 4 join round
+      }
+      group hat_green "Зелёная кепка" hidden {
+        path crown_green "Тулья" at 0 -24 d "M -73 22 C -76 -10 -52 -45 0 -44 C 51 -47 77 -19 73 19 Q 2 30 -73 22 Z" fill #459765 stroke ink 3
+        path seam_green at 0 -24 d "M -4 -41 Q 11 -16 3 16" fill none stroke #286646 2
+        path brim_green "Длинный козырёк" at 6 5 d "M -76 -6 Q -2 -21 70 -7 L 88 7 Q 32 26 -20 13 L -76 5 Z" fill #286646 stroke ink 3
+        ellipse badge_green at 0 -39 size 30 30 fill #fff5e3 stroke #286646 2
+        star emblem_green at 0 -39 size 19 points 5 inner 0.48 fill #459765
+      }
+    }
+  }
+}
+
+// Опорные рисунки лица остаются обычными редактируемыми контурами в слоях.
+group face_forms "Опорные контуры лица" hidden {
+  path face_front "Лицо — центр" size 160 180 d "M 0 -90 C 53 -92 78 -56 80 -8 C 82 49 46 90 0 90 C -46 90 -82 49 -80 -8 C -78 -56 -53 -92 0 -90 Z" fill skin stroke ink 3
+  path face_right "Лицо — вправо" size 160 180 d "M 0 -90 C 51 -91 79 -58 75 -8 C 72 43 57 86 4 90 C -41 89 -84 44 -80 -8 C -76 -56 -52 -91 0 -90 Z" fill skin stroke ink 3
+}
+
+driver turn {
+  head.yaw -1: -34 | 0: 0 | 1: 34
+  head.morph -1: 0 | 0: 1 | 1: 2
+  nose.sx -1: 0.88 | 0: 1 | 1: 0.88
+  nose_light.sx -1: 0.8 | 0: 1 | 1: 0.8
+  hat_mount.sx -1: 0.88 | 0: 1 | 1: 0.88
+  hat_mount.kx -1: -9 | 0: 0 | 1: 9
+  hat_mount.rot -1: -3 | 0: 0 | 1: 3
+}
+driver blink {
+  eye_l.sy 0: 1 | 0.65: 0.4 | 1: 0.04
+  eye_r.sy 0: 1 | 0.65: 0.4 | 1: 0.04
+  iris_l.sy 0: 1 | 0.65: 0.4 | 1: 0.04
+  iris_r.sy 0: 1 | 0.65: 0.4 | 1: 0.04
+  pupil_l.sy 0: 1 | 0.65: 0.4 | 1: 0.04
+  pupil_r.sy 0: 1 | 0.65: 0.4 | 1: 0.04
+  iris_l.opacity 0: 1 | 0.8: 1 | 1: 0
+  iris_r.opacity 0: 1 | 0.8: 1 | 1: 0
+  pupil_l.opacity 0: 1 | 0.8: 1 | 1: 0
+  pupil_r.opacity 0: 1 | 0.8: 1 | 1: 0
+  glint_l.opacity 0: 1 | 0.5: 0 | 1: 0
+  glint_r.opacity 0: 1 | 0.5: 0 | 1: 0
+  lid_l.opacity 0: 0 | 0.8: 0 | 1: 1
+  lid_r.opacity 0: 0 | 0.8: 0 | 1: 1
+}
+driver mouth {
+  mouth_cavity.sy 0: 0.07 | 0.5: 0.65 | 1: 1
+  tongue.opacity 0: 0 | 0.5: 0.35 | 1: 1
+  teeth.opacity 0: 0 | 0.5: 1 | 1: 1
+}
+
+anim Look 4s loop {
+  turn.value 0: 0 | 1: -1 | 2: 0 | 3: 1 | 4: 0
+  blink.value 0: 0 | 1.4: 0 | 1.5: 1 | 1.65: 0 | 3.4: 0 | 3.5: 1 | 3.65: 0 | 4: 0
+}
+anim Talk 3s loop {
+  turn.value 0: -0.3 | 1.5: 0.4 | 3: -0.3
+  mouth.value 0: 0 | 0.25: 0.8 | 0.5: 0.15 | 0.8: 1 | 1.05: 0.1 | 1.35: 0.65 | 1.6: 0 | 1.85: 1 | 2.1: 0.2 | 2.4: 0.8 | 2.7: 0.1 | 3: 0
+  blink.value 0: 0 | 2: 0 | 2.1: 1 | 2.25: 0 | 3: 0
+}
+anim Expressions 4s loop {
+  turn.value 0: -1 | 2: 1 | 4: -1
+  mouth.value 0: 0 | 1: 1 | 2: 0 | 3: 1 | 4: 0
+  blink.value 0: 0 | 0.6: 0 | 0.7: 1 | 0.9: 0 | 1.6: 0 | 1.7: 1 | 1.9: 0 | 2.6: 0 | 2.7: 1 | 2.9: 0 | 3.6: 0 | 3.7: 1 | 3.9: 0 | 4: 0
+}
