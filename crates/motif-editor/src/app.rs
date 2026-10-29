@@ -168,6 +168,12 @@ pub struct App {
     clip_times: std::collections::BTreeMap<(usize, String), f64>,
     pub(crate) auto_key: bool,
     draft_pose: crate::workspace::DraftPose,
+    play_needs_record: bool,
+    floating: Option<canvas_menu::FloatingInspector>,
+    canvas_bounds: Rect,
+    preview: crate::preview::Preview,
+    preview_canvas: preview_ui::PreviewCanvas,
+    preview_tab: bool,
     pub(crate) pose_preview: std::collections::BTreeMap<String, f64>,
     /// The side of `directions` the canvas shows (the compass in «Стороны»), or the scene as written.
     pub(crate) side: Option<usize>,
@@ -314,6 +320,12 @@ impl App {
             clip_times: Default::default(),
             auto_key: false,
             draft_pose: Default::default(),
+            play_needs_record: false,
+            floating: None,
+            canvas_bounds: Rect::NOTHING,
+            preview: Default::default(),
+            preview_canvas: Default::default(),
+            preview_tab: true,
             pose_preview: Default::default(),
             side: None,
             time: 0.0,
@@ -538,6 +550,7 @@ impl App {
     }
 
     pub(crate) fn clear_draft_pose(&mut self) {
+        self.play_needs_record = false;
         self.draft_pose.clear();
     }
 
@@ -551,6 +564,11 @@ impl App {
             let Ok(scene) = motif_script::parse_in(&source, self.path.as_ref().and_then(|p| p.parent())) else { return };
             let Some(next) = set_key(&source, &scene, &anim, node, *prop, time, *value) else { return };
             source = next;
+        }
+        if source == self.src {
+            self.clear_draft_pose();
+            self.status = "Эта поза уже записана".into();
+            return;
         }
         if self.apply_once("record-pose", Some(source)) {
             self.status = "Пробная поза записана одним действием".into();
@@ -623,6 +641,10 @@ impl App {
     }
 
     pub(crate) fn reset_workspace_document(&mut self) {
+        self.preview = Default::default();
+        self.preview_canvas = Default::default();
+        self.floating = None;
+        self.play_needs_record = false;
         self.profile = None;
         self.clip_times.clear();
         self.draft_pose.clear();
@@ -1578,7 +1600,7 @@ impl App {
             if self.workspace() == Workspace::Animate && !self.panels.layout().timeline {
                 if self.anim.is_some() {
                     if theme::icon_button(ui, if self.playing { Icon::Pause } else { Icon::Play }, "Пуск / пауза").clicked() {
-                        self.playing = !self.playing;
+                        self.toggle_playback();
                     }
                     if ui.add(egui::DragValue::new(&mut self.time).speed(1.0 / 60.0).range(0.0..=600.0).suffix(" с").max_decimals(2)).changed() {
                         self.playing = false;
@@ -1611,6 +1633,7 @@ impl App {
                 crate::workspace::Panel::Script => layout.script_width = rect.width(),
                 crate::workspace::Panel::Inspector => layout.inspector_width = rect.width(),
                 crate::workspace::Panel::Timeline => layout.timeline_height = rect.height(),
+                crate::workspace::Panel::Preview => layout.preview_width = rect.width(),
                 crate::workspace::Panel::Tools => {}
             }
         }
@@ -1659,33 +1682,7 @@ impl App {
                 }
             });
         }
-        if layout.inspector {
-            let salt = self.panel_seed(ui, Panel::Inspector, layout.inspector_width);
-            let reserved = 320.0
-                + if layout.tools { 48.0 } else { 0.0 }
-                + if layout.layers {
-                    layout.layers_width
-                } else if strips {
-                    28.0
-                } else {
-                    0.0
-                }
-                + if layout.script {
-                    layout.script_width
-                } else if strips {
-                    28.0
-                } else {
-                    0.0
-                };
-            let max = (ui.available_width() - reserved).clamp(240.0, 560.0);
-            let response = egui::Panel::right(salt).resizable(true).default_size(layout.inspector_width).size_range(240.0..=max).frame(frame).show(ui, |ui| {
-                self.panel_header(ui, Panel::Inspector);
-                self.props_panel(ui);
-            });
-            self.panel_resized(ui, Panel::Inspector, salt, response.response.rect);
-        } else if strips {
-            egui::Panel::right("inspector-closed").exact_size(28.0).frame(frame).show(ui, |ui| self.collapsed_panel(ui, Panel::Inspector));
-        }
+        self.preview_panels(ui, layout, strips);
         if layout.tools {
             egui::Panel::left("tools").exact_size(48.0).frame(frame).show(ui, |ui| self.tool_rail(ui));
         }
@@ -2308,7 +2305,7 @@ impl App {
 
     // ---------- canvas ----------
 
-    fn canvas_ui(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+    fn canvas_ui(&mut self, ui: &mut egui::Ui, frame: Option<&eframe::Frame>) {
         if self.tool != Tool::Pen && !self.pen.is_empty() {
             self.finish_pen(false);
         }
@@ -2318,7 +2315,9 @@ impl App {
             self.point_edit = None;
         }
         let rect = ui.available_rect_before_wrap();
+        self.canvas_bounds = rect;
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
+        self.pause_for_canvas_press(ui.ctx());
         // The boards of the file on their grid: when the active one moves on it, the view
         // follows, so the boards stay where they were on screen.
         let grid = self.board_grid();
@@ -2443,6 +2442,7 @@ impl App {
         // A key handle or the line of a motion path under the pointer.
         let path_hit = pointer
             .filter(|&p| !special && !pan_gesture && self.drag.is_none() && resp.hovered() && hit_handle(p).is_none())
+            .filter(|&p| !self.pointer_hits_selection(&doc, view.to_doc(rect, p)))
             .and_then(|p| self.motion_hit(rect, view, p));
         if path_hit.is_some() {
             self.hovered = None;
@@ -2472,7 +2472,7 @@ impl App {
         // Drags start where the button went down, not where the movement threshold was passed.
         let press = ui.input(|i| i.pointer.press_origin()).or(pointer);
         if !special
-            && resp.drag_started()
+            && (resp.drag_started_by(egui::PointerButton::Primary) || (pan_gesture && resp.drag_started_by(egui::PointerButton::Middle)))
             && let Some(p) = press
             && let dp = view.to_doc(rect, p)
         {
@@ -2496,7 +2496,10 @@ impl App {
                         Some(DragOp::Rotate { node: id, center, start_angle: a, start_rot: n.rotation })
                     }
                 }
-            } else if !shift && let Some(hit) = self.motion_hit(rect, view, p) {
+            } else if !shift
+                && !self.pointer_hits_selection(&doc, dp)
+                && let Some(hit) = self.motion_hit(rect, view, p)
+            {
                 Some(self.motion_drag(hit, dp))
             } else if self.tool == Tool::Select
                 && !shift
@@ -2653,6 +2656,9 @@ impl App {
                 _ => {}
             }
             self.drag = None;
+        }
+        if !live && !pan_gesture {
+            self.canvas_context_menu(&resp, &doc, rect, view);
         }
         if !special && resp.double_clicked() && self.selected.as_ref().and_then(|s| doc.node(s)).is_some_and(|n| n.kind == ShapeKind::Path) {
             self.begin_point_edit();
@@ -3136,7 +3142,8 @@ impl App {
         if i.key_pressed(Key::F1) {
             self.show_syntax = !self.show_syntax;
         }
-        if typing {
+        // Keep global file commands, but let floating controls own Esc and property shortcuts.
+        if typing || self.floating.is_some() {
             return;
         }
         if i.modifiers.command && i.modifiers.shift && i.key_pressed(Key::Space) {
@@ -3145,6 +3152,21 @@ impl App {
             }
             self.panels.toggle_focus();
             self.space_used_for_pan = true;
+            return;
+        }
+        if self.preview_canvas.contains_pointer(ctx) {
+            if i.key_released(Key::Space)
+                && !self.space_used_for_pan
+                && !i.modifiers.command
+                && !self.preview.follow
+                && !self.preview.stale
+                && matches!(self.preview.mode, crate::preview::Mode::Clip | crate::preview::Mode::Machine)
+            {
+                self.preview.playing = !self.preview.playing;
+            }
+            if i.key_released(Key::Space) {
+                self.space_used_for_pan = false;
+            }
             return;
         }
         for e in &i.events {
@@ -3195,7 +3217,7 @@ impl App {
             if !self.space_used_for_pan && self.bottom_machine {
                 self.toggle_run();
             } else if !self.space_used_for_pan && self.anim.is_some() && !i.modifiers.command && !i.modifiers.shift {
-                self.playing = !self.playing;
+                self.toggle_playback();
             }
             self.space_used_for_pan = false;
         }
@@ -3519,6 +3541,7 @@ impl eframe::App for App {
             self.draft_pose.clear();
         }
         self.shortcuts(&ctx);
+        self.pause_for_canvas_press(&ctx);
         if let Some(c) = &mut self.check {
             c.advance(&self.scene.doc, dt.min(0.1) as f64);
         }
@@ -3544,7 +3567,7 @@ impl eframe::App for App {
             .show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("status").exact_size(26.0).frame(panel.inner_margin(egui::Margin::symmetric(12, 0))).show(ui, |ui| self.status_bar(ui));
         self.workspace_panels(ui);
-        egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, frame));
+        egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, Some(frame)));
         self.export_window(&ctx);
         self.web_window(&ctx);
         self.help_window(&ctx);
@@ -3553,6 +3576,7 @@ impl eframe::App for App {
         self.syntax_window(&ctx);
         self.stretch_window(&ctx);
         self.library_window(&ctx);
+        self.floating_inspector(&ctx);
     }
 }
 
@@ -4050,3 +4074,17 @@ mod editing_tests {
 #[cfg(test)]
 #[path = "workspace_tests.rs"]
 mod workspace_tests;
+
+#[path = "canvas_menu.rs"]
+mod canvas_menu;
+
+#[path = "preview_ui.rs"]
+mod preview_ui;
+
+#[cfg(test)]
+#[path = "canvas_interaction_tests.rs"]
+mod canvas_interaction_tests;
+
+#[cfg(test)]
+#[path = "preview_tests.rs"]
+mod preview_tests;

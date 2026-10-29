@@ -66,11 +66,11 @@ impl Canvas {
     }
 
     /// Paints the stage into `rect` and returns nothing; overlays are drawn by the caller afterwards.
-    pub fn paint(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame, rect: Rect, view: View, stage: Stage) {
+    pub fn paint(&mut self, ui: &mut egui::Ui, frame: Option<&eframe::Frame>, rect: Rect, view: View, stage: Stage) {
         let Stage { doc, backdrop, others } = stage;
         if self.gpu.is_none()
             && self.gpu_failed.is_none()
-            && let Some(rs) = frame.wgpu_render_state()
+            && let Some(rs) = frame.and_then(eframe::Frame::wgpu_render_state)
         {
             let opts = RendererOptions { antialiasing_support: AaSupport::area_only(), ..RendererOptions::default() };
             match Renderer::new(&rs.device, opts) {
@@ -78,7 +78,7 @@ impl Canvas {
                 Err(e) => self.gpu_failed = Some(e.to_string()),
             }
         }
-        if let (Some(gpu), Some(rs)) = (self.gpu.as_mut(), frame.wgpu_render_state()) {
+        if let (Some(gpu), Some(rs)) = (self.gpu.as_mut(), frame.and_then(eframe::Frame::wgpu_render_state)) {
             match paint_gpu(gpu, rs, ui, rect, view, &stage) {
                 Ok(()) => return,
                 Err(e) => {

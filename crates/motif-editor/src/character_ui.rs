@@ -168,7 +168,7 @@ impl App {
                 if !self.playing && self.current_anim().is_some_and(|a| self.time >= a.duration) {
                     self.time = 0.0;
                 }
-                self.playing = !self.playing;
+                self.toggle_playback();
             }
             ui.small("Одежда меняется в «Рисовании». В «Анимации» вы вернётесь к прежнему клипу и времени.");
             if !character.parameters.is_empty() || !character.palette.is_empty() {

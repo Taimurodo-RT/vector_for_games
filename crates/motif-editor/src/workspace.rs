@@ -53,10 +53,11 @@ pub(crate) enum Panel {
     Script,
     Inspector,
     Timeline,
+    Preview,
 }
 
 impl Panel {
-    pub const ALL: [Self; 5] = [Self::Tools, Self::Layers, Self::Script, Self::Inspector, Self::Timeline];
+    pub const ALL: [Self; 6] = [Self::Tools, Self::Layers, Self::Script, Self::Inspector, Self::Timeline, Self::Preview];
     pub fn name(self) -> &'static str {
         match self {
             Self::Tools => "Инструменты",
@@ -64,6 +65,7 @@ impl Panel {
             Self::Script => "Скрипт",
             Self::Inspector => "Свойства",
             Self::Timeline => "Таймлайн",
+            Self::Preview => "Предпросмотр",
         }
     }
 }
@@ -76,6 +78,10 @@ pub(crate) struct Layout {
     pub script: bool,
     pub inspector: bool,
     pub timeline: bool,
+    pub preview: bool,
+    pub preview_width: f32,
+    #[serde(skip)]
+    pub right_tabs: bool,
     pub layers_width: f32,
     pub script_width: f32,
     pub inspector_width: f32,
@@ -90,6 +96,9 @@ impl Default for Layout {
             script: false,
             inspector: true,
             timeline: false,
+            preview: false,
+            preview_width: 320.0,
+            right_tabs: false,
             layers_width: 210.0,
             script_width: 440.0,
             inspector_width: 264.0,
@@ -109,6 +118,7 @@ impl Layout {
             Panel::Script => self.script,
             Panel::Inspector => self.inspector,
             Panel::Timeline => self.timeline,
+            Panel::Preview => self.preview,
         }
     }
     pub fn set(&mut self, panel: Panel, shown: bool) {
@@ -118,13 +128,15 @@ impl Layout {
             Panel::Script => &mut self.script,
             Panel::Inspector => &mut self.inspector,
             Panel::Timeline => &mut self.timeline,
+            Panel::Preview => &mut self.preview,
         } = shown;
     }
-    fn focused(mut self) -> Self {
+    fn focused(mut self, space: Workspace) -> Self {
         for panel in Panel::ALL {
             self.set(panel, false);
         }
         self.tools = true;
+        self.timeline = space == Workspace::Animate;
         self
     }
     fn sanitize(&mut self) {
@@ -134,6 +146,7 @@ impl Layout {
         bound(&mut self.layers_width, 210.0, 160.0, 360.0);
         bound(&mut self.script_width, 440.0, 240.0, 900.0);
         bound(&mut self.inspector_width, 264.0, 240.0, 560.0);
+        bound(&mut self.preview_width, 320.0, 240.0, 560.0);
         bound(&mut self.timeline_height, 236.0, 120.0, 520.0);
     }
 
@@ -148,10 +161,17 @@ impl Layout {
             (if s.tools { 48.0 } else { 0.0 })
                 + (if s.layers { s.layers_width } else { 28.0 })
                 + (if s.script { s.script_width } else { 28.0 })
-                + (if s.inspector { s.inspector_width } else { 28.0 })
+                + if s.right_tabs {
+                    s.inspector_width.max(s.preview_width)
+                } else {
+                    (if s.inspector { s.inspector_width } else { 28.0 }) + (if s.preview { s.preview_width } else { 28.0 })
+                }
         };
+        if occupied(&self) + 320.0 > width && self.inspector && self.preview {
+            self.right_tabs = true;
+        }
         // Code is an explicit request: if open, prefer it to the layer list on small screens.
-        if occupied(&self) + 320.0 > width && matches!(priority, Panel::Layers | Panel::Inspector) {
+        if occupied(&self) + 320.0 > width && matches!(priority, Panel::Layers | Panel::Inspector | Panel::Preview) {
             self.script = false;
         }
         if occupied(&self) + 320.0 > width && self.layers {
@@ -163,8 +183,18 @@ impl Layout {
         if occupied(&self) + 320.0 > width && self.inspector {
             self.inspector_width = (self.inspector_width - (occupied(&self) + 320.0 - width)).max(240.0);
         }
+        if self.right_tabs {
+            self.preview_width = self.inspector_width;
+        }
+        if occupied(&self) + 320.0 > width && self.preview {
+            self.preview_width = (self.preview_width - (occupied(&self) + 320.0 - width)).max(240.0);
+        }
         if occupied(&self) + 320.0 > width && self.script {
             self.inspector = false;
+            if priority != Panel::Preview {
+                self.preview = false;
+            }
+            self.right_tabs = false;
         }
         if occupied(&self) + 320.0 > width {
             self.script = false;
@@ -217,11 +247,11 @@ impl Panels {
         }
         self.settings.workspace = space;
         if self.focus.is_some() {
-            self.focus = Some(self.settings.layouts[space.index()].focused());
+            self.focus = Some(self.settings.layouts[space.index()].focused(self.settings.workspace));
         }
     }
     pub fn toggle_focus(&mut self) {
-        self.focus = if self.focus.is_some() { None } else { Some(self.layout().focused()) };
+        self.focus = if self.focus.is_some() { None } else { Some(self.layout().focused(self.settings.workspace)) };
     }
     pub fn set(&mut self, panel: Panel, shown: bool) {
         self.layout_mut().set(panel, shown);
@@ -235,7 +265,7 @@ impl Panels {
     pub fn reset(&mut self) {
         self.settings.layouts[self.settings.workspace.index()] = Layout::for_workspace(self.settings.workspace);
         if self.focus.is_some() {
-            self.focus = Some(self.layout().focused());
+            self.focus = Some(self.settings.layouts[self.settings.workspace.index()].focused(self.settings.workspace));
         }
     }
 }
@@ -292,7 +322,7 @@ mod tests {
         p.layout_mut().inspector_width = 450.0;
         assert_eq!(p.settings, before);
         p.switch(Workspace::Animate);
-        assert!(!p.layout().timeline);
+        assert!(p.layout().timeline);
         p.toggle_focus();
         assert!(p.layout().timeline);
         p.switch(Workspace::Drawing);
@@ -306,7 +336,8 @@ mod tests {
             let used = (if c.tools { 48.0 } else { 0.0 })
                 + (if c.layers { c.layers_width } else { 28.0 })
                 + (if c.script { c.script_width } else { 28.0 })
-                + (if c.inspector { c.inspector_width } else { 28.0 });
+                + (if c.inspector { c.inspector_width } else { 28.0 })
+                + 28.0;
             assert!(width - used >= 320.0, "{width}: {c:?}");
             assert!(460.0 - c.timeline_height >= 220.0);
         }
