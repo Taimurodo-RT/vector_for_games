@@ -1500,6 +1500,7 @@ impl App {
                 self.check_panel(ui);
                 return;
             }
+            self.character_panel(ui);
             let Some(id) = self.selected.clone() else {
                 self.artboard_info(ui);
                 return;
@@ -3366,5 +3367,113 @@ mod editing_tests {
         assert_eq!(app.scene.doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["b"]);
         app.undo();
         assert_eq!(app.file_text(), original);
+    }
+
+    #[test]
+    fn character_changes_and_copy_are_atomic_undo_steps_and_keep_other_boards() {
+        use motif_script::character;
+        let src = format!("{}\nartboard \"Other\" 30x30\nrect keep size 5\n", include_str!("../../../examples/character-side.msc"));
+        let mut app = fixture(&src);
+        let original = app.file_text();
+        let catalog = character::read(&app.src).unwrap().unwrap();
+        let rig = &catalog.characters[0];
+        app.select_anim("Walk".into());
+        app.time = 0.35;
+        app.playing = true;
+        app.character_choice(&rig.root, &rig.looks[1].slots);
+        let clothed = app.file_text();
+        assert_ne!(clothed, original);
+        assert_eq!(app.undo.len(), 1);
+        assert_eq!(app.anim.as_deref(), Some("Walk"));
+        assert_eq!(app.time, 0.35);
+        assert!(app.playing);
+        assert!(clothed.ends_with("artboard \"Other\" 30x30\nrect keep size 5\n"));
+        app.character_copy(&rig.root, "head");
+        let custom = app.file_text();
+        assert_eq!(app.undo.len(), 2);
+        assert!(app.anim.is_none());
+        assert!(!app.playing);
+        app.undo();
+        assert_eq!(app.file_text(), clothed);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+        app.redo();
+        app.redo();
+        assert_eq!(app.file_text(), custom);
+    }
+
+    #[test]
+    fn character_ui_selects_a_look_by_mouse_without_restarting_the_clip() {
+        let mut app = fixture(include_str!("../../../examples/character-side.msc"));
+        app.select_anim("Run".into());
+        app.time = 0.2;
+        app.playing = true;
+        let original = app.file_text();
+        let frame = |app: &mut App, events| {
+            let ctx = app.ctx.clone();
+            ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(380.0, 800.0))), events, ..Default::default() }, |ui| {
+                app.character_panel(ui)
+            })
+        };
+        let position = |out: &egui::FullOutput, label: &str| {
+            out.shapes
+                .iter()
+                .rev()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.job.text == label => Some(t.pos + vec2(3.0, t.galley.size().y * 0.5)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("UI label missing: {label}"))
+        };
+        let click = |app: &mut App, pos| {
+            frame(
+                app,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE },
+                ],
+            )
+            .drop_without_applying_deltas();
+            frame(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }])
+                .drop_without_applying_deltas();
+        };
+        frame(&mut app, vec![]).drop_without_applying_deltas();
+        let out = frame(&mut app, vec![]);
+        let combo = position(&out, "Манекен");
+        out.drop_without_applying_deltas();
+        click(&mut app, combo);
+        let out = frame(&mut app, vec![]);
+        let traveler = position(&out, "Путник");
+        out.drop_without_applying_deltas();
+        click(&mut app, traveler);
+        assert!(app.scene.doc.node("head_traveler").unwrap().visible);
+        assert!(!app.scene.doc.node("head_base").unwrap().visible);
+        assert_eq!(app.anim.as_deref(), Some("Run"));
+        assert_eq!(app.time, 0.2);
+        assert!(app.playing);
+        assert_eq!(app.undo.len(), 1);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+    }
+
+    #[test]
+    fn a_copied_appearance_renders_identically_and_bad_choices_do_not_change_history() {
+        use motif_script::character;
+        let mut app = fixture(include_str!("../../../examples/character-side.msc"));
+        let original = app.file_text();
+        let source = app.scene.clone();
+        app.character_choice("hero", &std::collections::BTreeMap::from([("head".into(), "missing".into())]));
+        assert_eq!(app.file_text(), original);
+        assert!(app.undo.is_empty());
+        app.character_copy("hero", "arms");
+        character::read(&app.src).unwrap().unwrap().validate(&app.scene).unwrap();
+        let options = motif_render::CpuOptions::default();
+        for clip in ["Idle", "Walk", "Run", "Jump"] {
+            for t in [0.0, 0.2, 0.4, 0.6] {
+                let a = source.doc.animation(clip).unwrap().pose(&source.doc, t);
+                let b = app.scene.doc.animation(clip).unwrap().pose(&app.scene.doc, t);
+                assert_eq!(motif_render::render_cpu(&a, options).unwrap().data(), motif_render::render_cpu(&b, options).unwrap().data(), "{clip} at {t}");
+            }
+        }
     }
 }

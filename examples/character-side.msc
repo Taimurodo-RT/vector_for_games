@@ -1,0 +1,226 @@
+// Скелет общий для всех обликов. Детали — обычные редактируемые группы.
+// Новое → Персонажи → Человек сбоку. Панель «Персонаж»: комплект, слоты, копия детали.
+// Цели ног foot_front / foot_back держат стопы; голени следуют за ними через IK.
+artboard "Человек сбоку" 320x320 bg #202b3b game
+// @motif-characters {"schema":1,"characters":[{"root":"hero","name":"Человек сбоку","rig":"humanoid-side-v1","bones":["pelvis","spine","neck","arm_back","fore_back","hand_back","arm_front","fore_front","hand_front","thigh_back_bone","shin_back_bone","thigh_front_bone","shin_front_bone","foot_back","foot_front"],"slots":[{"id":"head","name":"Голова","variants":[{"id":"base","name":"Манекен","groups":["head_base"]},{"id":"traveler","name":"Лицо и волосы","groups":["head_traveler"]}]},{"id":"torso","name":"Тело и одежда","variants":[{"id":"base","name":"Манекен","groups":["torso_base"]},{"id":"traveler","name":"Куртка","groups":["torso_traveler"]}]},{"id":"arms","name":"Рукава","variants":[{"id":"base","name":"Манекен","groups":["upper_back_base","lower_back_base","upper_front_base","lower_front_base"]},{"id":"traveler","name":"Рукава куртки","groups":["upper_back_traveler","lower_back_traveler","upper_front_traveler","lower_front_traveler"]}]},{"id":"hands","name":"Кисти","variants":[{"id":"base","name":"Манекен","groups":["hand_back_base","hand_front_base"]},{"id":"traveler","name":"Открытые кисти","groups":["hand_back_traveler","hand_front_traveler"]}]},{"id":"legs","name":"Ноги","variants":[{"id":"base","name":"Манекен","groups":["thigh_back_base","shin_back_base","thigh_front_base","shin_front_base"]},{"id":"traveler","name":"Брюки","groups":["thigh_back_traveler","shin_back_traveler","thigh_front_traveler","shin_front_traveler"]}]},{"id":"feet","name":"Обувь","variants":[{"id":"base","name":"Манекен","groups":["foot_back_base","foot_front_base"]},{"id":"traveler","name":"Ботинки","groups":["foot_back_traveler","foot_front_traveler"]}]},{"id":"back","name":"На спине","variants":[{"id":"none","name":"Без предмета","groups":[]},{"id":"pack","name":"Рюкзак","groups":["backpack"]}]},{"id":"hand_item","name":"В руке","variants":[{"id":"none","name":"Без предмета","groups":[]},{"id":"sword","name":"Учебный меч","groups":["sword"]}]}],"looks":[{"name":"Манекен","slots":{"head":"base","torso":"base","arms":"base","hands":"base","legs":"base","feet":"base","back":"none","hand_item":"none"}},{"name":"Путник","slots":{"head":"traveler","torso":"traveler","arms":"traveler","hands":"traveler","legs":"traveler","feet":"traveler","back":"pack","hand_item":"none"}}],"motions":[{"name":"Покой","clip":"Idle"},{"name":"Ходьба","clip":"Walk"},{"name":"Бег","clip":"Run"},{"name":"Прыжок","clip":"Jump"}]}]}
+
+let ink = #142030
+let base = #84b6cf
+let base_back = #517e99
+let coat = #587f69
+let coat_back = #3c5b4e
+let cloth = #38475e
+let skin = #e5b590
+let leather = #805940
+
+ellipse ground_shadow "Тень для просмотра" at 160 280 size 88 12 fill #101925 opacity 0.5 locked
+group hero "Персонаж" at 160 278 {
+  bone foot_back "Стопа сзади · цель IK" at -9 -4 len 20 {
+    group foot_back_base  {
+      path foot_back_base_shape d "M-8 -6 Q-10 -2 -9 4 L25 4 Q30 2 25 -3 L9 -7 Z" fill base_back stroke ink 2
+    }
+    group foot_back_traveler  hidden {
+      path boot_back d "M-10 -11 L10 -11 L11 -5 L25 -3 Q30 -2 29 5 L-10 5 Z" fill leather stroke ink 2
+      path boot_sole_back d "M-9 2 L29 2" fill none stroke ink 2
+    }
+  }
+  bone pelvis "Таз" at 0 -112 len 24 {
+    bone thigh_back_bone "Бедро back" at -3 8 len 52 rot 90 {
+      group thigh_back_base  {
+        rect thigh_back_base_shape at 26 0 size 60 20 r 10 fill base_back stroke ink 2
+      }
+      group thigh_back_traveler  hidden {
+        rect thigh_back_cloth at 26 0 size 60 22 r 10 fill cloth stroke ink 2
+        path thigh_back_seam d "M8 -6 L47 -6" fill none stroke #b5c3ba 1 opacity 0.3
+      }
+      bone shin_back_bone "Голень back · IK стопы" at 52 0 len 52 ik foot_back {
+        group shin_back_base  {
+          rect shin_back_base_shape at 26 0 size 60 16 r 8 fill base_back stroke ink 2
+        }
+        group shin_back_traveler  hidden {
+          rect shin_back_cloth at 26 0 size 60 18 r 8 fill cloth stroke ink 2
+          path shin_back_seam d "M8 -4 L47 -4" fill none stroke #b5c3ba 1 opacity 0.3
+        }
+      }
+    }
+    bone spine "Корпус" len 64 rot -90 {
+      group backpack  hidden {
+        rect pack_body at 35 -25 size 44 29 r 7 fill #a5794a stroke ink 2
+        rect pack_pocket at 31 -38 size 24 11 r 3 fill #7c5939 stroke ink 2
+      }
+      bone arm_back "Плечо back" at 53 5 len 40 rot 170 {
+        group upper_back_base  {
+          rect upper_back_base_shape at 20 0 size 48 15 r 7.5 fill base_back stroke ink 2
+        }
+        group upper_back_traveler  hidden {
+          rect upper_back_cloth at 20 0 size 48 17 r 7.5 fill coat_back stroke ink 2
+          path upper_back_seam d "M8 -3.5 L35 -3.5" fill none stroke #b5c3ba 1 opacity 0.3
+        }
+        bone fore_back "Предплечье back" at 40 0 len 36 rot -25 {
+          group lower_back_base  {
+            rect lower_back_base_shape at 18 0 size 44 12 r 6 fill base_back stroke ink 2
+          }
+          group lower_back_traveler  hidden {
+            rect lower_back_cloth at 18 0 size 44 14 r 6 fill coat_back stroke ink 2
+            path lower_back_seam d "M8 -2 L31 -2" fill none stroke #b5c3ba 1 opacity 0.3
+          }
+          bone hand_back "Кисть / крепление back" at 36 0 len 15 {
+            group hand_back_base  {
+              ellipse palm_back_base at 7 0 size 20 15 fill base_back stroke ink 2
+            }
+            group hand_back_traveler  hidden {
+              path palm_back_skin d "M-3 -6 Q5 -10 13 -6 Q20 0 12 7 L1 6 Z" fill skin stroke ink 2
+            }
+          }
+        }
+      }
+      group torso_base  {
+        path chest_base d "M-8 -15 Q0 -21 20 -20 L58 -23 Q72 -18 69 2 L60 17 Q22 16 -7 13 Z" fill base stroke ink 2
+        path chest_mark d "M22 -14 L52 -16" fill none stroke #c9e0ed 3 cap round
+      }
+      group torso_traveler  hidden {
+        path coat_body d "M-12 -20 L56 -24 Q70 -20 67 3 L58 19 L-13 18 Z" fill coat stroke ink 2
+        path coat_zip d "M-10 -7 L58 -8" fill none stroke #d3bd84 2
+        rect belt at -5 0 size 8 38 r 1 fill leather stroke ink 2
+        rect belt_buckle at -5 -8 size 7 8 r 1 fill #d3bd84
+        path coat_collar d "M57 -22 L65 -14 L57 -6 L65 2 L58 16" fill none stroke #283e38 4
+      }
+      bone neck "Голова" at 67 0 len 16 {
+        group head_base at 20 0 rot 90 {
+          rect neck_base at -5 22 size 15 14 r 3 fill base stroke ink 2
+          path head_base_shape d "M-16 -21 Q-14 -29 0 -28 Q16 -28 18 -14 L24 -8 L18 -3 L17 12 Q14 21 1 20 L-13 15 Z" fill base stroke ink 2
+          path visor d "M5 -11 L17 -11" fill none stroke ink 4 cap round
+        }
+        group head_traveler at 20 0 rot 90 hidden {
+          rect neck_skin at -5 22 size 15 14 r 3 fill skin stroke ink 2
+          path face d "M-16 -21 Q-14 -29 0 -28 Q16 -28 18 -14 L24 -8 L18 -3 L17 12 Q14 21 1 20 L-13 15 Z" fill skin stroke ink 2
+          path hair d "M-17 3 L-22 -12 Q-23 -30 -4 -32 Q13 -34 21 -21 L11 -17 L-2 -20 L-5 -5 L-12 -9 L-12 6 Z" fill #49382d stroke ink 2
+          ellipse ear at -9 1 size 10 13 fill skin stroke ink 1.5
+          ellipse eye at 13 -10 size 3 4 fill ink
+          path mouth d "M11 8 L18 7" fill none stroke #985e4a 1.5
+        }
+      }
+      bone arm_front "Плечо front" at 53 -6 len 40 rot 170 {
+        group upper_front_base  {
+          rect upper_front_base_shape at 20 0 size 48 15 r 7.5 fill base stroke ink 2
+        }
+        group upper_front_traveler  hidden {
+          rect upper_front_cloth at 20 0 size 48 17 r 7.5 fill coat stroke ink 2
+          path upper_front_seam d "M8 -3.5 L35 -3.5" fill none stroke #b5c3ba 1 opacity 0.3
+        }
+        bone fore_front "Предплечье front" at 40 0 len 36 rot -25 {
+          group lower_front_base  {
+            rect lower_front_base_shape at 18 0 size 44 12 r 6 fill base stroke ink 2
+          }
+          group lower_front_traveler  hidden {
+            rect lower_front_cloth at 18 0 size 44 14 r 6 fill coat stroke ink 2
+            path lower_front_seam d "M8 -2 L31 -2" fill none stroke #b5c3ba 1 opacity 0.3
+          }
+          bone hand_front "Кисть / крепление front" at 36 0 len 15 {
+            group hand_front_base  {
+              ellipse palm_front_base at 7 0 size 20 15 fill base stroke ink 2
+            }
+            group hand_front_traveler  hidden {
+              path palm_front_skin d "M-3 -6 Q5 -10 13 -6 Q20 0 12 7 L1 6 Z" fill skin stroke ink 2
+            }
+            group sword at 8 0 rot -70 hidden {
+              path sword_blade d "M-3 -6 L-4 -58 L0 -69 L4 -58 L3 -6 Z" fill #d4dce2 stroke ink 2
+              rect sword_guard at 0 -5 size 25 5 r 2 fill #bb9758 stroke ink 2
+              rect sword_grip at 0 5 size 6 15 r 2 fill leather stroke ink 2
+            }
+          }
+        }
+      }
+    }
+    bone thigh_front_bone "Бедро front" at 3 8 len 52 rot 90 {
+      group thigh_front_base  {
+        rect thigh_front_base_shape at 26 0 size 60 20 r 10 fill base stroke ink 2
+      }
+      group thigh_front_traveler  hidden {
+        rect thigh_front_cloth at 26 0 size 60 22 r 10 fill cloth stroke ink 2
+        path thigh_front_seam d "M8 -6 L47 -6" fill none stroke #b5c3ba 1 opacity 0.3
+      }
+      bone shin_front_bone "Голень front · IK стопы" at 52 0 len 52 ik foot_front {
+        group shin_front_base  {
+          rect shin_front_base_shape at 26 0 size 60 16 r 8 fill base stroke ink 2
+        }
+        group shin_front_traveler  hidden {
+          rect shin_front_cloth at 26 0 size 60 18 r 8 fill cloth stroke ink 2
+          path shin_front_seam d "M8 -4 L47 -4" fill none stroke #b5c3ba 1 opacity 0.3
+        }
+      }
+    }
+  }
+  bone foot_front "Стопа спереди · цель IK" at 7 -4 len 20 {
+    group foot_front_base  {
+      path foot_front_base_shape d "M-8 -6 Q-10 -2 -9 4 L25 4 Q30 2 25 -3 L9 -7 Z" fill base stroke ink 2
+    }
+    group foot_front_traveler  hidden {
+      path boot_front d "M-10 -11 L10 -11 L11 -5 L25 -3 Q30 -2 29 5 L-10 5 Z" fill leather stroke ink 2
+      path boot_sole_front d "M-9 2 L29 2" fill none stroke ink 2
+    }
+  }
+}
+
+// Покой и циклы движений. Облик не имеет собственных дорожек: движение задаёт скелет.
+anim Idle 2s loop {
+  pelvis.y 0: -112 ease-in-out-sine | 1: -114 ease-in-out-sine | 2: -112
+  spine.rot 0: -90 ease-in-out-sine | 1: -88 ease-in-out-sine | 2: -90
+  arm_front.rot 0: 170 ease-in-out-sine | 1: 173 ease-in-out-sine | 2: 170
+  arm_back.rot 0: 170 ease-in-out-sine | 1: 167 ease-in-out-sine | 2: 170
+}
+
+anim Walk 0.8s loop {
+  pelvis.y 0: -110 ease-in-out-sine | 0.2: -113 ease-in-out-sine | 0.4: -110 ease-in-out-sine | 0.6: -113 ease-in-out-sine | 0.8: -110
+  foot_front.x 0: 26 | 0.2: 0 | 0.4: -26 ease-in-out-sine | 0.6: -2 ease-in-out-sine | 0.8: 26
+  foot_front.y 0: -4 | 0.4: -4 ease-out-sine | 0.6: -28 ease-in-sine | 0.8: -4
+  foot_back.x 0: -26 ease-in-out-sine | 0.2: -2 ease-in-out-sine | 0.4: 26 | 0.6: 0 | 0.8: -26
+  foot_back.y 0: -4 ease-out-sine | 0.2: -28 ease-in-sine | 0.4: -4 | 0.8: -4
+  arm_front.rot 0: 190 ease-in-out-sine | 0.4: 150 ease-in-out-sine | 0.8: 190
+  arm_back.rot 0: 150 ease-in-out-sine | 0.4: 190 ease-in-out-sine | 0.8: 150
+  event step 0 0.4
+}
+
+anim Run 0.6s loop {
+  pelvis.y 0: -108 ease-in-out-sine | 0.15: -115 ease-in-out-sine | 0.3: -108 ease-in-out-sine | 0.45: -115 ease-in-out-sine | 0.6: -108
+  spine.rot 0: -78
+  foot_front.x 0: 34 | 0.15: 10 | 0.3: -34 ease-in-out-sine | 0.45: -18 ease-in-out-sine | 0.6: 34
+  foot_front.y 0: -9 | 0.15: -4 | 0.3: -10 ease-out-sine | 0.45: -50 ease-in-sine | 0.6: -9
+  foot_back.x 0: -34 ease-in-out-sine | 0.15: -18 ease-in-out-sine | 0.3: 34 | 0.45: 10 | 0.6: -34
+  foot_back.y 0: -10 ease-out-sine | 0.15: -50 ease-in-sine | 0.3: -9 | 0.45: -4 | 0.6: -10
+  arm_front.rot 0: 220 ease-in-out-sine | 0.3: 120 ease-in-out-sine | 0.6: 220
+  arm_back.rot 0: 120 ease-in-out-sine | 0.3: 220 ease-in-out-sine | 0.6: 120
+  fore_front.rot 0: -65 | 0.3: -100 | 0.6: -65
+  fore_back.rot 0: -100 | 0.3: -65 | 0.6: -100
+  event step 0.15 0.45
+}
+
+anim Jump 1s {
+  hero.y 0: 278 | 0.15: 278 ease-out | 0.45: 216 ease-in | 0.85: 278 | 1: 278
+  pelvis.y 0: -112 ease-in-out | 0.15: -96 ease-out | 0.4: -115 | 0.7: -110 ease-in | 0.85: -94 ease-out | 1: -112
+  foot_front.x 0: 7 | 0.15: 12 | 0.45: 22 | 0.85: 12 | 1: 7
+  foot_back.x 0: -9 | 0.15: -12 | 0.45: -18 | 0.85: -12 | 1: -9
+  foot_front.y 0: -4 | 0.15: -4 ease-out | 0.45: -34 | 0.7: -18 | 0.85: -4 | 1: -4
+  foot_back.y 0: -4 | 0.15: -4 ease-out | 0.45: -44 | 0.7: -20 | 0.85: -4 | 1: -4
+  arm_front.rot 0: 170 | 0.15: 205 ease-out | 0.45: 85 | 0.85: 155 | 1: 170
+  arm_back.rot 0: 170 | 0.15: 205 ease-out | 0.45: 110 | 0.85: 175 | 1: 170
+  event land 0.85
+}
+
+// Игра получает speed и jump; внешний вид от них не зависит.
+machine Humanoid {
+  input speed 0
+  input jump trigger
+  state Idle
+  state Walk
+  state Run
+  state Jump
+  Idle -> Walk when speed > 0.1 blend 0.12s
+  Walk -> Idle when speed <= 0.1 blend 0.12s
+  Walk -> Run when speed > 0.7 blend 0.12s
+  Run -> Walk when speed <= 0.7 blend 0.12s
+  Idle -> Jump when jump blend 0.05s
+  Walk -> Jump when jump blend 0.05s
+  Run -> Jump when jump blend 0.05s
+  Jump -> Idle at end blend 0.1s
+}

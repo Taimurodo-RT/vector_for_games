@@ -9,6 +9,7 @@
     ["animation.html", "Анимация"],
     ["machine.html", "Машина состояний"],
     ["bones.html", "Кости и IK"],
+    ["characters.html", "Персонажи и одежда"],
     ["physics.html", "Физика"],
     ["orbit.html", "2.5D и 3D"],
     ["script.html", "Скрипт сцены"],

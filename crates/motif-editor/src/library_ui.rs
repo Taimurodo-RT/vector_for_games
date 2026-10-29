@@ -18,9 +18,9 @@ pub struct Template {
 }
 
 /// The shelves of the library; «Все» shows every template.
-pub const GROUPS: [&str; 6] = ["Все", "Начать", "Меню", "В игре", "Итоги", "Переходы"];
+pub const GROUPS: [&str; 7] = ["Все", "Начать", "Меню", "В игре", "Итоги", "Переходы", "Персонажи"];
 
-pub const TEMPLATES: [Template; 13] = [
+pub const TEMPLATES: [Template; 14] = [
     Template {
         name: "Пустая сцена", group: 1, about: "Холст 320×240 с прыгающим мячом — для персонажей и анимации", src: crate::app::NEW_SCENE
     },
@@ -87,6 +87,12 @@ pub const TEMPLATES: [Template; 13] = [
     Template {
         name: "Загрузка", group: 5, about: "Крутящийся знак, полоса с процентами и совет", src: include_str!("../../../examples/screens/loading.msc")
     },
+    Template {
+        name: "Человек сбоку",
+        group: 6,
+        about: "Общий скелет, сменная одежда, покой, ходьба, бег и прыжок",
+        src: include_str!("../../../examples/character-side.msc"),
+    },
 ];
 
 /// Width of a card's picture in points; the picture keeps its board's proportions inside 16:9.
@@ -142,7 +148,7 @@ impl App {
                 ui.vertical(|ui| {
                     ui.label(RichText::new("Новое").font(theme::semibold(18.0)).color(FG));
                     ui.label(
-                        RichText::new("Пустая сцена, UI-набор или готовый экран игры. Шаблон — обычный скрипт: всё в нём можно менять, а «Экспорт → Экран для Godot» делает из него сцену.")
+                        RichText::new("Персонаж с движениями, пустая сцена, UI-набор или готовый экран игры. Все детали шаблона можно менять и анимировать.")
                             .size(12.0)
                             .color(MUTED),
                     );
@@ -192,7 +198,13 @@ impl App {
                             } else {
                                 LINE
                             };
-                            ui.painter().rect(r, 10.0, if resp.hovered() || on { PANEL_2 } else { BG }, Stroke::new(if on { 2.0 } else { 1.0 }, border), StrokeKind::Inside);
+                            ui.painter().rect(
+                                r,
+                                10.0,
+                                if resp.hovered() || on { PANEL_2 } else { BG },
+                                Stroke::new(if on { 2.0 } else { 1.0 }, border),
+                                StrokeKind::Inside,
+                            );
                             let pic = Rect::from_min_size(r.min + vec2(6.0, 6.0), vec2(THUMB, THUMB_H));
                             ui.painter().rect_filled(pic, 6.0, DOT);
                             if let Some(tex) = lib.thumbs.get(i).and_then(Option::as_ref) {
@@ -257,9 +269,13 @@ mod tests {
             let px = thumbnail(t.src, 224.0).unwrap_or_else(|| panic!("{}: no picture", t.name));
             assert_eq!(px.width(), 224, "{}", t.name);
             // A screen template is interface: its board is in UI mode and has pieces for Godot.
-            if t.group > 1 {
+            if (2..=5).contains(&t.group) {
                 let doc = &boards[0].doc;
                 assert!(doc.nodes.iter().any(|n| n.ui), "{}: no ui pieces", t.name);
+            }
+            if t.group == 6 {
+                assert_eq!(boards[0].doc.purpose, motif_core::Purpose::Game);
+                motif_script::character::read(t.src).unwrap().unwrap().validate(&boards[0]).unwrap();
             }
         }
     }

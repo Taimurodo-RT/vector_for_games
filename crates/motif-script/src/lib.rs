@@ -40,6 +40,7 @@ pub use boards::{
     set_board_cell,
 };
 pub use bone::{add_bone, add_ik_target, add_weight_stroke, attach_to_bone, clear_weights, fmt_stroke, set_ik, set_skin};
+pub mod character;
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
     KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_anim, delete_key,

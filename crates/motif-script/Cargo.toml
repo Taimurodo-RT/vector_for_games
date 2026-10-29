@@ -10,3 +10,5 @@ rust-version.workspace = true
 linesweeper = "0.5"
 motif-core.workspace = true
 usvg = { version = "0.49", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
