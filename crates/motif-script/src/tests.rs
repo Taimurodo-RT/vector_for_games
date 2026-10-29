@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn effect_color_keys_and_source_edits_keep_shadow_geometry() {
+    for (declaration, color_prop, x_prop, blur_prop) in
+        [("shadow", Prop::ShadowColor, Prop::ShadowX, Prop::ShadowBlur), ("inset", Prop::InsetColor, Prop::InsetX, Prop::InsetBlur)]
+    {
+        let src = format!(
+            "artboard 100x100 ui\nrect well at 50 50 size 40 fill #ffffff {declaration} 2 -3 7 #112233\nanim Hover 1s {{\nwell.{} 0: none | 1: #27c39f\nwell.{} 0: 9\n}}\n",
+            color_prop.path_name(),
+            blur_prop.path_name()
+        );
+        let scene = crate::parse(&src).unwrap();
+        assert!(scene.sources.contains_key(&("well".into(), color_prop)));
+        let pose = scene.doc.animations[0].pose(&scene.doc, 0.5);
+        assert_eq!(pose.node("well").unwrap().get(color_prop), Value::Color(Color { r: 39, g: 195, b: 159, a: 128 }));
+        assert_eq!(pose.node("well").unwrap().get(x_prop), Value::Num(2.0));
+        assert_eq!(pose.node("well").unwrap().get(blur_prop), Value::Num(9.0));
+        assert_eq!(scene.doc.animations[0].pose(&scene.doc, 0.0).node("well").unwrap().get(color_prop), Value::None);
+        let changed = set_prop(&src, &scene, "well", color_prop, Value::Color(Color::WHITE)).unwrap();
+        let changed_scene = crate::parse(&changed).unwrap();
+        assert!(changed.contains(&format!("{declaration} 2 -3 7 #ffffff")));
+        assert_eq!(changed_scene.doc.node("well").unwrap().get(x_prop), Value::Num(2.0));
+        let removed = set_prop(&changed, &changed_scene, "well", color_prop, Value::None).unwrap();
+        let removed_scene = crate::parse(&removed).unwrap();
+        assert_eq!(removed_scene.doc.node("well").unwrap().get(color_prop), Value::None);
+        let restored = set_prop(&removed, &removed_scene, "well", color_prop, Value::Color(Color::BLACK)).unwrap();
+        assert_eq!(crate::parse(&restored).unwrap().doc.node("well").unwrap().get(color_prop), Value::Color(Color::BLACK));
+    }
+}
+
+#[test]
+fn machines_blend_effect_colors_and_numeric_driver_geometry_before_explicit_color_keys() {
+    for declaration in ["shadow", "inset"] {
+        let src = format!(
+            "artboard 100x100 ui\nparameter depth range 0 1 default 0 value 0\nrect well at 50 50 size 40 fill #ffffff {declaration} 2 3 7 #000000\ndriver depth {{\nwell.{declaration}-blur 0: 7 | 1: 19\n}}\nanim Bare 1s loop {{\ndepth.value 0: 0\nwell.{declaration}-color 0: none\n}}\nanim Lit 1s loop {{\ndepth.value 0: 1\nwell.{declaration}-color 0: #2878e6\n}}\nmachine States {{\ninput on false\nstate Bare anim Bare\nstate Lit anim Lit\nBare -> Lit when on blend 1s\nLit -> Bare when on == false blend 1s\n}}\n"
+        );
+        let scene = crate::parse(&src).unwrap();
+        let machine = &scene.doc.machines[0];
+        let mut player = motif_core::MachinePlayer::new(machine);
+        player.set(machine, "on", 1.0);
+        player.advance(machine, &scene.doc, 0.01);
+        player.advance(machine, &scene.doc, 0.5);
+        let pose = player.pose(machine, &scene.doc);
+        let prop = Prop::from_path_name(&format!("{declaration}-color")).unwrap();
+        assert_eq!(pose.node("well").unwrap().get(prop), Value::Color(Color { r: 40, g: 120, b: 230, a: 128 }));
+        assert_eq!(pose.node("well").unwrap().get(Prop::from_path_name(&format!("{declaration}-blur")).unwrap()), Value::Num(13.0));
+        player.advance(machine, &scene.doc, 0.5);
+        player.set(machine, "on", 0.0);
+        player.advance(machine, &scene.doc, 0.01);
+        player.advance(machine, &scene.doc, 1.0);
+        assert_eq!(player.pose(machine, &scene.doc).node("well").unwrap().get(prop), Value::None);
+    }
+}
+
+#[test]
 fn recording_a_later_stroke_key_animates_from_absence_without_rewriting_the_drawing() {
     let src = "artboard \"Button\" 100x100 ui\nrect button at 50 50 size 40 fill #ffffff\nanim Hover 1s {\n}\n";
     let before = crate::parse(src).unwrap();

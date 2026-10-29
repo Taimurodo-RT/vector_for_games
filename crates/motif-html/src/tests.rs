@@ -10,7 +10,7 @@ fn scene(result: &ImportResult) -> motif_script::Scene {
 fn button_is_editable_with_semantics_entities_and_css_box_model() {
     let out = import(
         "<button id='play' class='primary'>Играть &amp; &quot;тест&quot; &#9733;</button>",
-        ".primary { width: 120px; height: 32px; padding: 4px 10px; border: 2px solid #123456; border-radius: 8px; background: #2468ab; color: white; }",
+        ".primary { box-sizing: content-box; width: 120px; height: 32px; padding: 4px 10px; border: 2px solid #123456; border-radius: 8px; background: #2468ab; color: white; }",
     )
     .unwrap();
     let doc = scene(&out).doc;
@@ -81,7 +81,9 @@ fn unsupported_css_units_resources_and_code_produce_warnings_without_execution()
     assert!(doc.node("b").is_some());
     assert!(!out.source.contains("fake"));
     assert!(!out.source.contains("danger"));
-    for needle in ["script", "link", "onclick", "@media", "::before", "50vw", "transform", "url(", "unknown"] {
+    let untransformed = import("<button id='b'>Safe</button>", "button{width:50vw}").unwrap();
+    assert!((doc.node("b").unwrap().x - scene(&untransformed).doc.node("b").unwrap().x - 4.0).abs() < 1e-9);
+    for needle in ["script", "link", "onclick", "@media", "::before", "50vw", "url(", "unknown"] {
         assert!(out.warnings.iter().any(|w| w.contains(needle)), "missing {needle}: {:?}", out.warnings);
     }
     assert!(import("<button>X</button>", "button{color:red").is_err());

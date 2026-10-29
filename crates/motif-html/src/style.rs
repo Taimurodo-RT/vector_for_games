@@ -2,10 +2,55 @@ use crate::{Element, css};
 use motif_core::Color;
 use std::collections::BTreeMap;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Position {
+    #[default]
+    Static,
+    Relative,
+    Absolute,
+}
+
+/// CSS length kept unresolved until its containing box is known. Percent is a fraction.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Length {
+    pub px: f64,
+    pub percent: f64,
+}
+impl Length {
+    pub fn resolve(self, basis: f64) -> f64 {
+        self.px + self.percent * basis
+    }
+    fn parse(text: &str, font_size: f64) -> Option<Self> {
+        if let Some(v) = text.trim().strip_suffix('%') {
+            let percent = v.parse::<f64>().ok()? / 100.0;
+            return (percent.is_finite() && percent.abs() <= 81.92).then_some(Self { px: 0.0, percent });
+        }
+        Some(Self { px: length(text, font_size)?, percent: 0.0 })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TransformOp {
+    Translate(Length, Length),
+    Scale(f64, f64),
+    Rotate(f64),
+    Skew(f64, f64),
+    Matrix([f64; 6]),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Style {
     pub width: Option<f64>,
     pub height: Option<f64>,
+    pub width_percent: Option<f64>,
+    pub height_percent: Option<f64>,
+    pub position: Position,
+    /// top, right, bottom, left.
+    pub offsets: [Option<Length>; 4],
+    pub transforms: Vec<TransformOp>,
+    pub transform_origin: [Length; 2],
+    pub clip_path: Option<Vec<[Length; 2]>>,
+    pub overflow_hidden: bool,
     pub padding: [f64; 4],
     pub margin: [f64; 4],
     pub gap: f64,
@@ -31,10 +76,12 @@ pub(crate) struct Style {
     pub background: String,
     pub border_color: String,
     pub border_width: f64,
+    pub border_double: bool,
     pub radius: f64,
     pub opacity: f64,
     pub gradient: Option<(f64, Vec<String>)>,
     pub shadow: Option<(f64, f64, f64, String)>,
+    pub inset_shadow: Option<(f64, f64, f64, String)>,
     vars: BTreeMap<String, String>,
 }
 impl Default for Style {
@@ -42,6 +89,14 @@ impl Default for Style {
         Self {
             width: None,
             height: None,
+            width_percent: None,
+            height_percent: None,
+            position: Position::Static,
+            offsets: [None; 4],
+            transforms: Vec::new(),
+            transform_origin: [Length { px: 0.0, percent: 0.5 }; 2],
+            clip_path: None,
+            overflow_hidden: false,
             padding: [0.0; 4],
             margin: [0.0; 4],
             gap: 0.0,
@@ -66,35 +121,39 @@ impl Default for Style {
             background: "none".into(),
             border_color: "none".into(),
             border_width: 0.0,
+            border_double: false,
             radius: 0.0,
             opacity: 1.0,
             gradient: None,
             shadow: None,
+            inset_shadow: None,
             vars: BTreeMap::new(),
         }
     }
 }
 impl Style {
-    pub fn geometry_differs(&self, next: &Self) -> bool {
-        self.width != next.width
-            || self.height != next.height
-            || self.padding != next.padding
-            || self.margin != next.margin
-            || self.row != next.row
-            || self.flex != next.flex
-            || self.inline != next.inline
-            || self.gap != next.gap
-            || self.align_center != next.align_center
-            || self.justify_center != next.justify_center
-            || self.hidden != next.hidden
-            || self.border_width != next.border_width
-            || self.italic != next.italic
-            || self.underline != next.underline
-            || self.strike != next.strike
-            || self.baseline_shift != next.baseline_shift
-            || self.preserve_space != next.preserve_space
-            || self.tab_size != next.tab_size
+    pub fn positioned(&self) -> bool {
+        self.position != Position::Static || !self.transforms.is_empty()
     }
+
+    /// CSS transforms multiply in source order around the border-box origin. Motif's
+    /// object origin is its centre, so the top-left CSS origin is translated here.
+    pub fn transform_matrix(&self, width: f64, height: f64) -> motif_core::kurbo::Affine {
+        use motif_core::kurbo::Affine;
+        let origin = (self.transform_origin[0].resolve(width) - width / 2.0, self.transform_origin[1].resolve(height) - height / 2.0);
+        let mut matrix = Affine::IDENTITY;
+        for op in &self.transforms {
+            matrix *= match *op {
+                TransformOp::Translate(x, y) => Affine::translate((x.resolve(width), y.resolve(height))),
+                TransformOp::Scale(x, y) => Affine::scale_non_uniform(x, y),
+                TransformOp::Rotate(degrees) => Affine::rotate(degrees.to_radians()),
+                TransformOp::Skew(x, y) => Affine::new([1.0, y.to_radians().tan(), x.to_radians().tan(), 1.0, 0.0, 0.0]),
+                TransformOp::Matrix(v) => Affine::new(v),
+            };
+        }
+        Affine::translate(origin) * matrix * Affine::translate((-origin.0, -origin.1))
+    }
+
     pub fn compute(node: &Element, parent: Option<&Self>, declarations: &BTreeMap<String, String>, warnings: &mut Vec<String>) -> Self {
         let mut s = Self::default();
         if let Some(p) = parent {
@@ -112,7 +171,8 @@ impl Style {
             s.vars = p.vars.clone();
         }
         if node.tag == "button" {
-            s.padding = [8.0, 16.0, 8.0, 16.0];
+            s.padding = [2.0, 6.0, 2.0, 6.0];
+            s.border_box = true;
             s.background = "#e9edf5".into();
             s.border_color = "#7b8496".into();
             s.border_width = 1.0;
@@ -179,7 +239,8 @@ impl Style {
             match input_type.as_str() {
                 "hidden" => s.hidden = true,
                 "button" | "submit" | "reset" => {
-                    s.padding = [8.0, 16.0, 8.0, 16.0];
+                    s.padding = [2.0, 6.0, 2.0, 6.0];
+                    s.border_box = true;
                     s.background = "#e9edf5".into();
                     s.border_color = "#7b8496".into();
                     s.border_width = 1.0;
@@ -265,16 +326,85 @@ impl Style {
                 key if key.starts_with("--") => {}
                 "font-size" => {}
                 "width" | "height" => {
-                    let v = if value == "auto" { None } else { positive(value) };
-                    if v.is_none() && value != "auto" {
+                    let parsed = Length::parse(value, s.font_size).filter(|v| v.px >= 0.0 && v.percent >= 0.0);
+                    if value != "auto" && parsed.is_none() {
                         bad(key, value, warnings);
+                        continue;
                     }
-                    if key == "width" {
-                        s.width = v;
+                    let (px, pct) = if value == "auto" {
+                        (None, None)
+                    } else if value.trim().ends_with('%') {
+                        (None, parsed.map(|v| v.percent))
                     } else {
-                        s.height = v;
+                        (parsed.map(|v| v.px), None)
+                    };
+                    if key == "width" {
+                        s.width = px;
+                        s.width_percent = pct;
+                    } else {
+                        s.height = px;
+                        s.height_percent = pct;
                     }
                 }
+                "position" => match value.as_str() {
+                    "static" => s.position = Position::Static,
+                    "relative" => s.position = Position::Relative,
+                    "absolute" => s.position = Position::Absolute,
+                    _ => bad(key, value, warnings),
+                },
+                "top" | "right" | "bottom" | "left" => {
+                    let index = match key.as_str() {
+                        "top" => 0,
+                        "right" => 1,
+                        "bottom" => 2,
+                        _ => 3,
+                    };
+                    if value == "auto" {
+                        s.offsets[index] = None;
+                    } else if let Some(v) = Length::parse(value, s.font_size) {
+                        s.offsets[index] = Some(v);
+                    } else {
+                        bad(key, value, warnings);
+                    }
+                }
+                "inset" => {
+                    let words = css::words(value);
+                    let parsed: Option<Vec<_>> =
+                        words.iter().map(|v| if *v == "auto" { Some(None) } else { Length::parse(v, s.font_size).map(Some) }).collect();
+                    match parsed.as_deref() {
+                        Some([a]) => s.offsets = [*a; 4],
+                        Some([a, b]) => s.offsets = [*a, *b, *a, *b],
+                        Some([a, b, c]) => s.offsets = [*a, *b, *c, *b],
+                        Some([a, b, c, d]) => s.offsets = [*a, *b, *c, *d],
+                        _ => bad(key, value, warnings),
+                    }
+                }
+                "transform" | "-webkit-transform" => match transforms(value, s.font_size) {
+                    Some(v) => s.transforms = v,
+                    None => bad(key, value, warnings),
+                },
+                "transform-origin" | "-webkit-transform-origin" => match transform_origin(value, s.font_size) {
+                    Some(v) => s.transform_origin = v,
+                    None => bad(key, value, warnings),
+                },
+                "clip-path" | "-webkit-clip-path" => {
+                    if value == "none" {
+                        s.clip_path = None;
+                    } else if let Some(v) = polygon(value, s.font_size) {
+                        s.clip_path = Some(v);
+                    } else {
+                        bad(key, value, warnings);
+                    }
+                }
+                "overflow" => match value.as_str() {
+                    "visible" => s.overflow_hidden = false,
+                    "hidden" | "clip" => s.overflow_hidden = true,
+                    "auto" | "scroll" => {
+                        s.overflow_hidden = true;
+                        warnings.push(format!("CSS overflow {value}: область обрезана; прокрутка не импортируется"));
+                    }
+                    _ => bad(key, value, warnings),
+                },
                 "padding-top" | "padding-right" | "padding-bottom" | "padding-left" | "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
                     if let Some(v) = len(value) {
                         let index = match key.rsplit('-').next().unwrap() {
@@ -369,8 +499,12 @@ impl Style {
                     }
                 }
                 "border-style" => match value.as_str() {
-                    "none" | "hidden" => s.border_width = 0.0,
-                    "solid" => {}
+                    "none" | "hidden" => {
+                        s.border_width = 0.0;
+                        s.border_double = false;
+                    }
+                    "solid" => s.border_double = false,
+                    "double" => s.border_double = true,
                     _ => bad(key, value, warnings),
                 },
                 "border-radius" => {
@@ -476,10 +610,14 @@ impl Style {
                 "box-shadow" => {
                     if value == "none" {
                         s.shadow = None;
+                        s.inset_shadow = None;
                     } else {
-                        s.shadow = shadow(value, &s.color);
-                        if s.shadow.is_none() {
-                            bad(key, value, warnings);
+                        match shadows(value, &s.color, s.font_size) {
+                            Some((outer, inner)) => {
+                                s.shadow = outer;
+                                s.inset_shadow = inner;
+                            }
+                            None => bad(key, value, warnings),
                         }
                     }
                 }
@@ -490,6 +628,21 @@ impl Style {
                         s.align_center = true;
                     }
                 }
+                "outline" if value == "none" => {}
+                "animation"
+                | "transition"
+                | "animation-name"
+                | "animation-duration"
+                | "animation-delay"
+                | "animation-timing-function"
+                | "animation-iteration-count"
+                | "animation-direction"
+                | "animation-fill-mode"
+                | "animation-play-state"
+                | "transition-property"
+                | "transition-duration"
+                | "transition-delay"
+                | "transition-timing-function" => {}
                 "cursor" | "user-select" | "-webkit-user-select" | "outline" | "outline-offset" => {
                     warnings.push(format!("CSS {key}: не имеет редактируемого графического эквивалента и пропущен"))
                 }
@@ -517,6 +670,122 @@ fn length(text: &str, font_size: f64) -> Option<f64> {
     };
     let n = v.parse::<f64>().ok()? * factor;
     (n.is_finite() && n.abs() <= 8192.0).then_some(n)
+}
+
+fn angle(text: &str) -> Option<f64> {
+    let text = text.trim();
+    let (v, factor) = if let Some(v) = text.strip_suffix("deg") {
+        (v, 1.0)
+    } else if let Some(v) = text.strip_suffix("grad") {
+        (v, 0.9)
+    } else if let Some(v) = text.strip_suffix("rad") {
+        (v, 180.0 / std::f64::consts::PI)
+    } else if let Some(v) = text.strip_suffix("turn") {
+        (v, 360.0)
+    } else if text == "0" {
+        (text, 1.0)
+    } else {
+        return None;
+    };
+    let result = v.parse::<f64>().ok()? * factor;
+    (result.is_finite() && result.abs() <= 360000.0).then_some(result)
+}
+
+fn transforms(value: &str, font_size: f64) -> Option<Vec<TransformOp>> {
+    if value.trim() == "none" {
+        return Some(Vec::new());
+    }
+    let mut rest = value.trim();
+    let mut out = Vec::new();
+    while !rest.is_empty() {
+        let open = rest.find('(')?;
+        let name = rest[..open].trim().to_ascii_lowercase();
+        let close = rest[open + 1..].find(')')? + open + 1;
+        let args = rest[open + 1..close].replace(',', " ");
+        let args: Vec<_> = args.split_whitespace().collect();
+        let len = |n: usize| Length::parse(args.get(n)?, font_size);
+        let number = |n: usize| {
+            let v = args.get(n)?.parse::<f64>().ok()?;
+            (v.is_finite() && v.abs() <= 1024.0).then_some(v)
+        };
+        let arg_angle = |n: usize| angle(args.get(n)?);
+        let zero = Length::default();
+        out.push(match name.as_str() {
+            "translate" if (1..=2).contains(&args.len()) => TransformOp::Translate(len(0)?, if args.len() == 2 { len(1)? } else { zero }),
+            "translatex" if args.len() == 1 => TransformOp::Translate(len(0)?, zero),
+            "translatey" if args.len() == 1 => TransformOp::Translate(zero, len(0)?),
+            "scale" if (1..=2).contains(&args.len()) => TransformOp::Scale(number(0)?, if args.len() == 2 { number(1)? } else { number(0)? }),
+            "scalex" if args.len() == 1 => TransformOp::Scale(number(0)?, 1.0),
+            "scaley" if args.len() == 1 => TransformOp::Scale(1.0, number(0)?),
+            "rotate" | "rotatez" if args.len() == 1 => TransformOp::Rotate(arg_angle(0)?),
+            "skew" if (1..=2).contains(&args.len()) => TransformOp::Skew(arg_angle(0)?, if args.len() == 2 { arg_angle(1)? } else { 0.0 }),
+            "skewx" if args.len() == 1 => TransformOp::Skew(arg_angle(0)?, 0.0),
+            "skewy" if args.len() == 1 => TransformOp::Skew(0.0, arg_angle(0)?),
+            "matrix" if args.len() == 6 => TransformOp::Matrix([
+                number(0)?,
+                number(1)?,
+                number(2)?,
+                number(3)?,
+                len(4).map(|v| v.px).or_else(|| number(4))?,
+                len(5).map(|v| v.px).or_else(|| number(5))?,
+            ]),
+            _ => return None,
+        });
+        if let Some(TransformOp::Skew(x, y)) = out.last()
+            && (x.to_radians().cos().abs() < 1e-6 || y.to_radians().cos().abs() < 1e-6)
+        {
+            return None;
+        }
+        if out.len() > 32 {
+            return None;
+        }
+        rest = rest[close + 1..].trim();
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+fn transform_origin(value: &str, font_size: f64) -> Option<[Length; 2]> {
+    let mut words = css::words(value);
+    if words.len() == 3 && words[2] == "0" {
+        words.pop();
+    }
+    if !(1..=2).contains(&words.len()) {
+        return None;
+    }
+    let centre = Length { px: 0.0, percent: 0.5 };
+    let axis = |value: &str, horizontal: bool| match value {
+        "center" => Some(centre),
+        "left" if horizontal => Some(Length::default()),
+        "right" if horizontal => Some(Length { px: 0.0, percent: 1.0 }),
+        "top" if !horizontal => Some(Length::default()),
+        "bottom" if !horizontal => Some(Length { px: 0.0, percent: 1.0 }),
+        _ => Length::parse(value, font_size),
+    };
+    if words.len() == 1 {
+        return if ["top", "bottom"].contains(&words[0]) { Some([centre, axis(words[0], false)?]) } else { Some([axis(words[0], true)?, centre]) };
+    }
+    if ["top", "bottom"].contains(&words[0]) || ["left", "right"].contains(&words[1]) {
+        words.swap(0, 1);
+    }
+    Some([axis(words[0], true)?, axis(words[1], false)?])
+}
+
+fn polygon(value: &str, font_size: f64) -> Option<Vec<[Length; 2]>> {
+    let inner = value.trim().strip_prefix("polygon(")?.strip_suffix(')')?;
+    let mut points = css::split(inner, ',');
+    if points.first().is_some_and(|p| p.trim() == "nonzero") {
+        points.remove(0);
+    }
+    if !(3..=64).contains(&points.len()) {
+        return None;
+    }
+    points
+        .iter()
+        .map(|point| {
+            let words = css::words(point);
+            (words.len() == 2).then(|| Some([Length::parse(words[0], font_size)?, Length::parse(words[1], font_size)?]))?
+        })
+        .collect()
 }
 fn resolve(value: &str, vars: &BTreeMap<String, String>) -> Option<String> {
     let mut value = value.to_string();
@@ -593,23 +862,36 @@ fn gradient(value: &str, current: &str) -> Option<(f64, Vec<String>)> {
     let colors: Option<Vec<_>> = parts.iter().map(|p| color(p.trim(), current)).collect();
     Some((angle, colors?))
 }
-fn shadow(value: &str, current: &str) -> Option<(f64, f64, f64, String)> {
-    let words = css::words(value);
-    if value.contains("inset") || css::split(value, ',').len() > 1 || !(3..=5).contains(&words.len()) {
-        return None;
-    }
-    let dx = length(words[0], 16.0)?;
-    let dy = length(words[1], 16.0)?;
-    let blur = length(words[2], 16.0)?.max(0.0);
-    let color = if words.len() == 5 {
-        if length(words[3], 16.0)? != 0.0 {
+type Shadow = (f64, f64, f64, String);
+fn shadows(value: &str, current: &str, font_size: f64) -> Option<(Option<Shadow>, Option<Shadow>)> {
+    let mut outer = None;
+    let mut inner = None;
+    for part in css::split(value, ',') {
+        let mut inset = false;
+        let mut nums = Vec::new();
+        let mut shade = None;
+        for word in css::words(part) {
+            if word == "inset" && !inset {
+                inset = true;
+            } else if let Some(n) = length(word, font_size) {
+                nums.push(n);
+            } else if shade.is_none() {
+                shade = Some(color(word, current)?);
+            } else {
+                return None;
+            }
+        }
+        if !(2..=4).contains(&nums.len()) || nums.get(2).is_some_and(|v| *v < 0.0) || nums.get(3).is_some_and(|v| *v != 0.0) {
             return None;
         }
-        words[4]
-    } else {
-        *words.get(3).unwrap_or(&"currentColor")
-    };
-    Some((dx, dy, blur, self::color(color, current)?))
+        let parsed = (nums[0], nums[1], *nums.get(2).unwrap_or(&0.0), shade.unwrap_or_else(|| current.into()));
+        let target = if inset { &mut inner } else { &mut outer };
+        if target.is_some() {
+            return None;
+        }
+        *target = Some(parsed);
+    }
+    Some((outer, inner))
 }
 
 #[cfg(test)]
@@ -688,6 +970,59 @@ mod style_tests {
         let link = Style::compute(&link, None, &declarations(&[("color", "#abcdef"), ("text-decoration", "none")]), &mut warnings);
         assert_eq!(link.color, "#abcdef");
         assert!(!link.underline);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn css_transforms_keep_order_and_origin_and_reject_unmapped_3d() {
+        use motif_core::kurbo::Point;
+        let mut warnings = Vec::new();
+        let style = Style::compute(&element("div"), None, &declarations(&[("transform", "translate(10px, 20px) scale(2, 3) rotate(90deg)")]), &mut warnings);
+        let point = style.transform_matrix(100.0, 50.0) * Point::new(1.0, 0.0);
+        assert!((point.x - 10.0).abs() < 1e-10 && (point.y - 23.0).abs() < 1e-10, "{point:?}");
+        let origin = Style::compute(&element("div"), None, &declarations(&[("transform", "scale(2)"), ("transform-origin", "left top")]), &mut warnings);
+        let matrix = origin.transform_matrix(100.0, 50.0);
+        assert_eq!(matrix * Point::new(-50.0, -25.0), Point::new(-50.0, -25.0));
+        assert_eq!(matrix * Point::ZERO, Point::new(50.0, 25.0));
+        let percentage = Style::compute(&element("div"), None, &declarations(&[("transform", "translateX(-25%) rotate(0.25turn)")]), &mut warnings);
+        assert!(((percentage.transform_matrix(200.0, 80.0) * Point::ZERO).x + 50.0).abs() < 1e-10);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let unsupported = Style::compute(&element("div"), None, &declarations(&[("transform", "perspective(100px) rotateY(30deg)")]), &mut warnings);
+        assert!(unsupported.transforms.is_empty());
+        assert!(warnings.iter().any(|w| w.contains("transform")));
+    }
+
+    #[test]
+    fn spatial_paint_and_variables_parse_without_becoming_inherited_geometry() {
+        let mut warnings = Vec::new();
+        let parent = Style::compute(
+            &element("div"),
+            None,
+            &declarations(&[
+                ("--paint", "#2761c3"),
+                ("position", "relative"),
+                ("width", "50%"),
+                ("transform", "scale(1.25) rotate(45deg)"),
+                ("clip-path", "polygon(0 0, 100% 0, 50% 100%)"),
+                ("overflow", "hidden"),
+                ("border-style", "double"),
+                ("border-width", "5px"),
+                ("box-shadow", "inset 1px 1px 8px var(--paint), 0 0 4px #000"),
+            ]),
+            &mut warnings,
+        );
+        assert_eq!(parent.width_percent, Some(0.5));
+        assert!(parent.width.is_none() && parent.border_double && parent.overflow_hidden);
+        assert_eq!(parent.clip_path.as_ref().unwrap().len(), 3);
+        assert_eq!(parent.inset_shadow, Some((1.0, 1.0, 8.0, "#2761c3".into())));
+        assert!(parent.shadow.is_some());
+        let child = Style::compute(&element("span"), Some(&parent), &declarations(&[("background-color", "var(--paint)")]), &mut warnings);
+        assert_eq!(child.background, "#2761c3");
+        assert_eq!(child.position, Position::Static);
+        assert!(child.transforms.is_empty() && child.clip_path.is_none() && !child.overflow_hidden && !child.border_double);
+        assert!(child.inset_shadow.is_none() && child.width_percent.is_none());
+        let reset = Style::compute(&element("div"), None, &declarations(&[("box-shadow", "none")]), &mut warnings);
+        assert!(reset.shadow.is_none() && reset.inset_shadow.is_none());
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

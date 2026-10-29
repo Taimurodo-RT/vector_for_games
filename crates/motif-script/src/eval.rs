@@ -962,6 +962,7 @@ impl<'a> Evaluator<'a> {
                             node.shadow = Some(motif_core::Shadow { dx: nums[0], dy: nums[1], blur: nums.get(2).copied().unwrap_or(0.0).max(0.0), color });
                             record(&mut self.scene, Prop::ShadowX, &p.values[0], None);
                             record(&mut self.scene, Prop::ShadowY, &p.values[1], None);
+                            record(&mut self.scene, Prop::ShadowColor, p.values.last().unwrap(), None);
                             if nums.len() == 3 {
                                 record(&mut self.scene, Prop::ShadowBlur, &p.values[2], None);
                             }
@@ -977,6 +978,7 @@ impl<'a> Evaluator<'a> {
                             node.inset = Some(motif_core::Shadow { dx: nums[0], dy: nums[1], blur: nums.get(2).copied().unwrap_or(0.0).max(0.0), color });
                             record(&mut self.scene, Prop::InsetX, &p.values[0], None);
                             record(&mut self.scene, Prop::InsetY, &p.values[1], None);
+                            record(&mut self.scene, Prop::InsetColor, p.values.last().unwrap(), None);
                             if nums.len() == 3 {
                                 record(&mut self.scene, Prop::InsetBlur, &p.values[2], None);
                             }

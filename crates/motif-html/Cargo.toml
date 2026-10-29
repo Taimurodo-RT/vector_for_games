@@ -9,7 +9,5 @@ rust-version.workspace = true
 [dependencies]
 motif-core.workspace = true
 motif-script.workspace = true
-html5gum = "0.8.4"
-
-[dev-dependencies]
 motif-render.workspace = true
+html5gum = "0.8.4"

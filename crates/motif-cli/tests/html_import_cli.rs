@@ -124,3 +124,31 @@ fn imported_toggle_icons_keep_a_stable_frame_in_the_existing_ui_exporter() {
         assert!(checked.pixels().iter().any(|p| p.alpha() > 0), "checked mark must be visible: {id}");
     }
 }
+
+#[test]
+fn positioned_css_component_imports_and_exports_its_combined_animation() {
+    let f = Fixture::new();
+    let html = include_str!("../../../examples/import/uiverse-play.html");
+    let css = include_str!("../../../examples/import/uiverse-play.css");
+    std::fs::write(&f.html, html).unwrap();
+    std::fs::write(&f.css, css).unwrap();
+    let scene_path = f.root.join("play.msc");
+    let out = f.command().arg("-o").arg(&scene_path).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let scene = motif_script::parse(&std::fs::read_to_string(&scene_path).unwrap()).unwrap();
+    assert!(scene.doc.animation("Hover").is_some());
+    assert!(scene.doc.animation("HoverLoop").unwrap().looping);
+    assert!(scene.doc.nodes.iter().any(|node| node.clip));
+    let image_path = f.root.join("loop.png");
+    let out = Command::new(env!("CARGO_BIN_EXE_motif"))
+        .arg("render")
+        .arg(&scene_path)
+        .args(["--anim", "HoverLoop", "--time", "0.3", "-o"])
+        .arg(&image_path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(&std::fs::read(image_path).unwrap()[..8], b"\x89PNG\r\n\x1a\n");
+    assert_eq!(std::fs::read_to_string(&f.html).unwrap(), html);
+    assert_eq!(std::fs::read_to_string(&f.css).unwrap(), css);
+}

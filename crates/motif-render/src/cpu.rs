@@ -205,6 +205,46 @@ mod tests {
     use motif_core::{Artboard, Node, ShapeKind};
 
     #[test]
+    fn animated_effect_colors_fade_pixels_without_changing_their_offsets() {
+        use motif_core::{Animation, Ease, Keyframe, Prop, Shadow, Track, Value};
+        let color = Color { a: 200, ..Color::BLACK };
+        let animation = |prop| Animation {
+            name: "Fade".into(),
+            duration: 1.0,
+            looping: false,
+            events: vec![],
+            tracks: vec![Track {
+                node: "square".into(),
+                prop,
+                keys: vec![
+                    Keyframe { time: 0.0, value: Value::None, ease: Ease::Linear },
+                    Keyframe { time: 1.0, value: Value::Color(color), ease: Ease::Linear },
+                ],
+            }],
+        };
+        let mut doc = Document::new(Artboard { name: "effects".into(), width: 100.0, height: 100.0, background: Color::WHITE });
+        let node = square(&mut doc, 30.0, 30.0, 20.0);
+        node.id = "square".into();
+        node.fill = Some(Color::WHITE);
+        node.shadow = Some(Shadow { dx: 30.0, dy: 0.0, blur: 0.0, color });
+        let anim = animation(Prop::ShadowColor);
+        for (t, alpha) in [(0.0, 0), (0.25, 50), (0.5, 100), (1.0, 200)] {
+            let px = render_cpu(&anim.pose(&doc, t), CpuOptions { background: false, antialias: false, ..Default::default() }).unwrap();
+            assert_eq!(px.pixel(60, 30).unwrap().alpha(), alpha, "outer shadow t={t}");
+        }
+        let mut doc = Document::new(Artboard { name: "inset".into(), width: 100.0, height: 100.0, background: Color::WHITE });
+        let node = square(&mut doc, 50.0, 50.0, 40.0);
+        node.id = "square".into();
+        node.fill = Some(Color::WHITE);
+        node.inset = Some(Shadow { dx: 10.0, dy: 0.0, blur: 0.0, color });
+        let anim = animation(Prop::InsetColor);
+        for (t, red) in [(0.0, 255), (0.25, 205), (0.5, 155), (1.0, 55)] {
+            let px = render_cpu(&anim.pose(&doc, t), CpuOptions { background: false, antialias: false, ..Default::default() }).unwrap();
+            assert_eq!(px.pixel(33, 50).unwrap().red(), red, "inner shadow t={t}");
+        }
+    }
+
+    #[test]
     fn a_previously_absent_outline_fades_visibly_before_its_final_key() {
         use motif_core::{Animation, Ease, Keyframe, Prop, Track, Value};
         let mut doc = Document::new(Artboard { name: "Outline".into(), width: 48.0, height: 40.0, background: Color::TRANSPARENT });
