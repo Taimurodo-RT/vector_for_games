@@ -19,6 +19,7 @@
     ["web.html", "SVG и Web assets"],
     ["runtime.html", "Motif в игре"],
     ["reliability.html", "Сохранение и обновление"],
+    ["workspaces.html", "План: пространства и предпросмотр"],
     ["development.html", "План развития"],
   ];
 
