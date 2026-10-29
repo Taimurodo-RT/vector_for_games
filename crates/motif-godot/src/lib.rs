@@ -57,6 +57,15 @@ pub struct MotifSprite {
     /// Feed the mouse to the machine's `listen` lines (hover, press, click, x, y).
     #[export]
     pointer: bool,
+    /// Where the character looks, for a scene with `directions`: any vector, the nearest side is
+    /// shown. (1, 0) — right, (0, -1) — up, away from the viewer. The walk goes on from the same step.
+    #[export]
+    #[var(set = set_facing)]
+    facing: Vector2,
+    /// The side shown, by name: down, down_right, right, up_right, up, up_left, left, down_left.
+    #[var(get = get_side, set = set_side)]
+    #[allow(dead_code)] // The player keeps the side: this field only gives the property its name.
+    side: GString,
     player: Option<Player>,
     error: Option<String>,
     texture: Option<Gd<ImageTexture>>,
@@ -80,6 +89,8 @@ impl INode2D for MotifSprite {
             resolution: 1.0,
             background: false,
             pointer: true,
+            facing: Vector2::DOWN,
+            side: GString::new(),
             player: None,
             error: None,
             texture: None,
@@ -109,14 +120,7 @@ impl INode2D for MotifSprite {
             player.pointer(Some(at), down);
         }
         if self.playing {
-            let step = player.advance(delta * self.speed);
-            for name in &step.events {
-                self.base_mut().emit_signal("event", &[name.to_variant()]);
-            }
-            if let Some(state) = step.state {
-                self.base_mut().emit_signal("state_changed", &[state.to_variant()]);
-            }
-            self.dirty = true;
+            self.step(delta * self.speed);
         }
         if self.dirty {
             self.base_mut().queue_redraw();
@@ -162,6 +166,75 @@ impl MotifSprite {
     /// The machine moved to another state.
     #[signal]
     fn state_changed(state: GString);
+
+    /// The character turned to another side (`facing` or `side` changed it).
+    #[signal]
+    fn side_changed(side: GString);
+
+    #[func]
+    fn set_facing(&mut self, facing: Vector2) {
+        if facing == Vector2::ZERO {
+            return;
+        }
+        self.facing = facing;
+        let turned = self.player.as_mut().is_some_and(|p| p.face_toward(facing.x as f64, facing.y as f64));
+        self.turned(turned);
+    }
+
+    #[func]
+    fn get_side(&self) -> GString {
+        self.player.as_ref().map(|p| GString::from(p.side().as_str())).unwrap_or_default()
+    }
+
+    #[func]
+    fn set_side(&mut self, side: GString) {
+        let Some(p) = &mut self.player else { return };
+        match p.set_side(&side.to_string()) {
+            Ok(turned) => {
+                // `facing` follows, so the side is kept when the scene is saved or reloaded.
+                let sides = p.sides().len().max(1) as f32;
+                let k = p.sides().iter().position(|n| *n == side.to_string()).unwrap_or(0) as f32;
+                let a = k / sides * std::f32::consts::TAU;
+                self.facing = Vector2::new(a.sin(), a.cos());
+                self.turned(turned);
+            }
+            Err(e) => {
+                godot_warn!("MotifSprite: {e}");
+            }
+        }
+    }
+
+    /// The scene's sides, from facing the viewer round clockwise; empty without `directions`.
+    #[func]
+    fn get_sides(&self) -> PackedStringArray {
+        self.player.as_ref().map(|p| p.sides().iter().map(|s| GString::from(s.as_str())).collect()).unwrap_or_default()
+    }
+
+    /// Whether the side shown is another side turned over (a left side of mirrored `directions`).
+    #[func]
+    fn is_flipped(&self) -> bool {
+        self.player.as_ref().is_some_and(|p| p.flipped())
+    }
+
+    /// The animation playing now, as seen from the side: «Walk_up» while the state plays «Walk».
+    #[func]
+    fn get_current_animation(&self) -> GString {
+        self.player.as_ref().map(|p| GString::from(p.animation().as_str())).unwrap_or_default()
+    }
+
+    /// How far the state's animation has played, in seconds.
+    #[func]
+    fn get_time(&self) -> f64 {
+        self.player.as_ref().map_or(0.0, |p| p.time())
+    }
+
+    /// Moves time on by `seconds` at once, playing or paused, with its events and states sent:
+    /// for a step frame by frame, or for a game that keeps its own time.
+    #[func]
+    fn advance(&mut self, seconds: f64) {
+        self.step(seconds);
+        self.base_mut().queue_redraw();
+    }
 
     #[func]
     fn set_scene(&mut self, scene: GString) {
@@ -291,7 +364,10 @@ impl MotifSprite {
         self.error = None;
         if !self.scene.is_empty() {
             match self.load() {
-                Ok(p) => self.player = Some(p),
+                Ok(mut p) => {
+                    p.face_toward(self.facing.x as f64, self.facing.y as f64);
+                    self.player = Some(p);
+                }
                 Err(e) => {
                     godot_warn!("MotifSprite {}: {e}", self.scene);
                     self.error = Some(e);
@@ -310,8 +386,29 @@ fn read_res(path: &std::path::Path) -> Option<Vec<u8>> {
     FileAccess::file_exists(&path).then(|| FileAccess::get_file_as_bytes(&path).to_vec())
 }
 
+/// Says once when the library and the addon folder around it come from different Motif builds
+/// (a hand-copied addon, a library left from before): the build packs `version.txt` beside it.
+fn check_build() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let Some(lib) = option_env!("MOTIF_BUILD") else { return };
+        let file = GString::from("res://addons/motif/version.txt");
+        if !FileAccess::file_exists(&file) {
+            return;
+        }
+        let addon = FileAccess::get_file_as_string(&file).to_string();
+        if addon.trim() != lib {
+            godot_warn!(
+                "MotifSprite: библиотека аддона из сборки Motif {lib}, а addons/motif — из {}: поставьте аддон заново из Motif («Поставить в проект Godot…»)",
+                addon.trim()
+            );
+        }
+    });
+}
+
 impl MotifSprite {
     fn load(&self) -> Result<Player, String> {
+        check_build();
         let path = self.scene.to_string();
         if !FileAccess::file_exists(&self.scene) {
             return Err(format!("нет файла {path}"));
@@ -322,6 +419,28 @@ impl MotifSprite {
         motif_script::fonts::set_reader(read_res);
         let base = path.rfind('/').map(|i| std::path::PathBuf::from(&path[..i]));
         Player::load(&src, base.as_deref(), &self.board.to_string(), &self.machine.to_string(), &self.animation.to_string())
+    }
+
+    /// Moves time on by `dt`, sending the events passed and the state entered.
+    fn step(&mut self, dt: f64) {
+        let Some(player) = &mut self.player else { return };
+        let step = player.advance(dt);
+        for name in &step.events {
+            self.base_mut().emit_signal("event", &[name.to_variant()]);
+        }
+        if let Some(state) = step.state {
+            self.base_mut().emit_signal("state_changed", &[state.to_variant()]);
+        }
+        self.dirty = true;
+    }
+
+    /// After a turn: the side is announced and drawn.
+    fn turned(&mut self, turned: bool) {
+        if turned {
+            let side = self.get_side();
+            self.base_mut().emit_signal("side_changed", &[side.to_variant()]);
+            self.redraw();
+        }
     }
 
     fn redraw(&mut self) {

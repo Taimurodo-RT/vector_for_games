@@ -44,6 +44,23 @@ impl Directions {
         (0..self.count).filter(|&k| self.mirror_of(k).is_none()).collect()
     }
 
+    /// The side direction `k` is drawn from, and whether it is shown flipped: a left side of
+    /// mirrored directions is its right side turned over.
+    pub fn shot(&self, k: usize) -> (usize, bool) {
+        let k = k % self.count;
+        self.mirror_of(k).map_or((k, false), |d| (d, true))
+    }
+
+    /// The direction nearest to looking along `(x, y)` on the screen, `y` down: `(0, 1)` is down,
+    /// `(1, 0)` right. None for a zero vector.
+    pub fn nearest(&self, x: f64, y: f64) -> Option<usize> {
+        if !(x.is_finite() && y.is_finite()) || (x == 0.0 && y == 0.0) {
+            return None;
+        }
+        let turns = x.atan2(y) / std::f64::consts::TAU;
+        Some(((turns * self.count as f64).round() as i64).rem_euclid(self.count as i64) as usize)
+    }
+
     /// The direction named `name`.
     pub fn find(&self, name: &str) -> Option<usize> {
         self.names().iter().position(|n| *n == name)
@@ -72,6 +89,25 @@ impl Document {
                 self.nodes[i].yaw += yaw;
             }
         }
+    }
+}
+
+impl crate::Machine {
+    /// The machine as it plays facing direction `k` of the scene's `directions`: every state
+    /// plays its animation's side (`Walk_up` for `Walk`) where the scene has one. A mirrored left
+    /// side plays the right one's. The states and transitions stay, so a player keeps its state
+    /// and time when it turns.
+    pub fn facing(&self, doc: &Document, k: usize) -> crate::Machine {
+        let mut out = self.clone();
+        if let Some(d) = &doc.directions {
+            let (drawn, _) = d.shot(k);
+            for s in &mut out.states {
+                if let Some(a) = d.anim_for(doc, &s.anim, drawn) {
+                    s.anim = a.name.clone();
+                }
+            }
+        }
+        out
     }
 }
 
@@ -121,6 +157,45 @@ mod tests {
         assert_eq!(d.anim_for(&doc, "Walk", 2).unwrap().name, "Walk");
         assert!(d.is_side(&doc, "Walk_up"));
         assert!(!d.is_side(&doc, "Walk") && !d.is_side(&doc, "Jump_up_high"));
+    }
+
+    #[test]
+    fn a_look_picks_the_nearest_side_and_left_ones_are_shot_flipped() {
+        let d = dirs(8, true);
+        assert_eq!(d.nearest(0.0, 1.0), Some(0), "down");
+        assert_eq!(d.nearest(1.0, 0.1), Some(2), "right");
+        assert_eq!(d.nearest(0.0, -3.0), Some(4), "up");
+        assert_eq!(d.nearest(-1.0, -1.0), Some(5), "up_left");
+        assert_eq!(d.nearest(-1.0, 0.0), Some(6), "left");
+        assert_eq!(d.nearest(0.0, 0.0), None);
+        assert_eq!(dirs(4, true).nearest(0.9, -1.0), Some(2), "up wins over right when nearer");
+        assert_eq!(d.shot(6), (2, true));
+        assert_eq!(d.shot(5), (3, true));
+        assert_eq!(d.shot(4), (4, false));
+        assert_eq!(dirs(8, false).shot(6), (6, false));
+    }
+
+    #[test]
+    fn a_machine_facing_a_side_plays_its_side_animations() {
+        use crate::{Machine, State};
+        let mut doc = Document::new(Artboard::default());
+        let anim = |name: &str| Animation { name: name.into(), duration: 1.0, looping: true, tracks: Vec::new(), events: Vec::new() };
+        doc.animations = vec![anim("Idle"), anim("Walk"), anim("Walk_up"), anim("Walk_right")];
+        doc.directions = Some(dirs(8, true));
+        let st = |n: &str| State { name: n.into(), anim: n.into(), pos: None };
+        let m = Machine {
+            name: "M".into(),
+            inputs: Vec::new(),
+            listeners: Vec::new(),
+            states: vec![st("Idle"), st("Walk")],
+            transitions: Vec::new(),
+            any_pos: None,
+        };
+        let anims = |k: usize| m.facing(&doc, k).states.iter().map(|s| s.anim.clone()).collect::<Vec<_>>();
+        assert_eq!(anims(4), ["Idle", "Walk_up"]);
+        assert_eq!(anims(0), ["Idle", "Walk"]);
+        assert_eq!(anims(6), ["Idle", "Walk_right"], "left is the right side flipped");
+        assert_eq!(m.facing(&doc, 4).states[1].name, "Walk", "the state keeps its name");
     }
 
     #[test]

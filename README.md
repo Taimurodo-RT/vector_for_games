@@ -351,11 +351,18 @@ Motif, а кадр рисуется под размер узла на экран
 
 * «Экспорт → Поставить в проект Godot…» (или `motif runtime сцена.msc -o папка-в-проекте`) ставит аддон в
   `addons/motif`, кладёт `.msc` со шрифтами и `ИМЯ.tscn` с готовым узлом, дописывает `*.msc` в фильтры экспорта.
-  Потом каждое Ctrl+S копирует сцену в проект снова.
+  Потом каждое Ctrl+S копирует сцену в проект снова. Установка — всё или ничего: проект старше Godot 4.3 или
+  чужой шрифт отказываются до изменений, а сбой посреди замены (открытый Godot держит DLL) возвращает прежний
+  аддон, сцену и шрифты. Свои файлы проекта и `ИМЯ.tscn` с правками не трогаются; отчёт говорит, что изменилось,
+  включая сборку аддона (`addons/motif/version.txt`).
 * Свойства: `scene` (файл), `board`, `machine` или `animation`, `playing`, `speed`, `centered`, `resolution`,
   `background`, `pointer` (мышь для строк `listen`).
-* Из кода: `set_input("speed", 1)`, `fire("jump")`, `get_state()`, `jump_to("Hit")`, `restart()`, `get_image(2.0)`;
-  сигналы `event(name)` и `state_changed(state)`.
+* Из кода: `set_input("speed", 1)`, `fire("jump")`, `get_state()`, `jump_to("Hit")`, `restart()`, `get_image(2.0)`,
+  `advance(0.1)`; сигналы `event(name)` и `state_changed(state)`.
+* Стороны (`directions`): `facing = dir` показывает ближайшую сторону, состояние играет `Walk_up` вместо `Walk`, шаг
+  продолжается с того же места и поворот не шлёт событий; левые стороны с `mirror` отражаются при рисовании, сам узел
+  не переворачивается. Ещё `side = "up_right"`, `get_sides()`, `is_flipped()` и сигнал `side_changed(side)`.
+* Как это устроено и почему GDExtension, а не GDScript — [docs/runtime.html#how](docs/runtime.html#how).
 * В сборке для Windows аддон лежит в `godot-addon/` вместе с `bin/motif_godot.dll`; для Linux и macOS библиотеку
   собирает `cargo build --release -p motif-godot`. Пример — `godot-apps/hero`, проверка в настоящем Godot —
   `godot-addon/test/run.sh`. Подробнее — [docs/runtime.html](docs/runtime.html).

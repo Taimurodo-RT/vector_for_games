@@ -50,5 +50,50 @@ func _initialize() -> void:
 	check(bad.get_state() == "", "нет анимации — ошибка, а не падение")
 	bad.animation = "Run"
 	check(bad.get_state() == "Run", "одна анимация без машины")
+	sides()
 	print("FAILED %d" % failed if failed else "ALL OK")
 	quit(1 if failed else 0)
+
+
+# Стороны: тот же сценарий sides.txt, что в тесте ядра, и тот же ожидаемый журнал sides.expected.
+func sides() -> void:
+	var w = ClassDB.instantiate("MotifSprite")
+	w.scene = "res://walker.msc"
+	w.machine = "Walker"
+	w.playing = false
+	root.add_child(w)
+	var heard := []
+	var turns := []
+	w.event.connect(func(n): heard.append(n))
+	w.side_changed.connect(func(s): turns.append(s))
+	check(w.get_sides().size() == 8 and w.side == "down", "стороны сцены: %s, сейчас %s" % [w.get_sides(), w.side])
+	var log := ""
+	for raw in FileAccess.get_file_as_string("res://sides.txt").split("\n"):
+		var line := raw.strip_edges()
+		if line == "" or line.begins_with("#"):
+			continue
+		var words := line.split(" ", false)
+		heard.clear()
+		match words[0]:
+			"advance": w.advance(float(words[1]))
+			"side": w.side = words[1]
+			"facing": w.facing = Vector2(float(words[1]), float(words[2]))
+			"set": w.set_input(words[1], float(words[2]))
+		var flip := " flipped" if w.is_flipped() else ""
+		log += "%s | %s %s %s%s t=%.3f events=[%s]\n" % [line, w.get_state(), w.get_current_animation(), w.side, flip, w.get_time(), ", ".join(heard)]
+	var expected := FileAccess.get_file_as_string("res://sides.expected")
+	check(log == expected, "журнал сторон совпадает с ядром")
+	if log != expected:
+		print(log)
+	check(turns == ["right", "up", "left", "up_left", "down", "left"], "сигнал side_changed: %s" % [turns])
+	check(w.facing.is_equal_approx(Vector2(-1, 0)), "facing следует за side: %s" % w.facing)
+	var img: Image = w.get_image(0.5)
+	w.side = "right"
+	var right: Image = w.get_image(0.5)
+	var mirrored := 0
+	var differ := 0
+	for y in range(0, 120, 3):
+		for x in range(120):
+			mirrored += int(img.get_pixel(x, y) != right.get_pixel(119 - x, y))
+			differ += int(img.get_pixel(x, y) != right.get_pixel(x, y))
+	check(mirrored == 0 and differ > 0, "левая сторона — правая, отражённая в рисунке (%d, %d)" % [mirrored, differ])

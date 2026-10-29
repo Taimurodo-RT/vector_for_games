@@ -9,8 +9,13 @@ use tiny_skia::Pixmap;
 #[derive(Debug)]
 pub struct Player {
     doc: Document,
+    /// The machine as the scene has it.
+    plain: Machine,
+    /// The machine as it plays from the side faced: `Walk_up` instead of `Walk`.
     machine: Machine,
     run: MachinePlayer,
+    /// The side of the scene's `directions` faced: down at first; none without `directions`.
+    side: Option<usize>,
     /// The pose shown now: what the pointer is tested against.
     shown: Document,
 }
@@ -54,8 +59,12 @@ impl Player {
             doc.animations.first().map_or_else(|| Machine { name: String::new(), ..Self::alone("") }, |a| Self::alone(&a.name))
         };
         let run = MachinePlayer::new(&machine);
-        let shown = run.pose(&machine, &doc);
-        Ok(Player { doc, machine, run, shown })
+        let side = doc.directions.as_ref().map(|_| 0);
+        let plain = machine.clone();
+        let shown = doc.clone();
+        let mut p = Player { doc, plain, machine, run, side, shown };
+        p.turn(side);
+        Ok(p)
     }
 
     /// A machine of one state playing `anim`.
@@ -75,11 +84,76 @@ impl Player {
         (self.doc.artboard.width, self.doc.artboard.height)
     }
 
-    /// Passes the pointer (in artboard units) to the machine's `listen` lines.
+    /// Passes the pointer (in artboard units, as the scene is shown) to the machine's `listen` lines.
     pub fn pointer(&mut self, at: Option<Point>, down: bool) {
         if !self.machine.listeners.is_empty() {
+            // A flipped side is drawn turned over: the pointer is turned over to meet it.
+            let at = at.map(|p| if self.flipped() { Point::new(self.doc.artboard.width - p.x, p.y) } else { p });
             self.run.pointer(&self.machine, &self.shown, at, down);
         }
+    }
+
+    /// The names of the scene's sides (down, down_right, right…); empty without `directions`.
+    pub fn sides(&self) -> Vec<String> {
+        self.doc.directions.as_ref().map_or_else(Vec::new, |d| d.names().iter().map(|n| n.to_string()).collect())
+    }
+
+    /// The side faced now, by name; empty without `directions`.
+    pub fn side(&self) -> String {
+        match (&self.doc.directions, self.side) {
+            (Some(d), Some(k)) => d.names()[k].to_string(),
+            _ => String::new(),
+        }
+    }
+
+    /// Whether the side faced is drawn as another one turned over (a left side with `mirror`).
+    pub fn flipped(&self) -> bool {
+        matches!((&self.doc.directions, self.side), (Some(d), Some(k)) if d.shot(k).1)
+    }
+
+    /// Faces the side named `name`. Returns whether the side changed.
+    pub fn set_side(&mut self, name: &str) -> Result<bool, String> {
+        let d = self.doc.directions.as_ref().ok_or("в сцене нет строки directions")?;
+        let k = d.find(name).ok_or_else(|| format!("нет стороны «{name}»; стороны: {}", d.names().join(", ")))?;
+        Ok(self.turn(Some(k)))
+    }
+
+    /// Faces the side nearest to looking along `(x, y)`, `y` down. Returns whether the side changed.
+    pub fn face_toward(&mut self, x: f64, y: f64) -> bool {
+        let k = self.doc.directions.as_ref().and_then(|d| d.nearest(x, y));
+        k.is_some() && self.turn(k)
+    }
+
+    /// Turns to side `k`. The state and its time stay: the walk goes on from the same step, and
+    /// no event is sent, since time does not move.
+    fn turn(&mut self, k: Option<usize>) -> bool {
+        let changed = k != self.side;
+        self.side = k;
+        self.machine = match k {
+            Some(k) => self.plain.facing(&self.doc, k),
+            None => self.plain.clone(),
+        };
+        self.repose();
+        changed
+    }
+
+    /// Poses the scene as it is now, seen from the side faced.
+    fn repose(&mut self) {
+        self.shown = self.run.pose(&self.machine, &self.doc);
+        if let (Some(d), Some(k)) = (&self.doc.directions, self.side) {
+            self.shown.face(d.shot(k).0);
+            self.shown.rig();
+        }
+    }
+
+    /// The animation playing now: the state's, from the side faced (`Walk_up`).
+    pub fn animation(&self) -> String {
+        self.machine.states.get(self.run.state).map_or(String::new(), |s| s.anim.clone())
+    }
+
+    /// How far the state's animation has played, in seconds.
+    pub fn time(&self) -> f64 {
+        self.run.time
     }
 
     /// Moves time on by `dt` seconds.
@@ -89,7 +163,7 @@ impl Player {
         }
         let before = self.run.state;
         let taken = self.run.advance(&self.machine, &self.doc, dt.max(0.0));
-        self.shown = self.run.pose(&self.machine, &self.doc);
+        self.repose();
         let state = (taken.is_some() || self.run.state != before).then(|| self.state());
         Step { events: self.run.events.clone(), state }
     }
@@ -133,18 +207,25 @@ impl Player {
             format!("у машины «{}» нет состояния «{state}»; состояния: {}", self.machine.name, all.join(", "))
         })?;
         self.run.jump(k);
-        self.shown = self.run.pose(&self.machine, &self.doc);
+        self.repose();
         Ok(())
     }
 
     pub fn restart(&mut self) {
         self.run = MachinePlayer::new(&self.machine);
-        self.shown = self.run.pose(&self.machine, &self.doc);
+        self.repose();
     }
 
-    /// The pose now drawn at `scale` pixels a unit, premultiplied RGBA.
+    /// The pose now drawn at `scale` pixels a unit, premultiplied RGBA; a flipped side turned over.
     pub fn render(&self, scale: f64, background: bool) -> Option<Pixmap> {
-        motif_render::render_cpu(&self.shown, CpuOptions { scale, antialias: true, background })
+        let mut px = motif_render::render_cpu(&self.shown, CpuOptions { scale, antialias: true, background })?;
+        if self.flipped() {
+            let w = px.width() as usize * 4;
+            for row in px.data_mut().chunks_exact_mut(w) {
+                row.as_chunks_mut::<4>().0.reverse();
+            }
+        }
+        Some(px)
     }
 }
 
@@ -194,6 +275,80 @@ machine Hero {
         assert_eq!((p.state(), p.get("speed")), ("Idle".to_string(), Some(0.0)));
         let px = p.render(2.0, false).unwrap();
         assert_eq!((px.width(), px.height()), (200, 160));
+    }
+
+    /// Plays `godot-addon/test/sides.txt` and writes the log line of each step, the same way
+    /// `godot-addon/test/test.gd` does through the `MotifSprite` node.
+    fn sides_log(script: &str) -> String {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "Walker", "").unwrap();
+        let mut log = String::new();
+        for line in script.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let num = |i: usize| words[i].parse::<f64>().unwrap();
+            let events = match words[0] {
+                "advance" => p.advance(num(1)).events,
+                "side" => {
+                    p.set_side(words[1]).unwrap();
+                    Vec::new()
+                }
+                "facing" => {
+                    p.face_toward(num(1), num(2));
+                    Vec::new()
+                }
+                "set" => {
+                    p.set(words[1], num(2)).unwrap();
+                    Vec::new()
+                }
+                other => panic!("нет шага {other}"),
+            };
+            let flip = if p.flipped() { " flipped" } else { "" };
+            log += &format!("{line} | {} {} {}{flip} t={:.3} events=[{}]\n", p.state(), p.animation(), p.side(), p.time(), events.join(", "));
+        }
+        log
+    }
+
+    #[test]
+    fn turning_keeps_the_step_and_sends_no_events() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../godot-addon/test/");
+        let log = sides_log(&std::fs::read_to_string(format!("{dir}sides.txt")).unwrap());
+        if std::env::var_os("MOTIF_BLESS").is_some() {
+            std::fs::write(format!("{dir}sides.expected"), &log).unwrap();
+        }
+        assert_eq!(log, std::fs::read_to_string(format!("{dir}sides.expected")).unwrap());
+        // The rules the log shows, said out loud.
+        for line in log.lines().filter(|l| !l.starts_with("advance")) {
+            assert!(line.ends_with("events=[]"), "a turn sends nothing: {line}");
+        }
+        let at = |step: &str| log.lines().position(|l| l.starts_with(step)).unwrap();
+        let lines: Vec<&str> = log.lines().collect();
+        let time = |l: &str| l.split(" t=").nth(1).unwrap().split(' ').next().unwrap().to_string();
+        let up = at("side up");
+        assert_eq!(time(lines[up]), time(lines[up - 1]), "the walk goes on from the same step");
+        assert!(lines[up].contains("Walk Walk_up up"), "{}", lines[up]);
+        assert!(lines[at("facing -1 0")].contains("Walk Walk left flipped"), "{log}");
+    }
+
+    #[test]
+    fn a_flipped_side_is_drawn_and_pointed_at_turned_over() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "", "").unwrap();
+        assert_eq!((p.side(), p.sides().len()), ("down".to_string(), 8));
+        p.set_side("right").unwrap();
+        let right = p.render(0.5, false).unwrap();
+        assert!(p.set_side("left").unwrap() && p.flipped());
+        assert!(!p.set_side("left").unwrap(), "the same side again is no turn");
+        let left = p.render(0.5, false).unwrap();
+        let w = right.width() as usize;
+        for y in (0..right.height() as usize).step_by(7) {
+            for x in (0..w).step_by(5) {
+                assert_eq!(right.pixels()[y * w + x], left.pixels()[y * w + (w - 1 - x)], "{x},{y}");
+            }
+        }
+        assert!(p.set_side("sideways").unwrap_err().contains("down, down_right"));
+        assert!(!p.face_toward(0.0, 0.0), "no look, no turn");
+        let mut plain = Player::load(SCENE, None, "", "", "").unwrap();
+        assert!(plain.set_side("up").is_err() && plain.side().is_empty() && plain.sides().is_empty());
     }
 
     #[test]

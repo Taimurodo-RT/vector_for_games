@@ -294,10 +294,12 @@ impl App {
         let transparent = self.video.transparent && format.keeps_alpha();
         let render = CpuOptions { scale: self.export.scale, antialias: self.export.antialias, background: !transparent };
         let (doc, fps, ffmpeg) = (self.scene.doc.clone(), self.video.fps, self.video.found.clone());
+        // From the side the canvas shows, as the run was seen.
+        let side = self.shown_side();
         let length = take.length;
         self.video.start(ctx, move |progress| {
             let opts = VideoOptions { fps, ffmpeg, progress: Some(progress.clone()), ..Default::default() };
-            let r = video::export_take(&doc, &m, &take, render, opts, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let r = video::export_take(&doc, &m, &take, side, render, opts, &path).map_err(|e| format!("{}: {e}", path.display()))?;
             let status = format!("Прогон «{}» {}: {} кадров {}×{} → {}", m.name, r.format.label(), r.frames, r.width, r.height, path.display());
             Ok((path, status))
         });

@@ -226,12 +226,18 @@ PixaTool с пресетом из раздела PixaTool: в атлас лож�
 Motif прямо в игре, без запекания: «Экспорт → Поставить в проект Godot…» и
 папка внутри проекта Godot 4.3+. Motif поставит аддон в addons/motif, положит
 сцену .msc со шрифтами и ИМЯ.tscn с узлом MotifSprite; потом каждое Ctrl+S
-копирует сцену туда снова (Godot лучше закрыть при первой установке).
+копирует сцену туда снова. Установка — всё или ничего: если Godot открыт и
+держит библиотеку, Motif вернёт прежний аддон, сцену и шрифты и попросит
+закрыть Godot. Проект старше Godot 4.3 Motif не тронет.
 Командой: motif.exe runtime hero.msc -o C:\game\characters. Узел MotifSprite
 играет сцену вектором тем же ядром, что редактор: машина состояний, кости, мягкие
 тела, 3D. Из кода: set_input("speed", 1), fire("jump"), get_state(), сигналы
 event(name) и state_changed(state). Пример — godot-apps\hero: стрелки, пробел,
 H, колесо мыши. Подробнее — docs\runtime.html.
+Персонаж со сторонами (directions): $Walker.facing = направление движения —
+узел покажет ближайшую сторону, со спины сыграет Walk_up вместо Walk, шаг не
+собьётся, левые стороны отразятся при рисовании. Как устроен MotifSprite и
+почему он на GDExtension — docs\runtime.html#how.
 
 motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime
 (см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out

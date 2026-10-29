@@ -258,9 +258,6 @@ fn run() -> Result<(), String> {
         }
         "video" if a.take.is_some() || (a.anim.is_none() && a.machine.is_some()) => {
             let name = a.machine.clone().ok_or("для прогона укажите --machine ИМЯ")?;
-            if a.side.is_some() {
-                return Err("--side пока работает только с --anim, не с прогоном машины".into());
-            }
             let with: Vec<&Document> = boards.iter().filter(|d| d.machine(&name).is_some()).collect();
             let doc = match with.as_slice() {
                 [doc] => *doc,
@@ -269,12 +266,14 @@ fn run() -> Result<(), String> {
             };
             let m = doc.machine(&name).expect("found");
             let take = motif_core::Take::parse(m, a.take.as_deref().unwrap_or(""), a.length)?;
+            let face = a.side.as_deref().map(|s| motif_pixel::side(doc, s)).transpose()?;
             let fps = if a.fps_set { a.fps } else { 30.0 };
             let out = a.out.clone().unwrap_or_else(|| PathBuf::from(format!("{stem}_{name}.mp4")));
             let r = motif_pixel::video::export_take(
                 doc,
                 m,
                 &take,
+                face,
                 render_for(doc),
                 motif_pixel::video::VideoOptions { fps, ffmpeg: a.ffmpeg.clone(), ..Default::default() },
                 &out,
@@ -381,19 +380,9 @@ fn run() -> Result<(), String> {
             let dir = a.out.clone().ok_or("для runtime укажите -o папку внутри проекта Godot")?;
             let addon = a.addon.clone().or_else(motif_pixel::runtime::addon_source);
             let r = motif_pixel::runtime::install(&a.scene, &src, &dir, addon.as_deref())?;
-            println!("{} → {}", a.scene.display(), r.res);
-            if r.fonts > 0 {
-                println!("  шрифтов рядом: {}", r.fonts);
-            }
-            if let Some(t) = &r.tscn {
-                println!("  сцена с узлом MotifSprite: {}", t.display());
-            }
-            println!("  аддон: {}", if r.addon { "поставлен в addons/motif" } else { "уже стоит" });
-            if r.presets > 0 {
-                println!("  *.msc добавлен в фильтры экспорта: {} пресетов", r.presets);
-            }
-            for w in &r.warnings {
-                eprintln!("  внимание: {w}");
+            println!("{} → проект Godot {}", a.scene.display(), r.project.display());
+            for line in r.report() {
+                println!("  {line}");
             }
         }
         "palette" => {
