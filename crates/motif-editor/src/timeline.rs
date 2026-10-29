@@ -66,6 +66,20 @@ pub fn prop_label(p: Prop) -> &'static str {
         Prop::WindY => "Ветер Y",
         Prop::Gust => "Порывы",
         Prop::Parameter => "Значение",
+        Prop::WarpX(i) => {
+            ["Точка 1 · X", "Точка 2 · X", "Точка 3 · X", "Точка 4 · X", "Точка 5 · X", "Точка 6 · X", "Точка 7 · X", "Точка 8 · X", "Точка 9 · X"]
+                .get(i as usize)
+                .copied()
+                .unwrap_or("Сетка X")
+        }
+        Prop::WarpY(i) => {
+            ["Точка 1 · Y", "Точка 2 · Y", "Точка 3 · Y", "Точка 4 · Y", "Точка 5 · Y", "Точка 6 · Y", "Точка 7 · Y", "Точка 8 · Y", "Точка 9 · Y"]
+                .get(i as usize)
+                .copied()
+                .unwrap_or("Сетка Y")
+        }
+        Prop::Contour => "Форма контура",
+        Prop::Visible => "Появление",
     }
 }
 
@@ -1257,7 +1271,7 @@ fn curve_color(row: usize) -> Color32 {
 }
 
 fn is_numeric(t: &&motif_core::Track) -> bool {
-    t.keys.iter().all(|k| k.value.as_num().is_some())
+    !matches!(t.prop, Prop::Contour | Prop::Visible) && t.keys.iter().all(|k| k.value.as_num().is_some())
 }
 
 /// How many decimals a dragged value keeps, from the size of the graph's range.

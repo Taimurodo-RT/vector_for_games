@@ -106,6 +106,7 @@ impl SimState {
     pub fn apply(&self, keys: &Document) -> Document {
         let mut out = keys.clone();
         out.morph_all();
+        out.forms_all();
         spring::apply_values(&self.values, &mut out);
         roll::apply_rollers(&self.rollers, &mut out);
         out.place_orbits();
@@ -117,6 +118,7 @@ impl SimState {
         fluid::apply_pools(&self.pools, &mut out);
         particles::apply_sprays(&self.sprays, &mut out);
         soft::apply_bodies(&self.bodies, &mut out);
+        out.deform_lattices();
         out
     }
 }

@@ -181,10 +181,6 @@ impl<'a> Evaluator<'a> {
                         self.err(t.span, "параметр движения анимируется дорожкой имя.value; у фигуры свойства value нет");
                         continue;
                     }
-                    if let Some(driver) = self.scene.doc.driven_by(&t.node, prop) {
-                        self.err(t.span, format!("{}.{} управляется параметром {driver}: анимируйте {driver}.value", t.node, t.prop));
-                        continue;
-                    }
                     if world != prop.is_world() {
                         let msg = if world {
                             "у мира ключи gravity-x, gravity-y, wind-x, wind-y и gust: world.wind-x 0: 0 | 2: 300".to_string()
@@ -192,6 +188,14 @@ impl<'a> Evaluator<'a> {
                             format!("«{}» — свойство мира: world.{}", t.prop, t.prop)
                         };
                         self.err(t.span, msg);
+                        continue;
+                    }
+                    if matches!(prop, Prop::WarpX(_) | Prop::WarpY(_)) && self.scene.doc.node(&t.node).is_none_or(|n| n.lattice.is_none()) {
+                        self.err(t.span, "ключ warp требует сетки deform");
+                        continue;
+                    }
+                    if prop == Prop::Contour && self.scene.doc.node(&t.node).is_none_or(|n| n.forms.is_none()) {
+                        self.err(t.span, "ключ contour требует forms");
                         continue;
                     }
                     let mut keys = Vec::new();
@@ -202,6 +206,18 @@ impl<'a> Evaluator<'a> {
                                 && !matches!(value, Value::Num(v) if v.is_finite() && v >= p.min && v <= p.max)
                             {
                                 self.err(k.value.span, format!("ключ параметра должен быть числом от {} до {}", p.min, p.max));
+                                continue;
+                            }
+                            if prop == Prop::Contour
+                                && !matches!(value,Value::Num(v) if v.is_finite() && v>=0.0 && v.fract()==0.0 && v<=self.scene.doc.node(&t.node).and_then(|n|n.forms.as_ref()).map_or(0,|f|f.shapes.len()) as f64)
+                            {
+                                self.err(k.value.span, "ключ contour — целый индекс существующей формы, 0 — исходник");
+                                continue;
+                            }
+                            if matches!(prop, Prop::WarpX(_) | Prop::WarpY(_) | Prop::Visible)
+                                && !matches!(value,Value::Num(v) if v.is_finite() && v.abs()<=1e6)
+                            {
+                                self.err(k.value.span, "ключ должен быть конечным числом");
                                 continue;
                             }
                             keys.push(Keyframe { time: k.time, value, ease });
@@ -836,13 +852,14 @@ impl<'a> Evaluator<'a> {
         let mut fluid: Option<motif_core::Fluid> = None;
         let mut flow: Option<(f64, Span)> = None;
         let mut roll: Option<(motif_core::Roll, Span)> = None;
+        let mut warps = Vec::new();
         for p in &n.props {
             if !generated {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
                 self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
-                "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
+                "forms" | "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
@@ -1258,6 +1275,35 @@ impl<'a> Evaluator<'a> {
                     }
                     _ => self.err(p.key_span, "extrude — глубина и сужение задней грани (1 — призма, 0 — конус): extrude 60, extrude 120 0"),
                 },
+                "deform" => match (num(0), num(1)) {
+                    (Some(w),Some(h)) if n.kind == ShapeKind::Group && w.is_finite() && h.is_finite() && w>0.0 && h>0.0 => node.lattice=Some(motif_core::Lattice::new(w,h)),
+                    _ => self.err(p.key_span,"deform — положительные ширина и высота сетки на group: deform 240 300"),
+                },
+                "forms" => {
+                    if n.kind != ShapeKind::Path { self.err(p.key_span,"forms — векторные формы path"); }
+                    let mut forms=motif_core::Forms::default();
+                    for v in &p.values {
+                        if let ValueKind::Path(text)=&v.kind {
+                            match motif_core::kurbo::BezPath::from_svg(text) {
+                                Ok(path) if !path.elements().is_empty() && path.elements().iter().all(|el| el.is_finite()) => forms.shapes.push(path),
+                                _=>self.err(v.span,"неверный векторный контур формы"),
+                            }
+                        } else { self.err(v.span,"форма пишется строкой SVG-пути в кавычках"); }
+                    }
+                    node.forms=Some(forms);
+                },
+                "contour" | "visible" => {
+                    let prop=Prop::from_path_name(&p.key).unwrap();
+                    if let Some(v)=num(0).filter(|v| v.is_finite()) {
+                        warps.push((prop,v)); record(&mut self.scene,prop,&p.values[0],None);
+                    } else { bad(self); }
+                },
+                k if matches!(Prop::from_path_name(k),Some(Prop::WarpX(_) | Prop::WarpY(_))) => {
+                    let prop=Prop::from_path_name(k).unwrap();
+                    if let Some(v)=num(0).filter(|v| v.is_finite() && v.abs()<=1e6) {
+                        warps.push((prop,v)); record(&mut self.scene,prop,&p.values[0],None);
+                    } else { bad(self); }
+                },
                 "morph" if n.kind.is_container() => self.err(p.key_span, "«morph» бывает у фигур: перетекает контур"),
                 "morph" => {
                     let ids: Vec<_> = p.values.iter().filter_map(|v| if let ValueKind::Path(t) = &v.kind { Some((t.clone(), v.span)) } else { None }).collect();
@@ -1620,6 +1666,15 @@ impl<'a> Evaluator<'a> {
                     }
                 }
             }
+        }
+        for (prop, v) in warps {
+            if matches!(prop, Prop::WarpX(_) | Prop::WarpY(_)) && node.lattice.is_none() {
+                self.err(n.span, "warp требует сетки deform на этой группе");
+            }
+            if prop == Prop::Contour && node.forms.is_none() {
+                self.err(n.span, "contour требует forms на этом контуре");
+            }
+            node.set(prop, Value::Num(v));
         }
         if n.kind == ShapeKind::Text {
             let loaded = crate::fonts::load(font.as_deref(), self.base.as_deref());

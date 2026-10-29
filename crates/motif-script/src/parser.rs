@@ -256,7 +256,10 @@ pub enum Stmt {
 /// Properties a node line accepts, with their minimum and maximum number of values.
 pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
     Some(match key {
-        "at" => (2, 2),
+        "at" | "deform" => (2, 2),
+        "forms" => (1, 256),
+        "contour" | "visible" => (1, 1),
+        k if matches!(motif_core::Prop::from_path_name(k), Some(motif_core::Prop::WarpX(_) | motif_core::Prop::WarpY(_))) => (1, 1),
         "size" | "scale" | "stroke" | "skew" => (1, 2),
         "rot" | "opacity" | "points" | "inner" | "fill" | "cap" | "join" | "blend" => (1, 1),
         "r" => (1, 4),
@@ -687,6 +690,13 @@ impl<'a> Parser<'a> {
                 return Err(self.err(key_span, format!("неизвестное свойство «{key}»")));
             };
             let mut values = Vec::new();
+            if key == "forms" {
+                while values.len() < max && matches!(self.peek(), Some(Tok::Str(_))) {
+                    if let Some(Token { tok: Tok::Str(s), span }) = self.next() {
+                        values.push(ValueAst { kind: ValueKind::Path(s), span });
+                    }
+                }
+            }
             if key == "d" || key == "content" {
                 match self.next() {
                     Some(Token { tok: Tok::Str(s), span }) => values.push(ValueAst { kind: ValueKind::Path(s), span }),

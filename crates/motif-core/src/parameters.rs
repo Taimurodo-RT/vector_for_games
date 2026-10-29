@@ -46,13 +46,23 @@ impl Document {
                 driver.tracks.iter().filter_map(move |track| {
                     let p = parameter?;
                     let value = if p.value.is_finite() { p.value.clamp(p.min, p.max) } else { p.default };
-                    Some((track.node.clone(), track.prop, track.sample(value)?))
+                    let mix = if track.prop == Prop::Contour {
+                        track.sample_segment(value).and_then(|(a, b, k)| Some((a.as_num()? as usize, b.as_num()? as usize, k)))
+                    } else {
+                        None
+                    };
+                    Some((track.node.clone(), track.prop, track.sample(value)?, mix))
                 })
             })
             .collect();
-        for (id, prop, value) in changes {
+        for (id, prop, value, mix) in changes {
             if let Some(i) = self.index_of(&id) {
                 self.nodes[i].set(prop, value);
+                if let Some(forms) = self.nodes[i].forms.as_mut()
+                    && prop == Prop::Contour
+                {
+                    forms.mix = mix;
+                }
             }
         }
     }

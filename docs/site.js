@@ -12,6 +12,7 @@
     ["bones.html", "Кости и IK"],
     ["characters.html", "Персонажи и одежда"],
     ["pose-parameters.html", "Параметры движения"],
+    ["deformers.html", "Деформеры и общий кадр"],
     ["character-animation.html", "План: объёмная 2D-анимация"],
     ["physics.html", "Физика"],
     ["orbit.html", "2.5D и 3D"],

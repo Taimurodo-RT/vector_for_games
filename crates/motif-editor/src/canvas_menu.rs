@@ -1,6 +1,5 @@
 //! Object-local inspector. It uses the same guarded authoring commands as the sidebar.
 use super::*;
-use crate::workspace::Workspace;
 
 pub(super) struct FloatingInspector {
     target: String,
@@ -25,7 +24,7 @@ impl App {
     }
 
     pub(crate) fn pose_actions(&mut self, ui: &mut egui::Ui) {
-        if self.workspace() != Workspace::Animate {
+        if self.anim.is_none() {
             return;
         }
         ui.horizontal_wrapped(|ui| {
@@ -75,7 +74,11 @@ impl App {
             .and_then(|id| doc.index_of(id))
             .and_then(|i| handle_points(self.canvas_bounds, view, &doc, i))
             .is_some_and(|h| h.rotate.distance(p) < 8.0 || (h.resizable && h.corners.iter().any(|c| c.distance(p) < 7.0)));
-        if handle || doc.hit_test(view.to_doc(self.canvas_bounds, p)).is_some() || crate::bone_ui::pick_bone(&doc, self.canvas_bounds, view, p).is_some() {
+        if self.deformer.target.is_some()
+            || handle
+            || doc.hit_test(view.to_doc(self.canvas_bounds, p)).is_some()
+            || crate::bone_ui::pick_bone(&doc, self.canvas_bounds, view, p).is_some()
+        {
             self.playing = false;
         }
     }
@@ -114,7 +117,7 @@ impl App {
                 self.open_object_inspector(id.clone(), doc, rect, view);
                 menu.close();
             }
-            if self.workspace() == Workspace::Animate {
+            if self.anim.is_some() {
                 if menu.button("Свойства и ключи…").clicked() {
                     self.open_object_inspector(id.clone(), doc, rect, view);
                     menu.close();
@@ -123,7 +126,7 @@ impl App {
                     self.record_draft_pose();
                     menu.close();
                 }
-                if !self.protected_character_node(&id) && menu.button("Ключи трансформации · K").clicked() {
+                if menu.button("Ключи трансформации · K").clicked() {
                     self.record_transform();
                     menu.close();
                 }
@@ -155,10 +158,7 @@ impl App {
                         ui.close();
                     }
                 });
-                if self.workspace() == Workspace::Animate
-                    && !self.protected_character_node(&popup.target)
-                    && ui.button("Записать ключи трансформации").clicked()
-                {
+                if self.anim.is_some() && ui.button("Записать ключи трансформации").clicked() {
                     self.record_transform();
                 }
                 self.props_panel(ui);
