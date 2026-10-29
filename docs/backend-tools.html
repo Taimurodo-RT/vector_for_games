@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Диагностика сцен кодом — Motif</title><link rel="stylesheet" href="style.css"></head>
+<body><div class="layout"><main><div class="content">
+<h1>Диагностика сцен кодом</h1>
+<p class="lead">Команда inspect извлекает данные сцены в JSON через ядро Motif. Она позволяет сравнивать исходник с вычисленной позой, искать неверные связи и проверять геометрию без управления окном редактора.</p>
+<p>Версия схемы — <b>1</b>. Данные читаются из сохранённого MSC. Несохранённая поза открытого редактора в отчёт не попадает. Команда не меняет исходник; попытка записать отчёт поверх входного файла отклоняется.</p>
+<h2 id="commands">Команды</h2>
+<pre><code>motif inspect character-anime.msc
+motif inspect character-anime.msc --anim Expressions --time 1 --node head
+motif inspect character-anime.msc --board 1 --anim Expressions --time 1 -o C:/Users/taimu/OneDrive/Документы/ClaudeWorld/VectorEditor-Lab/runs/2026-10-29-face/reports/face.json</code></pre>
+<p>Без <code>-o</code> стандартный вывод содержит только JSON и завершающий перевод строки. С <code>-o</code> вывод записывается в указанный файл, отсутствующие родительские папки создаются; стандартный вывод пуст. Ошибки идут в stderr и возвращают ненулевой код завершения. Существующий файл отчёта заменяется, поэтому для сохранения предыдущих измерений выбирайте новую папку запуска.</p>
+<p><code>--board</code> принимает имя или номер с 1. Без выбора холста отчёт содержит все холсты, подходящие под фильтры. <code>--anim</code> вычисляет позу клипа на <code>--time</code> в секундах с обычными правилами цикла, интерполяции и симуляции Motif. Без клипа показывается статическая вычисленная поза; само значение времени не запускает анимацию. <code>--side</code> дополнительно применяет сторону существующего набора directions. Как у команды render, при наличии <code>Walk_up</code> запрос <code>--anim Walk --side up</code> использует этот специальный клип; иначе берётся общий Walk. Поле <code>pose_selection.resolved_clip</code> каждого холста показывает фактически выбранный клип.</p>
+<p><code>--node ID</code> оставляет в массивах узлов выбранный объект и его потомков. Параметры, связи, клипы и исходник холста остаются полным контекстом: связь отфильтрованного объекта может зависеть от узла вне поддерева. Родитель ID также может находиться за пределами выборки. Несуществующие ID, клипы или холсты дают ошибку; время должно быть конечным и неотрицательным.</p>
+<h2 id="schema">Схема 1</h2>
+<pre><code>{
+  "schema": 1,
+  "source": { "path": "character-anime.msc", "encoding": "UTF-8" },
+  "selection": { "board": null, "anim": "Expressions", "requested_time": 1.0, "node": "head", "side": null },
+  "units": { "length": "artboard_units", "time": "seconds", "angle": "degrees_clockwise" },
+  "boards": [{
+    "index": 1,
+    "name": "Аниме-лицо",
+    "artboard": {},
+    "source": { "text": "...", "span_unit": "utf8_bytes", "original_segments": [] },
+    "base": { "time": 0.0, "nodes": [], "parameters": [], "world": {} },
+    "posed": { "time": 1.0, "nodes": [], "parameters": [], "world": {} },
+    "drivers": [], "clips": [], "machines": [], "metadata": {}
+  }]
+}</code></pre>
+<p><code>base</code> содержит данные разобранного документа до выбора клипа и расчёта новой позы. <code>posed</code> — результат общего ядра с параметрами, формами, костями, проекцией и сетками; клип также учитывает свою симуляцию. Это две диагностические копии. Значения по умолчанию, уже применяемые разбором MSC, могут присутствовать в base; неизменённая авторская геометрия находится в <code>geometry.source</code> и в тексте исходника.</p>
+<div class="table-wrap"><table>
+<tr><th>Данные узла</th><th>Содержимое</th></tr>
+<tr><td><code>id, name, kind, index, parent, children, mask</code></td><td>Идентификаторы и иерархия в порядке рисования; index начинается с 0. mask — ID первого ребёнка группы clip.</td></tr>
+<tr><td><code>visible, effective_visible, locked, effective_locked</code></td><td>Локальное значение и результат с учётом родителей.</td></tr>
+<tr><td><code>properties</code></td><td>Анимируемые значения по именам MSC: x, y, rot, sx, sy, opacity, fill, warp-x4, contour, visible и другие. Числа — JSON number, цвета — hex-строки, отсутствие краски — null.</td></tr>
+<tr><td><code>local_transform, world_transform</code></td><td>Шесть коэффициентов [a,b,c,d,e,f]: x′ = ax + cy + e, y′ = bx + dy + f.</td></tr>
+<tr><td><code>local_bounds, world_bounds</code></td><td>[x0,y0,x1,y1]. world_bounds включает потомков по правилам ядра. Это геометрические границы путей: они не учитывают тени, толщину обводки или обрезание маской.</td></tr>
+<tr><td><code>geometry</code></td><td>source — исходный путь path; authorable — форма до костей и сеток; rendered — вычисленный локальный путь; world_rendered — тот же путь в координатах артборда; deformed — промежуточный путь skin/симуляции. body_faces отдельно содержит проецируемые грани 2.5D-тела и их края.</td></tr>
+<tr><td><code>lattice, forms, skin, ik, morph, body, orbit</code></td><td>Размеры и девять смещений сетки, контрольные точки, сохранённые формы и текущий индекс, связи костей, bind-матрицы и мазки весов, цели IK, морфинг, глубина и орбиты.</td></tr>
+<tr><td><code>paint, text, layout, ui, physics</code></td><td>Градиенты, обводки, эффекты, кисть, текст и имя шрифта, раскладка/якоря, роли UI и настройки симуляции. Бинарные шрифты в отчёт не включаются.</td></tr>
+<tr><td><code>source</code></td><td>Место объявления, generated, доступность правки значений, spans свойств, текст значений и стилистических атрибутов. Для созданных циклом узлов координаты указывают на общую запись шаблона.</td></tr>
+</table></div>
+<p>Каждый путь содержит <code>svg</code>, массив <code>elements</code> с операциями M/L/Q/C/Z и координатами точек, а также <code>bounds</code>. У пустого пути границы null. rendered описывает вычисленную геометрию ядра; растровые эффекты, штрихи художественной кисти и пикселизация требуют отдельной проверки рендером.</p>
+<p><code>drivers</code> и <code>clips</code> содержат все дорожки, цели свойств, времена/позиции ключей, значения и <code>ease</code> в синтаксисе MSC. У clips также есть длительность, loop и события. machines раскрывает входы, состояния, переходы и слушателей. metadata содержит каталог персонажей, палитру, положение холста и направления.</p>
+<h2 id="spans">Как читать координаты исходника</h2>
+<p>Все <code>span.start</code> и <code>span.end</code> — полуоткрытые диапазоны байтов UTF-8 внутри <code>boards[i].source.text</code>, не индексы Unicode-символов. Этот текст состоит из общей шапки файла и выбранного артборда. Для нескольких артбордов его смещения могут отличаться от смещений входного файла.</p>
+<p><code>original_segments</code> даёт соответствие частей: <code>local_start</code>, <code>file_start</code>, <code>length</code>. Для смещения внутри сегмента позиция в исходном файле вычисляется как <code>file_start + offset - local_start</code>. Текст уже находится в JSON, поэтому дополнительные чтения исходника для диагностики необязательны.</p>
+<pre><code>import json
+from pathlib import Path
+report = json.loads(Path("face.json").read_text(encoding="utf-8"))
+assert report["schema"] == 1
+board = report["boards"][0]
+face = next(n for n in board["posed"]["nodes"] if n["id"] == "face")
+print(face["world_bounds"])
+print(face["geometry"]["rendered"]["svg"])
+source_bytes = board["source"]["text"].encode("utf-8")
+site = face["source"]["site"]["span"]
+print(source_bytes[site["start"]:site["end"]].decode("utf-8"))</code></pre>
+<h2 id="lab">Рабочие выгрузки отдельно от репозитория</h2>
+<p>Для этого проекта используйте соседнюю папку <code>VectorEditor-Lab</code>. Каждый разбор помещайте в <code>runs/&lt;дата-задача&gt;/</code>; внутри удобно держать <code>reports</code> для JSON, <code>captures</code> для PNG/GIF, <code>scratch</code> для пробных MSC и <code>cache</code> для временных данных. Путь передаётся явно через -o. Команда не создаёт диагностические выгрузки внутри репозитория сама.</p>
+<p>Для сравнения формы используйте inspect вместе с прежними <code>render</code>, <code>frames</code> и <code>check</code>. Числовая проверка помогает локализовать неверную связь; художественную оценку и проверку удобства пользователь выполняет в редакторе. Принципы подготовки персонажа: <a href="live2d-reference.html">официальные источники Live2D и решения Motif</a>.</p>
+</div></main></div><script src="site.js"></script></body></html>

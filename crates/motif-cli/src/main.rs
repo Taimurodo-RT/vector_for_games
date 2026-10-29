@@ -6,11 +6,14 @@ use motif_render::{CpuOptions, render_cpu};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod inspect;
+
 const HELP: &str = "\
 motif — скрипты сцен Motif без окна редактора
 
 Использование:
   motif check   <сцена.msc>
+  motif inspect <сцена.msc> [--board ИМЯ] [--anim ИМЯ --time СЕК] [--node ID] [-o отчёт.json]
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [параметры рендера]
@@ -169,6 +172,9 @@ fn run() -> Result<(), String> {
     let scenes = motif_script::parse_boards(&src, a.scene.parent())
         .map_err(|errs| errs.iter().map(|e| format!("{}: {e}", a.scene.display())).collect::<Vec<_>>().join("\n"))?;
     let total = scenes.len();
+    if a.cmd == "inspect" {
+        return inspect::run(&a, &src, &scenes);
+    }
     if a.cmd == "svg" || a.cmd == "web" {
         return export_web(&a, &src, scenes);
     }
