@@ -249,8 +249,11 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
-        theme::install(&cc.egui_ctx);
-        let pixa = crate::pixabridge::Bridge::load();
+        Self::initialize(cc.egui_ctx.clone(), path, crate::pixabridge::Bridge::load(), crate::storage::Recovery::new(crate::storage::recovery_dir()))
+    }
+
+    fn initialize(ctx: egui::Context, path: Option<PathBuf>, pixa: crate::pixabridge::Bridge, recovery: crate::storage::Recovery) -> Self {
+        theme::install(&ctx);
         let path = path.map(|p| std::path::absolute(&p).unwrap_or(p));
         let (src, status) = match &path {
             Some(p) => match std::fs::read_to_string(p) {
@@ -261,7 +264,6 @@ impl App {
         };
         let src_file = src.clone();
         let scene = parse(&src).or_else(|_| parse(NEW_SCENE)).expect("built-in scene parses");
-        let recovery = crate::storage::Recovery::new(crate::storage::recovery_dir());
         let recovery_records = recovery.entries();
         let mut app = App {
             show_recovery: !recovery_records.is_empty(),
@@ -335,7 +337,7 @@ impl App {
             export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true, all_boards: false },
             video: crate::video_ui::VideoExport::new(pixa.ffmpeg.clone()),
             pixa,
-            ctx: cc.egui_ctx.clone(),
+            ctx,
             canvas: Canvas::new(),
             guides: Vec::new(),
             backdrop_img: Default::default(),
@@ -408,6 +410,14 @@ impl App {
             }
             _ => false,
         }
+    }
+
+    /// Discrete commands never merge with a previous or following command, however fast clicked.
+    pub(crate) fn apply_once(&mut self, kind: &str, new_src: Option<String>) -> bool {
+        self.last_checkpoint.0.clear();
+        let changed = self.apply(kind, new_src);
+        self.last_checkpoint.0.clear();
+        changed
     }
 
     pub(crate) fn can_edit(&mut self) -> bool {
@@ -583,6 +593,11 @@ impl App {
 
     /// Brings back the file as an undo step saved it, editing the board it was edited on.
     fn restore(&mut self, board: usize, file: &str) {
+        if let Some(edit) = &mut self.point_edit {
+            edit.selected = None;
+            edit.grab = None;
+            edit.live = None;
+        }
         if board != self.boards.active {
             self.selected = None;
             self.also.clear();
@@ -1609,21 +1624,7 @@ impl App {
                 });
             }
             if node.kind == ShapeKind::Path {
-                let info = crate::pathedit::Outline::from_bez(&node.geometry)
-                    .map(|o| format!("{} точ. · {}", o.verts.len(), if o.closed { "замкнут" } else { "открыт" }));
-                fold(ui, "Контур", |ui| {
-                    ui.label(RichText::new(info.clone().unwrap_or_else(|| "несколько частей: правка в скрипте".into())).size(12.0).color(MUTED));
-                    let editing = self.point_edit.as_ref().is_some_and(|e| e.node == id);
-                    let kind = if editing { ButtonKind::On } else { ButtonKind::Normal };
-                    if info.is_some() && theme::button(ui, if editing { "Готово (Enter)" } else { "Редактировать точки (Enter)" }, kind).clicked()
-                    {
-                        if editing {
-                            self.point_edit = None;
-                        } else {
-                            self.begin_point_edit();
-                        }
-                    }
-                });
+                fold(ui, "Контур", |ui| self.point_controls(ui, &node));
             }
             self.mask_ui(ui, &node);
             self.symbol_section(ui, &node);
@@ -3189,4 +3190,181 @@ fn file_url(path: &std::path::Path) -> String {
 fn job_progress(ui: &mut egui::Ui, job: &crate::pixabridge::Job) {
     let text = if job.total == 0 { "снимаю кадры…".to_string() } else { format!("PixaTool: кадр {} из {}", job.done, job.total) };
     ui.add(egui::ProgressBar::new(job.done as f32 / job.total.max(1) as f32).text(text));
+}
+
+#[cfg(test)]
+mod editing_tests {
+    use super::*;
+    use crate::compound::{Anchor, Compound};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn fixture(src: &str) -> App {
+        static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+        let recovery = std::env::temp_dir().join(format!("motif-editor-fixture-{}-{}", std::process::id(), SEQUENCE.fetch_add(1, Ordering::Relaxed)));
+        // No user settings, recovery directory, GPU surface or external tools are touched.
+        let mut app = App::initialize(egui::Context::default(), None, Default::default(), crate::storage::Recovery::new(recovery));
+        app.set_file(src, 0);
+        app.saved_src = src.into();
+        app.reparse();
+        app
+    }
+    #[test]
+    fn editing_a_hole_and_undo_redo_keep_all_other_parts_and_boards() {
+        let src = "// metadata remains\nartboard \"One\" 100x100\npath ring d \"M0 0 L90 0 L90 90 L0 90 Z M20 20 L20 30 L30 40 L40 40 L40 20 Z\" fill #ff0000\nartboard \"Two\" 40x40\nrect keep size 10\n";
+        let mut app = fixture(src);
+        let original = app.file_text();
+        app.select_only(Some("ring".into()));
+        app.begin_point_edit();
+        let first = Compound::from_bez(&app.scene.doc.node("ring").unwrap().geometry).unwrap().parts[0].to_bez();
+        app.point_edit.as_mut().unwrap().selected = Some(Anchor { part: 1, vertex: 1 });
+        assert!(app.delete_point());
+        let once = app.file_text();
+        app.point_edit.as_mut().unwrap().selected = Some(Anchor { part: 1, vertex: 1 });
+        app.delete_point();
+        let twice = app.file_text();
+        assert_ne!(once, twice);
+        assert_eq!(Compound::from_bez(&app.scene.doc.node("ring").unwrap().geometry).unwrap().parts[0].to_bez(), first);
+        assert!(twice.ends_with("artboard \"Two\" 40x40\nrect keep size 10\n"));
+        app.undo();
+        assert_eq!(app.file_text(), once);
+        assert!(app.point_edit.as_ref().unwrap().selected.is_none());
+        app.undo();
+        assert_eq!(app.file_text(), original);
+        app.redo();
+        app.redo();
+        assert_eq!(app.file_text(), twice);
+    }
+    #[test]
+    fn batch_layer_style_move_and_delete_are_single_undo_steps() {
+        let src = "artboard \"Layers\" 100x100\nrect a size 10\nrect b size 10\ngroup g {\n rect child size 5\n}\nrect top size 10\n";
+        let mut app = fixture(src);
+        let original = app.file_text();
+        app.select_list(vec!["a".into(), "b".into()]);
+        app.style_layer("a", "locked", true, "locked");
+        assert!(app.scene.doc.node("a").unwrap().locked && app.scene.doc.node("b").unwrap().locked);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+        app.redo();
+        let styled = app.file_text();
+        app.move_layer("a", "g", motif_script::Place::Into);
+        let moved = app.file_text();
+        assert_ne!(moved, styled);
+        assert_eq!(
+            app.scene.doc.nodes.iter().filter(|n| n.parent == app.scene.doc.index_of("g")).map(|n| n.id.as_str()).collect::<Vec<_>>(),
+            ["child", "a", "b"]
+        );
+        app.undo();
+        assert_eq!(app.file_text(), styled);
+        app.redo();
+        assert_eq!(app.file_text(), moved);
+        app.select_list(vec!["g".into(), "child".into(), "top".into()]);
+        app.delete_selected_nodes();
+        let deleted = app.file_text();
+        assert!(app.scene.doc.nodes.is_empty());
+        app.undo();
+        assert_eq!(app.file_text(), moved);
+        app.redo();
+        assert_eq!(app.file_text(), deleted);
+    }
+    #[test]
+    fn failed_batch_does_not_mutate_document_or_undo_history() {
+        let mut app = fixture("artboard \"Safe\" 100x100\nrect a size 10\nfor i in 0..2 {\n rect item{i} size 5\n}\n");
+        let before = app.file_text();
+        app.select_list(vec!["a".into(), "item0".into()]);
+        app.style_layer("a", "hidden", true, "hidden");
+        assert_eq!(app.file_text(), before);
+        assert!(app.undo.is_empty());
+        app.move_layer("a", "item1", motif_script::Place::After);
+        assert_eq!(app.file_text(), before);
+        assert!(app.undo.is_empty());
+    }
+
+    #[test]
+    fn canvas_drag_inserts_on_a_hole_and_commits_once_on_release() {
+        let mut app = fixture("artboard \"Mouse\" 300x300\npath p d \"M20 20 L180 20 L180 180 L20 180 Z M60 60 L60 140 L140 140 L140 60 Z\" fill #f00\n");
+        app.select_only(Some("p".into()));
+        app.begin_point_edit();
+        let original = app.file_text();
+        let frame = |app: &mut App, events, time| {
+            let ctx = app.ctx.clone();
+            let mut canvas = Rect::NOTHING;
+            ctx.run_ui(
+                egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 400.0))), time: Some(time), events, ..Default::default() },
+                |ui| {
+                    let (rect, response) = ui.allocate_exact_size(vec2(300.0, 300.0), Sense::click_and_drag());
+                    canvas = rect;
+                    let doc = app.display_doc();
+                    app.point_edit_input(ui, &response, rect, View { zoom: 1.0, pan: egui::Vec2::ZERO }, &doc);
+                },
+            )
+            .drop_without_applying_deltas();
+            canvas
+        };
+        let rect = frame(&mut app, vec![], 0.0);
+        let from = rect.min + vec2(100.0, 60.0);
+        let to = from + vec2(10.0, -15.0);
+        let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        frame(&mut app, vec![egui::Event::PointerMoved(from), button(from, true)], 0.1);
+        frame(&mut app, vec![egui::Event::PointerMoved(to)], 0.2);
+        assert_eq!(app.file_text(), original, "drag preview must not save the inserted point yet");
+        frame(&mut app, vec![], 1.5);
+        frame(&mut app, vec![button(to, false)], 1.6);
+        let edited = app.file_text();
+        assert_ne!(edited, original);
+        assert_eq!(app.undo.len(), 1);
+        let shape = Compound::from_bez(&app.scene.doc.node("p").unwrap().geometry).unwrap();
+        assert_eq!(shape.parts[0].outline.verts.len(), 4);
+        assert_eq!(shape.parts[1].outline.verts.len(), 5);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+        app.redo();
+        assert_eq!(app.file_text(), edited);
+    }
+
+    #[test]
+    fn layers_ui_shift_ctrl_and_context_delete_apply_to_the_visible_selection() {
+        let mut app = fixture("artboard \"Mouse\" 300x300\nrect a size 10\nrect b size 10\nrect c size 10\n");
+        let original = app.file_text();
+        let frame = |app: &mut App, mut events: Vec<egui::Event>, modifiers| {
+            let ctx = app.ctx.clone();
+            events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 600.0))), events, ..Default::default() }, |ui| {
+                app.layers_panel(ui)
+            })
+        };
+        let position = |out: &egui::FullOutput, label: &str| {
+            out.shapes
+                .iter()
+                .rev()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.job.text == label => Some(t.pos + vec2(3.0, t.galley.size().y * 0.5)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("UI label not found: {label}"))
+        };
+        let click = |app: &mut App, pos, button, modifiers| {
+            frame(app, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button, pressed: true, modifiers }], modifiers)
+                .drop_without_applying_deltas();
+            frame(app, vec![egui::Event::PointerButton { pos, button, pressed: false, modifiers }], modifiers)
+        };
+        frame(&mut app, vec![], Modifiers::NONE).drop_without_applying_deltas();
+        let out = frame(&mut app, vec![], Modifiers::NONE);
+        let a = position(&out, "a");
+        let b = position(&out, "b");
+        let c = position(&out, "c");
+        out.drop_without_applying_deltas();
+        click(&mut app, a, egui::PointerButton::Primary, Modifiers::NONE).drop_without_applying_deltas();
+        click(&mut app, c, egui::PointerButton::Primary, Modifiers { shift: true, ..Modifiers::NONE }).drop_without_applying_deltas();
+        assert_eq!(app.selection(), ["c", "b", "a"]);
+        click(&mut app, b, egui::PointerButton::Primary, Modifiers { ctrl: true, command: true, ..Modifiers::NONE }).drop_without_applying_deltas();
+        assert_eq!(app.selection(), ["c", "a"]);
+        click(&mut app, c, egui::PointerButton::Secondary, Modifiers::NONE).drop_without_applying_deltas();
+        let out = frame(&mut app, vec![], Modifiers::NONE);
+        let delete = position(&out, "Удалить");
+        out.drop_without_applying_deltas();
+        click(&mut app, delete, egui::PointerButton::Primary, Modifiers::NONE).drop_without_applying_deltas();
+        assert_eq!(app.scene.doc.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["b"]);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+    }
 }

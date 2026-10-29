@@ -5,15 +5,103 @@ use crate::app::App;
 use crate::theme::{self, ACCENT, FAINT, FG, Icon, LINE, MUTED, PANEL, SEL};
 use egui::{Align2, Pos2, Rect, Sense, Stroke, pos2, vec2};
 use motif_core::ShapeKind;
-use motif_script::{Place, fmt_num, move_node, rename_node, set_style};
+use motif_script::{Place, fmt_num, move_nodes, rename_node, style_nodes};
 use std::collections::HashSet;
 
 const ROW_H: f32 = 28.0;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Filter {
+    #[default]
+    All,
+    Hidden,
+    Locked,
+    Paths,
+}
+impl Filter {
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "Все",
+            Self::Hidden => "Скрытые",
+            Self::Locked => "Заблокированные",
+            Self::Paths => "Контуры",
+        }
+    }
+}
+
+fn visible_order(doc: &motif_core::Document, folded: &HashSet<String>, query: &str, filter: Filter) -> Vec<usize> {
+    let query = query.trim().to_lowercase();
+    let filtering = !query.is_empty() || filter != Filter::All;
+    let mut included = vec![!filtering; doc.nodes.len()];
+    if filtering {
+        for (i, n) in doc.nodes.iter().enumerate() {
+            let matches = (n.id.to_lowercase().contains(&query) || n.display_name().to_lowercase().contains(&query))
+                && match filter {
+                    Filter::All => true,
+                    Filter::Hidden => !doc.is_visible(i),
+                    Filter::Locked => doc.is_locked(i),
+                    Filter::Paths => n.kind == ShapeKind::Path,
+                };
+            if matches {
+                included[i] = true;
+                let mut parent = n.parent;
+                while let Some(p) = parent {
+                    included[p] = true;
+                    parent = doc.nodes[p].parent;
+                }
+            }
+        }
+    }
+    let mut kids = vec![Vec::new(); doc.nodes.len() + 1];
+    for i in (0..doc.nodes.len()).rev() {
+        kids[doc.nodes[i].parent.unwrap_or(doc.nodes.len())].push(i);
+    }
+    let mut out = Vec::new();
+    let mut stack: Vec<_> = kids[doc.nodes.len()].iter().rev().copied().collect();
+    while let Some(i) = stack.pop() {
+        if !included[i] {
+            continue;
+        }
+        out.push(i);
+        if filtering || !folded.contains(&doc.nodes[i].id) {
+            stack.extend(kids[i].iter().rev());
+        }
+    }
+    out
+}
+
+fn select_range(visible: &[String], selected: &[String], anchor: Option<&str>, clicked: &str, shift: bool, command: bool) -> Vec<String> {
+    if shift
+        && let Some(a) = anchor.and_then(|id| visible.iter().position(|s| s == id))
+        && let Some(b) = visible.iter().position(|s| s == clicked)
+    {
+        let mut out = if command { selected.to_vec() } else { Vec::new() };
+        for id in &visible[a.min(b)..=a.max(b)] {
+            if !out.contains(id) {
+                out.push(id.clone());
+            }
+        }
+        out
+    } else if command {
+        let mut out = selected.to_vec();
+        if let Some(i) = out.iter().position(|s| s == clicked) {
+            out.remove(i);
+        } else {
+            out.push(clicked.to_owned());
+        }
+        out
+    } else {
+        vec![clicked.to_owned()]
+    }
+}
 
 #[derive(Default)]
 pub struct Layers {
     /// Groups whose children are folded away.
     folded: HashSet<String>,
+    query: String,
+    filter: Filter,
+    anchor: Option<String>,
     /// The layer being dragged.
     dragging: Option<String>,
     /// The layer being renamed and the text typed so far; `true` once its field took focus.
@@ -40,10 +128,35 @@ impl App {
         let doc = self.scene.doc.clone();
         crate::app::panel_header(ui, "Слои", &doc.nodes.len().to_string());
         let mut action = None;
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.layers.query).hint_text("Поиск по имени / id").desired_width((ui.available_width() - 30.0).max(40.0)));
+            if ui.small_button("×").on_hover_text("Очистить поиск").clicked() {
+                self.layers.query.clear();
+            }
+        });
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("layer-filter").selected_text(self.layers.filter.label()).show_ui(ui, |ui| {
+                for f in [Filter::All, Filter::Hidden, Filter::Locked, Filter::Paths] {
+                    ui.selectable_value(&mut self.layers.filter, f, f.label());
+                }
+            });
+            ui.label(format!("Выбрано: {}", self.selection().len()));
+        });
+        let order = visible_order(&doc, &self.layers.folded, &self.layers.query, self.layers.filter);
+        ui.horizontal(|ui| {
+            if ui.small_button("Свернуть").clicked() {
+                self.layers.folded = doc.nodes.iter().filter(|n| n.kind == ShapeKind::Group).map(|n| n.id.clone()).collect();
+            }
+            if ui.small_button("Развернуть").clicked() {
+                self.layers.folded.clear();
+            }
+        });
+        let mut drop_area = Rect::NOTHING;
         let mut rows: Vec<(usize, Rect)> = Vec::new();
         let mut renamed: Option<(String, String)> = None;
         let foot_h = 52.0;
         egui::ScrollArea::vertical().id_salt("layers").max_height(ui.available_height() - foot_h).auto_shrink([false, false]).show(ui, |ui| {
+            drop_area = ui.clip_rect();
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.add_space(4.0);
             // The boards of the file; the active one's objects follow.
@@ -105,7 +218,7 @@ impl App {
                 ui.add_space(2.0);
             }
             // Topmost first, like in every layer list; a group's children under it.
-            for i in self.layer_order() {
+            for &i in &order {
                 let n = &doc.nodes[i];
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
                 rows.push((i, r));
@@ -120,7 +233,7 @@ impl App {
                 let has_children = doc.nodes.iter().any(|c| c.parent == Some(i));
                 let arrow = Rect::from_center_size(pos2(x - 19.0, r.center().y), vec2(14.0, ROW_H));
                 if n.kind == ShapeKind::Group && has_children {
-                    let open = !self.layers.folded.contains(&n.id);
+                    let open = !self.layers.folded.contains(&n.id) || !self.layers.query.trim().is_empty() || self.layers.filter != Filter::All;
                     let hot = resp.hover_pos().is_some_and(|p| arrow.contains(p));
                     crate::app::fold_arrow(ui.painter(), arrow.center(), open, if hot { FG } else { FAINT });
                 }
@@ -187,6 +300,9 @@ impl App {
                 }
 
                 if resp.drag_started() && !editing {
+                    if !self.is_selected(&n.id) {
+                        self.select_only(Some(n.id.clone()));
+                    }
                     self.layers.dragging = Some(n.id.clone());
                 }
                 let resp = resp.on_hover_text(format!("id: {}", n.id));
@@ -236,14 +352,16 @@ impl App {
         // Dragging a layer: a line where it lands, or a frame around the group it goes into.
         if let Some(dragged) = self.layers.dragging.clone() {
             let pointer = ui.input(|i| i.pointer.interact_pos());
-            let target = pointer.and_then(|p| drop_target(&doc, &rows, p, &self.layers.folded));
-            let from = doc.index_of(&dragged);
+            let unfolded = HashSet::new();
+            let folded = if self.layers.query.trim().is_empty() && self.layers.filter == Filter::All { &self.layers.folded } else { &unfolded };
+            let target = pointer.filter(|p| drop_area.contains(*p)).and_then(|p| drop_target(&doc, &rows, p, folded));
+            let ids = self.layer_targets(&dragged);
             let valid = |t: usize, place: Place| {
-                from.is_some_and(|f| f != t && !doc.is_inside(t, f) && !(place == Place::Into && doc.nodes[t].kind != ShapeKind::Group))
+                ids.iter().all(|id| doc.index_of(id).is_some_and(|f| f != t && !doc.is_inside(t, f)))
+                    && !(place == Place::Into && doc.nodes[t].kind != ShapeKind::Group)
             };
             if let Some((t, place, r)) = target
                 && valid(t, place)
-                && from.is_some_and(|f| rows.iter().any(|(i, _)| *i == f))
             {
                 let p = ui.painter();
                 let x = r.left() + 20.0 + 16.0 * doc.depth(t) as f32;
@@ -275,7 +393,7 @@ impl App {
         ui.painter().text(
             foot.left_top() + vec2(12.0, 10.0),
             Align2::LEFT_TOP,
-            "Тяните слой, чтобы переставить.\nПравый клик — меню слоя",
+            "Shift — диапазон · Ctrl — добавить\nТяните выделение · правый клик — меню",
             theme::ui_font(12.0),
             FAINT,
         );
@@ -285,10 +403,12 @@ impl App {
         }
         match action {
             Some(Action::Select(id)) => {
-                if ui.input(|i| i.modifiers.shift || i.modifiers.command) {
-                    self.toggle_selected(id);
-                } else {
-                    self.select_only(Some(id));
+                let modifiers = ui.input(|i| i.modifiers);
+                let visible: Vec<_> = order.iter().map(|&i| doc.nodes[i].id.clone()).collect();
+                let next = select_range(&visible, &self.selection(), self.layers.anchor.as_deref(), &id, modifiers.shift, modifiers.command);
+                self.select_list(next);
+                if !modifiers.shift {
+                    self.layers.anchor = Some(id);
                 }
             }
             Some(Action::Fold(id)) => {
@@ -312,7 +432,9 @@ impl App {
             ),
             Some(Action::Hide(id, on)) => self.style_layer(&id, "hidden", on, if on { "скрыт" } else { "снова виден" }),
             Some(Action::Delete(id)) => {
-                self.select_only(Some(id));
+                if !self.is_selected(&id) {
+                    self.select_only(Some(id));
+                }
                 self.delete_selection();
             }
             Some(Action::Group(id)) => {
@@ -326,7 +448,9 @@ impl App {
                 self.ungroup_selection();
             }
             Some(Action::Restack(id, up)) => {
-                self.select_only(Some(id));
+                if !self.is_selected(&id) {
+                    self.select_only(Some(id));
+                }
                 self.restack_selection(up);
             }
             Some(Action::Board(k)) => {
@@ -339,23 +463,8 @@ impl App {
         }
     }
 
-    /// Rows of the layers panel: topmost first, each group followed by its children unless folded.
-    fn layer_order(&self) -> Vec<usize> {
-        let doc = &self.scene.doc;
-        // Children of each node (and of the artboard, last), topmost first.
-        let mut kids: Vec<Vec<usize>> = vec![Vec::new(); doc.nodes.len() + 1];
-        for i in (0..doc.nodes.len()).rev() {
-            kids[doc.nodes[i].parent.unwrap_or(doc.nodes.len())].push(i);
-        }
-        let mut out = Vec::with_capacity(doc.nodes.len());
-        let mut stack: Vec<usize> = kids[doc.nodes.len()].iter().rev().copied().collect();
-        while let Some(i) = stack.pop() {
-            out.push(i);
-            if !self.layers.folded.contains(&doc.nodes[i].id) {
-                stack.extend(kids[i].iter().rev());
-            }
-        }
-        out
+    fn layer_targets(&self, id: &str) -> Vec<String> {
+        if self.is_selected(id) { self.selection() } else { vec![id.to_owned()] }
     }
 
     fn rename_layer(&mut self, id: &str, name: &str) {
@@ -369,34 +478,33 @@ impl App {
     }
 
     /// Adds or removes a flag such as `locked` or `hidden` on a layer.
-    fn style_layer(&mut self, id: &str, flag: &str, on: bool, what: &str) {
+    pub(crate) fn style_layer(&mut self, id: &str, flag: &str, on: bool, what: &str) {
         if !self.can_edit() {
             return;
         }
-        match set_style(&self.src, &self.scene, id, flag, on.then_some(flag)) {
-            Some(out) => {
-                self.apply(flag, Some(out));
-                self.status = format!("«{id}» {what}");
+        let ids = self.layer_targets(id);
+        let base = self.path.as_ref().and_then(|p| p.parent());
+        match style_nodes(&self.src, &self.scene, &ids, flag, on, base) {
+            Ok(out) => {
+                self.apply_once(flag, Some(out));
+                self.status = format!("Слоёв: {} · {what}", ids.len());
             }
-            None => self.status = format!("«{id}» создан циклом: допишите {flag} в цикл"),
+            Err(e) => self.status = format!("Набор не изменён: {e}"),
         }
     }
 
-    fn move_layer(&mut self, id: &str, target: &str, place: Place) {
+    pub(crate) fn move_layer(&mut self, id: &str, target: &str, place: Place) {
         if !self.can_edit() {
             return;
         }
-        match move_node(&self.src, &self.scene, id, target, place) {
-            Some(out) => {
-                if self.apply("move-layer", Some(out)) {
-                    self.status = match place {
-                        Place::Into => format!("«{id}» теперь в группе «{target}»"),
-                        Place::After => format!("«{id}» теперь над «{target}»"),
-                        Place::Before => format!("«{id}» теперь под «{target}»"),
-                    };
-                }
+        let ids = self.layer_targets(id);
+        let base = self.path.as_ref().and_then(|p| p.parent());
+        match move_nodes(&self.src, &self.scene, &ids, target, place, base) {
+            Ok(out) => {
+                self.apply_once("move-layers", Some(out));
+                self.status = format!("Перенесено слоёв: {}. Порядок и положение сохранены", motif_script::selected_roots(&self.scene, &ids).len());
             }
-            None => self.status = format!("«{id}» не переносится: объекты из циклов и строки с несколькими объектами правятся в скрипте"),
+            Err(e) => self.status = format!("Набор не перенесён: {e}"),
         }
     }
 }
@@ -405,7 +513,7 @@ impl App {
 /// a row means over it (after it in the script) and the lower part under it. The middle of a
 /// group, and the lower part of an open group whose children follow it, mean into the group.
 fn drop_target(doc: &motif_core::Document, rows: &[(usize, Rect)], p: Pos2, folded: &HashSet<String>) -> Option<(usize, Place, Rect)> {
-    let &(i, r) = rows.iter().find(|(_, r)| p.y >= r.top() && p.y < r.bottom()).or_else(|| rows.last().filter(|(_, r)| p.y >= r.bottom()))?;
+    let &(i, r) = rows.iter().find(|(_, r)| r.contains(p)).or_else(|| rows.last().filter(|(_, r)| p.y >= r.bottom() && p.x >= r.left() && p.x < r.right()))?;
     let n = &doc.nodes[i];
     let f = ((p.y - r.top()) / r.height()).clamp(0.0, 1.0);
     let group = n.kind == ShapeKind::Group;
@@ -420,4 +528,49 @@ fn drop_target(doc: &motif_core::Document, rows: &[(usize, Rect)], p: Pos2, fold
         Place::After
     };
     Some((i, place, r))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn scene() -> motif_script::Scene {
+        motif_script::parse("artboard \"Layers\" 100x100\ngroup g hidden locked {\n rect a \"Голова\" size 10\n path b d \"M0 0 L10 10\"\n}\nrect c size 10\n")
+            .unwrap()
+    }
+    fn ids(doc: &motif_core::Document, indices: Vec<usize>) -> Vec<String> {
+        indices.iter().map(|&i| doc.nodes[i].id.clone()).collect()
+    }
+    #[test]
+    fn search_reveals_matches_inside_folded_groups_without_changing_folding() {
+        let s = scene();
+        let folded = HashSet::from(["g".into()]);
+        assert_eq!(ids(&s.doc, visible_order(&s.doc, &folded, "", Filter::All)), ["c", "g"]);
+        assert_eq!(ids(&s.doc, visible_order(&s.doc, &folded, "ГОЛОВА", Filter::All)), ["g", "a"]);
+        assert_eq!(ids(&s.doc, visible_order(&s.doc, &folded, "", Filter::Paths)), ["g", "b"]);
+        assert!(folded.contains("g"));
+    }
+    #[test]
+    fn filters_include_inherited_hidden_and_locked_layers() {
+        let s = scene();
+        let folded = HashSet::new();
+        for f in [Filter::Hidden, Filter::Locked] {
+            assert_eq!(ids(&s.doc, visible_order(&s.doc, &folded, "", f)), ["g", "b", "a"]);
+        }
+    }
+    #[test]
+    fn shift_range_uses_visible_order_and_ctrl_preserves_toggle() {
+        let visible = vec!["d".into(), "c".into(), "b".into(), "a".into()];
+        assert_eq!(select_range(&visible, &[], Some("c"), "a", true, false), ["c", "b", "a"]);
+        assert_eq!(select_range(&visible, &["a".into()], Some("b"), "d", true, true), ["a", "d", "c", "b"]);
+        assert_eq!(select_range(&visible, &["c".into(), "b".into()], None, "c", false, true), ["b"]);
+        assert_eq!(select_range(&visible, &["c".into()], Some("filtered-out"), "a", true, false), ["a"]);
+    }
+    #[test]
+    fn dropping_outside_layer_rows_is_not_a_reorder() {
+        let s = scene();
+        let row = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 28.0));
+        let rows = vec![(s.doc.index_of("c").unwrap(), row)];
+        assert!(drop_target(&s.doc, &rows, pos2(250.0, 20.0), &HashSet::new()).is_none());
+        assert!(drop_target(&s.doc, &rows, pos2(250.0, 40.0), &HashSet::new()).is_none());
+    }
 }

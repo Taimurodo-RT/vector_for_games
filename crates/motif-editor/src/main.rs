@@ -9,6 +9,7 @@ mod bone_ui;
 mod brush_ui;
 mod canvas;
 mod check_ui;
+mod compound;
 mod field_ui;
 mod guides;
 mod highlight;

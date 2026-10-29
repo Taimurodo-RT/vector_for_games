@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::theme::{self, Icon};
 use motif_core::kurbo::{Point, Rect as KRect, Vec2};
 use motif_core::{Document, Prop, Value};
-use motif_script::{copy_nodes, delete_node, paste_nodes};
+use motif_script::{copy_nodes, delete_nodes, paste_nodes};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Align {
@@ -136,7 +136,7 @@ impl App {
         }
     }
 
-    fn select_list(&mut self, ids: Vec<String>) {
+    pub(crate) fn select_list(&mut self, ids: Vec<String>) {
         let mut ids = ids.into_iter();
         self.selected = ids.next();
         self.also = ids.collect();
@@ -179,40 +179,28 @@ impl App {
 
     /// Ctrl+] and Ctrl+[: the selected object one step over or under its neighbour.
     pub(crate) fn restack_selection(&mut self, up: bool) {
-        let Some(id) = self.selected.clone() else { return };
-        if !self.can_edit() {
+        let ids = self.selection();
+        if ids.is_empty() || !self.can_edit() {
             return;
         }
-        match motif_script::restack(&self.src, &self.scene, &id, up) {
-            Some(out) => {
-                self.apply("restack", Some(out));
+        match motif_script::restack_nodes(&self.src, &self.scene, &ids, up, self.path.as_ref().and_then(|p| p.parent())) {
+            Ok(out) => {
+                self.apply_once("restack", Some(out));
             }
-            None => {
-                self.status = if up {
-                    "Выше некуда: объект уже над соседями".into()
-                } else {
-                    "Ниже некуда: объект уже под соседями".into()
-                }
-            }
+            Err(e) => self.status = format!("Набор не переставлен: {e}"),
         }
     }
 
     /// Deletes every selected object with its keys. Returns how many were removed.
     pub(crate) fn delete_selected_nodes(&mut self) -> usize {
-        let mut removed = 0;
-        let mut skipped = Vec::new();
-        for id in self.selection() {
-            if self.scene.doc.node(&id).is_none() {
-                continue; // removed with its group
+        let (out, removed, skipped) = match delete_nodes(&self.src, &self.scene, &self.selection(), self.path.as_ref().and_then(|p| p.parent())) {
+            Ok(result) => result,
+            Err(e) => {
+                self.status = format!("Набор не удалён: {e}");
+                return 0;
             }
-            match delete_node(&self.src, &self.scene, &id) {
-                Some(out) => {
-                    self.apply("delete", Some(out));
-                    removed += 1;
-                }
-                None => skipped.push(id),
-            }
-        }
+        };
+        self.apply_once("delete", Some(out));
         self.select_only(None);
         self.status = match (removed, skipped.is_empty()) {
             (_, false) => format!("Удалено: {removed}. Из циклов не удаляются: {}", skipped.join(", ")),

@@ -48,6 +48,7 @@ pub use edit::{
     set_key, set_key_ease, set_keys_ease, set_light, set_path, set_prop, set_purpose, set_stroke_gradient, set_style, set_world, ungroup, world_text,
     write_event, write_tracks,
 };
+pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
 };
