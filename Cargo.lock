@@ -1500,6 +1500,7 @@ dependencies = [
  "motif-script",
  "motif-web",
  "rfd",
+ "serde",
  "serde_json",
  "tiny-skia",
 ]

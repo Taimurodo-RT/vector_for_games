@@ -20,6 +20,10 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: Windows updater rollback and package validation
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: packaging/windows/test-update.ps1
       - run: cargo run -p motif-cli -- web examples/web-assets.msc -o target/web-check --strict
       - run: cargo run -p motif-cli -- check examples/bounce.msc
       - run: cargo run -p motif-cli -- check examples/gem.msc
@@ -79,7 +83,7 @@ jobs:
   # Windows build. On main it is also published as the release that update.bat downloads.
   windows-build:
     runs-on: windows-latest
-    needs: test
+    needs: [test, godot-runtime]
     permissions:
       contents: write
     concurrency:

@@ -1,6 +1,7 @@
 /target
 **/*.rs.bk
 /out
+**/.motif-history/
 # The addon with its library, put into the demo by build.sh or the Windows build.
 /godot-apps/hero/addons
 /godot-apps/*/.godot

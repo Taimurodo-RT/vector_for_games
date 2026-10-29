@@ -15,6 +15,8 @@
     ["export.html", "Экспорт и программы"],
     ["web.html", "SVG и Web assets"],
     ["runtime.html", "Motif в игре"],
+    ["reliability.html", "Сохранение и обновление"],
+    ["development.html", "План развития"],
   ];
 
   try {

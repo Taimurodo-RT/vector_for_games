@@ -17,6 +17,7 @@ motif-render = { workspace = true, features = ["gpu"] }
 motif-pixel.workspace = true
 motif-web.workspace = true
 serde_json.workspace = true
+serde = { version = "1", features = ["derive"] }
 eframe.workspace = true
 egui.workspace = true
 rfd.workspace = true

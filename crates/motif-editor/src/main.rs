@@ -34,6 +34,7 @@ mod selection;
 mod sheet;
 mod sides_ui;
 mod snap;
+mod storage;
 mod stretch_ui;
 mod style_ui;
 mod symbol_ui;
