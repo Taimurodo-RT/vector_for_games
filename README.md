@@ -472,3 +472,5 @@ Motif сам управляет PixaTool 1.58: запускает его вне 
 ```sh
 cargo test --workspace
 ```
+
+Параметрические сочетания и корректирующие формы: [инструкция](docs/parameter-combinations.html). Короткие HTML/CSS-фрагменты преобразуются в редактируемый UI: [импорт](docs/html-css-import.html).

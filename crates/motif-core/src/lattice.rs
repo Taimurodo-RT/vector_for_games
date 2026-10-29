@@ -7,17 +7,22 @@ pub struct Lattice {
     pub width: f64,
     pub height: f64,
     pub offsets: [Vec2; 9],
+    /// Evaluated additive residuals. Source offsets and explicit animation keys stay separate.
+    pub(crate) correction: [Vec2; 9],
 }
 
 impl Lattice {
     pub fn new(width: f64, height: f64) -> Self {
-        Self { width, height, offsets: [Vec2::ZERO; 9] }
+        Self { width, height, offsets: [Vec2::ZERO; 9], correction: [Vec2::ZERO; 9] }
+    }
+    pub fn effective_offset(&self, i: usize) -> Vec2 {
+        self.offsets[i] + self.correction[i]
     }
     pub fn neutral(&self) -> bool {
-        self.offsets.iter().all(|v| *v == Vec2::ZERO)
+        (0..9).all(|i| self.effective_offset(i) == Vec2::ZERO)
     }
     pub fn control(&self, i: usize) -> Point {
-        Point::new((i % 3) as f64 * self.width / 2.0 - self.width / 2.0, (i / 3) as f64 * self.height / 2.0 - self.height / 2.0) + self.offsets[i]
+        Point::new((i % 3) as f64 * self.width / 2.0 - self.width / 2.0, (i / 3) as f64 * self.height / 2.0 - self.height / 2.0) + self.effective_offset(i)
     }
     pub fn map(&self, p: Point) -> Point {
         let basis = |v: f64| {
@@ -29,7 +34,7 @@ impl Lattice {
         let mut d = Vec2::ZERO;
         for (y, vy) in v.iter().enumerate() {
             for (x, ux) in u.iter().enumerate() {
-                d += self.offsets[y * 3 + x] * (ux * vy);
+                d += self.effective_offset(y * 3 + x) * (ux * vy);
             }
         }
         p + d

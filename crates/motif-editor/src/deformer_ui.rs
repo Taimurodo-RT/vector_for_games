@@ -6,6 +6,8 @@ pub(super) struct DeformerEdit {
     pub target: Option<String>,
     pub grab: Option<usize>,
     pub form: Option<(String, f64)>,
+    pub corrective: Option<(String, f64, f64)>,
+    pub axes: [String; 2],
 }
 
 impl App {
@@ -24,6 +26,7 @@ impl App {
                 let mut on = self.deformer.target.as_deref() == Some(&id);
                 if ui.checkbox(&mut on, "Править сетку на холсте").changed() {
                     self.deformer.target = on.then_some(id.clone());
+                    self.prune_deformer_reference();
                     self.point_edit = None;
                 }
                 if self.workspace() == Workspace::Setup {
@@ -60,13 +63,21 @@ impl App {
                                 if ui.selectable_label(self.deformer.form.as_ref() == Some(&(parameter.clone(), value)), fmt_num(value)).clicked() {
                                     self.parameter_preview(&parameter, value);
                                     self.deformer.form = Some((parameter.clone(), value));
+                                    self.deformer.corrective = None;
                                     self.deformer.target = Some(id.clone());
                                 }
                             }
                         });
                     }
                 }
-                if let Some((parameter, value)) = &self.deformer.form {
+                self.corrective_panel(ui, &id);
+                if let Some((corrective, x, y)) = &self.deformer.corrective {
+                    ui.colored_label(ACCENT, format!("Коррекция {corrective}: {} / {}", fmt_num(*x), fmt_num(*y)));
+                    if ui.button("Вернуться к кадру клипа").clicked() {
+                        self.deformer.corrective = None;
+                        self.pose_preview.clear();
+                    }
+                } else if let Some((parameter, value)) = &self.deformer.form {
                     ui.colored_label(ACCENT, format!("Правка опоры {parameter} = {}", fmt_num(*value)));
                     if ui.button("Вернуться к кадру клипа").clicked() {
                         self.deformer.form = None;
@@ -80,7 +91,12 @@ impl App {
                     self.edit_group = Some("lattice-reset".into());
                     for i in 0..9 {
                         for prop in [Prop::WarpX(i), Prop::WarpY(i)] {
-                            self.write_lattice_value(&id, prop, 0.0);
+                            if let Some((c, x, y)) = self.deformer.corrective.clone() {
+                                let out = motif_script::correctives::set_value(&self.src, &self.scene, &c, &id, prop, x, y, 0.0);
+                                self.apply("corrective-reset", out);
+                            } else {
+                                self.write_lattice_value(&id, prop, 0.0);
+                            }
                         }
                     }
                     self.edit_group = None;
@@ -136,7 +152,21 @@ impl App {
     }
 
     fn write_lattice_value(&mut self, id: &str, prop: Prop, value: f64) {
-        if let Some((parameter, position)) = self.deformer.form.clone() {
+        if let Some((c, x, y)) = self.deformer.corrective.clone() {
+            let pose = self.display_doc();
+            let Some(n) = pose.node(id) else { return };
+            let current = n.get(prop).as_num().unwrap_or(0.0);
+            let correction = self
+                .scene
+                .doc
+                .correctives
+                .iter()
+                .find(|a| a.id == c)
+                .and_then(|a| a.tracks.iter().find(|t| t.node == id && t.prop == prop))
+                .map_or(0.0, |t| t.sample(x, y));
+            let out = motif_script::correctives::set_value(&self.src, &self.scene, &c, id, prop, x, y, value - current + correction);
+            self.apply("corrective-form", out);
+        } else if let Some((parameter, position)) = self.deformer.form.clone() {
             let out = motif_script::parameters::set_form_value(&self.src, &self.scene, &parameter, id, prop, position, value);
             self.apply("lattice-form", out);
         } else {
@@ -194,7 +224,7 @@ impl App {
                 && let Some(p) = pointer
             {
                 let local = doc.unmap_lattice_point(i, world.inverse() * view.to_doc(rect, p));
-                let neutral = lattice.control(k) - lattice.offsets[k];
+                let neutral = lattice.control(k) - lattice.effective_offset(k);
                 let delta = local - neutral;
                 self.preview(&id, Prop::WarpX(k as u8), Value::Num(delta.x));
                 self.preview(&id, Prop::WarpY(k as u8), Value::Num(delta.y));

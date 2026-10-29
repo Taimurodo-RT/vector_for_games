@@ -10,6 +10,7 @@ pub struct Document {
     pub animations: Vec<Animation>,
     pub parameters: Vec<crate::PoseParameter>,
     pub drivers: Vec<crate::PoseDriver>,
+    pub correctives: Vec<crate::PoseCorrective>,
     /// State machines that switch between the animations.
     pub machines: Vec<crate::Machine>,
     /// Direction shadows fall from raised objects (`elevation`), in degrees: 90 is straight down.
@@ -711,8 +712,8 @@ impl Node {
     pub fn get(&self, prop: Prop) -> Value {
         let paint = |c: Option<Color>| c.map_or(Value::None, Value::Color);
         match prop {
-            Prop::WarpX(i) => Value::Num(self.lattice.as_ref().and_then(|l| l.offsets.get(i as usize)).map_or(0.0, |p| p.x)),
-            Prop::WarpY(i) => Value::Num(self.lattice.as_ref().and_then(|l| l.offsets.get(i as usize)).map_or(0.0, |p| p.y)),
+            Prop::WarpX(i) => Value::Num(self.lattice.as_ref().filter(|_| i < 9).map_or(0.0, |l| l.effective_offset(i as usize).x)),
+            Prop::WarpY(i) => Value::Num(self.lattice.as_ref().filter(|_| i < 9).map_or(0.0, |l| l.effective_offset(i as usize).y)),
             Prop::Contour => Value::Num(self.forms.as_ref().map_or(0.0, |f| f.amount)),
             Prop::Visible => Value::Num(if self.visible { 1.0 } else { 0.0 }),
             Prop::X => Value::Num(self.x),
@@ -782,13 +783,15 @@ impl Node {
         let Value::Num(v) = value else { return };
         match prop {
             Prop::WarpX(i) => {
-                if let Some(p) = self.lattice.as_mut().and_then(|l| l.offsets.get_mut(i as usize)) {
-                    p.x = v;
+                if let Some(l) = self.lattice.as_mut().filter(|_| i < 9) {
+                    l.offsets[i as usize].x = v;
+                    l.correction[i as usize].x = 0.0;
                 }
             }
             Prop::WarpY(i) => {
-                if let Some(p) = self.lattice.as_mut().and_then(|l| l.offsets.get_mut(i as usize)) {
-                    p.y = v;
+                if let Some(l) = self.lattice.as_mut().filter(|_| i < 9) {
+                    l.offsets[i as usize].y = v;
+                    l.correction[i as usize].y = 0.0;
                 }
             }
             Prop::Contour => {
@@ -967,6 +970,7 @@ impl Document {
             animations: Vec::new(),
             parameters: Vec::new(),
             drivers: Vec::new(),
+            correctives: Vec::new(),
             machines: Vec::new(),
             light: 90.0,
             world: crate::World::default(),

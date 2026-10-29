@@ -2,6 +2,7 @@
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Диагностика сцен кодом — Motif</title><link rel="stylesheet" href="style.css"></head>
 <body><div class="layout"><main><div class="content">
 <h1>Диагностика сцен кодом</h1>
+<p>Сочетания параметров доступны в <code>boards[].correctives</code>: оси, опоры, дельты и рассчитанная поправка текущей позы. У сетки <code>offsets</code> — исходные смещения, <code>corrective_offsets</code> — поправки, <code>effective_offsets</code> — итог. Это дополнительные поля схемы 1.</p>
 <p class="lead">Команда inspect извлекает данные сцены в JSON через ядро Motif. Она позволяет сравнивать исходник с вычисленной позой, искать неверные связи и проверять геометрию без управления окном редактора.</p>
 <p>Версия схемы — <b>1</b>. Данные читаются из сохранённого MSC. Несохранённая поза открытого редактора в отчёт не попадает. Команда не меняет исходник; попытка записать отчёт поверх входного файла отклоняется.</p>
 <h2 id="commands">Команды</h2>

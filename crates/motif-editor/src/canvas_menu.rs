@@ -68,6 +68,11 @@ impl App {
     }
 
     pub(crate) fn toggle_playback(&mut self) {
+        if !self.playing && (self.deformer.form.is_some() || self.deformer.corrective.is_some()) {
+            self.deformer.form = None;
+            self.deformer.corrective = None;
+            self.pose_preview.clear();
+        }
         if self.playing {
             self.playing = false;
         } else if self.has_draft_pose() {
@@ -194,6 +199,20 @@ impl App {
                     .any(|j| i == j || self.scene.doc.is_inside(i, j) || self.scene.doc.is_inside(j, i))
                 {
                     categories.push(Parameter(p.id.clone()));
+                }
+            }
+            for c in &self.scene.doc.correctives {
+                if c.tracks
+                    .iter()
+                    .filter_map(|t| self.scene.doc.index_of(&t.node))
+                    .any(|j| i == j || self.scene.doc.is_inside(i, j) || self.scene.doc.is_inside(j, i))
+                {
+                    for id in &c.parameters {
+                        let item = Parameter(id.clone());
+                        if !categories.contains(&item) {
+                            categories.push(item);
+                        }
+                    }
                 }
             }
         }

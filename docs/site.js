@@ -13,6 +13,8 @@
     ["characters.html", "Персонажи и одежда"],
     ["pose-parameters.html", "Параметры движения"],
     ["deformers.html", "Деформеры и общий кадр"],
+    ["parameter-combinations.html", "Сочетания параметров"],
+    ["html-css-import.html", "Импорт HTML + CSS"],
     ["character-animation.html", "План: объёмная 2D-анимация"],
     ["live2d-reference.html", "Live2D: источники и решения"],
     ["physics.html", "Физика"],
