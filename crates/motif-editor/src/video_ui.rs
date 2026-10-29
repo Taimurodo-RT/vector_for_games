@@ -245,7 +245,7 @@ impl App {
         }
         if let Some(take) = &self.video.last_take {
             let label = format!("Сохранить прогон «{}» ({} с)…", take.machine, motif_script::fmt_num((take.length * 10.0).round() / 10.0));
-            let ready = !busy && !(format.needs_ffmpeg() && self.video.found.is_none());
+            let ready = !(busy || format.needs_ffmpeg() && self.video.found.is_none());
             let r = ui.add_enabled_ui(ready, |ui| theme::button(ui, &label, ButtonKind::Normal)).inner;
             if r.on_hover_text("Последняя запись машины состояний («Запись» на панели машины) в выбранном формате").clicked()
             {

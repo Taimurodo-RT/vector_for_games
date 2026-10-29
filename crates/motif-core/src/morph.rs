@@ -141,11 +141,7 @@ fn rings(path: &BezPath) -> Vec<Ring> {
             flush(&mut cur, false);
             cur.push(p);
         }
-        PathEl::LineTo(p) => {
-            if cur.last().is_none_or(|q| (*q - p).hypot() > 1e-9) {
-                cur.push(p);
-            }
-        }
+        PathEl::LineTo(p) if cur.last().is_none_or(|q| (*q - p).hypot() > 1e-9) => cur.push(p),
         PathEl::ClosePath => flush(&mut cur, true),
         _ => {}
     });

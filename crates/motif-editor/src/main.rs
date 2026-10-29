@@ -34,6 +34,7 @@ mod selection;
 mod sheet;
 mod sides_ui;
 mod snap;
+mod storage;
 mod stretch_ui;
 mod style_ui;
 mod symbol_ui;
@@ -41,6 +42,7 @@ mod text_ui;
 mod theme;
 mod timeline;
 mod video_ui;
+mod web_ui;
 mod weights_ui;
 mod world_ui;
 

@@ -131,9 +131,16 @@ pub struct ExportSettings {
 }
 
 pub struct App {
+    pub(crate) web: crate::web_ui::WebState,
     pub(crate) path: Option<PathBuf>,
     pub(crate) src: String,
     saved_src: String,
+    recovery: crate::storage::Recovery,
+    recovery_records: Vec<crate::storage::Record>,
+    show_recovery: bool,
+    recovery_title: String,
+    last_recovery: Instant,
+    close_allowed: bool,
     disk_mtime: Option<SystemTime>,
     pub(crate) scene: Scene,
     pub(crate) errors: Vec<ScriptError>,
@@ -244,6 +251,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
         theme::install(&cc.egui_ctx);
         let pixa = crate::pixabridge::Bridge::load();
+        let path = path.map(|p| std::path::absolute(&p).unwrap_or(p));
         let (src, status) = match &path {
             Some(p) => match std::fs::read_to_string(p) {
                 Ok(s) => (s, format!("Открыт {}", p.display())),
@@ -253,7 +261,16 @@ impl App {
         };
         let src_file = src.clone();
         let scene = parse(&src).or_else(|_| parse(NEW_SCENE)).expect("built-in scene parses");
+        let recovery = crate::storage::Recovery::new(crate::storage::recovery_dir());
+        let recovery_records = recovery.entries();
         let mut app = App {
+            show_recovery: !recovery_records.is_empty(),
+            recovery,
+            recovery_records,
+            recovery_title: "Восстановление документов".into(),
+            last_recovery: Instant::now(),
+            close_allowed: false,
+            web: crate::web_ui::WebState::default(),
             disk_mtime: path.as_ref().and_then(|p| mtime(p)),
             pending_file: None,
             path,
@@ -613,6 +630,11 @@ impl App {
             doc.face(k);
         }
         doc.rig();
+        if !self.web.preview_theme.is_empty()
+            && let Ok(config) = motif_web::read(&self.src)
+        {
+            motif_web::preview_theme(&self.scene, &mut doc, &config, &self.web.preview_theme);
+        }
         doc
     }
 
@@ -742,6 +764,29 @@ impl App {
         match action {
             FileAction::New(template) => self.new_scene(template),
             FileAction::Open => self.open(),
+            FileAction::Close => {
+                self.recovery.clear();
+                self.close_allowed = true;
+                self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            FileAction::Restore(index) => {
+                if let Some(record) = self.recovery_records.get(index).cloned() {
+                    self.checkpoint("restore");
+                    self.recovery.clear();
+                    self.path = record.path;
+                    self.saved_src = record.saved_text;
+                    self.set_file(&record.text, record.board);
+                    self.disk_mtime = self.path.as_ref().and_then(|p| mtime(p));
+                    self.selected = None;
+                    self.also.clear();
+                    self.view = None;
+                    self.anim = None;
+                    self.reparse();
+                    self.show_recovery = false;
+                    self.status = "Копия восстановлена в редакторе. Исходный файл не изменён; сохраните нужную версию.".into();
+                    self.last_recovery = Instant::now() - std::time::Duration::from_secs(6);
+                }
+            }
         }
     }
 
@@ -779,6 +824,7 @@ impl App {
     }
 
     fn new_scene(&mut self, template: &str) {
+        self.recovery.clear();
         self.checkpoint("file");
         self.set_file(template, 0);
         // An untouched template is not unsaved work: the next «Новая сцена» or «Открыть» goes
@@ -797,6 +843,7 @@ impl App {
         let Some(p) = rfd::FileDialog::new().add_filter("Сцена Motif", &["msc"]).pick_file() else { return };
         match std::fs::read_to_string(&p) {
             Ok(s) => {
+                self.recovery.clear();
                 self.undo.push((self.boards.active, self.file_text()));
                 self.set_file(&s, 0);
                 self.saved_src = s;
@@ -821,8 +868,10 @@ impl App {
             },
         };
         let text = self.file_text();
-        match std::fs::write(&path, &text) {
+        let expected = (self.path.as_ref() == Some(&path)).then_some(self.saved_src.as_str());
+        match crate::storage::save_scene(&path, &text, expected) {
             Ok(()) => {
+                self.recovery.clear();
                 self.saved_src = text;
                 self.disk_mtime = mtime(&path);
                 self.status = format!("Сохранено: {}", path.display());
@@ -839,6 +888,57 @@ impl App {
                 }
             }
             Err(e) => self.status = format!("Не удалось сохранить {}: {e}", path.display()),
+        }
+    }
+
+    /// Recovery copies include incomplete scripts and every board, without touching the original.
+    fn autosave(&mut self) {
+        if self.close_allowed || self.last_recovery.elapsed().as_secs() < 5 {
+            return;
+        }
+        self.last_recovery = Instant::now();
+        if !self.dirty() {
+            self.recovery.clear();
+            return;
+        }
+        let record = crate::storage::Record::new(self.path.clone(), self.file_text(), self.saved_src.clone(), self.boards.active);
+        if let Err(e) = self.recovery.write(&record) {
+            self.status = format!("Не удалось записать копию восстановления: {e}");
+        }
+    }
+
+    fn recovery_window(&mut self, ctx: &egui::Context) {
+        if !self.show_recovery {
+            return;
+        }
+        let mut open = true;
+        let mut restore = None;
+        egui::Window::new(&self.recovery_title).id(egui::Id::unique("recovery")).open(&mut open).default_width(580.0).show(ctx, |ui| {
+            ui.label("Копия открывается в редакторе. Исходный файл меняется только после сохранения.");
+            if self.recovery_records.is_empty() {
+                ui.label("Доступных копий нет.");
+            }
+            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                for (index, record) in self.recovery_records.iter().enumerate() {
+                    ui.separator();
+                    ui.label(record.path.as_ref().map_or("Без имени".into(), |p| p.display().to_string()));
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Копия {} · {} байт · холст {}", index + 1, record.text.len(), record.board + 1));
+                        if ui.button("Восстановить").clicked() {
+                            restore = Some(index);
+                        }
+                    });
+                    ui.collapsing(format!("Текст копии {}", index + 1), |ui| {
+                        ui.monospace(record.text.chars().take(1200).collect::<String>());
+                    });
+                }
+            });
+            ui.separator();
+            ui.small(format!("Автокопии: {}", self.recovery.dir.display()));
+        });
+        self.show_recovery = open;
+        if let Some(index) = restore {
+            self.file_action(FileAction::Restore(index));
         }
     }
 
@@ -1129,6 +1229,16 @@ impl App {
                     .clicked()
                 {
                     self.file_action(FileAction::New(NEW_UI_KIT));
+                }
+                if ui.button("Восстановление документов…").clicked() {
+                    self.recovery_records = self.recovery.entries();
+                    self.recovery_title = "Восстановление документов".into();
+                    self.show_recovery = true;
+                }
+                if ui.add_enabled(self.path.is_some(), egui::Button::new("Предыдущие сохранения…")).clicked() {
+                    self.recovery_records = self.path.as_ref().map_or_else(Vec::new, |p| crate::storage::history(p));
+                    self.recovery_title = "Предыдущие сохранения".into();
+                    self.show_recovery = true;
                 }
                 if ui.add(egui::Button::new("Открыть…").shortcut_text("Ctrl+O")).clicked() {
                     self.file_action(FileAction::Open);
@@ -2170,7 +2280,7 @@ impl App {
                 self.create_shape(kind, p, p, false);
             } else if !shift && let Some(hit) = &path_hit {
                 self.motion_seek(hit);
-            } else if !doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_some() {
+            } else if doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_none() {
                 let hit = pointer
                     .and_then(|p| crate::bone_ui::pick_bone(&doc, rect, view, p))
                     .or_else(|| doc_pt.and_then(|p| doc.hit_test(p)))
@@ -2313,10 +2423,13 @@ impl App {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+            .vscroll(true)
+            .max_height((ctx.content_rect().height() - 96.0).max(240.0))
             .default_width(380.0)
             .anchor(Align2::RIGHT_TOP, vec2(-280.0, 56.0))
             .show(ctx, |ui| {
                 self.export_boards_choice(ui);
+                self.web_export(ui);
                 // An interface scene is exported as a kit first of all; game art has no kit.
                 let purpose = self.scene.doc.purpose;
                 if purpose == Purpose::Ui {
@@ -2649,10 +2762,8 @@ impl App {
                 egui::Event::Copy => {
                     self.copy_selection(ctx);
                 }
-                egui::Event::Cut => {
-                    if self.copy_selection(ctx) {
-                        self.delete_selected_nodes();
-                    }
+                egui::Event::Cut if self.copy_selection(ctx) => {
+                    self.delete_selected_nodes();
                 }
                 egui::Event::Paste(text) => self.paste(Some(text)),
                 _ => {}
@@ -2966,6 +3077,8 @@ fn parse_paint(text: &str) -> Option<Value> {
 pub(crate) enum FileAction {
     New(&'static str),
     Open,
+    Close,
+    Restore(usize),
 }
 
 fn updater_path() -> Option<PathBuf> {
@@ -2982,6 +3095,15 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         let dt = ctx.input(|i| i.stable_dt);
         self.frame_ms = self.frame_ms * 0.9 + dt * 1000.0 * 0.1;
+        if ctx.input(|i| i.viewport().close_requested()) && !self.close_allowed {
+            if self.dirty() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.pending_file = Some(FileAction::Close);
+            } else {
+                self.recovery.clear();
+            }
+        }
+        self.autosave();
         self.poll_disk();
         self.dropped_files(&ctx);
         self.refresh_backdrop();
@@ -3003,7 +3125,7 @@ impl eframe::App for App {
         } else if self.playing {
             self.time += dt.min(0.1) as f64;
             ctx.request_repaint();
-        } else if self.path.is_some() {
+        } else if self.path.is_some() || self.dirty() {
             // Keep polling the file on disk for external edits.
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
@@ -3024,8 +3146,10 @@ impl eframe::App for App {
         }
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, frame));
         self.export_window(&ctx);
+        self.web_window(&ctx);
         self.help_window(&ctx);
         self.unsaved_window(&ctx);
+        self.recovery_window(&ctx);
         self.syntax_window(&ctx);
         self.stretch_window(&ctx);
         self.library_window(&ctx);

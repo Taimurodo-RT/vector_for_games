@@ -74,6 +74,7 @@ impl<'a> Evaluator<'a> {
                 board_cell: None,
                 palette: Vec::new(),
                 refs: HashMap::new(),
+                gradient_refs: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -1491,6 +1492,11 @@ impl<'a> Evaluator<'a> {
                         continue;
                     }
                     let g = Some(motif_core::Gradient { radial, angle, colors });
+                    let refs = vals.iter().zip(&p.values).filter_map(|(v, ast)| {
+                        if !matches!(v, Some(Value::Color(_))) { return None; }
+                        Some(match &ast.kind { ValueKind::Ref(name) => Some(name.clone()), _ => None })
+                    }).collect();
+                    self.scene.gradient_refs.insert((id.clone(), p.key == "stroke-gradient"), refs);
                     if p.key == "gradient" {
                         node.gradient = g;
                     } else {

@@ -51,7 +51,7 @@ fn poly6(r2: f64) -> f64 {
 
 fn spiky(d: Vec2) -> Vec2 {
     let r = d.hypot();
-    if r >= H || r < 1e-9 { Vec2::ZERO } else { d / r * (-30.0 / (std::f64::consts::PI * H.powi(5)) * (H - r).powi(2)) }
+    if !(1e-9..H).contains(&r) { Vec2::ZERO } else { d / r * (-30.0 / (std::f64::consts::PI * H.powi(5)) * (H - r).powi(2)) }
 }
 
 /// Density of a drop amid drops packed as a fill packs them: rows one spacing apart along,
