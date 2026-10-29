@@ -28,6 +28,10 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/bounce.msc
       - run: cargo run -p motif-cli -- check examples/gem.msc
       - run: cargo run -p motif-cli -- check examples/compound-paths.msc
+      - run: cargo run -p motif-cli -- check examples/character-side.msc
+      - run: cargo run -p motif-cli -- check examples/character-platformer.msc
+      - run: cargo run -p motif-cli -- godot examples/character-platformer.msc --node hero -o target/platformer-check
+      - run: cargo run -p motif-cli -- godot examples/character-side.msc --node hero -o target/character-check
       - run: cargo run -p motif-cli -- check examples/card.msc
       - run: cargo run -p motif-cli -- check examples/title.msc
       - run: cargo run -p motif-cli -- check examples/depth.msc

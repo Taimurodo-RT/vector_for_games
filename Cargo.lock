@@ -1545,6 +1545,8 @@ version = "0.1.0"
 dependencies = [
  "linesweeper",
  "motif-core",
+ "serde",
+ "serde_json",
  "usvg",
 ]
 

@@ -6,12 +6,6 @@ use crate::{Document, ShapeKind};
 use kurbo::{Affine, Point};
 use std::f64::consts::PI;
 
-/// Direction of the x axis of `a`, in radians.
-fn angle(a: Affine) -> f64 {
-    let v = a * Point::new(1.0, 0.0) - a * Point::ZERO;
-    v.y.atan2(v.x)
-}
-
 /// Degrees in -180..180.
 fn degrees(rad: f64) -> f64 {
     let d = rad.to_degrees();
@@ -47,8 +41,13 @@ impl Document {
         }
     }
 
-    fn parent_angle(&self, i: usize) -> f64 {
-        self.nodes[i].parent.map_or(0.0, |p| angle(self.world_transform(p)))
+    /// Solve in the parent's coordinates so a mirrored, scaled or skewed character
+    /// uses the same joint angles as its untransformed rig. A collapsed parent has
+    /// no inverse; leave its pose alone instead of introducing non-finite angles.
+    fn parent_space(&self, i: usize) -> Option<Affine> {
+        let parent = self.nodes[i].parent.map_or(Affine::IDENTITY, |p| self.world_transform(p));
+        let det = parent.determinant();
+        (det.is_finite() && det.abs() > 1e-12).then(|| parent.inverse())
     }
 
     fn tip(&self, i: usize) -> Point {
@@ -57,34 +56,38 @@ impl Document {
 
     /// Turns bone `i` to point at `target`.
     fn aim(&mut self, i: usize, target: Point) {
-        let o = self.world_transform(i) * Point::ZERO;
+        let Some(space) = self.parent_space(i) else { return };
+        let target = space * target;
+        let o = space * self.world_transform(i) * Point::ZERO;
         if (target - o).hypot() < 1e-9 {
             return;
         }
-        self.nodes[i].rotation = degrees((target - o).atan2() - self.parent_angle(i));
+        self.nodes[i].rotation = degrees((target - o).atan2());
     }
 
     /// Bends bone `a` and its child `b` so that the tip of `b` reaches `target`, or points
     /// straight at it when it is out of reach.
     fn two_bones(&mut self, a: usize, b: usize, target: Point, flip: bool) {
-        let wa = self.world_transform(a);
+        let Some(space) = self.parent_space(a) else { return };
+        let local_target = space * target;
+        let wa = space * self.world_transform(a);
         let o = wa * Point::ZERO;
         let (bx, by) = (self.nodes[b].x, self.nodes[b].y);
         let l1 = (wa * Point::new(bx, by) - o).hypot();
-        let l2 = (self.tip(b) - self.world_transform(b) * Point::ZERO).hypot();
+        let l2 = (space * self.tip(b) - space * self.world_transform(b) * Point::ZERO).hypot();
         if l1 < 1e-9 || l2 < 1e-9 {
             self.aim(a, target);
             self.aim(b, target);
             return;
         }
-        let d = (target - o).hypot().clamp((l1 - l2).abs() + 1e-6, l1 + l2 - 1e-6);
+        let d = (local_target - o).hypot().clamp((l1 - l2).abs() + 1e-6, l1 + l2 - 1e-6);
         let at_root = ((l1 * l1 + d * d - l2 * l2) / (2.0 * l1 * d)).clamp(-1.0, 1.0).acos();
         let at_joint = ((l1 * l1 + l2 * l2 - d * d) / (2.0 * l1 * l2)).clamp(-1.0, 1.0).acos();
         let s = if flip { -1.0 } else { 1.0 };
         // The joint sits `at_root` off the line to the target; `off` is where the child starts on its parent.
         let off = by.atan2(bx);
-        let to_joint = (target - o).atan2() - s * at_root;
-        self.nodes[a].rotation = degrees(to_joint - off - self.parent_angle(a));
+        let to_joint = (local_target - o).atan2() - s * at_root;
+        self.nodes[a].rotation = degrees(to_joint - off);
         self.nodes[b].rotation = degrees(s * (PI - at_joint) + off);
     }
 
@@ -94,9 +97,10 @@ impl Document {
         let last = chain[chain.len() - 1];
         for _ in 0..16 {
             for &bone in chain.iter().rev() {
-                let o = self.world_transform(bone) * Point::ZERO;
-                let tip = self.tip(last);
-                let turn = (target - o).atan2() - (tip - o).atan2();
+                let Some(space) = self.parent_space(bone) else { continue };
+                let o = space * self.world_transform(bone) * Point::ZERO;
+                let tip = space * self.tip(last);
+                let turn = (space * target - o).atan2() - (tip - o).atan2();
                 self.nodes[bone].rotation = degrees(self.nodes[bone].rotation.to_radians() + turn);
             }
             if (self.tip(last) - target).hypot() < 0.05 {
@@ -158,5 +162,48 @@ mod tests {
         assert!((d.nodes[0].rotation - 90.0).abs() < 1e-6);
         let d = arm(4, (180.0, 60.0), false);
         assert!((tip(&d, 3) - Point::new(180.0, 60.0)).hypot() < 0.1, "{:?}", tip(&d, 3));
+    }
+
+    #[test]
+    fn transformed_parent_preserves_one_two_and_long_chain_contacts() {
+        for n in [1, 2, 4] {
+            for sx in [-1.0, -1.3, 1.3] {
+                for flip in [false, true] {
+                    let mut d = arm(n, (130.0, 140.0), flip);
+                    let mut parent = Node::new("character", ShapeKind::Group);
+                    parent.x = 240.0;
+                    parent.y = -80.0;
+                    parent.rotation = 31.0;
+                    parent.scale_x = sx;
+                    parent.scale_y = 0.8;
+                    parent.skew_x = 12.0;
+                    d.nodes[0].parent = Some(d.nodes.len());
+                    d.nodes[n].parent = Some(d.nodes.len());
+                    d.nodes.push(parent);
+                    // Start from a different pose; do not just re-solve an already correct arm.
+                    for bone in &mut d.nodes[..n] {
+                        bone.rotation = 0.0;
+                    }
+                    d.solve_ik();
+                    let target = d.world_transform(n) * Point::ZERO;
+                    assert!(tip(&d, n - 1).distance(target) < 0.1, "{n} bones / scale {sx} / flip {flip}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn collapsed_parent_leaves_finite_joint_angles() {
+        for n in [1, 2, 4] {
+            let mut d = arm(n, (130.0, 140.0), false);
+            let mut parent = Node::new("collapsed", ShapeKind::Group);
+            parent.scale_x = 0.0;
+            d.nodes[0].parent = Some(d.nodes.len());
+            d.nodes[n].parent = Some(d.nodes.len());
+            d.nodes.push(parent);
+            let before: Vec<_> = d.nodes.iter().map(|n| n.rotation).collect();
+            d.solve_ik();
+            assert_eq!(before, d.nodes.iter().map(|n| n.rotation).collect::<Vec<_>>());
+        }
     }
 }

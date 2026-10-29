@@ -1,0 +1,277 @@
+// Векторный герой платформера в стиле Марио. Все детали редактируются; растровых вставок нет.
+// Пропорции и цвета меняются в панели «Персонаж». Кости и ключи связаны через let.
+artboard "Герой платформера" 320x384 bg #dce7ef game
+// @motif-characters {"schema":1,"characters":[{"root":"hero","name":"Герой платформера","rig":"humanoid-platformer-v1","bones":["pelvis","spine","neck","arm_back","fore_back","hand_back","arm_front","fore_front","hand_front","thigh_back_bone","shin_back_bone","thigh_front_bone","shin_front_bone","foot_back","foot_front"],"slots":[{"id":"head","name":"Голова","variants":[{"id":"face","name":"Лицо и усы","groups":["face"]}]},{"id":"hat","name":"Головной убор","variants":[{"id":"cap","name":"Кепка","groups":["cap"]},{"id":"none","name":"Без кепки","groups":[]}]},{"id":"torso","name":"Тело и одежда","variants":[{"id":"overalls","name":"Комбинезон","groups":["torso"]}]},{"id":"arms","name":"Рукава","variants":[{"id":"shirt","name":"Рубашка","groups":["upper_back","lower_back","upper_front","lower_front"]}]},{"id":"hands","name":"Кисти","variants":[{"id":"gloves","name":"Перчатки","groups":["glove_back","glove_front"]},{"id":"bare","name":"Без перчаток","groups":["bare_back","bare_front"]}]},{"id":"legs","name":"Ноги","variants":[{"id":"pants","name":"Брюки","groups":["thigh_back","shin_back","thigh_front","shin_front"]}]},{"id":"feet","name":"Обувь","variants":[{"id":"boots","name":"Ботинки","groups":["boot_back","boot_front"]}]},{"id":"back","name":"На спине","variants":[{"id":"none","name":"Без предмета","groups":[]},{"id":"pack","name":"Сумка мастера","groups":["pack"]}]},{"id":"hand_item","name":"В руке","variants":[{"id":"none","name":"Без предмета","groups":[]},{"id":"wrench","name":"Гаечный ключ","groups":["wrench"]}]}],"looks":[{"name":"Красный герой","slots":{"head":"face","hat":"cap","torso":"overalls","arms":"shirt","hands":"gloves","legs":"pants","feet":"boots","back":"none","hand_item":"none"},"parameters":{"hero_size":1.15,"head_size":1.0,"body_width":1.0,"leg_length":1.0,"stride":1.0,"detail":1.0},"palette":{"red":"#e63235","blue":"#2058b7","skin":"#f3bd87","hair":"#48291e","glove":"#fff2d4","shoe":"#80502e","metal":"#ffd34b","ink":"#262334"}},{"name":"Зелёный герой","slots":{"head":"face","hat":"cap","torso":"overalls","arms":"shirt","hands":"gloves","legs":"pants","feet":"boots","back":"none","hand_item":"none"},"parameters":{"hero_size":1.15,"head_size":1.0,"body_width":0.9,"leg_length":1.12,"stride":1.0,"detail":1.0},"palette":{"red":"#35964b","blue":"#283e8b","skin":"#f3bd87","hair":"#48291e","glove":"#fff2d4","shoe":"#80502e","metal":"#ffd34b","ink":"#262334"}},{"name":"Плоские цвета","slots":{"head":"face","hat":"cap","torso":"overalls","arms":"shirt","hands":"gloves","legs":"pants","feet":"boots","back":"none","hand_item":"none"},"parameters":{"hero_size":1.15,"head_size":1.0,"body_width":1.0,"leg_length":1.0,"stride":1.0,"detail":0.0},"palette":{"red":"#e63235","blue":"#2058b7","skin":"#f3bd87","hair":"#48291e","glove":"#fff2d4","shoe":"#80502e","metal":"#ffd34b","ink":"#262334"}}],"motions":[{"name":"Покой","clip":"Idle"},{"name":"Ходьба","clip":"Walk"},{"name":"Бег","clip":"Run"},{"name":"Прыжок","clip":"Jump"}],"parameters":[{"name":"hero_size","label":"Размер героя","min":0.9,"max":1.3},{"name":"head_size","label":"Размер головы","min":0.85,"max":1.15},{"name":"body_width","label":"Полнота","min":0.85,"max":1.15},{"name":"leg_length","label":"Длина ног","min":0.8,"max":1.15},{"name":"stride","label":"Ширина шага","min":0.7,"max":1.1},{"name":"detail","label":"Объём и мелкие детали","min":0.0,"max":1.0}],"palette":[{"name":"red","label":"Кепка и рубашка"},{"name":"blue","label":"Комбинезон"},{"name":"skin","label":"Кожа"},{"name":"hair","label":"Волосы и усы"},{"name":"glove","label":"Перчатки"},{"name":"shoe","label":"Ботинки"},{"name":"metal","label":"Пуговицы"},{"name":"ink","label":"Обводка"}]}]}
+
+let hero_size = 1.15
+let head_size = 1.0
+let body_width = 1.0
+let leg_length = 1.0
+let stride = 1.0
+let detail = 1.0
+let red = #e63235
+let blue = #2058b7
+let skin = #f3bd87
+let hair = #48291e
+let glove = #fff2d4
+let shoe = #80502e
+let metal = #ffd34b
+let ink = #262334
+
+ellipse ground_shadow at 160 350 size 112 14 fill #486176 opacity 0.18 locked
+group hero "Герой" at 160 346 scale hero_size {
+  bone foot_back "Стопа back · цель IK" at {-11 * leg_length} -6 len 22 {
+    group boot_back "Ботинок back"  {
+      path boot_back_shape d "M-15 -10 Q-16 -20 -4 -20 L7 -19 Q12 -17 13 -8 L26 -6 Q35 -3 33 6 Q11 12 -15 7 Z" fill shoe stroke ink 2.2
+      path sole_back d "M-15 3 Q8 7 33 2 L33 7 Q10 13 -15 8 Z" fill ink 
+      group boot_back_detail opacity detail  {
+        path boot_back_shine d "M-10 -15 Q0 -19 7 -14 L7 -7 Q-3 -10 -10 -7 Z" fill #fff opacity 0.22
+        path boot_back_seam d "M11 -7 Q7 -2 9 4" fill none stroke ink 1.5 opacity 0.5
+      }
+    }
+  }
+  bone pelvis "Таз" at 0 {-68 * leg_length - 6} len 24 {
+    bone thigh_back_bone "Бедро back" at -5 {3 * leg_length} len {34 * leg_length} rot 90 {
+      group thigh_back "Брюки / бедро back" scale leg_length 1 {
+        path thigh_back_shape d "M-8 -14 Q-14 0 -5 13 L27 13 Q42 11 41 0 Q42 -12 28 -14 Z" fill blue stroke ink 2.2
+        group thigh_back_detail opacity detail  {
+          path thigh_back_shadow d "M-5 6 Q11 12 34 5 L36 10 Q22 17 -5 13 Z" fill #000 opacity 0.18
+          path thigh_back_shine d "M3 -9 L27 -9" fill none stroke #fff 3 cap round opacity 0.2
+        }
+      }
+      bone shin_back_bone "Голень back · IK" at {34 * leg_length} 0 len {34 * leg_length} ik foot_back {
+        group shin_back "Брюки / голень back" scale leg_length 1 {
+          path shin_back_shape d "M-5 -11 Q-12 0 -4 11 L30 12 L38 9 L38 -11 Z" fill blue stroke ink 2.2
+          group shin_back_detail opacity detail  {
+            path shin_back_shadow d "M-3 6 L38 5 L38 9 L30 12 L-4 11 Z" fill #000 opacity 0.18
+            path shin_back_hem d "M29 -10 L29 10" fill none stroke ink 2 opacity 0.6
+          }
+        }
+      }
+    }
+    bone spine "Корпус" len 50 rot -90 {
+      group pack "Сумка мастера" at 23 -29 rot 90 hidden {
+        rect pack_body size 24 42 r 6 fill shoe stroke ink 2.2
+        rect pack_flap at 0 -12 size 27 16 r 4 fill metal stroke ink 2
+      }
+      bone arm_back "Плечо back" at 43 {12 * body_width} len 29 rot 170 {
+        group upper_back "Рукав / плечо back"  {
+          path upper_back_shape d "M-9 -11 Q-15 -1 -8 11 Q10 16 29 10 Q36 0 28 -11 Z" fill red stroke ink 2.2
+          group upper_back_detail opacity detail  {
+            path upper_back_shine d "M-5 -7 Q12 -10 23 -6" fill none stroke #fff 4 cap round opacity 0.2
+          }
+        }
+        bone fore_back "Предплечье back" at 29 0 len 25 rot -30 {
+          group lower_back "Рукав / предплечье back"  {
+            path lower_back_shape d "M-7 -9 Q-12 0 -6 10 L25 10 L29 -8 Z" fill red stroke ink 2.2
+            group lower_back_detail opacity detail  {
+              path lower_back_shadow d "M-4 5 L26 3 L25 10 L-6 10 Z" fill #000 opacity 0.17
+            }
+          }
+          bone hand_back "Кисть back" at 25 0 len 18 {
+            group glove_back "Перчатка back"  {
+              path glove_back_shape d "M-4 -10 Q-7 -15 0 -16 L12 -15 Q18 -18 23 -11 Q30 -9 28 -2 Q31 5 23 10 Q15 16 5 12 L0 8 Q-7 13 -12 6 Q-16 1 -11 -4 L-4 -5 Z" fill glove stroke ink 2.2
+              rect glove_back_cuff at -4 -1 size 10 22 r 3 fill glove stroke ink 2
+              group glove_back_detail opacity detail  {
+                path glove_back_shadow d "M3 7 Q15 10 26 3 Q28 9 20 12 Q10 16 4 11 Z" fill #000 opacity 0.13
+                path glove_back_crease0 d "M8 -10 L10 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path glove_back_crease1 d "M13 -10 L15 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path glove_back_crease2 d "M18 -10 L20 -4" fill none stroke ink 1.3 cap round opacity 0.45
+              }
+            }
+            group bare_back "Кисть back" hidden {
+              path bare_back_shape d "M-4 -10 Q-7 -15 0 -16 L12 -15 Q18 -18 23 -11 Q30 -9 28 -2 Q31 5 23 10 Q15 16 5 12 L0 8 Q-7 13 -12 6 Q-16 1 -11 -4 L-4 -5 Z" fill skin stroke ink 2.2
+              rect bare_back_cuff at -4 -1 size 10 22 r 3 fill skin stroke ink 2
+              group bare_back_detail opacity detail  {
+                path bare_back_shadow d "M3 7 Q15 10 26 3 Q28 9 20 12 Q10 16 4 11 Z" fill #000 opacity 0.13
+                path bare_back_crease0 d "M8 -10 L10 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path bare_back_crease1 d "M13 -10 L15 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path bare_back_crease2 d "M18 -10 L20 -4" fill none stroke ink 1.3 cap round opacity 0.45
+              }
+            }
+          }
+        }
+      }
+      group torso "Рубашка и комбинезон" at 22 0 rot 90 scale body_width 1 {
+        path shirt_body d "M-18 -29 Q-31 -22 -29 -7 L-26 12 Q-16 25 10 25 Q38 24 38 6 Q37 -13 21 -27 Q5 -34 -18 -29 Z" fill red stroke ink 2.4
+        path overall_belly d "M-23 -18 L-10 -13 L6 -17 L21 -18 L27 -4 Q38 1 38 13 Q31 28 7 29 Q-18 30 -28 14 L-27 -3 Z" fill blue stroke ink 2.2
+        path strap_far d "M-24 -27 L-14 -29 L-9 -9 L-17 -5 Z" fill blue stroke ink 2
+        path strap_front d "M7 -30 L17 -27 L23 -9 L13 -6 Z" fill blue stroke ink 2
+        ellipse button_far at -12 -7 size 8 fill metal stroke ink 1.5
+        ellipse button_front at 18 -7 size 9 fill metal stroke ink 1.5
+        group torso_detail opacity detail  {
+          path belly_shine d "M-10 1 Q6 -8 25 0 Q32 7 25 13 Q12 8 -7 12 Z" fill #fff opacity 0.12
+          path belly_shadow d "M-26 8 Q-8 27 31 16 Q22 31 1 28 Q-18 28 -26 16 Z" fill #000 opacity 0.16
+          path bib_pocket d "M-2 -3 L10 -3 L10 6 Q4 10 -2 5 Z" fill none stroke ink 1.5 opacity 0.55
+          ellipse button_spark at 16 -9 size 2.5 fill #fff 
+        }
+      }
+      bone neck "Голова" at 50 0 len 20 {
+        group face "Лицо, волосы и усы" at 24 0 rot 90 scale head_size {
+          rect neck_skin at -6 25 size 17 17 r 5 fill skin stroke ink 2
+          path hair_back d "M-29 4 Q-43 -15 -30 -32 Q-15 -49 10 -34 L17 -20 L8 17 Q-6 31 -26 19 L-31 10 Z" fill hair stroke ink 2.4
+          path face_shape d "M-16 -29 Q1 -40 20 -28 Q30 -17 29 -3 L37 7 Q35 27 16 31 Q-6 33 -17 17 L-25 5 Z" fill skin stroke ink 2.2
+          group face_shading opacity detail  {
+            path cheek_shadow d "M25 7 Q33 17 24 26 Q10 37 -6 25 L-11 14 Q3 25 19 16 Z" fill #b65f36 opacity 0.3
+            ellipse cheek_light at 16 13 size 15 11 fill #fff opacity 0.18
+          }
+          ellipse eye_white at 19 -11 size 14 24 fill glove stroke ink 1.4
+          ellipse iris at 18 -9 size 6 15 fill #3987b4 
+          ellipse pupil at 19 -9 size 3 11 fill ink 
+          ellipse eye_glint at 18 -13 size 2.5 fill #fff 
+          path eyebrow d "M10 -25 Q18 -31 27 -24 L26 -20 Q16 -25 10 -20 Z" fill hair 
+          path mustache d "M5 2 Q11 -5 19 -1 Q29 -6 36 1 Q42 6 37 11 Q30 17 26 10 Q21 18 16 12 Q9 17 5 10 Q0 12 -2 7 Z" fill hair stroke ink 1.5
+          ellipse nose at 35 -1 size 28 23 fill skin stroke ink 2
+          group nose_detail opacity detail  {
+            ellipse nose_light at 36 -6 size 13 7 fill #fff opacity 0.25
+          }
+          ellipse ear at -15 3 size 21 29 fill skin stroke ink 2
+          path ear_fold d "M-18 10 Q-24 -1 -16 -5 Q-10 -6 -10 1" fill none stroke #b87852 2.5 cap round
+          path sideburn d "M-20 -25 L-8 -23 L-9 -1 Q-16 6 -21 -3 Z" fill hair 
+          path smile d "M16 22 Q23 23 28 18" fill none stroke hair 2 cap round
+        }
+        group cap "Кепка" at 30 0 rot 90 scale head_size {
+          path cap_crown d "M-36 -18 Q-47 -32 -31 -43 Q-8 -58 22 -44 Q34 -40 33 -21 L20 -15 L-13 -15 Z" fill red stroke ink 2.4
+          group cap_detail opacity detail  {
+            path cap_shadow d "M-36 -28 Q-18 -18 8 -24 L28 -24 L27 -15 L-20 -13 L-36 -18 Z" fill #000 opacity 0.19
+            path cap_shine d "M-25 -39 Q-4 -50 16 -42" fill none stroke #fff 5 cap round opacity 0.2
+          }
+          ellipse cap_badge at 20 -30 size 19 19 fill glove stroke ink 1
+          path cap_emblem d "M14 -25 L15 -35 L20 -30 L24 -35 L26 -25" fill none stroke red 2.6 join round
+          path cap_brim d "M-13 -18 Q12 -24 34 -21 Q45 -20 48 -13 Q32 -7 13 -11 L-11 -12 Z" fill red stroke ink 2.2
+          group cap_brim_detail opacity detail  {
+            path cap_brim_under d "M10 -12 Q29 -9 47 -13 Q35 -6 13 -9 Z" fill #000 opacity 0.25
+          }
+        }
+      }
+      bone arm_front "Плечо front" at 43 {-16 * body_width} len 29 rot 170 {
+        group upper_front "Рукав / плечо front"  {
+          path upper_front_shape d "M-9 -11 Q-15 -1 -8 11 Q10 16 29 10 Q36 0 28 -11 Z" fill red stroke ink 2.2
+          group upper_front_detail opacity detail  {
+            path upper_front_shine d "M-5 -7 Q12 -10 23 -6" fill none stroke #fff 4 cap round opacity 0.2
+          }
+        }
+        bone fore_front "Предплечье front" at 29 0 len 25 rot -30 {
+          group lower_front "Рукав / предплечье front"  {
+            path lower_front_shape d "M-7 -9 Q-12 0 -6 10 L25 10 L29 -8 Z" fill red stroke ink 2.2
+            group lower_front_detail opacity detail  {
+              path lower_front_shadow d "M-4 5 L26 3 L25 10 L-6 10 Z" fill #000 opacity 0.17
+            }
+          }
+          bone hand_front "Кисть front" at 25 0 len 18 {
+            group glove_front "Перчатка front"  {
+              path glove_front_shape d "M-4 -10 Q-7 -15 0 -16 L12 -15 Q18 -18 23 -11 Q30 -9 28 -2 Q31 5 23 10 Q15 16 5 12 L0 8 Q-7 13 -12 6 Q-16 1 -11 -4 L-4 -5 Z" fill glove stroke ink 2.2
+              rect glove_front_cuff at -4 -1 size 10 22 r 3 fill glove stroke ink 2
+              group glove_front_detail opacity detail  {
+                path glove_front_shadow d "M3 7 Q15 10 26 3 Q28 9 20 12 Q10 16 4 11 Z" fill #000 opacity 0.13
+                path glove_front_crease0 d "M8 -10 L10 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path glove_front_crease1 d "M13 -10 L15 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path glove_front_crease2 d "M18 -10 L20 -4" fill none stroke ink 1.3 cap round opacity 0.45
+              }
+            }
+            group bare_front "Кисть front" hidden {
+              path bare_front_shape d "M-4 -10 Q-7 -15 0 -16 L12 -15 Q18 -18 23 -11 Q30 -9 28 -2 Q31 5 23 10 Q15 16 5 12 L0 8 Q-7 13 -12 6 Q-16 1 -11 -4 L-4 -5 Z" fill skin stroke ink 2.2
+              rect bare_front_cuff at -4 -1 size 10 22 r 3 fill skin stroke ink 2
+              group bare_front_detail opacity detail  {
+                path bare_front_shadow d "M3 7 Q15 10 26 3 Q28 9 20 12 Q10 16 4 11 Z" fill #000 opacity 0.13
+                path bare_front_crease0 d "M8 -10 L10 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path bare_front_crease1 d "M13 -10 L15 -4" fill none stroke ink 1.3 cap round opacity 0.45
+                path bare_front_crease2 d "M18 -10 L20 -4" fill none stroke ink 1.3 cap round opacity 0.45
+              }
+            }
+            group wrench "Ключ мастера" at 13 0 rot -80 hidden {
+              path wrench_shape d "M-4 12 L-4 -33 Q-16 -36 -10 -49 L-4 -41 L4 -41 L10 -49 Q16 -36 4 -33 L4 12 Q0 17 -4 12 Z" fill #9ba9b7 stroke ink 2
+            }
+          }
+        }
+      }
+    }
+    bone thigh_front_bone "Бедро front" at 6 {3 * leg_length} len {34 * leg_length} rot 90 {
+      group thigh_front "Брюки / бедро front" scale leg_length 1 {
+        path thigh_front_shape d "M-8 -14 Q-14 0 -5 13 L27 13 Q42 11 41 0 Q42 -12 28 -14 Z" fill blue stroke ink 2.2
+        group thigh_front_detail opacity detail  {
+          path thigh_front_shadow d "M-5 6 Q11 12 34 5 L36 10 Q22 17 -5 13 Z" fill #000 opacity 0.18
+          path thigh_front_shine d "M3 -9 L27 -9" fill none stroke #fff 3 cap round opacity 0.2
+        }
+      }
+      bone shin_front_bone "Голень front · IK" at {34 * leg_length} 0 len {34 * leg_length} ik foot_front {
+        group shin_front "Брюки / голень front" scale leg_length 1 {
+          path shin_front_shape d "M-5 -11 Q-12 0 -4 11 L30 12 L38 9 L38 -11 Z" fill blue stroke ink 2.2
+          group shin_front_detail opacity detail  {
+            path shin_front_shadow d "M-3 6 L38 5 L38 9 L30 12 L-4 11 Z" fill #000 opacity 0.18
+            path shin_front_hem d "M29 -10 L29 10" fill none stroke ink 2 opacity 0.6
+          }
+        }
+      }
+    }
+  }
+  bone foot_front "Стопа front · цель IK" at {9 * leg_length} -6 len 22 {
+    group boot_front "Ботинок front"  {
+      path boot_front_shape d "M-15 -10 Q-16 -20 -4 -20 L7 -19 Q12 -17 13 -8 L26 -6 Q35 -3 33 6 Q11 12 -15 7 Z" fill shoe stroke ink 2.2
+      path sole_front d "M-15 3 Q8 7 33 2 L33 7 Q10 13 -15 8 Z" fill ink 
+      group boot_front_detail opacity detail  {
+        path boot_front_shine d "M-10 -15 Q0 -19 7 -14 L7 -7 Q-3 -10 -10 -7 Z" fill #fff opacity 0.22
+        path boot_front_seam d "M11 -7 Q7 -2 9 4" fill none stroke ink 1.5 opacity 0.5
+      }
+    }
+  }
+}
+
+// Шаг и IK-цели используют ту же длину ноги: параметры не разрывают анимацию.
+anim Idle 2s loop {
+  pelvis.y 0: {-68 * leg_length - 6} ease-in-out-sine | 1: {-69 * leg_length - 6} ease-in-out-sine | 2: {-68 * leg_length - 6}
+  spine.rot 0: -90 ease-in-out-sine | 1: -88 ease-in-out-sine | 2: -90
+  arm_front.rot 0: 170 ease-in-out-sine | 1: 173 ease-in-out-sine | 2: 170
+  arm_back.rot 0: 170 ease-in-out-sine | 1: 167 ease-in-out-sine | 2: 170
+}
+anim Walk 0.8s loop {
+  pelvis.y 0.0: {-62 * leg_length - 6} ease-in-out-sine | 0.2: {-65 * leg_length - 6} ease-in-out-sine | 0.4: {-62 * leg_length - 6} ease-in-out-sine | 0.6: {-65 * leg_length - 6} ease-in-out-sine | 0.8: {-62 * leg_length - 6}
+  foot_front.x 0.0: {22 * leg_length * stride} ease-in-out-sine | 0.2: {0 * leg_length * stride} ease-in-out-sine | 0.4: {-22 * leg_length * stride} ease-in-out-sine | 0.6: {-2 * leg_length * stride} ease-in-out-sine | 0.8: {22 * leg_length * stride}
+  foot_front.y 0.0: {0 * leg_length - 6} ease-in-out-sine | 0.2: {0 * leg_length - 6} ease-in-out-sine | 0.4: {0 * leg_length - 6} ease-in-out-sine | 0.6: {-19 * leg_length - 6} ease-in-out-sine | 0.8: {0 * leg_length - 6}
+  arm_front.rot 0: 190 ease-in-out-sine | 0.4: 150 ease-in-out-sine | 0.8: 190
+  foot_back.x 0.0: {-22 * leg_length * stride} ease-in-out-sine | 0.2: {-2 * leg_length * stride} ease-in-out-sine | 0.4: {22 * leg_length * stride} ease-in-out-sine | 0.6: {0 * leg_length * stride} ease-in-out-sine | 0.8: {-22 * leg_length * stride}
+  foot_back.y 0.0: {0 * leg_length - 6} ease-in-out-sine | 0.2: {-19 * leg_length - 6} ease-in-out-sine | 0.4: {0 * leg_length - 6} ease-in-out-sine | 0.6: {0 * leg_length - 6} ease-in-out-sine | 0.8: {0 * leg_length - 6}
+  arm_back.rot 0: 150 ease-in-out-sine | 0.4: 190 ease-in-out-sine | 0.8: 150
+  event step 0 0.4
+}
+anim Run 0.6s loop {
+  pelvis.y 0.0: {-61 * leg_length - 6} ease-in-out-sine | 0.15: {-67 * leg_length - 6} ease-in-out-sine | 0.3: {-61 * leg_length - 6} ease-in-out-sine | 0.45: {-67 * leg_length - 6} ease-in-out-sine | 0.6: {-61 * leg_length - 6}
+  spine.rot 0: -80
+  foot_front.x 0.0: {28 * leg_length * stride} ease-in-out-sine | 0.15: {7 * leg_length * stride} ease-in-out-sine | 0.3: {-28 * leg_length * stride} ease-in-out-sine | 0.45: {-14 * leg_length * stride} ease-in-out-sine | 0.6: {28 * leg_length * stride}
+  foot_front.y 0.0: {-5 * leg_length - 6} ease-in-out-sine | 0.15: {0 * leg_length - 6} ease-in-out-sine | 0.3: {-6 * leg_length - 6} ease-in-out-sine | 0.45: {-33 * leg_length - 6} ease-in-out-sine | 0.6: {-5 * leg_length - 6}
+  arm_front.rot 0: 220 ease-in-out-sine | 0.3: 115 ease-in-out-sine | 0.6: 220
+  fore_front.rot 0: -80 ease-in-out-sine | 0.3: -95 ease-in-out-sine | 0.6: -80
+  foot_back.x 0.0: {-28 * leg_length * stride} ease-in-out-sine | 0.15: {-14 * leg_length * stride} ease-in-out-sine | 0.3: {28 * leg_length * stride} ease-in-out-sine | 0.45: {7 * leg_length * stride} ease-in-out-sine | 0.6: {-28 * leg_length * stride}
+  foot_back.y 0.0: {-6 * leg_length - 6} ease-in-out-sine | 0.15: {-33 * leg_length - 6} ease-in-out-sine | 0.3: {-5 * leg_length - 6} ease-in-out-sine | 0.45: {0 * leg_length - 6} ease-in-out-sine | 0.6: {-6 * leg_length - 6}
+  arm_back.rot 0: 115 ease-in-out-sine | 0.3: 220 ease-in-out-sine | 0.6: 115
+  fore_back.rot 0: -80 ease-in-out-sine | 0.3: -95 ease-in-out-sine | 0.6: -80
+  event step 0.15 0.45
+}
+anim Jump 1s {
+  hero.y 0: 346 ease-in-out | 0.15: 346 ease-in-out | 0.45: 302 ease-in-out | 0.85: 346 ease-in-out | 1: 346
+  pelvis.y 0: {-68 * leg_length - 6} ease-in-out | 0.15: {-48 * leg_length - 6} ease-in-out | 0.45: {-65 * leg_length - 6} ease-in-out | 0.85: {-48 * leg_length - 6} ease-in-out | 1: {-68 * leg_length - 6}
+  foot_front.x 0: {9 * leg_length} ease-in-out-sine | 0.45: {16.2 * leg_length} ease-in-out-sine | 1: {9 * leg_length}
+  foot_front.y 0: {0 * leg_length - 6} ease-in-out-sine | 0.15: {0 * leg_length - 6} ease-in-out-sine | 0.45: {-25 * leg_length - 6} ease-in-out-sine | 0.7: {-12 * leg_length - 6} ease-in-out-sine | 0.85: {0 * leg_length - 6} ease-in-out-sine | 1: {0 * leg_length - 6}
+  arm_front.rot 0: 170 ease-in-out-sine | 0.15: 200 ease-in-out-sine | 0.45: 80 ease-in-out-sine | 0.85: 150 ease-in-out-sine | 1: 170
+  foot_back.x 0: {-11 * leg_length} ease-in-out-sine | 0.45: {-19.8 * leg_length} ease-in-out-sine | 1: {-11 * leg_length}
+  foot_back.y 0: {0 * leg_length - 6} ease-in-out-sine | 0.15: {0 * leg_length - 6} ease-in-out-sine | 0.45: {-25 * leg_length - 6} ease-in-out-sine | 0.7: {-12 * leg_length - 6} ease-in-out-sine | 0.85: {0 * leg_length - 6} ease-in-out-sine | 1: {0 * leg_length - 6}
+  arm_back.rot 0: 170 ease-in-out-sine | 0.15: 200 ease-in-out-sine | 0.45: 110 ease-in-out-sine | 0.85: 150 ease-in-out-sine | 1: 170
+  event land 0.85
+}
+machine Humanoid {
+  input speed 0
+  input jump trigger
+  state Idle
+  state Walk
+  state Run
+  state Jump
+  Idle -> Walk when speed > 0.1 blend 0.12s
+  Walk -> Idle when speed <= 0.1 blend 0.12s
+  Walk -> Run when speed > 0.7 blend 0.12s
+  Run -> Walk when speed <= 0.7 blend 0.12s
+  Idle -> Jump when jump blend 0.05s
+  Walk -> Jump when jump blend 0.05s
+  Run -> Jump when jump blend 0.05s
+  Jump -> Idle at end blend 0.1s
+}
+
