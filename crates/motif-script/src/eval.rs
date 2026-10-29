@@ -1604,7 +1604,7 @@ impl<'a> Evaluator<'a> {
                 }
                 "content" => {
                     if let ValueKind::Path(s) = &p.values[0].kind {
-                        content = s.replace("\\n", "\n");
+                        content = crate::content::decode_content(s);
                     }
                 }
                 "font" => {

@@ -17,6 +17,13 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - name: Native clipboard feature graph
+        shell: bash
+        run: |
+          features=$(cargo tree --locked -p motif-editor -e features -i egui-winit --prefix none)
+          printf '%s\n' "$features"
+          [[ "$features" == *'eframe feature "clipboard"'* ]]
+          [[ "$features" == *'egui-winit feature "clipboard"'* ]]
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -36,6 +43,9 @@ jobs:
       - run: cargo run -p motif-cli -- import-html examples/import/button.html --css examples/import/button.css -o target/imported-ui.msc
       - run: cargo run -p motif-cli -- check target/imported-ui.msc
       - run: cargo run -p motif-cli -- render target/imported-ui.msc --anim Hover --time 0.2 -o target/imported-ui-hover.png
+      - run: cargo run -p motif-cli -- import-html examples/import/text-elements.html --css examples/import/text-elements.css -o target/imported-text.msc
+      - run: cargo run -p motif-cli -- check target/imported-text.msc
+      - run: cargo run -p motif-cli -- render target/imported-text.msc -o target/imported-text.png
       - run: cargo run -p motif-cli -- godot examples/character-anime.msc --node portrait --fps 6 -o target/anime-check
       - run: cargo run -p motif-cli -- godot examples/character-portrait.msc --node hero -o target/portrait-check
       - run: cargo run -p motif-cli -- godot examples/character-platformer.msc --node hero -o target/platformer-check

@@ -350,6 +350,26 @@ impl Value {
         match (self, other) {
             (Value::Num(a), Value::Num(b)) => Value::Num(a + (b - a) * t),
             (Value::Color(a), Value::Color(b)) => Value::Color(a.lerp(b, t)),
+            // An absent paint is the transparent endpoint of the other paint, not a
+            // discrete type change. Keep its RGB so it never fades through black.
+            (Value::None, Value::Color(b)) => {
+                if t <= 0.0 {
+                    Value::None
+                } else if t >= 1.0 {
+                    Value::Color(b)
+                } else {
+                    Value::Color(Color { a: (b.a as f64 * t).round() as u8, ..b })
+                }
+            }
+            (Value::Color(a), Value::None) => {
+                if t <= 0.0 {
+                    Value::Color(a)
+                } else if t >= 1.0 {
+                    Value::None
+                } else {
+                    Value::Color(Color { a: (a.a as f64 * (1.0 - t)).round() as u8, ..a })
+                }
+            }
             _ if t < 1.0 => self,
             _ => other,
         }
@@ -774,6 +794,12 @@ impl Node {
                 if prop == Prop::Fill {
                     self.fill = p
                 } else {
+                    // Match the ordinary `stroke COLOR` authoring default when an
+                    // animation first enables a previously absent outline. An existing
+                    // zero-width stroke is intentional, and width keys are applied last.
+                    if self.stroke.is_none() && self.stroke_gradient.is_none() && p.is_some() && self.stroke_width == 0.0 {
+                        self.stroke_width = 2.0;
+                    }
                     self.stroke = p
                 }
                 self.forget_morph_paint();
@@ -1211,7 +1237,11 @@ impl Animation {
     /// Explicit node keys take precedence over parameter responses, including while previewing a draft parameter.
     pub fn apply_node_keys(&self, out: &mut Document, t: f64) {
         let t = self.local_time(t);
-        for track in self.tracks.iter().filter(|t| t.prop != Prop::Parameter) {
+        let paints_and_properties = self.tracks.iter().filter(|t| !matches!(t.prop, Prop::Parameter | Prop::StrokeWidth));
+        let widths = self.tracks.iter().filter(|t| t.prop == Prop::StrokeWidth);
+        // Explicit width keys, including zero, take precedence over the implicit
+        // width of a newly enabled stroke, independently of the source track order.
+        for track in paints_and_properties.chain(widths) {
             if let Some(v) = track.sample(t) {
                 out.set_animated_value(&track.node, track.prop, v);
             }
@@ -1228,6 +1258,50 @@ impl Animation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_paint_fades_with_the_other_colors_rgb_and_exact_endpoints() {
+        let color = Color { r: 40, g: 120, b: 230, a: 200 };
+        assert_eq!(Value::None.lerp(Value::Color(color), 0.0), Value::None);
+        assert_eq!(Value::None.lerp(Value::Color(color), 1.0), Value::Color(color));
+        assert_eq!(Value::None.lerp(Value::Color(color), 0.25), Value::Color(Color { a: 50, ..color }));
+        assert_eq!(Value::Color(color).lerp(Value::None, 0.5), Value::Color(Color { a: 100, ..color }));
+        assert_eq!(Value::Color(color).lerp(Value::None, 1.0), Value::None);
+        assert_eq!(Value::None.lerp(Value::Num(5.0), 0.5), Value::None, "other type mismatches remain discrete");
+        let mut node = Node::new("button", ShapeKind::Rect);
+        node.set(Prop::StrokeColor, Value::Color(color));
+        assert_eq!(node.stroke_width, 2.0);
+        node.stroke = None;
+        node.stroke_width = 7.0;
+        node.set(Prop::StrokeColor, Value::Color(color));
+        assert_eq!(node.stroke_width, 7.0, "a retained width belongs to the existing outline configuration");
+        node.stroke_width = 0.0;
+        node.set(Prop::StrokeColor, Value::Color(Color::WHITE));
+        assert_eq!(node.stroke_width, 0.0, "an existing stroke explicitly set to zero stays hidden");
+        node.stroke = None;
+        node.stroke_gradient = Some(Gradient { radial: false, angle: 0.0, colors: vec![Color::BLACK, Color::WHITE] });
+        node.set(Prop::StrokeColor, Value::Color(color));
+        assert_eq!(node.stroke_width, 0.0, "a zero-width gradient outline remains intentional too");
+    }
+
+    #[test]
+    fn explicit_stroke_width_keys_win_independently_of_source_track_order() {
+        let mut doc = Document::new(Artboard::default());
+        doc.nodes.push(Node::new("button", ShapeKind::Rect));
+        let track = |prop, value| Track { node: "button".into(), prop, keys: vec![Keyframe { time: 0.0, value, ease: Ease::Linear }] };
+        for width in [0.0, 6.0] {
+            for reversed in [false, true] {
+                let mut tracks = vec![track(Prop::StrokeWidth, Value::Num(width)), track(Prop::StrokeColor, Value::Color(Color::WHITE))];
+                if reversed {
+                    tracks.reverse();
+                }
+                let anim = Animation { name: "Hover".into(), duration: 1.0, looping: false, tracks, events: vec![] };
+                let pose = anim.pose(&doc, 0.5);
+                assert_eq!(pose.nodes[0].stroke_width, width);
+                assert_eq!(doc.nodes[0].stroke, None, "posing never changes the source");
+            }
+        }
+    }
 
     #[test]
     fn track_sampling_eases_between_keys() {

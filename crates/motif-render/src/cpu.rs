@@ -205,6 +205,49 @@ mod tests {
     use motif_core::{Artboard, Node, ShapeKind};
 
     #[test]
+    fn a_previously_absent_outline_fades_visibly_before_its_final_key() {
+        use motif_core::{Animation, Ease, Keyframe, Prop, Track, Value};
+        let mut doc = Document::new(Artboard { name: "Outline".into(), width: 48.0, height: 40.0, background: Color::TRANSPARENT });
+        let mut button = Node::new("button", ShapeKind::Rect);
+        button.x = 24.0;
+        button.y = 20.0;
+        button.width = 20.0;
+        button.height = 20.0;
+        button.fill = None;
+        doc.nodes.push(button);
+        let ink = Color { r: 40, g: 120, b: 230, a: 200 };
+        let mut anim = Animation {
+            name: "Hover".into(),
+            duration: 1.0,
+            looping: false,
+            events: vec![],
+            tracks: vec![Track {
+                node: "button".into(),
+                prop: Prop::StrokeColor,
+                keys: vec![
+                    Keyframe { time: 0.0, value: Value::None, ease: Ease::Linear },
+                    Keyframe { time: 1.0, value: Value::Color(ink), ease: Ease::Linear },
+                ],
+            }],
+        };
+        let alpha = |anim: &Animation, time| {
+            let pose = anim.pose(&doc, time);
+            let px = render_cpu(&pose, CpuOptions { background: false, antialias: false, ..Default::default() }).unwrap();
+            px.pixel(13, 20).unwrap().alpha()
+        };
+        assert_eq!([alpha(&anim, 0.0), alpha(&anim, 0.25), alpha(&anim, 0.5), alpha(&anim, 1.0)], [0, 50, 100, 200]);
+        anim.tracks[0].keys[0].value = Value::Color(ink);
+        anim.tracks[0].keys[1].value = Value::None;
+        assert_eq!([alpha(&anim, 0.0), alpha(&anim, 0.5), alpha(&anim, 1.0)], [200, 100, 0]);
+        anim.tracks[0].keys[0].value = Value::None;
+        anim.tracks[0].keys[1].value = Value::Color(ink);
+        anim.tracks[0].keys[0].ease = Ease::Hold;
+        assert_eq!([alpha(&anim, 0.5), alpha(&anim, 1.0)], [0, 200], "hold remains an intentional appearance jump");
+        assert_eq!(doc.nodes[0].stroke, None);
+        assert_eq!(doc.nodes[0].stroke_width, 0.0);
+    }
+
+    #[test]
     fn draws_shapes_where_they_are() {
         let mut doc = Document::new(Artboard { name: "t".into(), width: 40.0, height: 20.0, background: Color::WHITE });
         let mut n = Node::new("r", ShapeKind::Rect);

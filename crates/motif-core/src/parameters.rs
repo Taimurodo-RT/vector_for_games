@@ -45,16 +45,24 @@ impl CorrectiveTrack {
         (axis(true), axis(false))
     }
     pub fn sample(&self, x: f64, y: f64) -> f64 {
-        let (xs, ys) = self.axes();
-        let bracket = |a: &[f64], v: f64| -> Option<(f64, f64, f64)> {
-            let first = *a.first()?;
-            let last = *a.last()?;
-            let v = v.clamp(first, last);
-            let hi = a.partition_point(|n| *n < v).min(a.len() - 1);
-            let lo = hi.saturating_sub(1);
-            Some((a[lo], a[hi], if a[lo] == a[hi] { 0.0 } else { (v - a[lo]) / (a[hi] - a[lo]) }))
+        // Sampling is a per-frame operation. Find the enclosing coordinates directly,
+        // without allocating and sorting both axes for every individual warp property.
+        // This also accepts the unsorted key order used by source authoring helpers.
+        let bracket = |axis_x: bool, v: f64| -> Option<(f64, f64, f64)> {
+            let (mut lo, mut hi): (Option<f64>, Option<f64>) = (None, None);
+            for key in &self.keys {
+                let coordinate = if axis_x { key.x } else { key.y };
+                if coordinate < v {
+                    lo = Some(lo.map_or(coordinate, |old| old.max(coordinate)));
+                } else {
+                    hi = Some(hi.map_or(coordinate, |old| old.min(coordinate)));
+                }
+            }
+            let lo = lo.or(hi)?;
+            let hi = hi.unwrap_or(lo);
+            Some((lo, hi, if lo == hi { 0.0 } else { (v - lo) / (hi - lo) }))
         };
-        let (Some((x0, x1, tx)), Some((y0, y1, ty))) = (bracket(&xs, x), bracket(&ys, y)) else { return 0.0 };
+        let (Some((x0, x1, tx)), Some((y0, y1, ty))) = (bracket(true, x), bracket(false, y)) else { return 0.0 };
         let at = |x, y| self.keys.iter().find(|k| k.x == x && k.y == y).map_or(0.0, |k| k.value);
         let lower = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
         let upper = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
@@ -172,5 +180,30 @@ impl Document {
         } else if let Some(i) = self.index_of(id) {
             self.nodes[i].set(prop, value);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corrective_sampling_handles_unsorted_axes_and_clamped_queries_without_changing_the_field() {
+        let field = |x: f64, y: f64| 2.0 * x - 3.0 * y + x * y;
+        let mut keys = Vec::new();
+        for x in [3.0, -2.0, 0.0] {
+            for y in [7.0, -5.0, 1.0] {
+                keys.push(CorrectiveKey { x, y, value: field(x, y) });
+            }
+        }
+        let track = CorrectiveTrack { node: "face".into(), prop: Prop::WarpX(4), keys };
+        for x in [-99.0_f64, -2.0, -0.5, 0.0, 2.9, 3.0, 99.0] {
+            for y in [-99.0_f64, -5.0, -2.0, 1.0, 6.5, 7.0, 99.0] {
+                let expected = field(x.clamp(-2.0, 3.0), y.clamp(-5.0, 7.0));
+                assert!((track.sample(x, y) - expected).abs() < 1e-10);
+            }
+        }
+        assert_eq!(track.sample(f64::NAN, 1.0), field(-2.0, 1.0));
+        assert_eq!(track.sample(f64::INFINITY, f64::NEG_INFINITY), field(3.0, -5.0));
     }
 }

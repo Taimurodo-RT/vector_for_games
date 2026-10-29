@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+	<head>
+		<meta charset="utf-8">
+		<title>Текст и простые элементы Motif</title>
+	</head>
+	<body>
+		<main class="card">
+			<h1>Профиль персонажа</h1>
+			<h4>Текст, разметка и элементы интерфейса</h4>
+			<p>Обычный <strong>жирный</strong>, <em>наклонный</em> и <u>подчёркнутый</u> текст.</p>
+			<p><s>Старое имя</s> <small>маленькая заметка</small> H<sub>2</sub>O, x<sup>2</sup>.</p>
+			<p>Перенос внутри абзаца:<br>Эта строка начинается ниже.</p>
+			<p><a href="https://example.com/">Ссылка как редактируемая графика</a></p>
+			<ul>
+				<li>Контуры и подписи остаются редактируемыми.</li>
+				<li>Отступы HTML не создают пустых строк.</li>
+			</ul>
+			<ol start="3">
+				<li>Вставить HTML и CSS.</li>
+				<li>Преобразовать и добавить UI-холст.</li>
+			</ol>
+			<pre><code>let hero = "Мира";
+	// Буквальный слеш и n: \n
+	move(hero, 10);</code></pre>
+			<hr>
+			<div class="row">
+				<label for="hero-name">Имя</label>
+				<input id="hero-name" type="text" placeholder="Имя персонажа">
+			</div>
+			<div class="row">
+				<input id="sound" type="checkbox" checked>
+				<label for="sound">Звук включён</label>
+				<input id="choice-radio" type="radio" checked>
+				<label for="choice-radio">Вариант A</label>
+			</div>
+			<div class="row">
+				<label for="volume">Громкость</label>
+				<input id="volume" type="range" min="0" max="100" value="40">
+			</div>
+			<div class="row">
+				<label for="class-choice">Класс</label>
+				<select id="class-choice">
+					<option>Следопыт</option>
+					<option selected>Маг</option>
+				</select>
+			</div>
+			<textarea id="notes" rows="2" cols="28">Первая строка
+Вторая строка</textarea>
+			<input id="apply" type="submit" value="Применить">
+		</main>
+	</body>
+</html>

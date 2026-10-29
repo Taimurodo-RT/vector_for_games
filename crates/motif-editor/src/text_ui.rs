@@ -6,9 +6,9 @@ use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
 use motif_core::{Color, Node, TextAlign};
 use motif_script::fmt_num;
 
-/// How the content is written in the script: one line, `\n` between lines, no double quotes.
+/// Lossless MSC text content, including quotes, backslashes and control whitespace.
 pub fn content_text(s: &str) -> String {
-    format!("content \"{}\"", s.replace('"', "″").replace('\n', "\\n"))
+    format!("content {}", motif_script::quoted_content(s))
 }
 
 /// The words, edited in place; every change rewrites `content "…"`.
@@ -109,5 +109,19 @@ pub fn outline_rows(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) 
     if changed {
         list.sort_by(|a, b| b.1.total_cmp(&a.1));
         edits.push(("outline", outline_text(&list)));
+    }
+}
+
+#[cfg(test)]
+mod content_tests {
+    use super::content_text;
+
+    #[test]
+    fn saving_text_content_keeps_quotes_literal_escapes_and_whitespace() {
+        let text = "\"quoted\" and literal \\n\n\tTabbed\rLine, ending \\";
+        let source = format!("artboard 200x200\ntext label {}\n", content_text(text));
+        let parsed = motif_script::parse(&source).unwrap();
+        assert_eq!(parsed.doc.node("label").unwrap().text.as_ref().unwrap().content, text);
+        assert!(!source.contains('″'));
     }
 }

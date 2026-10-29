@@ -147,6 +147,14 @@ pub fn lex(src: &str) -> Result<Vec<Token>, ScriptError> {
                     if ch == '"' || ch == '\n' {
                         break;
                     }
+                    // Keep paired backslashes verbatim for paths and content decoding.
+                    // Advancing as a pair also lets a quoted string end in an escaped slash.
+                    if ch == '\\' && at(j + 1) == Some('\\') {
+                        s.push('\\');
+                        s.push('\\');
+                        j += 2;
+                        continue;
+                    }
                     // `\"` is a quote inside the string: `hide "Red \"front\""`.
                     if ch == '\\' && at(j + 1) == Some('"') {
                         s.push('"');

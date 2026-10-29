@@ -1,0 +1,41 @@
+/* Tab-indented component stylesheet. No external resources. */
+.card {
+	width: 560px;
+	padding: 28px;
+	background: #ffffff;
+	color: #25324a;
+	border: 1px solid #d8deea;
+	border-radius: 18px;
+	font-size: 16px;
+}
+h1 { font-size: 28px; margin: 0 0 6px; }
+h4 { font-size: 16px; color: #6a7690; margin: 0 0 16px; }
+p { margin: 8px 0; }
+ul, ol { margin: 8px 0; }
+pre {
+	padding: 12px;
+	background: #edf1f8;
+	border-radius: 8px;
+	font-size: 14px;
+	tab-size: 4;
+}
+hr { margin: 16px 0; }
+.row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 12px 0;
+}
+#hero-name { width: 240px; }
+#volume { width: 200px; }
+#class-choice { width: 180px; }
+#notes { width: 320px; padding: 8px; margin: 12px 0; }
+#apply {
+	padding: 10px 22px;
+	background: #7667d9;
+	color: #ffffff;
+	border: 0;
+	border-radius: 10px;
+}
+#apply:hover { background: #9587ef; }
+#apply:active { background: #5546b8; }
