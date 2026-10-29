@@ -1477,6 +1477,7 @@ dependencies = [
  "motif-render",
  "motif-script",
  "motif-web",
+ "serde_json",
 ]
 
 [[package]]
