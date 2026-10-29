@@ -213,7 +213,7 @@ impl App {
             ui.painter().circle_filled(pos2(r.center().x, r.top() + 44.0 + 6.0 * 14.0 + 8.0), 4.0, theme::DANGER);
         }
         if resp.clicked() {
-            self.show_script = true;
+            self.panels.set(crate::workspace::Panel::Script, true);
         }
     }
 

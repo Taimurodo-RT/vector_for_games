@@ -47,6 +47,7 @@ mod timeline;
 mod video_ui;
 mod web_ui;
 mod weights_ui;
+mod workspace;
 mod world_ui;
 
 fn main() -> eframe::Result {

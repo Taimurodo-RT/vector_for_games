@@ -5,8 +5,16 @@ use motif_script::character;
 use std::collections::BTreeMap;
 
 impl App {
+    fn can_edit_appearance(&mut self) -> bool {
+        if self.workspace() != crate::workspace::Workspace::Drawing {
+            self.status = "Внешность меняется в пространстве «Рисование». Клип и время сохранятся при возвращении".into();
+            return false;
+        }
+        self.can_edit()
+    }
+
     pub(crate) fn character_look(&mut self, root: &str, name: &str) {
-        if !self.can_edit() {
+        if !self.can_edit_appearance() {
             return;
         }
         let base = self.path.as_ref().and_then(|p| p.parent());
@@ -19,7 +27,7 @@ impl App {
     }
 
     pub(crate) fn character_configure(&mut self, root: &str, values: &character::Settings) {
-        if !self.can_edit() {
+        if !self.can_edit_appearance() {
             return;
         }
         let base = self.path.as_ref().and_then(|p| p.parent());
@@ -33,7 +41,7 @@ impl App {
     }
 
     pub(crate) fn character_copy_look(&mut self, root: &str) {
-        if !self.can_edit() {
+        if !self.can_edit_appearance() {
             return;
         }
         let base = self.path.as_ref().and_then(|p| p.parent());
@@ -42,7 +50,6 @@ impl App {
                 self.apply_once("character-copy-look", Some(out));
                 self.set_mode_animate(false);
                 self.run = None;
-                self.time = 0.0;
                 self.select_list(vec![root.into()]);
                 self.status = format!("Создан «{name}»: все надетые детали имеют свои копии, скелет и движения общие");
             }
@@ -51,7 +58,7 @@ impl App {
     }
 
     pub(crate) fn character_choice(&mut self, root: &str, choices: &BTreeMap<String, String>) {
-        if !self.can_edit() {
+        if !self.can_edit_appearance() {
             return;
         }
         let base = self.path.as_ref().and_then(|p| p.parent());
@@ -65,7 +72,7 @@ impl App {
     }
 
     pub(crate) fn character_copy(&mut self, root: &str, slot: &str) {
-        if !self.can_edit() {
+        if !self.can_edit_appearance() {
             return;
         }
         let base = self.path.as_ref().and_then(|p| p.parent());
@@ -74,7 +81,6 @@ impl App {
                 self.apply_once("character-copy", Some(out));
                 self.set_mode_animate(false);
                 self.run = None;
-                self.time = 0.0;
                 self.select_list(ids);
                 self.status = "Создан свой вариант. Раскройте выбранные группы в слоях и меняйте их фигуры; исходный вариант сохранён".into();
             }
@@ -83,7 +89,7 @@ impl App {
     }
 
     pub(crate) fn character_panel(&mut self, ui: &mut egui::Ui) {
-        if self.scene.doc.purpose == Purpose::Ui {
+        if self.tool_profile() == Purpose::Ui {
             return;
         }
         let catalog = match character::read(&self.src) {
@@ -164,7 +170,7 @@ impl App {
                 }
                 self.playing = !self.playing;
             }
-            ui.small("Меняйте одежду прямо во время движения. «Своя копия» возвращает в позу настройки для рисования.");
+            ui.small("Одежда меняется в «Рисовании». В «Анимации» вы вернётесь к прежнему клипу и времени.");
             if !character.parameters.is_empty() || !character.palette.is_empty() {
                 ui.collapsing("Пропорции и цвета", |ui| match character::settings(&self.src, character) {
                     Err(e) => {
@@ -260,12 +266,12 @@ impl App {
             match motion {
                 Some(clip) => {
                     self.select_anim(clip);
+                    self.time = 0.0;
                     self.playing = true;
                 }
                 None => {
                     self.set_mode_animate(false);
                     self.run = None;
-                    self.time = 0.0;
                 }
             }
         }
