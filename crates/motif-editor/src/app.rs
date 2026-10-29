@@ -3476,4 +3476,71 @@ mod editing_tests {
             }
         }
     }
+
+    #[test]
+    fn platformer_controls_and_full_copy_preserve_playback_other_boards_and_undo() {
+        use motif_script::character;
+        let src = format!("{}\nartboard \"Other\" 30x30\nrect keep size 5\n", include_str!("../../../examples/character-platformer.msc"));
+        let mut app = fixture(&src);
+        let original = app.file_text();
+        app.select_anim("Run".into());
+        app.time = 0.25;
+        app.playing = true;
+        app.character_look("hero", "Зелёный герой");
+        assert_eq!(app.time, 0.25);
+        assert!(app.playing);
+        let green = app.file_text();
+        let config = character::Settings { parameters: std::collections::BTreeMap::from([("head_size".into(), 1.1)]), ..Default::default() };
+        app.character_configure("hero", &config);
+        assert_eq!(app.time, 0.25);
+        assert_eq!(app.undo.len(), 2);
+        assert!(app.file_text().ends_with("artboard \"Other\" 30x30\nrect keep size 5\n"));
+        let resized = app.file_text();
+        app.character_copy_look("hero");
+        let copied = app.file_text();
+        assert!(app.anim.is_none());
+        assert_eq!(app.undo.len(), 3);
+        app.undo();
+        assert_eq!(app.file_text(), resized);
+        app.undo();
+        assert_eq!(app.file_text(), green);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+        app.redo();
+        app.redo();
+        app.redo();
+        assert_eq!(app.file_text(), copied);
+    }
+
+    #[test]
+    fn full_costume_copy_is_pixel_identical_and_a_late_failure_is_atomic() {
+        const SRC: &str = include_str!("../../../examples/character-platformer.msc");
+        let mut app = fixture(SRC);
+        let before = app.scene.clone();
+        app.character_copy_look("hero");
+        for clip in ["Idle", "Walk", "Run", "Jump"] {
+            for t in [0.0, 0.25, 0.5] {
+                let a = before.doc.animation(clip).unwrap().pose(&before.doc, t);
+                let b = app.scene.doc.animation(clip).unwrap().pose(&app.scene.doc, t);
+                assert_eq!(
+                    motif_render::render_cpu(&a, Default::default()).unwrap().data(),
+                    motif_render::render_cpu(&b, Default::default()).unwrap().data(),
+                    "{clip} {t}"
+                );
+            }
+        }
+        // The foot slot is processed after head, torso and arms: even a late failure rolls back everything.
+        let src = format!("{SRC}\nanim Custom 1s {{\n  boot_front.x 0: 0 | 1: 5\n}}\n");
+        let mut app = fixture(&src);
+        let original = app.file_text();
+        app.character_copy_look("hero");
+        assert_eq!(app.file_text(), original);
+        assert!(app.undo.is_empty());
+        app.character_configure(
+            "hero",
+            &motif_script::character::Settings { parameters: std::collections::BTreeMap::from([("head_size".into(), 9.0)]), ..Default::default() },
+        );
+        assert_eq!(app.file_text(), original);
+        assert!(app.undo.is_empty());
+    }
 }

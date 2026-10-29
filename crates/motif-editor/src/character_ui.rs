@@ -5,6 +5,51 @@ use motif_script::character;
 use std::collections::BTreeMap;
 
 impl App {
+    pub(crate) fn character_look(&mut self, root: &str, name: &str) {
+        if !self.can_edit() {
+            return;
+        }
+        let base = self.path.as_ref().and_then(|p| p.parent());
+        match character::apply_look(&self.src, &self.scene, root, name, base) {
+            Ok(out) => {
+                self.apply_once("character-look", Some(out));
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
+    pub(crate) fn character_configure(&mut self, root: &str, values: &character::Settings) {
+        if !self.can_edit() {
+            return;
+        }
+        let base = self.path.as_ref().and_then(|p| p.parent());
+        match character::configure(&self.src, &self.scene, root, values, base) {
+            Ok(out) => {
+                let names = values.parameters.keys().chain(values.palette.keys()).map(String::as_str).collect::<Vec<_>>().join(",");
+                self.apply(&format!("character-settings-{root}-{names}"), Some(out));
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
+    pub(crate) fn character_copy_look(&mut self, root: &str) {
+        if !self.can_edit() {
+            return;
+        }
+        let base = self.path.as_ref().and_then(|p| p.parent());
+        match character::copy_look(&self.src, &self.scene, root, base) {
+            Ok((out, name)) => {
+                self.apply_once("character-copy-look", Some(out));
+                self.set_mode_animate(false);
+                self.run = None;
+                self.time = 0.0;
+                self.select_list(vec![root.into()]);
+                self.status = format!("Создан «{name}»: все надетые детали имеют свои копии, скелет и движения общие");
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
     pub(crate) fn character_choice(&mut self, root: &str, choices: &BTreeMap<String, String>) {
         if !self.can_edit() {
             return;
@@ -66,6 +111,9 @@ impl App {
             .or_else(|| catalog.characters.first());
         let Some(character) = character else { return };
         let mut choices = None;
+        let mut look = None;
+        let mut copy_look = false;
+        let mut settings = character::Settings::default();
         let mut save_look = false;
         let mut copy = None;
         let mut select = None;
@@ -82,18 +130,15 @@ impl App {
             } else {
                 ui.label(&character.name);
             }
-            let current = character
-                .looks
-                .iter()
-                .find(|look| character.slots.iter().all(|s| s.selected(&self.scene).is_some_and(|v| look.slots.get(&s.id) == Some(&v.id))));
+            let current = character.looks.iter().find(|look| look.matches(&self.src, &self.scene, character));
             ui.label("Комплект");
             egui::ComboBox::from_id_salt(("look", &character.root))
                 .width(ui.available_width())
                 .selected_text(current.map_or("Своя комбинация", |l| &l.name))
                 .show_ui(ui, |ui| {
-                    for look in &character.looks {
-                        if ui.selectable_label(current.is_some_and(|c| c.name == look.name), &look.name).clicked() {
-                            choices = Some(look.slots.clone());
+                    for item in &character.looks {
+                        if ui.selectable_label(current.is_some_and(|c| c.name == item.name), &item.name).clicked() {
+                            look = Some(item.name.clone());
                         }
                     }
                 });
@@ -101,6 +146,7 @@ impl App {
                 .add_enabled(current.is_none(), egui::Button::new("Сохранить как комплект"))
                 .on_hover_text("Запомнить выбранные варианты всех слотов для быстрого возврата")
                 .clicked();
+            copy_look = ui.button("Своя копия комплекта").on_hover_text("Скопировать сразу все надетые детали для правки; один шаг Undo").clicked();
             ui.label("Движение");
             ui.horizontal_wrapped(|ui| {
                 if ui.selectable_label(self.anim.is_none(), "Настройка").clicked() {
@@ -119,6 +165,39 @@ impl App {
                 self.playing = !self.playing;
             }
             ui.small("Меняйте одежду прямо во время движения. «Своя копия» возвращает в позу настройки для рисования.");
+            if !character.parameters.is_empty() || !character.palette.is_empty() {
+                ui.collapsing("Пропорции и цвета", |ui| match character::settings(&self.src, character) {
+                    Err(e) => {
+                        ui.label(e);
+                    }
+                    Ok(current) => {
+                        for p in &character.parameters {
+                            ui.label(&p.label);
+                            let mut value = current.parameters[&p.name];
+                            if ui.add(egui::Slider::new(&mut value, p.min..=p.max).max_decimals(2)).changed() {
+                                settings.parameters.insert(p.name.clone(), value);
+                            }
+                        }
+                        for p in &character.palette {
+                            ui.horizontal(|ui| {
+                                let color = motif_core::Color::from_hex(&current.palette[&p.name]).unwrap();
+                                let (rect, response) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                                let mut color = egui::Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a);
+                                ui.painter().rect_filled(rect, 4.0, color);
+                                ui.label(&p.label);
+                                crate::theme::color_popup(&response).show(|ui| {
+                                    if egui::color_picker::color_picker_color32(ui, &mut color, egui::color_picker::Alpha::OnlyBlend) {
+                                        settings
+                                            .palette
+                                            .insert(p.name.clone(), motif_core::Color { r: color.r(), g: color.g(), b: color.b(), a: color.a() }.to_hex());
+                                    }
+                                });
+                            });
+                        }
+                        ui.small("Настройки связаны с рисунком и движениями. Сохраните их как комплект, чтобы вернуться к ним.");
+                    }
+                });
+            }
             ui.collapsing("Части и одежда", |ui| {
                 for slot in &character.slots {
                     let selected = slot.selected(&self.scene);
@@ -152,6 +231,15 @@ impl App {
         });
         if let Some(choices) = choices {
             self.character_choice(&character.root, &choices);
+        }
+        if let Some(name) = look {
+            self.character_look(&character.root, &name);
+        }
+        if !settings.parameters.is_empty() || !settings.palette.is_empty() {
+            self.character_configure(&character.root, &settings);
+        }
+        if copy_look {
+            self.character_copy_look(&character.root);
         }
         if save_look && self.can_edit() {
             match character::save_look(&self.src, &self.scene, &character.root) {

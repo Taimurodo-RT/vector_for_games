@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 const MARKER: &str = "// @motif-characters ";
+pub use crate::character_controls::{Settings, configure, settings};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,6 +26,26 @@ pub struct Character {
     pub slots: Vec<Slot>,
     pub looks: Vec<Look>,
     pub motions: Vec<Motion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<Parameter>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub palette: Vec<PaletteRole>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Parameter {
+    pub name: String,
+    pub label: String,
+    pub min: f64,
+    pub max: f64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PaletteRole {
+    pub name: String,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -48,6 +69,20 @@ pub struct Variant {
 pub struct Look {
     pub name: String,
     pub slots: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, f64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub palette: BTreeMap<String, String>,
+}
+
+impl Look {
+    pub fn matches(&self, src: &str, scene: &Scene, character: &Character) -> bool {
+        character.slots.iter().all(|s| s.selected(scene).is_some_and(|v| self.slots.get(&s.id) == Some(&v.id)))
+            && settings(src, character).is_ok_and(|current| {
+                self.parameters.iter().all(|(n, v)| current.parameters.get(n).is_some_and(|c| (c - v).abs() < 1e-6))
+                    && self.palette.iter().all(|(n, v)| current.palette.get(n).and_then(|c| motif_core::Color::from_hex(c)) == motif_core::Color::from_hex(v))
+            })
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -95,7 +130,18 @@ impl Catalog {
         let doc = &scene.doc;
         let mut roots = HashSet::new();
         let mut owned = Vec::new();
+        let mut controls = HashSet::new();
         for character in &self.characters {
+            for p in &character.parameters {
+                if p.name.is_empty() || !controls.insert(&p.name) || !p.min.is_finite() || !p.max.is_finite() || p.min >= p.max {
+                    return Err("Некорректные параметры персонажа".into());
+                }
+            }
+            for p in &character.palette {
+                if p.name.is_empty() || !controls.insert(&p.name) {
+                    return Err("Повторяются имена настроек персонажа".into());
+                }
+            }
             if !roots.insert(&character.root) {
                 return Err("Повторяется корень персонажа".into());
             }
@@ -137,6 +183,11 @@ impl Catalog {
             }
             let mut look_names = HashSet::new();
             for look in &character.looks {
+                if look.parameters.iter().any(|(n, v)| !v.is_finite() || !character.parameters.iter().any(|p| &p.name == n && *v >= p.min && *v <= p.max))
+                    || look.palette.iter().any(|(n, v)| !character.palette.iter().any(|p| &p.name == n) || motif_core::Color::from_hex(v).is_none())
+                {
+                    return Err(format!("Комплект «{}»: некорректные пропорции или цвета", look.name));
+                }
                 if look.name.trim().is_empty() || !look_names.insert(&look.name) {
                     return Err("Названия комплектов должны быть непустыми и уникальными".into());
                 }
@@ -270,8 +321,42 @@ pub fn save_look(src: &str, scene: &Scene, root: &str) -> Result<(String, String
         .map(|s| s.selected(scene).map(|v| (s.id.clone(), v.id.clone())).ok_or_else(|| format!("Выберите один вариант в слоте «{}»", s.name)))
         .collect::<Result<_, _>>()?;
     let name = (1..).map(|n| format!("Мой комплект {n}")).find(|name| !character.looks.iter().any(|l| &l.name == name)).expect("unbounded names");
-    character.looks.push(Look { name: name.clone(), slots });
+    let current = settings(src, character)?;
+    character.looks.push(Look { name: name.clone(), slots, parameters: current.parameters, palette: current.palette });
+    catalog.validate(scene)?;
     Ok((write(src, &catalog)?, name))
+}
+
+/// Restore the wardrobe plus any captured proportions and semantic colors in one edit.
+pub fn apply_look(src: &str, scene: &Scene, root: &str, name: &str, base: Option<&Path>) -> Result<String, String> {
+    let catalog = read(src)?.ok_or("В сцене нет описания персонажа")?;
+    catalog.validate(scene)?;
+    let character = catalog.characters.iter().find(|c| c.root == root).ok_or("Персонаж не найден")?;
+    let look = character.looks.iter().find(|l| l.name == name).ok_or("Комплект не найден")?;
+    let out = apply(src, scene, root, &look.slots, base)?;
+    if look.parameters.is_empty() && look.palette.is_empty() {
+        return Ok(out);
+    }
+    let scene = parse_in(&out, base).map_err(|e| e[0].message.clone())?;
+    configure(&out, &scene, root, &Settings { parameters: look.parameters.clone(), palette: look.palette.clone() }, base)
+}
+
+/// Fork every equipped part, then remember it as one look. The caller commits once,
+/// so failure on any later slot never leaves a half-copied costume in the document.
+pub fn copy_look(src: &str, scene: &Scene, root: &str, base: Option<&Path>) -> Result<(String, String), String> {
+    let catalog = read(src)?.ok_or("В сцене нет описания персонажа")?;
+    catalog.validate(scene)?;
+    let character = catalog.characters.iter().find(|c| c.root == root).ok_or("Персонаж не найден")?;
+    let mut out = src.to_string();
+    for slot in &character.slots {
+        let active = slot.selected(scene).ok_or("Сначала выберите один вариант каждого слота")?;
+        if !active.groups.is_empty() {
+            let current = parse_in(&out, base).map_err(|e| e[0].message.clone())?;
+            out = copy_variant(&out, &current, root, &slot.id, base)?.0;
+        }
+    }
+    let current = parse_in(&out, base).map_err(|e| e[0].message.clone())?;
+    save_look(&out, &current, root)
 }
 
 #[cfg(test)]
