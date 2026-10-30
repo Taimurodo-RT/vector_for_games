@@ -37,6 +37,7 @@ fn ball(app: &mut App) -> Pos2 {
 fn drag_animated_ball_pauses_on_press_and_beats_its_motion_path() {
     for auto in [false, true] {
         let mut app = fixture(include_str!("../../../examples/bounce.msc"));
+        app.set_workspace(crate::workspace::Workspace::Animate);
         app.select_anim("Idle".into());
         app.auto_key = auto;
         app.time = 0.3;
@@ -121,6 +122,7 @@ fn context_inspector_stays_for_edits_and_closes_by_button_escape_or_outside() {
 #[test]
 fn floating_key_command_records_without_closing_and_can_be_undone() {
     let mut app = fixture(include_str!("../../../examples/bounce.msc"));
+    app.set_workspace(crate::workspace::Workspace::Animate);
     app.select_anim("Idle".into());
     app.time = 0.25;
     let source = app.src.clone();

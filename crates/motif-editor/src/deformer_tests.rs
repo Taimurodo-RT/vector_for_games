@@ -7,6 +7,7 @@ fn draft_overrides_do_not_erase_explicit_keys_on_driven_properties() {
     let mut app = fixture(
         "artboard 200x200\nrect box size 30\nparameter p range -1 1 default 0 value 0\ndriver p {\nbox.x -1: -20 | 1: 20\n}\nanim A 2s {\np.value 0: 0 | 2: 1\nbox.x 0: 75 | 2: 95\n}\n",
     );
+    app.set_workspace(Workspace::Animate);
     app.time = 1.0;
     app.auto_key = false;
     app.edit("box", Prop::Y, Value::Num(30.0));
@@ -41,6 +42,7 @@ fn drag_control(app: &mut App, delta: egui::Vec2) {
 #[test]
 fn cage_drag_authors_two_keys_as_one_undo_step_and_modes_keep_the_result() {
     let mut app = fixture(SCENE);
+    app.set_workspace(Workspace::Animate);
     app.time = 0.5;
     app.select_only(Some("head".into()));
     app.deformer.target = Some("head".into());
@@ -52,11 +54,14 @@ fn cage_drag_authors_two_keys_as_one_undo_step_and_modes_keep_the_result() {
     let pose = app.display_doc();
     assert_ne!(pose.node("head").unwrap().get(Prop::WarpX(4)), Value::Num(0.0));
     assert_eq!(app.scene.doc.node("face").unwrap().geometry, original);
-    for space in Workspace::ALL {
+    for space in [Workspace::Setup, Workspace::Animate] {
         app.set_workspace(space);
         assert_eq!(app.time, 0.5);
         assert_eq!(app.display_doc(), pose);
     }
+    app.set_workspace(Workspace::Drawing);
+    assert_eq!(app.display_doc().node("head").unwrap().get(Prop::WarpX(4)), Value::Num(0.0), "the drawing itself is not warped");
+    app.set_workspace(Workspace::Animate);
     app.undo();
     assert_eq!(app.src, before);
     app.redo();
@@ -85,8 +90,9 @@ fn reference_form_drag_edits_the_driver_without_authoring_a_clip_or_moving_time(
 }
 
 #[test]
-fn drawing_a_contour_at_a_later_frame_records_a_form_and_preserves_the_original() {
+fn editing_a_contour_at_a_later_frame_in_animation_records_a_form_and_preserves_the_original() {
     let mut app = fixture(SCENE);
+    app.set_workspace(Workspace::Animate);
     app.time = 0.6;
     let source = app.src.clone();
     let path = motif_core::kurbo::BezPath::from_svg("M -55 -60 C -20 -120 20 -120 55 -60 L 40 70 L -40 70 Z").unwrap();
@@ -105,7 +111,22 @@ fn drawing_a_contour_at_a_later_frame_records_a_form_and_preserves_the_original(
 }
 
 #[test]
-fn object_created_in_drawing_has_an_appearance_key_and_existing_objects_stay_unchanged() {
+fn a_contour_edited_in_drawing_changes_the_drawing_for_every_clip() {
+    let mut app = fixture(SCENE);
+    app.time = 0.6;
+    let clips = app.scene.doc.animations.clone();
+    let path = motif_core::kurbo::BezPath::from_svg("M -55 -60 C -20 -120 20 -120 55 -60 L 40 70 L -40 70 Z").unwrap();
+    let edit = app.outline_edit_source("face", &path);
+    assert!(app.apply_once("path", edit));
+    assert_eq!(app.scene.doc.animations, clips, "no form key is written in «Рисование»");
+    assert_eq!(app.scene.doc.node("face").unwrap().editable_path(), path);
+    app.set_workspace(Workspace::Animate);
+    app.time = 0.0;
+    assert_eq!(app.display_doc().node("face").unwrap().editable_path(), path);
+}
+
+#[test]
+fn an_object_created_in_drawing_belongs_to_the_drawing_and_existing_objects_stay_unchanged() {
     let mut app = fixture(SCENE);
     app.time = 0.7;
     let original = app.scene.doc.node("face").unwrap().clone();
@@ -113,8 +134,10 @@ fn object_created_in_drawing_has_an_appearance_key_and_existing_objects_stay_unc
     let (out, id) = motif_script::add_node(&app.src, &app.scene, ShapeKind::Ellipse, (40.0, 40.0), (20.0, 20.0));
     assert!(app.apply_once("create", Some(out)));
     assert!(app.display_doc().node(&id).unwrap().visible);
+    assert!(!app.scene.doc.animations.iter().any(|a| a.tracks.iter().any(|t| t.node == id)), "no appearance key in «Рисование»");
+    app.set_workspace(Workspace::Animate);
     app.time = 0.2;
-    assert!(!app.display_doc().node(&id).unwrap().visible);
+    assert!(app.display_doc().node(&id).unwrap().visible);
     assert_eq!(app.scene.doc.node("face").unwrap(), &original);
     assert_eq!(app.undo.len(), 1);
     app.undo();
@@ -134,22 +157,25 @@ fn grouping_existing_art_at_a_later_frame_does_not_make_it_disappear() {
 }
 
 #[test]
-fn ui_color_keys_in_drawing_share_the_frame_without_changing_other_clips_or_layout() {
+fn a_ui_color_set_in_drawing_changes_the_drawing_and_leaves_the_clips_alone() {
     let mut app = fixture(
         "artboard \"UI\" 300x200 ui\ngroup button ui button slice 8 {\nrect plate size 120 40 r 8 fill #ffffff\n}\nanim Hover 1s {\nplate.opacity 0: 1 | 1: 0.8\n}\nanim Press 1s {\nplate.fill 0: #ffffff | 1: #000000\n}\n",
     );
     app.time = 0.4;
-    let press = app.scene.doc.animation("Press").unwrap().clone();
+    let clips = app.scene.doc.animations.clone();
     app.edit("plate", Prop::Fill, Value::Color(Color::rgb(20, 30, 40)));
-    let posed = app.display_doc();
+    assert_eq!(app.display_doc().node("plate").unwrap().fill, Some(Color::rgb(20, 30, 40)));
     for space in Workspace::ALL {
         app.set_workspace(space);
-        assert_eq!(app.display_doc(), posed);
         assert_eq!(app.time, 0.4);
     }
-    assert_eq!(app.scene.doc.animation("Press").unwrap(), &press);
+    assert_eq!(app.scene.doc.animations, clips);
     assert!(app.scene.doc.node("button").unwrap().ui);
-    assert_eq!(app.scene.doc.node("plate").unwrap().fill, Some(Color::WHITE));
+    assert_eq!(app.scene.doc.node("plate").unwrap().fill, Some(Color::rgb(20, 30, 40)));
+    // Press keys the fill: there its own colours still play.
+    app.select_anim("Press".into());
+    app.time = 1.0;
+    assert_eq!(app.display_doc().node("plate").unwrap().fill, Some(Color::rgb(0, 0, 0)));
 }
 
 #[test]
@@ -190,7 +216,7 @@ fn reference_corrective_preview_ignores_drafts_and_normal_edits_return_to_the_fr
     app.select_only(Some("head".into()));
     app.create_corrective("head", ["turn", "blink"]);
     let id = app.scene.doc.correctives[0].id.clone();
-    app.set_workspace(Workspace::Drawing);
+    app.set_workspace(Workspace::Animate);
     app.auto_key = false;
     let before = app.src.clone();
     app.edit("turn", Prop::Parameter, Value::Num(-1.0));

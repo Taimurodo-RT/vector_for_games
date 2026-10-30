@@ -10,14 +10,14 @@ impl App {
     pub(crate) fn parameter_work_panel(&mut self, ui: &mut egui::Ui) {
         section(ui, |ui| {
             let label = match self.workspace() {
-                Workspace::Drawing => self.anim.as_ref().map_or_else(|| "Рисунок без клипа".into(), |name| format!("Рисование · {name} · {:.2} с", self.time)),
+                Workspace::Drawing => "Рисунок: общий для всех клипов".into(),
                 Workspace::Setup => {
                     self.anim.as_ref().map_or_else(|| "Настройка связей и опор".into(), |name| format!("Настройка · {name} · {:.2} с", self.time))
                 }
                 Workspace::Animate => self.anim.as_ref().map_or_else(|| "Анимация: клип не выбран".into(), |name| format!("Клип {name} · {:.2} с", self.time)),
             };
             ui.strong(label);
-            if self.anim.is_some() || self.workspace() == Workspace::Animate {
+            if self.key_time().is_some() || self.workspace() == Workspace::Animate {
                 self.pose_actions(ui);
                 if self.anim.is_none() && ui.button("Создать клип").clicked() {
                     self.create_animation();
@@ -64,7 +64,7 @@ impl App {
         let shown = self.display_doc();
         section(ui, |ui| {
             ui.strong("Параметры движения");
-            ui.small(if self.anim.is_some() {
+            ui.small(if self.key_time().is_some() {
                 if self.auto_key {
                     "Автоключ включён: изменение записывает ключ."
                 } else {
@@ -72,6 +72,8 @@ impl App {
                 }
             } else if self.workspace() == Workspace::Setup {
                 "Проба позы не меняет файл. Для записи движения выберите «Анимация»."
+            } else if self.workspace() == Workspace::Drawing {
+                "«Рисование» меняет исходные значения параметров для всех клипов."
             } else {
                 "Без клипа изменяются исходные значения параметров."
             });

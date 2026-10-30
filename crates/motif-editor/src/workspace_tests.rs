@@ -98,6 +98,7 @@ fn autokey_off_previews_properties_and_diamonds_record_only_the_chosen_property(
 #[test]
 fn recording_a_parameter_pose_is_atomic_and_recomputes_the_driven_artwork() {
     let mut app = fixture(include_str!("../../../examples/character-portrait.msc"));
+    app.set_workspace(Workspace::Animate);
     app.select_anim("Look".into());
     app.time = 0.75;
     app.auto_key = false;
@@ -115,7 +116,7 @@ fn recording_a_parameter_pose_is_atomic_and_recomputes_the_driven_artwork() {
     assert_eq!(app.display_doc().parameter("turn").unwrap().value, 0.5);
     app.edit("turn", Prop::Parameter, Value::Num(-0.5));
     app.set_workspace(Workspace::Drawing);
-    assert!(app.has_draft_pose());
+    assert!(!app.draft_pose.values.is_empty(), "the probe waits while the drawing is shown");
     app.set_workspace(Workspace::Animate);
     assert_eq!(app.display_doc().parameter("turn").unwrap().value, -0.5);
 }
@@ -311,4 +312,26 @@ fn document_purpose_remains_editable_separately_from_the_temporary_profile() {
     assert_eq!(app.undo.len(), 1);
     app.undo();
     assert!(app.file_text() == original);
+}
+
+#[test]
+fn drawing_edits_the_drawing_for_every_clip_and_names_clips_that_key_the_property() {
+    let mut app = fixture(include_str!("../../../examples/bounce.msc"));
+    app.set_workspace(Workspace::Animate);
+    app.select_anim("Idle".into());
+    app.time = 0.4;
+    app.set_workspace(Workspace::Drawing);
+    assert_eq!(app.anim.as_deref(), Some("Idle"), "the clip waits for «Анимация»");
+    assert_eq!(app.key_time(), None);
+    let clips = app.scene.doc.animations.clone();
+    let keyed: Vec<String> = clips.iter().filter(|a| a.tracks.iter().any(|t| t.node == "ball" && t.prop == Prop::Y)).map(|a| a.name.clone()).collect();
+    assert!(!keyed.is_empty());
+    app.edit("ball", Prop::Y, Value::Num(77.0));
+    assert_eq!(app.scene.doc.animations, clips, "no key in «Рисование»");
+    assert_eq!(app.scene.doc.node("ball").unwrap().y, 77.0);
+    assert_eq!(app.display_doc().node("ball").unwrap().y, 77.0, "the canvas shows the drawing, not the pose");
+    assert!(keyed.iter().all(|k| app.status.contains(k.as_str())), "{}", app.status);
+    app.set_workspace(Workspace::Animate);
+    assert_eq!(app.time, 0.4);
+    assert_eq!(app.display_doc(), app.pose_anim(app.current_anim().unwrap(), 0.4));
 }

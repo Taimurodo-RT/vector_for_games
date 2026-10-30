@@ -5,6 +5,7 @@ use crate::preview::{Mode, Preview};
 #[test]
 fn preview_owns_time_and_linked_pose_excludes_unrecorded_changes() {
     let mut app = fixture(include_str!("../../../examples/bounce.msc"));
+    app.set_workspace(crate::workspace::Workspace::Animate);
     app.select_anim("Idle".into());
     app.time = 0.4;
     app.select_only(Some("ball".into()));

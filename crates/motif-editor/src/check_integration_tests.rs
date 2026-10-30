@@ -26,6 +26,7 @@ fn ui_check_of_imported_play_ignores_the_selected_authoring_clip_and_restores_it
     let source = play_source();
     for (clip, time) in [("Hover", 0.0), ("Hover", 0.31), ("HoverLoop", 0.0), ("HoverLoop", 0.33)] {
         let mut app = fixture(&source);
+        app.set_workspace(crate::workspace::Workspace::Animate);
         app.select_anim(clip.into());
         app.time = time;
         app.playing = true;
