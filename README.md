@@ -375,6 +375,9 @@ Motif, а кадр рисуется под размер узла на экран
   продолжается с того же места и поворот не шлёт событий; левые стороны с `mirror` отражаются при рисовании, сам узел
   не переворачивается. Ещё `side = "up_right"`, `get_sides()`, `is_flipped()` и сигнал `side_changed(side)`.
 * Как это устроено и почему GDExtension, а не GDScript — [docs/runtime.html#how](docs/runtime.html#how).
+* Скорость: кадры всех узлов рисуются одновременно на всех ядрах, а неизменная поза не рисуется заново. Замер в
+  настоящем Godot — `godot-addon/test/bench/run.sh ГОДОТ БИБЛИОТЕКА [N…]` (среднее и p95 работы кадра, память); цифры
+  и советы — [docs/runtime.html#speed](docs/runtime.html#speed).
 * В сборке для Windows аддон лежит в `godot-addon/` вместе с `bin/motif_godot.dll`; для Linux и macOS библиотеку
   собирает `cargo build --release -p motif-godot`. Пример — `godot-apps/hero`, проверка в настоящем Godot —
   `godot-addon/test/run.sh`. Подробнее — [docs/runtime.html](docs/runtime.html).
