@@ -127,7 +127,7 @@ fn measure_inner(i: usize, nodes: &[Element], styles: &[Style], boxes: &mut [Box
     }
     if nodes[i].tag == "#text" {
         let (w, h) = text_size(&nodes[i].text, s);
-        let shape = motif_core::TextShape::new("", if s.bold { motif_core::text::BOLD_FONT } else { motif_core::text::DEFAULT_FONT }).unwrap();
+        let shape = motif_core::TextShape::new("", s.font_family.bytes(s.bold)).unwrap();
         boxes[i].w = w;
         boxes[i].h = h;
         boxes[i].baseline = s.font_size * (s.line_height + shape.ascender - shape.descender) / 2.0;
@@ -200,6 +200,9 @@ fn position_inner(i: usize, at: [f64; 2], nodes: &[Element], styles: &[Style], b
     let c = content(i, nodes, styles, boxes);
     let iw = (boxes[i].w - s.padding[1] - s.padding[3] - 2.0 * s.border_width).max(0.0);
     let ih = (boxes[i].h - s.padding[0] - s.padding[2] - 2.0 * s.border_width).max(0.0);
+    let content_x = x + s.padding[3] + s.border_width;
+    let content_y = y + s.padding[0] + s.border_width;
+    let mut flow_bottoms = Vec::with_capacity(c.children.len());
     for (child, mut cx, mut cy) in c.children {
         if s.flex {
             if s.row {
@@ -228,25 +231,43 @@ fn position_inner(i: usize, at: [f64; 2], nodes: &[Element], styles: &[Style], b
         let size = content_size(s, &boxes[i]);
         let padding = padding_size(s, &boxes[i]);
         let own_containing = if s.positioned() { [x + s.border_width, y + s.border_width, padding[0], padding[1]] } else { containing };
-        position_inner(child, [x + s.padding[3] + s.border_width + cx, y + s.padding[0] + s.border_width + cy], nodes, styles, boxes, size, own_containing);
+        // Keep the flow position before the child's relative offset is applied.
+        // Relative positioning must not move the static position of a later sibling.
+        flow_bottoms.push((child, content_y + cy + boxes[child].h + styles[child].margin[2]));
+        position_inner(child, [content_x + cx, content_y + cy], nodes, styles, boxes, size, own_containing);
     }
     let size = content_size(s, &boxes[i]);
     let padding = padding_size(s, &boxes[i]);
     let cb = if s.positioned() { [x + s.border_width, y + s.border_width, padding[0], padding[1]] } else { containing };
+    let mut static_bottom = content_y;
     for &child in &nodes[i].children {
         let cs = &styles[child];
-        if cs.hidden || cs.position != Position::Absolute {
+        if cs.hidden {
+            continue;
+        }
+        if cs.position != Position::Absolute {
+            if let Some((_, bottom)) = flow_bottoms.iter().find(|(index, _)| *index == child) {
+                static_bottom = static_bottom.max(*bottom);
+            }
             continue;
         }
         let b = &boxes[child];
+        // Both offsets auto use the hypothetical static position in the direct
+        // parent's content box, not the nearest positioned ancestor's padding edge.
+        // A flex child uses that content box's main/cross alignment instead.
+        let center_x = s.flex && if s.row { s.justify_center } else { s.align_center };
+        let center_y = s.flex && if s.row { s.align_center } else { s.justify_center };
+        let static_x = content_x + cs.margin[3] + if center_x { (iw - b.w - cs.margin[1] - cs.margin[3]) / 2.0 } else { 0.0 };
+        let static_y =
+            (if s.flex { content_y } else { static_bottom }) + cs.margin[0] + if center_y { (ih - b.h - cs.margin[0] - cs.margin[2]) / 2.0 } else { 0.0 };
         let cx = cs.offsets[3]
             .map(|v| v.resolve(cb[2]) + cs.margin[3])
             .or_else(|| cs.offsets[1].map(|v| cb[2] - v.resolve(cb[2]) - cs.margin[1] - b.w))
-            .unwrap_or(0.0);
+            .unwrap_or(static_x - cb[0]);
         let cy = cs.offsets[0]
             .map(|v| v.resolve(cb[3]) + cs.margin[0])
             .or_else(|| cs.offsets[2].map(|v| cb[3] - v.resolve(cb[3]) - cs.margin[2] - b.h))
-            .unwrap_or(0.0);
+            .unwrap_or(static_y - cb[1]);
         position_inner(child, [cb[0] + cx, cb[1] + cy], nodes, styles, boxes, size, cb);
     }
 }
@@ -310,5 +331,36 @@ mod tests {
         assert_eq!((flow.x, flow.y, flow.w, flow.h), (10.0, 10.0, 90.0, 10.0));
         let abs = rect(&nodes, &boxes, "abs");
         assert_eq!((abs.x, abs.y, abs.w, abs.h), (100.0, 0.0, 100.0, 10.0));
+    }
+
+    #[test]
+    fn absolute_auto_left_keeps_browser_static_padding_offset_of_the_play_frame() {
+        let (nodes, boxes) = layout(
+            "<button id='button'>P L A Y<div id='frame'></div></button>",
+            "button{position:relative;width:11em;height:4em;font-size:13px;padding:1px 6px;border:none}#frame{position:absolute;top:0;width:100%;height:100%;border:5px double #2761c3}",
+        );
+        let button = rect(&nodes, &boxes, "button");
+        let frame = rect(&nodes, &boxes, "frame");
+        assert_eq!((button.w, button.h), (143.0, 52.0));
+        assert_eq!((frame.x - button.x, frame.y - button.y), (6.0, 0.0));
+        assert_eq!((frame.w, frame.h), (153.0, 62.0));
+    }
+
+    #[test]
+    fn auto_static_offsets_follow_direct_parent_flow_without_changing_explicit_offsets() {
+        let (nodes, boxes) = layout(
+            "<div id='anchor'><div id='wrapper'><div id='flow'></div><i id='auto'></i><i id='zero'></i></div></div>",
+            "#anchor{position:relative;width:200px;height:100px;box-sizing:border-box;padding:10px;border:4px solid black}#wrapper{width:80px;height:40px;padding:3px}#flow{height:12px}i{position:absolute;width:5px;height:5px}#zero{left:0;top:0}",
+        );
+        let auto = rect(&nodes, &boxes, "auto");
+        assert_eq!((auto.x, auto.y), (17.0, 29.0));
+        let zero = rect(&nodes, &boxes, "zero");
+        assert_eq!((zero.x, zero.y), (4.0, 4.0));
+        let (nodes, boxes) = layout(
+            "<div id='anchor'><div id='flow'></div><i id='auto'></i></div>",
+            "#anchor{position:relative;width:100px}#flow{position:relative;top:20px;height:10px}#auto{position:absolute;width:5px;height:5px}",
+        );
+        assert_eq!(rect(&nodes, &boxes, "flow").y, 20.0);
+        assert_eq!(rect(&nodes, &boxes, "auto").y, 10.0);
     }
 }

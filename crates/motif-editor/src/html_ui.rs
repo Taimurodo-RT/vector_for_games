@@ -10,13 +10,45 @@ pub(super) struct HtmlImport {
     preview: Option<egui::TextureHandle>,
     elements: usize,
     shown: bool,
+    preview_background: PreviewBackground,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum PreviewBackground {
+    Light,
+    #[default]
+    Dark,
+    Checker,
+}
+
+fn preview(ui: &mut egui::Ui, texture: &egui::TextureHandle, background: PreviewBackground) {
+    let (rect, _) = ui.allocate_exact_size(texture.size_vec2(), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    let color = match background {
+        PreviewBackground::Light => Color32::from_rgb(245, 246, 250),
+        PreviewBackground::Dark => Color32::from_rgb(33, 33, 33),
+        PreviewBackground::Checker => Color32::from_rgb(165, 165, 165),
+    };
+    painter.rect_filled(rect, 0.0, color);
+    if background == PreviewBackground::Checker {
+        let cell = 10.0;
+        for y in 0..(rect.height() / cell).ceil() as usize {
+            for x in 0..(rect.width() / cell).ceil() as usize {
+                if (x + y).is_multiple_of(2) {
+                    let square = egui::Rect::from_min_size(rect.min + vec2(x as f32 * cell, y as f32 * cell), vec2(cell, cell)).intersect(rect);
+                    painter.rect_filled(square, 0.0, Color32::from_rgb(205, 205, 205));
+                }
+            }
+        }
+    }
+    painter.image(texture.id(), rect, egui::Rect::from_min_max(Pos2::ZERO, egui::pos2(1.0, 1.0)), Color32::WHITE);
 }
 
 impl Default for HtmlImport {
     fn default() -> Self {
         Self { open:false, html:"<button class=\"action\">Начать игру</button>".into(),
             css:".action { width: 220px; height: 56px; background: #7667d9; color: #ffffff; border-radius: 14px; font-size: 20px; }\n.action:hover { background: #9587ef; }\n.action:active { background: #5546b8; }".into(),
-            generated:None,warnings:vec![],error:None,preview:None,elements:0,shown:false }
+            generated:None,warnings:vec![],error:None,preview:None,elements:0,shown:false,preview_background:PreviewBackground::default() }
     }
 }
 
@@ -119,7 +151,15 @@ impl App {
                 ui.colored_label(DANGER, error);
             }
             if let Some(texture) = &state.preview {
-                ui.image(texture);
+                ui.horizontal(|ui| {
+                    ui.label("Фон просмотра");
+                    for (mode, label) in [(PreviewBackground::Dark, "Тёмный"), (PreviewBackground::Light, "Светлый"), (PreviewBackground::Checker, "Шахматный")]
+                    {
+                        ui.selectable_value(&mut state.preview_background, mode, label);
+                    }
+                });
+                preview(ui, texture, state.preview_background);
+                ui.small("Подложка только для просмотра. Прозрачность и цвета импортируемой графики сохраняются.");
             }
             if state.generated.is_some() {
                 ui.label(format!("Элементов: {}. Предупреждений: {}.", state.elements, state.warnings.len()));
@@ -158,6 +198,29 @@ fn request_paste(ctx: &egui::Context, field: egui::Id) {
 mod tests {
     use super::super::editing_tests::fixture;
     use super::*;
+
+    #[test]
+    fn preview_backdrops_do_not_change_the_imported_scene_or_its_alpha() {
+        let mut app = fixture("artboard 100x100\nrect original size 20 fill #123456\n");
+        let original = app.src.clone();
+        let ctx = app.ctx.clone();
+        app.html_import.open = true;
+        app.html_import.html = "<button>PLAY</button>".into();
+        app.html_import.css = "button{background:transparent;border:0;color:white}".into();
+        app.html_import.convert(&ctx);
+        let source = app.html_import.generated.clone().unwrap();
+        for label in ["Светлый", "Шахматный", "Тёмный"] {
+            input_frame(&mut app, vec![]).drop_without_applying_deltas();
+            let point = control_point(&mut app, label);
+            focus_at(&mut app, point);
+            assert_eq!(app.html_import.generated.as_ref().unwrap(), &source);
+            assert_eq!(app.src, original);
+        }
+        let scene = motif_script::parse(&source).unwrap();
+        assert_eq!(scene.doc.artboard.background.a, 0);
+        let image = motif_render::render_cpu(&scene.doc, Default::default()).unwrap();
+        assert_eq!(image.pixel(0, 0).unwrap().alpha(), 0);
+    }
 
     fn input_frame(app: &mut App, mut events: Vec<egui::Event>) -> egui::FullOutput {
         let ctx = app.ctx.clone();

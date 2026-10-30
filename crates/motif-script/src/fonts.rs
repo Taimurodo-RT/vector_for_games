@@ -17,6 +17,28 @@ pub type Reader = fn(&Path) -> Option<Vec<u8>>;
 
 static READER: OnceLock<Reader> = OnceLock::new();
 
+/// Portable font aliases used by the HTML importer. They are embedded resources,
+/// not filesystem paths, so an imported scene also opens on another computer.
+pub const CSS_SANS_REGULAR: &str = "builtin:css-sans-regular";
+pub const CSS_SANS_BOLD: &str = "builtin:css-sans-bold";
+
+/// Liberation Sans is an OFL-licensed, metrically compatible substitute for Arial.
+pub fn css_sans_data(bold: bool) -> &'static [u8] {
+    if bold { include_bytes!("../assets/fonts/LiberationSans-Bold.ttf") } else { include_bytes!("../assets/fonts/LiberationSans-Regular.ttf") }
+}
+
+/// Notices for these exact embedded faces, not merely a file with the same name.
+pub fn css_sans_notices(data: &[u8]) -> Option<[(&'static str, &'static str); 2]> {
+    (data == css_sans_data(false) || data == css_sans_data(true)).then_some([
+        ("LiberationSans-LICENSE.txt", include_str!("../assets/fonts/LiberationSans-LICENSE.txt")),
+        ("LiberationSans-AUTHORS.txt", include_str!("../assets/fonts/LiberationSans-AUTHORS.txt")),
+    ])
+}
+
+fn builtin_name(name: &str) -> bool {
+    matches!(name, "" | "regular" | "bold" | CSS_SANS_REGULAR | CSS_SANS_BOLD)
+}
+
 /// Makes fonts load through `reader` first, falling back to the disk. Set once, at start.
 pub fn set_reader(reader: Reader) {
     let _ = READER.set(reader);
@@ -27,6 +49,8 @@ pub fn load(font: Option<&str>, base: Option<&Path>) -> Result<Arc<Vec<u8>>, Str
     let file = match font {
         None | Some("regular") => return Ok(builtin(false)),
         Some("bold") => return Ok(builtin(true)),
+        Some(CSS_SANS_REGULAR) => return Ok(css_sans(false)),
+        Some(CSS_SANS_BOLD) => return Ok(css_sans(true)),
         Some(f) => f,
     };
     let path = match base {
@@ -58,7 +82,7 @@ pub fn named(src: &str) -> Result<Vec<String>, String> {
     for pair in toks.windows(2) {
         if let (Tok::Ident(key), Tok::Str(file)) = (&pair[0].tok, &pair[1].tok)
             && key == "font"
-            && !matches!(file.as_str(), "" | "regular" | "bold")
+            && !builtin_name(file)
             && !out.contains(file)
         {
             out.push(file.clone());
@@ -72,6 +96,8 @@ pub fn file_name(font: Option<&str>) -> String {
     match font {
         None | Some("regular") => "IBMPlexSans-Regular.ttf".into(),
         Some("bold") => "IBMPlexSans-SemiBold.ttf".into(),
+        Some(CSS_SANS_REGULAR) => "LiberationSans-Regular.ttf".into(),
+        Some(CSS_SANS_BOLD) => "LiberationSans-Bold.ttf".into(),
         Some(f) => Path::new(f).file_name().map_or_else(|| f.to_string(), |n| n.to_string_lossy().into_owned()),
     }
 }
@@ -83,5 +109,43 @@ fn builtin(bold: bool) -> Arc<Vec<u8>> {
         BOLD.get_or_init(|| Arc::new(motif_core::text::BOLD_FONT.to_vec())).clone()
     } else {
         REGULAR.get_or_init(|| Arc::new(motif_core::text::DEFAULT_FONT.to_vec())).clone()
+    }
+}
+
+fn css_sans(bold: bool) -> Arc<Vec<u8>> {
+    static REGULAR: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
+    static BOLD: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
+    let cache = if bold { &BOLD } else { &REGULAR };
+    cache.get_or_init(|| Arc::new(css_sans_data(bold).to_vec())).clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portable_css_fonts_load_without_reading_a_file_and_keep_original_builtins() {
+        for (name, bold, file) in [(CSS_SANS_REGULAR, false, "LiberationSans-Regular.ttf"), (CSS_SANS_BOLD, true, "LiberationSans-Bold.ttf")] {
+            let bytes = load(Some(name), Some(Path::new("not-an-existing-font-folder"))).unwrap();
+            assert_eq!(bytes.as_slice(), css_sans_data(bold));
+            assert_eq!(file_name(Some(name)), file);
+            let second = load(Some(name), None).unwrap();
+            assert!(Arc::ptr_eq(&bytes, &second));
+            let source = format!("artboard 200x100\ntext label content \"Play — Играть\" font \"{name}\"\n");
+            let scene = crate::parse(&source).unwrap();
+            let text = scene.doc.nodes[0].text.as_ref().unwrap();
+            assert_eq!(text.font.as_ref().unwrap().name, file);
+            assert_eq!(text.font.as_ref().unwrap().data.as_slice(), bytes.as_slice());
+            assert!(!scene.doc.nodes[0].path().unwrap().elements().is_empty());
+        }
+        assert_eq!(load(None, None).unwrap().as_slice(), motif_core::text::DEFAULT_FONT);
+        assert_eq!(load(Some("bold"), None).unwrap().as_slice(), motif_core::text::BOLD_FONT);
+        assert_eq!(file_name(None), "IBMPlexSans-Regular.ttf");
+    }
+
+    #[test]
+    fn builtin_css_aliases_are_not_reported_as_files_to_copy() {
+        let source = format!("text a font \"{CSS_SANS_REGULAR}\"\ntext b font \"{CSS_SANS_BOLD}\"\ntext c font \"fonts/custom.ttf\"\ntext d font bold\n");
+        assert_eq!(named(&source).unwrap(), vec!["fonts/custom.ttf"]);
     }
 }

@@ -3,6 +3,7 @@
 mod animation;
 mod canvas;
 mod css;
+mod font;
 mod interpolate;
 mod layout;
 mod semantic;
@@ -10,7 +11,6 @@ mod style;
 mod timeline;
 
 use html5gum::{Token, Tokenizer};
-use motif_core::text::{BOLD_FONT, DEFAULT_FONT};
 use motif_core::{TextShape, TextStyle};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -75,7 +75,7 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
         ids.push(id);
     }
     let mut source =
-        format!("// Imported HTML/CSS subset: editable groups, backgrounds and text.\nartboard \"HTML UI\" {}x{} bg #f5f6fa ui\n", num(width), num(height));
+        format!("// Imported HTML/CSS subset: editable groups, backgrounds and text.\nartboard \"HTML UI\" {}x{} bg #00000000 ui\n", num(width), num(height));
     for &child in &nodes[0].children {
         emit(child, 0, &nodes, &styles, &boxes, &ids, &mut source);
     }
@@ -237,7 +237,7 @@ struct BoxNode {
 }
 
 fn text_size(text: &str, s: &style::Style) -> (f64, f64) {
-    let t = TextShape::new(text, if s.bold { BOLD_FONT } else { DEFAULT_FONT }).unwrap();
+    let t = TextShape::new(text, s.font_family.bytes(s.bold)).unwrap();
     let style = TextStyle {
         size: s.font_size,
         line_height: s.line_height,
@@ -252,7 +252,7 @@ fn text_size(text: &str, s: &style::Style) -> (f64, f64) {
 }
 fn reserved_ids(id: &str, lines: usize) -> Vec<String> {
     let mut all = semantic::reserved_ids(id, lines);
-    all.extend(["polygon", "polygon_mask", "overflow", "overflow_mask", "border_outer", "border_inner"].map(|suffix| format!("{id}__{suffix}")));
+    all.extend(["polygon", "polygon_mask", "overflow", "overflow_mask", "border_outer", "border_inner", "inset"].map(|suffix| format!("{id}__{suffix}")));
     all
 }
 
@@ -299,7 +299,7 @@ fn emit(i: usize, depth: usize, nodes: &[Element], styles: &[style::Style], boxe
                 num(s.line_height),
                 num(s.letter_spacing),
                 s.color,
-                if s.bold { " font bold" } else { "" },
+                s.font_family.attribute(s.bold),
                 if s.italic { " skew -12 0" } else { "" },
                 if n.placeholder { " opacity 0.45" } else { "" },
             ));
@@ -363,17 +363,27 @@ fn emit(i: usize, depth: usize, nodes: &[Element], styles: &[style::Style], boxe
     let radius = surface_radius(s, b);
     let attrs = s.gradient.as_ref().map_or(String::new(), |g| format!(" gradient linear {} {}", num(g.0), g.1.join(" ")));
     let shadow = s.shadow.as_ref().map_or(String::new(), |v| format!(" shadow {} {} {} {}", num(v.0), num(v.1), num(v.2), v.3));
-    let inset = s.inset_shadow.as_ref().map_or(String::new(), |v| format!(" inset {} {} {} {}", num(v.0), num(v.1), num(v.2), v.3));
     let double = s.border_double && s.border_width >= 3.0;
     out.push_str(&format!(
-        "{child}rect {id}_bg {} size {} {} r {} fill {} stroke {} {}{attrs}{shadow}{inset}\n",
+        "{child}rect {id}_bg {} size {} {} r {} fill {} stroke {} {}{attrs}{shadow}\n",
         quote("Фон"),
         num((b.w - if double { 0.0 } else { s.border_width }).max(0.0)),
         num((b.h - if double { 0.0 } else { s.border_width }).max(0.0)),
         num(radius),
-        s.background,
+        if s.background == "none" && s.shadow.is_some() { "#00000000" } else { &s.background },
         if double { "none" } else { &s.border_color },
         num(if double { 0.0 } else { s.border_width })
+    ));
+    // CSS inner shadows are painted at the padding edge, below the border. Keep
+    // this helper even without an effect so keyframes can enable/disable it.
+    let inset = s.inset_shadow.as_ref().map_or(String::new(), |v| format!(" inset {} {} {} {}", num(v.0), num(v.1), num(v.2), v.3));
+    out.push_str(&format!(
+        "{child}rect {id}__inset {} size {} {} r {} fill {}{inset}\n",
+        quote("Внутренняя тень"),
+        num((b.w - 2.0 * s.border_width).max(0.0)),
+        num((b.h - 2.0 * s.border_width).max(0.0)),
+        num((s.radius - s.border_width).max(0.0)),
+        if s.inset_shadow.is_some() { "#00000000" } else { "none" }
     ));
     if double {
         let band = s.border_width / 3.0;
@@ -424,3 +434,6 @@ mod tests;
 
 #[cfg(test)]
 mod complex_tests;
+
+#[cfg(test)]
+mod fidelity_tests;

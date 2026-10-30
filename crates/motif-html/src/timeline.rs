@@ -148,9 +148,14 @@ impl<'a> StateScene<'a> {
                 current.border_double = self.base[i].border_double;
             }
             // Native font files and text decorations are authored geometry, unlike keyed transforms.
-            if current.bold != self.base[i].bold || current.underline != self.base[i].underline || current.strike != self.base[i].strike {
+            if current.font_family != self.base[i].font_family
+                || current.bold != self.base[i].bold
+                || current.underline != self.base[i].underline
+                || current.strike != self.base[i].strike
+            {
                 warnings.push(format!("{}: смена шрифта/декорации в состоянии требует ручной правки", node.tag));
                 current.bold = self.base[i].bold;
+                current.font_family = self.base[i].font_family;
                 current.underline = self.base[i].underline;
                 current.strike = self.base[i].strike;
             }
@@ -306,6 +311,10 @@ pub(crate) fn emit_clips(
     let normal = StateScene::new(nodes, sheet, ids, base_styles, css::State::Base, warnings);
     if normal.animations.iter().flatten().next().is_some() {
         states.push((css::State::Base, normal));
+    } else if sheet.rules.iter().any(|rule| css::State::ANIMATED.iter().any(|state| rule.stateful_for(*state))) {
+        // The first selected clip must show the authored normal look. Hover at
+        // t=0 can legitimately already contain :hover and backwards-filled keys.
+        source.push_str("\nanim Normal 0.2s {\n}\n");
     }
     for state in css::State::ANIMATED {
         if sheet.rules.iter().any(|r| r.stateful_for(state)) {

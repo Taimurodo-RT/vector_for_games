@@ -1073,6 +1073,7 @@ pub fn write_kit(dir: &Path, theme: &str, items: &[KitItem]) -> Result<Vec<PathB
                     let path = dir.join(&f.file);
                     std::fs::write(&path, f.data.as_slice()).map_err(|e| format!("{}: {e}", path.display()))?;
                     files.push(path);
+                    write_font_notices(dir, f.data.as_slice(), &mut files)?;
                     fonts.push(f.file.clone());
                     n_ext += 1;
                     ext.push_str(&format!("[ext_resource type=\"FontFile\" path=\"{}\" id=\"font_{}\"]\n", f.file, fonts.len()));
@@ -1101,6 +1102,25 @@ pub fn write_kit(dir: &Path, theme: &str, items: &[KitItem]) -> Result<Vec<PathB
     Ok(files)
 }
 
+fn write_font_notices(dir: &Path, data: &[u8], files: &mut Vec<PathBuf>) -> Result<(), String> {
+    use std::io::Write;
+    let Some(notices) = motif_script::fonts::css_sans_notices(data) else {
+        return Ok(());
+    };
+    for (name, text) in notices {
+        let path = dir.join(name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => file.write_all(text.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        }
+        if !files.contains(&path) {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
 const SIDES: [&str; 4] = ["left", "top", "right", "bottom"];
 
 /// A colour channel as Godot writes it: `0.231373`.
@@ -1113,6 +1133,50 @@ fn unit(v: u8) -> String {
 mod tests {
     use super::*;
     use motif_core::{Animation, Artboard, Color, Keyframe, Node, Prop, Track, Value};
+
+    #[test]
+    fn embedded_css_fonts_export_their_exact_faces_and_notices_without_replacing_user_notices() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!("motif-kit-css-font-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
+        let scene = doc(&format!(
+            "artboard 200x100\ntext regular content \"Menu\" font \"{}\" ui label\ntext bold content \"Play\" font \"{}\" ui label\n",
+            motif_script::fonts::CSS_SANS_REGULAR,
+            motif_script::fonts::CSS_SANS_BOLD
+        ));
+        let items = render_kit(&scene, CpuOptions::default()).unwrap();
+        let dir = root.join("sans");
+        let files = write_kit(&dir, "kit", &items).unwrap();
+        for item in &items {
+            let font = item.font.as_ref().unwrap();
+            assert_eq!(std::fs::read(dir.join(&font.file)).unwrap().as_slice(), font.data.as_slice());
+        }
+        for (name, text) in motif_script::fonts::css_sans_notices(motif_script::fonts::css_sans_data(false)).unwrap() {
+            assert_eq!(std::fs::read_to_string(dir.join(name)).unwrap(), text);
+            assert_eq!(files.iter().filter(|p| p.file_name().is_some_and(|p| p == name)).count(), 1);
+        }
+        let keep = root.join("keep");
+        std::fs::create_dir_all(&keep).unwrap();
+        let user_notice = keep.join("LiberationSans-LICENSE.txt");
+        std::fs::write(&user_notice, "user note stays").unwrap();
+        write_kit(&keep, "kit", &items).unwrap();
+        assert_eq!(std::fs::read_to_string(user_notice).unwrap(), "user note stays");
+        let legacy_scene = doc("artboard 200x100\ntext title content \"Legacy\" font bold ui label\n");
+        let legacy = render_kit(&legacy_scene, CpuOptions::default()).unwrap();
+        let dir = root.join("legacy");
+        write_kit(&dir, "kit", &legacy).unwrap();
+        assert!(dir.join("IBMPlexSans-SemiBold.ttf").is_file());
+        assert!(!dir.join("LiberationSans-LICENSE.txt").exists());
+        let mut collision = legacy.clone();
+        collision[0].font.as_mut().unwrap().file = "LiberationSans-Bold.ttf".into();
+        let dir = root.join("same-name-different-bytes");
+        write_kit(&dir, "kit", &collision).unwrap();
+        assert!(!dir.join("LiberationSans-LICENSE.txt").exists());
+        let path = root.canonicalize().unwrap();
+        let temp = std::env::temp_dir().canonicalize().unwrap();
+        assert!(path.starts_with(&temp) && path != temp);
+        std::fs::remove_dir_all(path).unwrap();
+    }
 
     fn kit() -> Document {
         let mut d = Document::new(Artboard::default());
