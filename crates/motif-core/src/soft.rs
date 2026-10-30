@@ -7,6 +7,7 @@ use crate::{Document, SIM_FPS};
 use kurbo::{Affine, BezPath, ParamCurveArclen, PathEl, PathSeg, Point, Vec2};
 
 /// Physical settings of a soft body (`soft 0.5 pressure 1 friction 0.3 …`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Soft {
     /// How strongly the body returns to its drawn shape, 0..1.
@@ -34,6 +35,7 @@ const SPACING: f64 = 5.0;
 /// How strongly each step evens out kinks in the outline, 0..1.
 const SMOOTH: f64 = 0.5;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Body {
     node: usize,
@@ -577,6 +579,18 @@ pub(crate) fn apply_bodies(bodies: &[Body], doc: &mut Document) {
 }
 
 /// Bounds of a soft body's particles, for tests.
+impl crate::sim::Carry for Body {
+    fn node(&self) -> usize {
+        self.node
+    }
+    /// Only a body of as many particles: one reshaped otherwise starts again as drawn.
+    fn carry(&mut self, old: &Self) {
+        if self.p.len() == old.p.len() {
+            (self.p, self.v, self.old, self.touch, self.start_angle) = (old.p.clone(), old.v.clone(), old.old.clone(), old.touch.clone(), old.start_angle);
+        }
+    }
+}
+
 #[cfg(test)]
 fn bounds(doc: &Document, node: &str) -> kurbo::Rect {
     use kurbo::Shape;

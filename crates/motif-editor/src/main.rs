@@ -12,6 +12,7 @@ mod character_ui;
 mod check_ui;
 mod compound;
 mod field_ui;
+mod game_ui;
 mod guides;
 mod highlight;
 mod importer;

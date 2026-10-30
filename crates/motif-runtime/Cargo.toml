@@ -15,7 +15,11 @@ mesh = ["motif-render/mesh"]
 vello = ["motif-render/gpu"]
 
 [dependencies]
-motif-core.workspace = true
+# serde: the playing state is saved with the game (`save_state`).
+motif-core = { workspace = true, features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: a saved state reads back to the same bits, so a loaded game plays on the same.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 motif-script.workspace = true
 motif-render.workspace = true
 tiny-skia.workspace = true

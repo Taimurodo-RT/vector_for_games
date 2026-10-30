@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "boards": [
     {
       "name": "Магазин",
@@ -23,7 +23,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

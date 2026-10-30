@@ -7,6 +7,7 @@ use kurbo::{Point, Vec2};
 
 /// How a value chases its target: `freq` swings per second, `damp` how fast the swinging dies
 /// out (1 and above settles without overshooting).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Spring {
     pub freq: f64,
@@ -54,6 +55,7 @@ pub const SPRUNG: [Prop; 15] = [
 ];
 
 /// One property of one node following its keyed value on a spring.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Sprung {
     node: usize,
@@ -64,6 +66,7 @@ pub(crate) struct Sprung {
 }
 
 /// The tip of a `jiggle` bone, moving on its own and pulled towards where the pose puts it.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Tip {
     node: usize,
@@ -182,5 +185,25 @@ pub(crate) fn apply_tips(tips: &[Tip], doc: &mut Document) {
         if t.node < doc.nodes.len() {
             aim(doc, t.node, t.p);
         }
+    }
+}
+
+impl crate::sim::Carry for Sprung {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        if self.prop == old.prop {
+            (self.x, self.v) = (old.x, old.v);
+        }
+    }
+}
+
+impl crate::sim::Carry for Tip {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.p, self.v) = (old.p, old.v);
     }
 }

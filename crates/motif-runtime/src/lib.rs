@@ -12,8 +12,8 @@
 //! the same `dt` sequence always gives the same state. Between steps the pose is shown as far as
 //! the time has got, so the picture moves on every frame. `advance(0)` changes nothing.
 
-use motif_core::kurbo::Point;
-use motif_core::{Document, Machine, MachinePlayer, SIM_FPS, State};
+use motif_core::kurbo::{Affine, PathEl, Point, Rect};
+use motif_core::{Document, IdKind, Machine, MachinePlayer, SIM_FPS, State};
 use motif_render::CpuOptions;
 #[cfg(feature = "mesh")]
 use motif_render::mesh::{Cutter, Piece};
@@ -23,9 +23,46 @@ use tiny_skia::Pixmap;
 /// The fixed step the machine and its simulation move by, in seconds.
 pub const TICK: f64 = 1.0 / SIM_FPS;
 
+/// The version of [`PlayerState`]'s layout: a state saved by another version is refused.
+pub const STATE_FORMAT: u32 = 1;
+
+/// Everything a playing scene keeps between frames, for a game save: the state and its time,
+/// the inputs, the pointer, springs, ropes, soft bodies, particles, the side faced and the
+/// seed. The scene itself is not in it: it is loaded back into a player of the same scene with
+/// [`Player::load_state`], and plays on exactly as it would have.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PlayerState {
+    format: u32,
+    /// The machine it was saved from, its states and inputs: a state of another one is refused.
+    machine: String,
+    states: usize,
+    inputs: usize,
+    run: MachinePlayer,
+    rest: f64,
+    base: f64,
+    told: Vec<(String, f64)>,
+    side: Option<usize>,
+    seed: u64,
+}
+
+impl PlayerState {
+    /// The state as bytes to write into a save (JSON, floats to the bit).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("a player state is plain data")
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<PlayerState, String> {
+        serde_json::from_slice(bytes).map_err(|e| format!("сохранённое состояние не читается: {e}"))
+    }
+}
+
 #[derive(Debug)]
 pub struct Player {
     doc: Document,
+    /// The board played, by its place among the scene's boards.
+    board: usize,
+    /// Whether an animation plays alone, as a machine of one state named after it.
+    alone: bool,
     /// The machine as the scene has it.
     plain: Machine,
     /// The machine as it plays from the side faced: `Walk_up` instead of `Walk`.
@@ -91,6 +128,96 @@ impl Frame {
     pub fn flipped(&self) -> bool {
         self.flipped
     }
+
+    /// Where every attachment point (`socket`) is in this pose, in the order of the scene.
+    pub fn sockets(&self) -> Vec<Socket> {
+        let doc = &self.doc;
+        (0..doc.nodes.len())
+            .filter(|&i| doc.nodes[i].socket)
+            .map(|i| {
+                let t = self.turn() * doc.world_transform(i);
+                let [a, b, c, d, x, y] = t.as_coeffs();
+                let scale_x = a.hypot(b);
+                Socket {
+                    name: doc.nodes[i].id.clone(),
+                    x,
+                    y,
+                    rotation: b.atan2(a).to_degrees(),
+                    scale_x,
+                    scale_y: if scale_x > 1e-12 { (a * d - b * c) / scale_x } else { c.hypot(d) },
+                    transform: t,
+                }
+            })
+            .collect()
+    }
+
+    /// The attachment point named `name` in this pose.
+    pub fn socket(&self, name: &str) -> Option<Socket> {
+        self.sockets().into_iter().find(|s| s.name == name)
+    }
+
+    /// Every area (`area`) in this pose, in the order of the scene, hidden ones too.
+    pub fn areas(&self) -> Vec<Area> {
+        let doc = &self.doc;
+        (0..doc.nodes.len())
+            .filter(|&i| doc.nodes[i].area)
+            .map(|i| {
+                let n = &doc.nodes[i];
+                let path = n.path().map(|p| self.turn() * doc.world_transform(i) * p).unwrap_or_default();
+                let mut outline: Vec<Vec<Point>> = Vec::new();
+                motif_core::kurbo::flatten(path.elements().iter().copied(), AREA_TOLERANCE, |el| match el {
+                    PathEl::MoveTo(p) => outline.push(vec![p]),
+                    PathEl::LineTo(p) => outline.last_mut().map_or((), |l| l.push(p)),
+                    _ => {}
+                });
+                outline.retain(|l| l.len() > 2);
+                let bounds = outline.iter().flatten().fold(None, |r: Option<Rect>, p| Some(r.map_or(Rect::from_points(*p, *p), |r| r.union_pt(*p))));
+                Area { name: n.id.clone(), active: doc.is_visible(i) && doc.world_opacity(i) > 0.0, bounds: bounds.unwrap_or_default(), outline }
+            })
+            .collect()
+    }
+
+    /// The area named `name` in this pose.
+    pub fn area(&self, name: &str) -> Option<Area> {
+        self.areas().into_iter().find(|a| a.name == name)
+    }
+
+    /// Turns the artboard over for a flipped side, as it is drawn.
+    fn turn(&self) -> Affine {
+        if self.flipped { Affine::new([-1.0, 0.0, 0.0, 1.0, self.doc.artboard.width, 0.0]) } else { Affine::IDENTITY }
+    }
+}
+
+/// How far an area's outline may stray from its curves, in artboard units.
+const AREA_TOLERANCE: f64 = 0.25;
+
+/// An attachment point in one pose, in artboard units (y down), on the side shown: a flipped
+/// side has it turned over too.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Socket {
+    /// The object's name in the scene.
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    /// Degrees, clockwise, of the object's x axis.
+    pub rotation: f64,
+    pub scale_x: f64,
+    /// Negative when the point is mirrored (a flipped side, a negative scale).
+    pub scale_y: f64,
+    /// The whole placement: artboard units of the object to artboard units of the board.
+    pub transform: Affine,
+}
+
+/// An area in one pose: its outline as closed polygons in artboard units (y down), on the side
+/// shown.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Area {
+    /// The shape's name in the scene.
+    pub name: String,
+    /// Shown in this pose: keyed `visible` or opacity can switch a hit zone on and off.
+    pub active: bool,
+    pub outline: Vec<Vec<Point>>,
+    pub bounds: Rect,
 }
 
 /// What happened in one [`Player::advance`].
@@ -130,6 +257,8 @@ impl Player {
             _ => boards.iter().position(|s| s.doc.artboard.name == board),
         };
         let doc = at.and_then(|i| boards.get(i)).map(|s| s.doc.clone()).ok_or_else(|| format!("нет холста «{board}»; холсты: {}", names()))?;
+        let board = at.unwrap_or(0);
+        let alone = !animation.is_empty() || (machine.is_empty() && doc.machines.is_empty());
         let machine = if !animation.is_empty() {
             doc.animation(animation).ok_or_else(|| {
                 let all: Vec<&str> = doc.animations.iter().map(|a| a.name.as_str()).collect();
@@ -150,9 +279,48 @@ impl Player {
         let side = doc.directions.as_ref().map(|_| 0);
         let plain = machine.clone();
         let shown = Arc::new(doc.clone());
-        let mut p = Player { doc, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0 };
+        let mut p = Player { doc, board, alone, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0 };
         p.turn(side);
         Ok(p)
+    }
+
+    /// Plays on in scene `src`, the same scene changed and saved again while the game runs: the
+    /// same board (by name, else by place) and machine (by name, else the only one), the state
+    /// and its time, the inputs, springs, ropes, particles, the side and the seed go on, so a
+    /// tweak shows at once without starting the scene again. A state, input or animation renamed
+    /// in Motif is found by its hidden id. When the new scene has errors, or its board or
+    /// machine is gone, the player plays on unchanged and the errors are returned.
+    pub fn reload(&mut self, src: &str, base: Option<&std::path::Path>) -> Result<(), String> {
+        let boards = motif_script::parse_boards(src, base).map_err(|errs| errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n"))?;
+        let name = &self.doc.artboard.name;
+        let doc = boards.iter().find(|s| s.doc.artboard.name == *name).or_else(|| boards.get(self.board)).map(|s| s.doc.clone());
+        let doc = doc.ok_or_else(|| format!("в сцене больше нет холста «{name}»"))?;
+        let plain = if self.alone {
+            let old = self.plain.name.as_str();
+            let id = self.doc.ids.get(IdKind::Animation, "", old);
+            let anim = id.and_then(|id| doc.ids.name_of(IdKind::Animation, "", id)).filter(|a| doc.animation(a).is_some()).unwrap_or(old);
+            match doc.animation(anim) {
+                Some(_) => Self::alone(anim),
+                None if old.is_empty() => Machine { name: String::new(), ..Self::alone("") },
+                None => return Err(format!("в сцене больше нет анимации «{old}»")),
+            }
+        } else {
+            let old = self.plain.name.as_str();
+            let only = (self.doc.machines.len() == 1 && doc.machines.len() == 1).then(|| &doc.machines[0]);
+            doc.machine(old).or(only).cloned().ok_or_else(|| format!("в сцене больше нет машины «{old}»"))?
+        };
+        self.run = self.run.carried(&self.plain, &self.doc, &plain, &doc);
+        let side = self.side().to_string();
+        let seed = self.doc.seed;
+        self.doc = doc;
+        self.doc.seed = seed;
+        self.plain = plain;
+        // The same side if the scene still has it, else down; none without `directions`.
+        let side = self.doc.directions.as_ref().map(|d| d.find(&side).unwrap_or(0));
+        self.side = None;
+        self.turn(side);
+        self.pose += 1;
+        Ok(())
     }
 
     /// A machine of one state playing `anim`.
@@ -378,6 +546,76 @@ impl Player {
         self.rest = 0.0;
         self.told.clear();
         self.repose();
+    }
+
+    /// The attachment points of the pose shown now. See [`Frame::sockets`].
+    pub fn sockets(&self) -> Vec<Socket> {
+        self.frame().sockets()
+    }
+
+    /// The areas of the pose shown now. See [`Frame::areas`].
+    pub fn areas(&self) -> Vec<Area> {
+        self.frame().areas()
+    }
+
+    /// Everything that plays on from now, to save with the game. See [`PlayerState`].
+    pub fn save_state(&self) -> PlayerState {
+        PlayerState {
+            format: STATE_FORMAT,
+            machine: self.plain.name.clone(),
+            states: self.plain.states.len(),
+            inputs: self.plain.inputs.len(),
+            run: self.run.clone(),
+            rest: self.rest,
+            base: self.base,
+            told: self.told.clone(),
+            side: self.side,
+            seed: self.doc.seed,
+        }
+    }
+
+    /// Plays on from a state saved by [`save_state`](Self::save_state) of the same scene and
+    /// machine: the same `advance` calls after it give the same poses and events as they would
+    /// have given then. A state of another machine is refused and the player stays as it was.
+    pub fn load_state(&mut self, state: &PlayerState) -> Result<(), String> {
+        let m = &self.plain;
+        if state.format != STATE_FORMAT {
+            return Err(format!("состояние сохранено в формате {}, а читается {STATE_FORMAT}", state.format));
+        }
+        if state.machine != m.name || state.states != m.states.len() || state.inputs != m.inputs.len() {
+            return Err(format!(
+                "состояние сохранено из машины «{}» ({} состояний, {} входов), а играет «{}» ({}, {})",
+                state.machine,
+                state.states,
+                state.inputs,
+                m.name,
+                m.states.len(),
+                m.inputs.len()
+            ));
+        }
+        let run = &state.run;
+        let side = match (state.side, self.doc.directions.as_ref()) {
+            (None, None) => true,
+            (Some(k), Some(d)) => k < d.names().len(),
+            _ => false,
+        };
+        let fits = side
+            && (run.state < m.states.len() || m.states.is_empty())
+            && run.prev.is_none_or(|(k, _)| k < m.states.len())
+            && run.values.len() == m.inputs.len()
+            && [state.rest, state.base, run.time].iter().all(|t| t.is_finite());
+        if !fits {
+            return Err("сохранённое состояние не подходит к этой сцене".into());
+        }
+        self.run = state.run.clone();
+        self.rest = state.rest;
+        self.base = state.base;
+        self.told = state.told.clone();
+        self.doc.seed = state.seed;
+        // Turning reposes from the loaded state; the game draws it again whatever it shows.
+        self.turn(state.side);
+        self.pose += 1;
+        Ok(())
     }
 
     /// The pose now drawn at `scale` pixels a unit, premultiplied RGBA; a flipped side turned over.
@@ -680,6 +918,225 @@ machine M {
                 p.frame().doc.clone()
             }
         );
+    }
+
+    /// An arm that swings a gun: a muzzle to attach a flash to, and a hit zone shown for a
+    /// moment of the swing.
+    const ARMED: &str = r#"
+artboard "Рука" 200x200
+bone arm at 100 100 len 60 {
+  group muzzle at 60 0 socket
+}
+rect hitbox at 100 40 size 40 20 fill #ff0000 area
+anim Swing 1s {
+  arm.rot 0: 0 | 1: 90
+  hitbox.visible 0: 0 | 0.5: 1
+}
+"#;
+
+    #[test]
+    fn sockets_follow_the_bones_and_areas_are_read_but_not_drawn() {
+        let mut p = Player::load(ARMED, None, "", "", "Swing").unwrap();
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        let m = p.frame().socket("muzzle").unwrap();
+        assert!(near(m.x, 160.0) && near(m.y, 100.0) && near(m.rotation, 0.0) && near(m.scale_x, 1.0) && near(m.scale_y, 1.0), "{m:?}");
+        assert_eq!(p.areas().iter().map(|a| (a.name.as_str(), a.active)).collect::<Vec<_>>(), [("hitbox", false)]);
+        p.advance(1.0);
+        // The bone has turned a quarter clockwise (y down): the muzzle is below the shoulder.
+        let m = p.frame().socket("muzzle").unwrap();
+        assert!(near(m.x, 100.0) && near(m.y, 160.0) && near(m.rotation, 90.0), "{m:?}");
+        let hit = p.frame().area("hitbox").unwrap();
+        assert!(hit.active);
+        assert_eq!(hit.outline.len(), 1);
+        let b = hit.bounds;
+        assert!(near(b.x0, 80.0) && near(b.y0, 30.0) && near(b.x1, 120.0) && near(b.y1, 50.0), "{b:?}");
+        // Never painted: the red rectangle is not in the picture.
+        let px = p.render(1.0, false).unwrap();
+        assert_eq!(px.pixel(100, 40).unwrap().alpha(), 0);
+
+        // A flipped side turns both over, as it turns the picture over.
+        let turned = Frame { doc: p.frame().doc, flipped: true };
+        let m = turned.socket("muzzle").unwrap();
+        assert!(near(m.x, 100.0) && near(m.y, 160.0) && near(m.rotation, 90.0) && m.scale_y < 0.0, "{m:?}");
+        let b = turned.area("hitbox").unwrap().bounds;
+        assert!(near(b.x0, 80.0) && near(b.x1, 120.0), "{b:?}");
+        let mut q = Player::load(&ARMED.replace("at 60 0", "at 60 10"), None, "", "", "Swing").unwrap();
+        q.advance(1.0);
+        let (a, b) = (q.frame().socket("muzzle").unwrap(), Frame { doc: q.frame().doc, flipped: true }.socket("muzzle").unwrap());
+        assert!(near(a.x, 90.0) && near(b.x, 110.0) && near(a.y, b.y), "{a:?} / {b:?}");
+    }
+
+    #[test]
+    fn a_saved_state_plays_on_the_same_in_a_new_player() {
+        let steps = [0.013, 0.021, 0.004, 0.05, 0.017, 0.033, 0.002, 0.016];
+        let on = |p: &mut Player| {
+            let mut log = Vec::new();
+            for (k, dt) in steps.iter().cycle().take(60).enumerate() {
+                if k == 25 {
+                    p.set("hurt", 1.0).unwrap();
+                }
+                let step = p.advance(*dt);
+                log.push((step, p.state(), p.time(), p.frame().doc.clone()));
+            }
+            log
+        };
+        let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+        p.set_seed(42);
+        // Saved mid-step, mid-spring, with sparks in the air, a trigger waiting and an event
+        // already told from the part of a step shown ahead.
+        p.advance(0.47);
+        while p.told.is_empty() {
+            p.advance(0.004);
+            assert!(p.time() < 2.0, "no event was shown ahead of a step");
+        }
+        p.fire("hurt").unwrap();
+        assert!(p.run.sim.is_some() && p.rest > 0.0);
+        let bytes = p.save_state().to_bytes();
+        let ahead = on(&mut p);
+        assert!(ahead.iter().any(|(s, ..)| s.names().contains(&"hit")), "the trigger fires after the load too");
+
+        let mut q = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let pose = q.pose();
+        q.load_state(&PlayerState::from_bytes(&bytes).unwrap()).unwrap();
+        assert_ne!(q.pose(), pose, "the loaded pose is drawn");
+        assert!(on(&mut q) == ahead, "a loaded game plays on otherwise than the saved one");
+    }
+
+    #[test]
+    fn a_saved_side_comes_back_and_a_foreign_state_is_refused() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "Walker", "").unwrap();
+        p.set("speed", 1.0).unwrap();
+        p.advance(0.3);
+        p.face_toward(-1.0, 0.0);
+        let state = p.save_state();
+        let mut q = Player::load(&src, None, "", "Walker", "").unwrap();
+        q.load_state(&state).unwrap();
+        assert_eq!((q.side(), q.flipped(), q.animation(), q.time()), (p.side(), true, p.animation(), p.time()));
+        assert!(*q.frame().doc == *p.frame().doc);
+
+        let mut other = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let before = other.save_state();
+        let err = other.load_state(&state).unwrap_err();
+        assert!(err.contains("«Walker»") && err.contains("«M»"), "{err}");
+        assert!(other.save_state() == before, "a refused state changes nothing");
+        assert!(PlayerState::from_bytes(b"{").unwrap_err().contains("не читается"));
+        let mut json: serde_json::Value = serde_json::from_slice(&state.to_bytes()).unwrap();
+        json["format"] = 99.into();
+        let err = q.load_state(&serde_json::from_value(json).unwrap()).unwrap_err();
+        assert!(err.contains("формате 99"), "{err}");
+    }
+
+    /// The spring scene with hidden ids, as Motif saves it.
+    const RELOADED: &str = r#"
+artboard "Пружина" 100x80
+ellipse ball at 50 40 size 20 20 fill #5ee0a0 spring 3 0.2
+ellipse sparks at 50 40 size 4 4 fill #ffd23f emit 30 life 0.5 speed 60 spread 90
+anim Idle 0.4s loop id=a001 {
+  ball.x 0: 30 | 0.2: 70 | 0.4: 30
+  event step 0 0.2 id=e001
+}
+anim Hit 0.6s id=a002 {
+  ball.y 0: 40 | 0.3: 20 | 0.6: 40
+  event hit 0.1 id=e002
+}
+machine M {
+  input hurt trigger id=i001
+  input power 0 id=i002
+  state Idle id=s001
+  state Hit id=s002
+  any -> Hit when hurt
+  Hit -> Idle at end
+}
+"#;
+
+    fn ball(p: &Player) -> (f64, f64) {
+        p.frame().doc.nodes.iter().find(|n| n.id == "ball").map(|n| (n.x, n.y)).unwrap()
+    }
+
+    #[test]
+    fn a_reload_plays_on_from_the_same_state_with_the_change() {
+        let mut p = Player::load(RELOADED, None, "", "", "").unwrap();
+        p.set_seed(5);
+        p.set("power", 0.7).unwrap();
+        p.advance(0.5);
+        p.fire("hurt").unwrap();
+        // Whole steps: the pose shown is the spring's own, nothing played ahead with the old one.
+        p.advance(0.2);
+        let (time, at) = (p.time(), ball(&p));
+        assert_eq!(p.state(), "Hit");
+        // Everything but the ball, the sparks in the air among it.
+        let rest = |p: &Player| p.frame().doc.nodes.iter().filter(|n| n.id != "ball").cloned().collect::<Vec<_>>();
+        let flying = rest(&p);
+        assert!(flying.iter().any(|n| n.particles.as_ref().is_some_and(|p| !p.is_empty())), "no sparks in the air");
+        // Renamed in Motif (the ids stay), stiffer, recoloured.
+        let changed = RELOADED
+            .replace("state Hit id", "state Struck anim Hit id")
+            .replace("-> Hit", "-> Struck")
+            .replace("Hit ->", "Struck ->")
+            .replace("spring 3 0.2", "spring 6 0.2")
+            .replace("#5ee0a0", "#ff0000");
+        let pose = p.pose();
+        p.reload(&changed, None).unwrap();
+        assert_eq!((p.state().as_str(), p.time(), p.get("power")), ("Struck", time, Some(0.7)));
+        assert_ne!(p.pose(), pose, "the change is drawn");
+        let b = p.frame().doc.nodes.iter().find(|n| n.id == "ball").unwrap().clone();
+        assert_eq!(b.fill.map(|c| (c.r, c.g, c.b)), Some((255, 0, 0)));
+        // The spring goes on from where it was, behind its keys, and is not set back to rest.
+        assert_eq!((b.x, b.y), at);
+        let keyed = p.run.keys(&p.machine, &p.doc).nodes.iter().find(|n| n.id == "ball").map(|n| (n.x, n.y)).unwrap();
+        assert!((keyed.0 - at.0).abs() + (keyed.1 - at.1).abs() > 0.5, "the spring was at rest: {keyed:?} / {at:?}");
+        assert!(rest(&p) == flying, "the sparks in the air stay");
+        assert_eq!(p.doc.seed, 5);
+        // And plays on: the clip ends, the machine goes back to Idle.
+        let mut back = None;
+        for _ in 0..40 {
+            back = back.or(p.advance(1.0 / 60.0).state);
+        }
+        assert_eq!(back.as_deref(), Some("Idle"));
+    }
+
+    #[test]
+    fn a_broken_or_foreign_reload_changes_nothing_and_a_lost_state_starts_again() {
+        let mut p = Player::load(RELOADED, None, "", "", "").unwrap();
+        p.fire("hurt").unwrap();
+        p.advance(0.2);
+        let (state, time, frame) = (p.state(), p.time(), p.frame().doc.clone());
+        let broken = RELOADED.replace("ellipse ball", "ellipse ball ball");
+        assert!(p.reload(&broken, None).is_err());
+        let err = p
+            .reload(&RELOADED.replace("machine M", "machine N").replace("artboard", "anim Extra 1s {\n}\nmachine O {\n  state Extra\n}\nartboard"), None)
+            .unwrap_err();
+        assert!(err.contains("«M»"), "{err}");
+        assert_eq!((p.state(), p.time()), (state, time));
+        assert!(*p.frame().doc == *frame);
+        // A machine renamed, when it is the only one, is still the machine.
+        p.reload(&RELOADED.replace("machine M", "machine Hero"), None).unwrap();
+        assert_eq!((p.state(), p.time()), ("Hit".to_string(), time));
+        // The state played is gone (no id, no name): the machine starts again.
+        let gone = RELOADED.replace("  state Hit id=s002\n", "").replace("  any -> Hit when hurt\n  Hit -> Idle at end\n", "");
+        p.reload(&gone, None).unwrap();
+        assert_eq!(p.state(), "Idle");
+        assert!(p.time() < TICK, "{}", p.time());
+    }
+
+    #[test]
+    fn a_reload_keeps_the_side_and_a_lone_animation_renamed() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "Walker", "").unwrap();
+        p.set("speed", 1.0).unwrap();
+        p.advance(0.3);
+        p.face_toward(-1.0, 0.0);
+        let (side, anim, time) = (p.side(), p.animation(), p.time());
+        p.reload(&src, None).unwrap();
+        assert_eq!((p.side(), p.flipped(), p.animation(), p.time()), (side, true, anim, time));
+
+        let clips = RELOADED.split("machine M").next().unwrap();
+        let mut a = Player::load(clips, None, "", "", "Hit").unwrap();
+        a.advance(0.25);
+        a.reload(&clips.replace("anim Hit ", "anim Smack "), None).unwrap();
+        assert_eq!((a.animation().as_str(), a.state().as_str()), ("Smack", "Smack"));
+        assert!((a.time() - 0.25).abs() < 1e-9, "{}", a.time());
     }
 }
 

@@ -11,6 +11,7 @@ use kurbo::{BezPath, Point, Rect, Shape, Vec2};
 use std::collections::HashMap;
 
 /// Settings of a fluid (`fluid 0.1 flow 40 gravity 900`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fluid {
     /// Thickness, 0..1: 0 runs like water, 0.5 like syrup, 1 barely flows.
@@ -69,6 +70,7 @@ fn rest_density() -> f64 {
 }
 
 /// A fluid being simulated. Positions are in drop spacings, on the artboard.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Pool {
     node: usize,
@@ -412,6 +414,15 @@ pub(crate) fn apply_pools(pools: &[Pool], doc: &mut Document) {
         }
         let to_local = doc.world_transform(pool.node).inverse();
         doc.nodes[pool.node].deformed = Some(to_local * pool.outline());
+    }
+}
+
+impl crate::sim::Carry for Pool {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.p, self.v, self.owed, self.poured, self.spout) = (old.p.clone(), old.v.clone(), old.owed, old.poured, old.spout);
     }
 }
 

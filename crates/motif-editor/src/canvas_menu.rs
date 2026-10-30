@@ -17,6 +17,7 @@ pub(super) enum InspectorCategory {
     Bones,
     Weights,
     Physics,
+    Game,
     Orbit,
     Body,
     Morph,
@@ -44,6 +45,7 @@ impl InspectorCategory {
             Self::Bones => "Кости и IK",
             Self::Weights => "Веса кистью",
             Self::Physics => "Физика",
+            Self::Game => "Для игры",
             Self::Orbit => "Орбита (2.5D)",
             Self::Body => "3D-тело",
             Self::Morph => "Морфинг",
@@ -222,7 +224,7 @@ impl App {
         if n.skin.as_ref().is_some_and(|s| !s.bones.is_empty()) {
             categories.push(Weights);
         }
-        categories.push(Physics);
+        categories.extend([Physics, Game]);
         if n.kind != ShapeKind::Bone {
             categories.push(Orbit);
         }

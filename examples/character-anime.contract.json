@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "boards": [
     {
       "name": "Аниме — лицо и деформеры",
@@ -92,7 +92,9 @@
           "default": 0.0
         }
       ],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "boards": [
     {
       "name": "Неон",
@@ -23,7 +23,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Поле",
@@ -32,7 +34,9 @@
       "animations": [],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Рамка",
@@ -41,7 +45,9 @@
       "animations": [],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Свиток",
@@ -50,7 +56,9 @@
       "animations": [],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Вывеска",
@@ -59,7 +67,9 @@
       "animations": [],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

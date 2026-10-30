@@ -6,6 +6,7 @@ use crate::Document;
 use kurbo::{Affine, Point, Vec2};
 
 /// Settings of an emitter (`emit 30 life 1 speed 200 angle -90 spread 40 …`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Emitter {
     /// Particles per second.
@@ -42,6 +43,7 @@ impl Default for Emitter {
 const MAX: usize = 2000;
 
 /// One particle on the artboard.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 struct Particle {
     p: Point,
@@ -53,6 +55,7 @@ struct Particle {
 }
 
 /// An emitter and the particles it has thrown.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Spray {
     node: usize,
@@ -170,6 +173,15 @@ pub(crate) fn apply_sprays(sprays: &[Spray], doc: &mut Document) {
                 })
                 .collect(),
         );
+    }
+}
+
+impl crate::sim::Carry for Spray {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.owed, self.thrown, self.parts) = (old.owed, old.thrown, old.parts.clone());
     }
 }
 
