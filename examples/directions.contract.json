@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Стороны",
@@ -7,36 +7,43 @@
       "height": 240.0,
       "animations": [
         {
+          "id": "twqs",
           "name": "Idle",
           "duration": 1.6,
           "loop": true,
           "events": []
         },
         {
+          "id": "y4qf",
           "name": "Walk",
           "duration": 0.6,
           "loop": true,
           "events": [
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.0
             },
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.3
             }
           ]
         },
         {
+          "id": "q2hg",
           "name": "Walk_up",
           "duration": 0.6,
           "loop": true,
           "events": [
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.0
             },
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.3
             }
@@ -48,6 +55,7 @@
           "name": "Walker",
           "inputs": [
             {
+              "id": "yhfs",
               "name": "speed",
               "kind": "number",
               "default": 0.0
@@ -55,10 +63,12 @@
           ],
           "states": [
             {
+              "id": "wfkn",
               "name": "Idle",
               "animation": "Idle"
             },
             {
+              "id": "vw6g",
               "name": "Walk",
               "animation": "Walk"
             }
@@ -68,7 +78,10 @@
       ],
       "parameters": [],
       "events": [
-        "step"
+        {
+          "id": "zwue",
+          "name": "step"
+        }
       ],
       "sides": {
         "names": [

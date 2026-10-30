@@ -38,6 +38,6 @@ group tip "Совет" at 0 -36 anchor center bottom stack row center gap 10 pad
   text tip_text "Текст" content "Зажмите прыжок, чтобы прыгнуть выше" font-size 15 fill paper
 }
 
-anim Idle 1s loop {
+anim Idle 1s loop id=twqs {
   spinner.rot 0: 0 linear | 1: 360
 }

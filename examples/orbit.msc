@@ -20,7 +20,7 @@ ellipse eyeR "Глаз П" size 18 24 on head lat 12 lon 22 wrap fill ink
 ellipse nose "Нос" size 22 18 on head lat -6 wrap fill #ff7a59 stroke ink 3
 rect mouth "Рот" size 46 8 r 4 on head lat -30 wrap fill ink
 
-anim Spin 4s loop {
+anim Spin 4s loop id=rmzk {
   planet.yaw 0: 0 | 4: 360
   moon.lon   0: 0 | 4: -720
   head.yaw   0: 0 ease-in-out | 1: 50 ease-in-out | 2: 0 ease-in-out | 3: -50 ease-in-out | 4: 0

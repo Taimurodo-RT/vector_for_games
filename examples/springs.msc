@@ -26,7 +26,7 @@ group critter "Зверёк" at 120 230 {
   }
 }
 
-anim Hop 3s loop {
+anim Hop 3s loop id=q75b {
   button.sx 0: 0 hold | 0.3: 1 hold | 2.6: 0 hold
   button.sy 0: 0 hold | 0.3: 1 hold | 2.6: 0 hold
   critter.x 0: 120 ease-in-out | 0.8: 330 hold | 1.5: 330 ease-in-out | 2.3: 120 hold

@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Поля",
@@ -7,6 +7,7 @@
       "height": 360.0,
       "animations": [
         {
+          "id": "cw4p",
           "name": "Fields",
           "duration": 4.0,
           "loop": false,

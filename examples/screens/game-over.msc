@@ -39,11 +39,11 @@ group defeat "Окно поражения" anchor center middle stack column cen
   }
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   retry_body.fill   0: bad | 0.15: #ff7f8b
   to_menu_body.fill 0: raised | 0.15: lift
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   retry_body.y   0: 0 | 0.08: 4
   retry_text.y   0: 1 | 0.08: 5
   to_menu_body.y 0: 0 | 0.08: 4

@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Кисти",
@@ -7,6 +7,7 @@
       "height": 360.0,
       "animations": [
         {
+          "id": "q3ci",
           "name": "Wobble",
           "duration": 2.0,
           "loop": true,

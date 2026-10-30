@@ -25,6 +25,8 @@ pub struct Document {
     pub purpose: Purpose,
     /// The sides a character is shot from for a top-down game (`directions 8 turn …`).
     pub directions: Option<crate::Directions>,
+    /// Hidden ids (`id=…`) of inputs, states, animations, events and parameters.
+    pub ids: crate::Ids,
 }
 
 /// What a scene is made for. The editor hides what the other kind of work needs.
@@ -1037,6 +1039,7 @@ impl Document {
             time: 0.0,
             purpose: Purpose::Any,
             directions: None,
+            ids: crate::Ids::default(),
         }
     }
 

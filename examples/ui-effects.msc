@@ -20,12 +20,12 @@ group neon_button "Неоновая кнопка" at 130 60 ui button slice 18 {
   text caption "Подпись" at 0 1 content "Старт" font bold font-size 20 fill paper part text
 }
 
-anim Hover 0.2s {
+anim Hover 0.2s id=v54r {
   tube.glow    0: 6 | 0.2: 18
   tube.fill    0: #1d2747 | 0.2: #24315c
 }
 
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   tube.glow    0: 6 | 0.08: 26
   tube.stroke  0: #6f93ff | 0.08: #a8c0ff
 }

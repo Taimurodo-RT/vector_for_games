@@ -13,7 +13,7 @@ group window "Окно" at 180 170 clip {
 
 path gem "Кристалл" at 180 170 d "M 0 -60 L 40 -15 L 0 60 L -40 -15 Z" gradient linear 45 #9ff0ff #3b5bff stroke #ffffff 2
 
-anim Shine 2s loop {
+anim Shine 2s loop id=gjtm {
   gem.rot 0: 0 ease-in-out | 1: 8 ease-in-out | 2: 0
   gem.sx  0: 1 ease-in-out | 1: 1.08 ease-in-out | 2: 1
   gem.sy  0: 1 ease-in-out | 1: 1.08 ease-in-out | 2: 1

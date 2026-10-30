@@ -11,9 +11,9 @@ let hair = #63382b
 let red = #e54339
 let blue = #3975bf
 
-parameter turn "Поворот головы" range -1 1 default 0 value 0
-parameter blink "Моргание" range 0 1 default 0 value 0
-parameter mouth "Рот" range 0 1 default 0 value 0
+parameter turn "Поворот головы" range -1 1 default 0 value 0 id=x753
+parameter blink "Моргание" range 0 1 default 0 value 0 id=wrdc
+parameter mouth "Рот" range 0 1 default 0 value 0 id=tdxg
 
 ellipse shadow at 200 394 size 178 16 fill #101927 opacity 0.65
 group hero "Герой" at 200 233 {
@@ -106,16 +106,16 @@ driver mouth {
   teeth.opacity 0: 0 | 0.5: 1 | 1: 1
 }
 
-anim Look 4s loop {
+anim Look 4s loop id=stze {
   turn.value 0: 0 | 1: -1 | 2: 0 | 3: 1 | 4: 0
   blink.value 0: 0 | 1.4: 0 | 1.5: 1 | 1.65: 0 | 3.4: 0 | 3.5: 1 | 3.65: 0 | 4: 0
 }
-anim Talk 3s loop {
+anim Talk 3s loop id=j8ks {
   turn.value 0: -0.3 | 1.5: 0.4 | 3: -0.3
   mouth.value 0: 0 | 0.25: 0.8 | 0.5: 0.15 | 0.8: 1 | 1.05: 0.1 | 1.35: 0.65 | 1.6: 0 | 1.85: 1 | 2.1: 0.2 | 2.4: 0.8 | 2.7: 0.1 | 3: 0
   blink.value 0: 0 | 2: 0 | 2.1: 1 | 2.25: 0 | 3: 0
 }
-anim Expressions 4s loop {
+anim Expressions 4s loop id=cj7z {
   turn.value 0: -1 | 2: 1 | 4: -1
   mouth.value 0: 0 | 1: 1 | 2: 0 | 3: 1 | 4: 0
   blink.value 0: 0 | 0.6: 0 | 0.7: 1 | 0.9: 0 | 1.6: 0 | 1.7: 1 | 1.9: 0 | 2.6: 0 | 2.7: 1 | 2.9: 0 | 3.6: 0 | 3.7: 1 | 3.9: 0 | 4: 0

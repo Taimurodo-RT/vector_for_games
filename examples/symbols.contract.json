@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Символы",
@@ -7,6 +7,7 @@
       "height": 300.0,
       "animations": [
         {
+          "id": "twqs",
           "name": "Idle",
           "duration": 1.2,
           "loop": true,

@@ -10,11 +10,11 @@ let hair_light = #595878
 let skin = #ffe2d4
 let shade = #efb6ad
 let violet = #9488dc
-parameter turn "Поворот лица" range -1 1 default 0 value 0
-parameter look "Взгляд" range -1 1 default 0 value 0
-parameter blink "Моргание" range 0 1 default 0 value 0
-parameter mouth "Рот: улыбка / речь" range -1 1 default 0 value 0
-parameter mood "Брови" range -1 1 default 0 value 0
+parameter turn "Поворот лица" range -1 1 default 0 value 0 id=x753
+parameter look "Взгляд" range -1 1 default 0 value 0 id=fbwr
+parameter blink "Моргание" range 0 1 default 0 value 0 id=wrdc
+parameter mouth "Рот: улыбка / речь" range -1 1 default 0 value 0 id=tdxg
+parameter mood "Брови" range -1 1 default 0 value 0 id=bq2x
 ellipse backdrop at 320 316 size 462 490 fill #e5e0f4
 ellipse halo at 320 300 size 400 420 fill #eeeafa
 ellipse ground at 320 646 size 334 24 fill #d9d3e8
@@ -211,31 +211,31 @@ corrective turned_mouth parameters turn mouth {
   mouth_rig.warp-y8 -1 -1: -0.2 | -1 0: 0 | -1 1: -2 | 0 -1: 0 | 0 0: 0 | 0 1: 0 | 1 -1: -0.9 | 1 0: 0 | 1 1: -2
 }
 
-anim Idle 4s loop {
+anim Idle 4s loop id=twqs {
   turn.value 0: 0 | 1.4: 0.35 | 2.8: -0.25 | 4: 0
   look.value 0: 0 | 1.3: 0.6 | 2.8: -0.35 | 4: 0
   blink.value 0: 0 hold | 1.5: 0 | 1.63: 1 | 1.76: 0 hold | 3.2: 0 | 3.32: 1 | 3.45: 0 hold | 4: 0
 }
-anim Expressions 5s loop {
+anim Expressions 5s loop id=cj7z {
   turn.value 0: 0 | 1: -1 | 2: 0 | 3: 1 | 4: 0 | 5: 0
   look.value 0: 0 | 1: -0.8 | 2: 0.8 | 3: 0.5 | 5: 0
   mouth.value 0: 0 | 1: -1 | 2: 0.8 | 3: 0.4 | 4: -0.8 | 5: 0
   mood.value 0: 0 | 1: 1 | 2: -1 | 3: 0.7 | 5: 0
   blink.value 0: 0 hold | 3.9: 0 | 4.1: 1 hold | 4.4: 1 | 4.6: 0 hold | 5: 0
 }
-anim Talk 2s loop {
+anim Talk 2s loop id=j8ks {
   mouth.value 0: 0 | 0.18: 0.8 | 0.35: 0.1 | 0.55: 0.5 | 0.75: 0 | 1: 1 | 1.2: 0.1 | 1.4: 0.7 | 1.6: 0 | 2: 0
   mood.value 0: 0 | 1: 0.6 | 2: 0
 }
-anim Hover 0.2s {
+anim Hover 0.2s id=v54r {
   ui_plate.fill 0: #d8d0ee | 0.2: #b6a5e4
 }
-anim Press 0.15s {
+anim Press 0.15s id=kb3k {
   ui_plate.fill 0: #d8d0ee | 0.15: #9480c6
 }
 
 // A deliberate combination test: full turn + half/closed lids + open mouth, in both directions.
-anim Combinations 8s loop {
+anim Combinations 8s loop id=d9fu {
   turn.value 0: 0 | 1: 1 | 3: 1 | 4: 0 | 5: -1 | 7: -1 | 8: 0
   blink.value 0: 0 | 1: 0.5 | 2: 1 | 3: 0 | 4: 0 | 5: 0.5 | 6: 1 | 7: 0 | 8: 0
   mouth.value 0: 0 | 1: 1 | 2: 1 | 3: -1 | 4: 0 | 5: 1 | 6: 1 | 7: -1 | 8: 0

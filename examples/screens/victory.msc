@@ -50,11 +50,11 @@ group result "Окно победы" anchor center middle stack column center ga
   }
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   again_body.fill 0: raised | 0.15: lift
   next_body.fill  0: good | 0.15: #7be3ad
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   again_body.y 0: 0 | 0.08: 4
   again_text.y 0: 1 | 0.08: 5
   next_body.y  0: 0 | 0.08: 4

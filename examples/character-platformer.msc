@@ -219,13 +219,13 @@ group hero "Герой" at 160 346 scale hero_size {
 }
 
 // Шаг и IK-цели используют ту же длину ноги: параметры не разрывают анимацию.
-anim Idle 2s loop {
+anim Idle 2s loop id=twqs {
   pelvis.y 0: {-68 * leg_length - 6} ease-in-out-sine | 1: {-69 * leg_length - 6} ease-in-out-sine | 2: {-68 * leg_length - 6}
   spine.rot 0: -90 ease-in-out-sine | 1: -88 ease-in-out-sine | 2: -90
   arm_front.rot 0: 170 ease-in-out-sine | 1: 173 ease-in-out-sine | 2: 170
   arm_back.rot 0: 170 ease-in-out-sine | 1: 167 ease-in-out-sine | 2: 170
 }
-anim Walk 0.8s loop {
+anim Walk 0.8s loop id=y4qf {
   pelvis.y 0.0: {-62 * leg_length - 6} ease-in-out-sine | 0.2: {-65 * leg_length - 6} ease-in-out-sine | 0.4: {-62 * leg_length - 6} ease-in-out-sine | 0.6: {-65 * leg_length - 6} ease-in-out-sine | 0.8: {-62 * leg_length - 6}
   foot_front.x 0.0: {22 * leg_length * stride} ease-in-out-sine | 0.2: {0 * leg_length * stride} ease-in-out-sine | 0.4: {-22 * leg_length * stride} ease-in-out-sine | 0.6: {-2 * leg_length * stride} ease-in-out-sine | 0.8: {22 * leg_length * stride}
   foot_front.y 0.0: {0 * leg_length - 6} ease-in-out-sine | 0.2: {0 * leg_length - 6} ease-in-out-sine | 0.4: {0 * leg_length - 6} ease-in-out-sine | 0.6: {-19 * leg_length - 6} ease-in-out-sine | 0.8: {0 * leg_length - 6}
@@ -233,9 +233,9 @@ anim Walk 0.8s loop {
   foot_back.x 0.0: {-22 * leg_length * stride} ease-in-out-sine | 0.2: {-2 * leg_length * stride} ease-in-out-sine | 0.4: {22 * leg_length * stride} ease-in-out-sine | 0.6: {0 * leg_length * stride} ease-in-out-sine | 0.8: {-22 * leg_length * stride}
   foot_back.y 0.0: {0 * leg_length - 6} ease-in-out-sine | 0.2: {-19 * leg_length - 6} ease-in-out-sine | 0.4: {0 * leg_length - 6} ease-in-out-sine | 0.6: {0 * leg_length - 6} ease-in-out-sine | 0.8: {0 * leg_length - 6}
   arm_back.rot 0: 150 ease-in-out-sine | 0.4: 190 ease-in-out-sine | 0.8: 150
-  event step 0 0.4
+  event step 0 0.4 id=zwue
 }
-anim Run 0.6s loop {
+anim Run 0.6s loop id=wmn5 {
   pelvis.y 0.0: {-61 * leg_length - 6} ease-in-out-sine | 0.15: {-67 * leg_length - 6} ease-in-out-sine | 0.3: {-61 * leg_length - 6} ease-in-out-sine | 0.45: {-67 * leg_length - 6} ease-in-out-sine | 0.6: {-61 * leg_length - 6}
   spine.rot 0: -80
   foot_front.x 0.0: {28 * leg_length * stride} ease-in-out-sine | 0.15: {7 * leg_length * stride} ease-in-out-sine | 0.3: {-28 * leg_length * stride} ease-in-out-sine | 0.45: {-14 * leg_length * stride} ease-in-out-sine | 0.6: {28 * leg_length * stride}
@@ -246,9 +246,9 @@ anim Run 0.6s loop {
   foot_back.y 0.0: {-6 * leg_length - 6} ease-in-out-sine | 0.15: {-33 * leg_length - 6} ease-in-out-sine | 0.3: {-5 * leg_length - 6} ease-in-out-sine | 0.45: {0 * leg_length - 6} ease-in-out-sine | 0.6: {-6 * leg_length - 6}
   arm_back.rot 0: 115 ease-in-out-sine | 0.3: 220 ease-in-out-sine | 0.6: 115
   fore_back.rot 0: -80 ease-in-out-sine | 0.3: -95 ease-in-out-sine | 0.6: -80
-  event step 0.15 0.45
+  event step 0.15 0.45 id=zwue
 }
-anim Jump 1s {
+anim Jump 1s id=rdi9 {
   hero.y 0: 346 ease-in-out | 0.15: 346 ease-in-out | 0.45: 302 ease-in-out | 0.85: 346 ease-in-out | 1: 346
   pelvis.y 0: {-68 * leg_length - 6} ease-in-out | 0.15: {-48 * leg_length - 6} ease-in-out | 0.45: {-65 * leg_length - 6} ease-in-out | 0.85: {-48 * leg_length - 6} ease-in-out | 1: {-68 * leg_length - 6}
   foot_front.x 0: {9 * leg_length} ease-in-out-sine | 0.45: {16.2 * leg_length} ease-in-out-sine | 1: {9 * leg_length}
@@ -257,15 +257,15 @@ anim Jump 1s {
   foot_back.x 0: {-11 * leg_length} ease-in-out-sine | 0.45: {-19.8 * leg_length} ease-in-out-sine | 1: {-11 * leg_length}
   foot_back.y 0: {0 * leg_length - 6} ease-in-out-sine | 0.15: {0 * leg_length - 6} ease-in-out-sine | 0.45: {-25 * leg_length - 6} ease-in-out-sine | 0.7: {-12 * leg_length - 6} ease-in-out-sine | 0.85: {0 * leg_length - 6} ease-in-out-sine | 1: {0 * leg_length - 6}
   arm_back.rot 0: 170 ease-in-out-sine | 0.15: 200 ease-in-out-sine | 0.45: 110 ease-in-out-sine | 0.85: 150 ease-in-out-sine | 1: 170
-  event land 0.85
+  event land 0.85 id=wga2
 }
 machine Humanoid {
-  input speed 0
-  input jump trigger
-  state Idle
-  state Walk
-  state Run
-  state Jump
+  input speed 0 id=rsu9
+  input jump trigger id=s6f3
+  state Idle id=mmja
+  state Walk id=ac78
+  state Run id=upen
+  state Jump id=x7vs
   Idle -> Walk when speed > 0.1 blend 0.12s
   Walk -> Idle when speed <= 0.1 blend 0.12s
   Walk -> Run when speed > 0.7 blend 0.12s

@@ -8,7 +8,7 @@ pub(crate) fn evaluate(src: &str, scene: &mut Scene, stmts: &[Stmt]) -> Vec<Scri
     let mut errors = Vec::new();
     let mut error = |span: Span, text: String| errors.push(ScriptError::at(src, span.start, text));
     for stmt in stmts {
-        let Stmt::Parameter { parameter: p, span, value_span } = stmt else { continue };
+        let Stmt::Parameter { parameter: p, span, value_span, uid } = stmt else { continue };
         if span.start < crate::head_end(src) {
             error(*span, "parameter пишется после artboard: параметры движения принадлежат одному холсту".into());
             continue;
@@ -24,6 +24,9 @@ pub(crate) fn evaluate(src: &str, scene: &mut Scene, stmts: &[Stmt]) -> Vec<Scri
         {
             error(*span, "нужен конечный диапазон min < max, default и value внутри него".into());
             continue;
+        }
+        if let Err((span, msg)) = crate::eval::give_id(&mut scene.doc.ids, motif_core::IdKind::Parameter, "", &p.id, uid) {
+            error(span, msg);
         }
         scene.doc.parameters.push(p.clone());
         scene.parameter_values.insert(p.id.clone(), *value_span);

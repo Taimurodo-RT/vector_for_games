@@ -25,7 +25,7 @@ text l6 at 410 280 content "Маска + blur" font-size 14 fill ink
 
 artboard "web-color" 96x96 bg #eef1f6 ui cell 1 0
 ellipse color at 48 48 size 60 fill #6c9ee8 stroke #294563 3
-anim Color 2s loop {
+anim Color 2s loop id=kqrb {
   color.fill 0: #6c9ee8 | 1: #edaa65 | 2: #6c9ee8
   color.stroke 0: #294563 | 1: #633e2c | 2: #294563
   color.stroke_w 0: 3 | 1: 7 | 2: 3
@@ -33,7 +33,7 @@ anim Color 2s loop {
 
 artboard "web-reveal" 160x120 bg #eef1f6 ui cell 2 0
 rect reveal at 70 60 size 80 48 r 14 fill accent opacity 0 shadow 5 7 10 #182b4b88
-anim Reveal 2s loop {
+anim Reveal 2s loop id=y5fj {
   reveal.opacity 0: 0 ease-in-out | 0.7: 1 | 1.3: 1 ease-in-out | 2: 0
   reveal.x 0: 60 ease-in-out | 1: 90 ease-in-out | 2: 60
 }

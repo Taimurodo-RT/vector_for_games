@@ -1175,7 +1175,15 @@ pub fn write_event(src: &str, scene: &Scene, anim: &str, name: &str, new_name: &
     let line = format!("event {new_name} {}", times.iter().map(|t| fmt_num(*t)).collect::<Vec<_>>().join(" "));
     match site.events.iter().find(|e| e.name == name) {
         Some(e) if times.is_empty() => Some(splice(src, whole_lines(src, e.span), "")),
-        Some(e) => Some(splice(src, e.span, &line)),
+        Some(e) => {
+            // The id goes with the name: a rename keeps it when no other animation still sends
+            // the old name and the new name has no id of its own.
+            let others = |n: &str| scene.anims.iter().any(|(a, s)| a != anim && s.events.iter().any(|e| e.name == n));
+            let own = scene.doc.ids.get(motif_core::IdKind::Event, "", name);
+            let keep = new_name == name || (!others(name) && scene.doc.ids.get(motif_core::IdKind::Event, "", new_name).is_none_or(|id| Some(id) == own));
+            let line = if keep { crate::ids::keep(&src[e.span.start..e.span.end], line) } else { line };
+            Some(splice(src, e.span, &line))
+        }
         None if times.is_empty() => Some(src.to_string()),
         None => Some(insert_before_close(src, site.close, &format!("  {line}\n"))),
     }

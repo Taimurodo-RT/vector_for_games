@@ -29,7 +29,7 @@ group button "Кнопка" at 158.125 114 ui {
 
 // :hover — кольцо разлетается до 12px и гаснет, углы до 12px, круг заливает кнопку,
 // стрелки меняются местами, текст едет вправо и темнеет.
-anim Hover 0.8s {
+anim Hover 0.8s id=v54r {
   ring.w       0: 195.94 cubic 0.23 1 0.32 1 | 0.6: 205.94
   ring.h       0: 61.38 cubic 0.23 1 0.32 1 | 0.6: 71.38
   ring.r       0: 101 cubic 0.23 1 0.32 1 | 0.6: 18
@@ -49,7 +49,7 @@ anim Hover 0.8s {
 }
 
 // Уход курсора: те же свойства обратно, с той же кривой (CSS не переворачивает кривую).
-anim Leave 0.8s {
+anim Leave 0.8s id=gjh4 {
   ring.w       0: 205.94 cubic 0.23 1 0.32 1 | 0.6: 195.94
   ring.h       0: 71.38 cubic 0.23 1 0.32 1 | 0.6: 61.38
   ring.r       0: 18 cubic 0.23 1 0.32 1 | 0.6: 101
@@ -70,7 +70,7 @@ anim Leave 0.8s {
 
 // :active поверх :hover — кнопка сжимается до 0.95, кольцо возвращается сплошным в 4px.
 // Остальное держит позу Hover, поэтому эта анимация годится и для экспорта состояния «pressed».
-anim Press 0.6s {
+anim Press 0.6s id=kb3k {
   button.sx    0: 1 cubic 0.23 1 0.32 1 | 0.6: 0.95
   button.sy    0: 1 cubic 0.23 1 0.32 1 | 0.6: 0.95
   ring.w       0: 205.94 cubic 0.23 1 0.32 1 | 0.6: 197.94
@@ -92,7 +92,7 @@ anim Press 0.6s {
 }
 
 // Отпускание: назад к позе Hover.
-anim Release 0.6s {
+anim Release 0.6s id=st4c {
   button.sx    0: 0.95 cubic 0.23 1 0.32 1 | 0.6: 1
   button.sy    0: 0.95 cubic 0.23 1 0.32 1 | 0.6: 1
   ring.w       0: 197.94 cubic 0.23 1 0.32 1 | 0.6: 205.94
@@ -113,21 +113,21 @@ anim Release 0.6s {
   arr2.fill    0: ink | 0.6: ink
 }
 
-anim Normal 0.1s {
+anim Normal 0.1s id=npes {
 }
 
 // Как в браузере: нажмите «▶ Проверить» вверху и водите мышью по кнопке.
 // Строки listen связывают наведение и нажатие на кнопку со входами машины.
 machine Pointer {
-  input hover false
-  input press false
+  input hover false id=sejd
+  input press false id=fdxn
   listen button hover -> hover
   listen button press -> press
-  state Normal at 20 20
-  state Hover at 250 20
-  state Leave at 250 120
-  state Press at 480 20
-  state Release at 480 120
+  state Normal at 20 20 id=utca
+  state Hover at 250 20 id=fkba
+  state Leave at 250 120 id=axsk
+  state Press at 480 20 id=e7jb
+  state Release at 480 120 id=yieu
   Normal -> Hover when hover
   Hover -> Leave when not hover
   Leave -> Hover when hover

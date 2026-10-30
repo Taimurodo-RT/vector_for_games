@@ -52,10 +52,10 @@ group speech "Реплика" at 0 -78 anchor center bottom {
   path next "Дальше" at 270 40 d "M -7 -4 L 0 4 L 7 -4" fill none stroke gold 3 cap round join round
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   answer1_body.fill 0: raised | 0.15: lift
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   answer1_body.y 0: 0 | 0.08: 3
   answer1_text.y 0: 1 | 0.08: 4
 }

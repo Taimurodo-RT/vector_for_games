@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Аниме — лицо и деформеры",
@@ -7,36 +7,42 @@
       "height": 720.0,
       "animations": [
         {
+          "id": "twqs",
           "name": "Idle",
           "duration": 4.0,
           "loop": true,
           "events": []
         },
         {
+          "id": "cj7z",
           "name": "Expressions",
           "duration": 5.0,
           "loop": true,
           "events": []
         },
         {
+          "id": "j8ks",
           "name": "Talk",
           "duration": 2.0,
           "loop": true,
           "events": []
         },
         {
+          "id": "v54r",
           "name": "Hover",
           "duration": 0.2,
           "loop": false,
           "events": []
         },
         {
+          "id": "kb3k",
           "name": "Press",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "d9fu",
           "name": "Combinations",
           "duration": 8.0,
           "loop": true,
@@ -46,36 +52,41 @@
       "machines": [],
       "parameters": [
         {
-          "id": "turn",
-          "name": "Поворот лица",
+          "id": "x753",
+          "name": "turn",
+          "title": "Поворот лица",
           "min": -1.0,
           "max": 1.0,
           "default": 0.0
         },
         {
-          "id": "look",
-          "name": "Взгляд",
+          "id": "fbwr",
+          "name": "look",
+          "title": "Взгляд",
           "min": -1.0,
           "max": 1.0,
           "default": 0.0
         },
         {
-          "id": "blink",
-          "name": "Моргание",
+          "id": "wrdc",
+          "name": "blink",
+          "title": "Моргание",
           "min": 0.0,
           "max": 1.0,
           "default": 0.0
         },
         {
-          "id": "mouth",
-          "name": "Рот: улыбка / речь",
+          "id": "tdxg",
+          "name": "mouth",
+          "title": "Рот: улыбка / речь",
           "min": -1.0,
           "max": 1.0,
           "default": 0.0
         },
         {
-          "id": "mood",
-          "name": "Брови",
+          "id": "bq2x",
+          "name": "mood",
+          "title": "Брови",
           "min": -1.0,
           "max": 1.0,
           "default": 0.0

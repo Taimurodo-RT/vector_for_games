@@ -148,11 +148,14 @@ impl<'a> Evaluator<'a> {
         self.scene.doc.bind_skins();
         self.scene.doc.rig();
         for s in stmts {
-            if let Stmt::Anim { name, duration, looping, tracks, events, span, close, duration_span, loop_span } = s {
+            if let Stmt::Anim { name, duration, looping, tracks, events, span, close, duration_span, loop_span, uid } = s {
                 self.note_block(span.start);
                 if self.scene.doc.animation(name).is_some() {
                     self.err(*span, format!("анимация «{name}» уже есть"));
                     continue;
+                }
+                if let Err((span, msg)) = give_id(&mut self.scene.doc.ids, motif_core::IdKind::Animation, "", name, uid) {
+                    self.err(span, msg);
                 }
                 let mut anim = Animation { name: name.clone(), duration: *duration, looping: *looping, tracks: Vec::new(), events: Vec::new() };
                 let mut site = AnimSite { close: *close, duration: *duration_span, loop_word: *loop_span, tracks: Vec::new(), events: Vec::new() };
@@ -160,6 +163,9 @@ impl<'a> Evaluator<'a> {
                     if site.events.iter().any(|s| s.name == e.name) {
                         self.err(e.name_span, format!("событие «{}» уже есть в этой анимации: допишите время в ту же строку", e.name));
                         continue;
+                    }
+                    if let Err((span, msg)) = give_id(&mut self.scene.doc.ids, motif_core::IdKind::Event, "", &e.name, &e.uid) {
+                        self.err(span, msg);
                     }
                     for &(t, span) in &e.times {
                         if t < 0.0 || t > *duration + 1e-9 {
@@ -397,18 +403,24 @@ impl<'a> Evaluator<'a> {
         // Inputs and states first: transitions may name them before they are written.
         for l in lines {
             match &l.line {
-                MachineLine::Input { name, name_span, kind, default } => {
+                MachineLine::Input { name, name_span, kind, default, uid } => {
                     if m.input(name).is_some() {
                         self.err(*name_span, format!("вход «{name}» уже есть"));
                         continue;
                     }
+                    if let Err((span, msg)) = give_id(&mut self.scene.doc.ids, motif_core::IdKind::Input, &m.name, name, uid) {
+                        self.err(span, msg);
+                    }
                     m.inputs.push(Input { name: name.clone(), kind: *kind, default: *default });
                     site.inputs.push(l.span);
                 }
-                MachineLine::State { name, name_span, anim, at } => {
+                MachineLine::State { name, name_span, anim, at, uid } => {
                     if m.state(name).is_some() || name == "any" {
                         self.err(*name_span, format!("состояние «{name}» уже есть"));
                         continue;
+                    }
+                    if let Err((span, msg)) = give_id(&mut self.scene.doc.ids, motif_core::IdKind::State, &m.name, name, uid) {
+                        self.err(span, msg);
                     }
                     let (anim, anim_span) = anim.clone().unwrap_or((name.clone(), *name_span));
                     if self.scene.doc.animation(&anim).is_none() {
@@ -1893,6 +1905,26 @@ impl<'a> Evaluator<'a> {
 }
 
 /// The piece (`ui`) a node is a part of: its nearest ancestor with `ui`.
+/// Records `uid` (the `id=…` written on its line) as the id of `name`. Fails when another name
+/// of the same kind has it, or an event name already has another one.
+pub(crate) fn give_id(
+    ids: &mut motif_core::Ids,
+    kind: motif_core::IdKind,
+    owner: &str,
+    name: &str,
+    uid: &Option<(String, Span)>,
+) -> Result<(), (Span, String)> {
+    let Some((id, span)) = uid else { return Ok(()) };
+    if let Some(other) = ids.name_of(kind, owner, id).filter(|other| *other != name) {
+        return Err((*span, format!("id «{id}» уже у «{other}»: у каждого свой")));
+    }
+    if let Some(old) = ids.get(kind, owner, name).filter(|old| old != id) {
+        return Err((*span, format!("у «{name}» уже id «{old}»: у строк одного события id один")));
+    }
+    ids.set(kind, owner, name, id);
+    Ok(())
+}
+
 fn ui_owner(doc: &motif_core::Document, i: usize) -> Option<usize> {
     let mut up = doc.nodes[i].parent;
     while let Some(k) = up {
