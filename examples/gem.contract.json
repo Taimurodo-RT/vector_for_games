@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Кристалл",
+      "width": 360.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Shine",
+          "duration": 2.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

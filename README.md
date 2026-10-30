@@ -308,6 +308,7 @@ cargo run --release -p motif-cli -- kit     examples/ui-kit.msc --scale 2 -o out
 cargo run --release -p motif-cli -- screen  examples/menu.msc -o out/menu
 cargo run --release -p motif-cli -- godot   examples/machine.msc --node hero --pivot 240 238 -o out/hero
 cargo run --release -p motif-cli -- runtime examples/machine.msc -o ~/game/characters
+cargo run --release -p motif-cli -- contract examples/machine.msc -o out/machine.contract.json
 cargo run --release -p motif-cli -- godot   examples/directions.msc -o out/walker
 cargo run --release -p motif-cli -- render  examples/directions.msc --anim Walk --side up_right -o out/up_right.png
 cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кнопки -o out/buttons.png
@@ -317,6 +318,12 @@ cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кноп
 перечисляет холсты, `render` сохраняет `СЦЕНА_ХОЛСТ.png` (`-o` — папка), `kit` собирает детали всех холстов в одну тему,
 `godot` выгружает каждый холст своей сценой `ХОЛСТ.tscn`, `palette` собирает цвета всех холстов, `frames`, `pixel`
 и `video` берут холст, где есть анимация `--anim`.
+
+`contract` пишет договор сцены для игры (Forge) в JSON: холсты, анимации с длиной, повтором и событиями, машины с
+состояниями, входами и связями с мышью, параметры позы, имена событий, стороны. В Rust — `motif_script::contract`.
+У каждого примера в `examples/` лежит образец `ИМЯ.contract.json`, тест сверяет с ним договор (после намеренной
+правки: `MOTIF_BLESS=1 cargo test -p motif-script --test contracts`). Подробнее —
+[docs/export.html#contract](docs/export.html#contract).
 
 ## Видео
 

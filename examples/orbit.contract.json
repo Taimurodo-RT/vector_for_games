@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Орбита",
+      "width": 560.0,
+      "height": 320.0,
+      "animations": [
+        {
+          "name": "Spin",
+          "duration": 4.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

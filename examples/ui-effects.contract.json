@@ -1,0 +1,63 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Неон",
+      "width": 260.0,
+      "height": 120.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 0.2,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Поле",
+      "width": 260.0,
+      "height": 100.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Рамка",
+      "width": 260.0,
+      "height": 160.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Свиток",
+      "width": 260.0,
+      "height": 160.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Вывеска",
+      "width": 260.0,
+      "height": 90.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

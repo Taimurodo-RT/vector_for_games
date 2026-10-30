@@ -1,0 +1,33 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Слайдеры",
+      "width": 560.0,
+      "height": 300.0,
+      "animations": [
+        {
+          "name": "Value",
+          "duration": 1.0,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

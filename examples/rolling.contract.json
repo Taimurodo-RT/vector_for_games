@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Шар",
+      "width": 600.0,
+      "height": 320.0,
+      "animations": [
+        {
+          "name": "Tilt",
+          "duration": 6.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

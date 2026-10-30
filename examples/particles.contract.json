@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Частицы",
+      "width": 520.0,
+      "height": 320.0,
+      "animations": [
+        {
+          "name": "Night",
+          "duration": 3.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

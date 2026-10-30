@@ -1,0 +1,27 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Диалог",
+      "width": 640.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

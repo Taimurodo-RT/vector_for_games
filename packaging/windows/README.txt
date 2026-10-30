@@ -264,7 +264,8 @@ H, колесо мыши. Подробнее — docs\runtime.html.
 Проверить путь до game.exe на своём ПК за десять минут — список шагов
 в docs\runtime.html#delivery (сборка проходит его сама перед выпуском).
 
-motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime
-(см. motif.exe --help). Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
+motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime|contract
+(см. motif.exe --help). motif.exe contract сцена.msc -o сцена.contract.json пишет договор
+сцены для игры (Forge): анимации, машины, входы, параметры, события, стороны — docs\export.html#contract. Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 
 В строке состояния внизу видно, чем рисует холст: «Vello на GPU» или запасной CPU-рендер.

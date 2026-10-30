@@ -1,0 +1,97 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Капля",
+      "width": 480.0,
+      "height": 320.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 1.6,
+          "loop": true,
+          "events": []
+        },
+        {
+          "name": "Run",
+          "duration": 0.4,
+          "loop": true,
+          "events": [
+            {
+              "name": "step",
+              "time": 0.0
+            }
+          ]
+        },
+        {
+          "name": "Jump",
+          "duration": 0.7,
+          "loop": false,
+          "events": [
+            {
+              "name": "push",
+              "time": 0.1
+            },
+            {
+              "name": "land",
+              "time": 0.7
+            }
+          ]
+        },
+        {
+          "name": "Hit",
+          "duration": 0.5,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [
+        {
+          "name": "Hero",
+          "inputs": [
+            {
+              "name": "speed",
+              "kind": "number",
+              "default": 0.0
+            },
+            {
+              "name": "jump",
+              "kind": "trigger",
+              "default": 0.0
+            },
+            {
+              "name": "hurt",
+              "kind": "trigger",
+              "default": 0.0
+            }
+          ],
+          "states": [
+            {
+              "name": "Idle",
+              "animation": "Idle"
+            },
+            {
+              "name": "Run",
+              "animation": "Run"
+            },
+            {
+              "name": "Jump",
+              "animation": "Jump"
+            },
+            {
+              "name": "Hit",
+              "animation": "Hit"
+            }
+          ],
+          "pointer": []
+        }
+      ],
+      "parameters": [],
+      "events": [
+        "land",
+        "push",
+        "step"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Глубина",
+      "width": 480.0,
+      "height": 300.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 1.4,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

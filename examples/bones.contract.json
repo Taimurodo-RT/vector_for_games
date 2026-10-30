@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Кости",
+      "width": 480.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Wave",
+          "duration": 2.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

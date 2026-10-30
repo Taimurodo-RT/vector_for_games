@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Символы",
+      "width": 480.0,
+      "height": 300.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 1.2,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

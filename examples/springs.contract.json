@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Пружины",
+      "width": 480.0,
+      "height": 320.0,
+      "animations": [
+        {
+          "name": "Hop",
+          "duration": 3.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

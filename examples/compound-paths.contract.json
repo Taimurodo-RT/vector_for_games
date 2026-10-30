@@ -1,0 +1,14 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Контуры и слои",
+      "width": 640.0,
+      "height": 400.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

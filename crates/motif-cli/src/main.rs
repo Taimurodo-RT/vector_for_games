@@ -16,6 +16,7 @@ motif — скрипты сцен Motif без окна редактора
   motif check   <сцена.msc>
   motif import-html <фрагмент.html> [--css стиль.css] [--browser chrome|firefox] [-o сцена.msc]
   motif inspect <сцена.msc> [--board ИМЯ] [--anim ИМЯ --time СЕК] [--node ID] [-o отчёт.json]
+  motif contract <сцена.msc> [-o договор.json] [--board ИМЯ]
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [параметры рендера]
@@ -61,6 +62,8 @@ godot запекает все анимации в один атлас ИМЯ.png
 с теми же состояниями и переходами, а входы машины станут переменными скрипта ИМЯ.gd. --node берёт
 только один объект (персонаж без фона), --pivot задаёт точку привязки спрайта в координатах артборда.
 С --pixelize (или --preset) кадры перед упаковкой в атлас проходят через PixaTool.
+contract пишет договор сцены для игры (Forge) в JSON: холсты и размеры, анимации (длина, повтор, события
+со временем), машины с состояниями, входами и связями с мышью, параметры позы (min, max, по умолчанию), стороны.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
 runtime кладёт сцену в проект Godot для узла MotifSprite, который играет её вектором без запекания: аддон
 Motif в addons/motif (из --addon, переменной MOTIF_GODOT_ADDON или папки godot-addon рядом с Motif), .msc и
@@ -203,6 +206,21 @@ fn run() -> Result<(), String> {
         return export_web(&a, &src, scenes);
     }
     let boards = pick_boards(scenes.into_iter().map(|s| s.doc).collect(), a.board.as_deref())?;
+    if a.cmd == "contract" {
+        let json = motif_script::contract_json(&boards);
+        return match &a.out {
+            Some(path) => {
+                if path.extension().is_some_and(|e| e == "msc") {
+                    return Err("contract: договор пишется в .json, а не поверх сцены".into());
+                }
+                std::fs::write(path, json).map_err(|e| format!("{}: {e}", path.display()))
+            }
+            None => {
+                print!("{json}");
+                Ok(())
+            }
+        };
+    }
     let several = boards.len() > 1;
     let stem = a.scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene").to_string();
     let render_for = |doc: &Document| {

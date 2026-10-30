@@ -1,0 +1,170 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Кнопки",
+      "width": 640.0,
+      "height": 340.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Disabled",
+          "duration": 0.2,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Переключатели",
+      "width": 560.0,
+      "height": 240.0,
+      "animations": [
+        {
+          "name": "Disabled",
+          "duration": 0.2,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Поля",
+      "width": 600.0,
+      "height": 280.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Focus",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Disabled",
+          "duration": 0.2,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Полосы",
+      "width": 600.0,
+      "height": 340.0,
+      "animations": [
+        {
+          "name": "Value",
+          "duration": 1.0,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Disabled",
+          "duration": 0.2,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Панели",
+      "width": 760.0,
+      "height": 400.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Навигация",
+      "width": 560.0,
+      "height": 200.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "Текст",
+      "width": 560.0,
+      "height": 220.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}
