@@ -35,6 +35,15 @@
 <p><b>Почему не на GDScript.</b> Аддон на GDScript не нужно собирать, но тогда всё, что умеет Motif (фигуры, кривые, кости, мягкие тела, 3D-повороты, машину), пришлось бы написать заново на другом языке. Сложное пришлось бы урезать, а две реализации со временем начали бы расходиться. GDExtension берёт готовое ядро, и оно на скомпилированном Rust ещё и заметно быстрее. Цена — библиотека под каждую систему: для Windows она лежит в сборке Motif, для Linux и macOS её собирает <code>cargo build --release -p motif-godot</code>.</p>
 <p><b>Что попадает в готовую игру:</b> папка <code>addons/motif</code> с библиотекой и файлы <code>.msc</code> со шрифтами. Шрифты и сцены библиотека читает через Godot, поэтому они находятся и внутри упакованной игры.</p>
 
+<h2 id="library">Без Godot: крейт motif-runtime</h2>
+<p>Проигрыватель сцены живёт в отдельном крейте <code>motif-runtime</code>, без Godot и без окна. MotifSprite построен на нём, и так же его подключает конструктор игр Forge или любая другая игра на Rust: крейты <code>motif-core</code>, <code>motif-script</code>, <code>motif-render</code> и <code>motif-runtime</code> как библиотеки. Редактор и аддон Godot для этого не нужны.</p>
+<pre><code>let mut hero = motif_runtime::Player::load(&amp;src, Some(dir), "", "", "")?;
+hero.set("speed", 1.0)?;
+hero.fire("jump")?;
+let step = hero.advance(dt);          // события и новое состояние за этот шаг
+let image = hero.render(2.0, false);  // кадр картинкой tiny-skia в 2× размере холста</code></pre>
+<p><b>Время только от игры.</b> Проигрыватель не читает часы системы: он двигается ровно на тот <code>dt</code>, который ему дали. Остальное то же, что у узла: <code>set</code>/<code>get</code>/<code>inputs</code>, <code>fire</code>, <code>jump</code>, <code>restart</code>, <code>state</code>, стороны (<code>sides</code>, <code>set_side</code>, <code>face_toward</code>), мышь для <code>listen</code> (<code>pointer</code>) и <code>frame()</code> — снимок позы, который можно рисовать в другом потоке. Треугольники для видеокарты дают <code>Frame::pieces</code> с включённой возможностью крейта <code>mesh</code>.</p>
+
 <h2 id="when">Когда что брать</h2>
 <div class="table-wrap"><table>
   <tr><th></th><th>MotifSprite (вектор в игре)</th><th>«Выгрузить в Godot…» (запекание)</th></tr>

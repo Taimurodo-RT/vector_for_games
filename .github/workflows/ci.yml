@@ -27,6 +27,11 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: motif-runtime alone, as Forge links it (no Godot, no window)
+        shell: bash
+        run: |
+          cargo test --locked -p motif-runtime
+          ! cargo tree --locked -p motif-runtime --prefix none | grep -E '^(godot|eframe|egui|winit) '
       - name: Windows updater rollback and package validation
         if: runner.os == 'Windows'
         shell: powershell

@@ -10,10 +10,11 @@ use godot::classes::{CanvasItemMaterial, FileAccess, INode2D, Image, ImageTextur
 use godot::global::MouseButton;
 use godot::prelude::*;
 
-mod player;
+#[cfg(test)]
+mod player_tests;
 mod pool;
 
-pub use player::{Frame, Player, Step};
+pub use motif_runtime::{Frame, Player, Step};
 
 use motif_render::mesh::{Cutter, Piece};
 use std::sync::{Arc, Mutex};

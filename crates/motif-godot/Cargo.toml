@@ -13,5 +13,6 @@ crate-type = ["cdylib", "rlib"]
 motif-core.workspace = true
 motif-script.workspace = true
 motif-render = { workspace = true, features = ["mesh"] }
+motif-runtime = { workspace = true, features = ["mesh"] }
 tiny-skia.workspace = true
 godot = { version = "0.5.5", features = ["api-4-3"] }

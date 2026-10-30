@@ -1593,6 +1593,7 @@ dependencies = [
  "godot",
  "motif-core",
  "motif-render",
+ "motif-runtime",
  "motif-script",
  "tiny-skia",
 ]
@@ -1630,6 +1631,16 @@ dependencies = [
  "motif-script",
  "tiny-skia",
  "vello",
+]
+
+[[package]]
+name = "motif-runtime"
+version = "0.1.0"
+dependencies = [
+ "motif-core",
+ "motif-render",
+ "motif-script",
+ "tiny-skia",
 ]
 
 [[package]]
