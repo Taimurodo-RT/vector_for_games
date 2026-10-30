@@ -17,6 +17,7 @@ pub const SIM_FPS: f64 = 60.0;
 const SUBSTEPS: usize = 10;
 
 /// Everything simulated at one moment.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SimState {
     values: Vec<Sprung>,

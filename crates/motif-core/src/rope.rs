@@ -9,6 +9,7 @@ use crate::{Document, SIM_FPS};
 use kurbo::{Affine, BezPath, PathEl, Point, Vec2};
 
 /// Where a rope or a cloth is fastened.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pin {
     /// Rope: its first point.
@@ -57,6 +58,7 @@ impl Pin {
 }
 
 /// Settings of a rope or a cloth (`rope 1 0.02 pin start gravity 900 wind 0`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rope {
     /// A grid of points filling the shape instead of a line along its outline.
@@ -113,6 +115,7 @@ const FLUTTER: f64 = 1.0;
 const FLUTTER_WAVE: f64 = 60.0;
 
 /// What holds a point in place.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 enum Anchor {
     /// Its spot on the shape, in the shape's own space.
@@ -125,6 +128,7 @@ enum Anchor {
 /// the piece is closed.
 type Outline = Vec<(Vec<(usize, f64, f64)>, bool)>;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 enum Form {
     Line {
@@ -139,6 +143,7 @@ enum Form {
 }
 
 /// A rope or a cloth being simulated.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Strand {
     node: usize,
