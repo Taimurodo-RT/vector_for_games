@@ -1,7 +1,7 @@
 //! State machines: animations as states, switched by transitions whose conditions read inputs
 //! that the game sets (a flag, a number, a one-shot trigger).
 
-use crate::{Document, Prop};
+use crate::{Document, IdKind, Prop};
 use kurbo::Point;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,6 +251,39 @@ impl MachinePlayer {
             self.grab.clear();
         }
         self.down = down;
+    }
+
+    /// This play moved into machine `new` of scene `now`, a changed version of machine `old` of
+    /// scene `was` (saved again while the game runs). The state, its time and the blend go on,
+    /// found by their hidden id, else by name (a machine of one state keeps playing it); inputs
+    /// keep their values the same way; springs, ropes and particles keep moving. A state that
+    /// is gone starts the machine again.
+    pub fn carried(&self, old: &Machine, was: &Document, new: &Machine, now: &Document) -> MachinePlayer {
+        let find = |kind: IdKind, name: &str, look: &dyn Fn(&str) -> Option<usize>| {
+            let by_id = was.ids.get(kind, &old.name, name).and_then(|id| now.ids.name_of(kind, &new.name, id)).and_then(look);
+            by_id.or_else(|| look(name))
+        };
+        let state = |k: usize| {
+            let name = old.states.get(k)?.name.as_str();
+            find(IdKind::State, name, &|n| new.state(n)).or((old.states.len() == 1 && new.states.len() == 1).then_some(0))
+        };
+        let mut p = MachinePlayer::new(new);
+        for (i, input) in old.inputs.iter().enumerate() {
+            if let (Some(j), Some(v)) = (find(IdKind::Input, &input.name, &|n| new.input(n)), self.values.get(i)) {
+                p.values[j] = *v;
+            }
+        }
+        (p.down, p.grab) = (self.down, self.grab.clone());
+        if let Some(k) = state(self.state) {
+            (p.state, p.time, p.fresh) = (k, self.time, self.fresh);
+            if let Some((prev, t)) = self.prev.and_then(|(k, t)| state(k).map(|k| (k, t))) {
+                (p.prev, p.blend_time, p.blend) = (Some((prev, t)), self.blend_time, self.blend);
+            }
+        }
+        if let (Some(sim), true) = (&self.sim, now.has_sim()) {
+            p.sim = Some(sim.carried(was, &p.keys(new, now)));
+        }
+        p
     }
 
     /// Jumps straight to `state`, without a blend.
