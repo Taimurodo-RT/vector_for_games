@@ -35,6 +35,7 @@ fn carry<T: Carry>(new: &mut [T], old: &[T], (was, now): (&Document, &Document))
 }
 
 /// Everything simulated at one moment.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SimState {
     values: Vec<Sprung>,

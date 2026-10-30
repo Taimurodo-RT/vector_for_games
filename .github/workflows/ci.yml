@@ -32,6 +32,13 @@ jobs:
         run: |
           cargo test --locked -p motif-runtime
           ! cargo tree --locked -p motif-runtime --prefix none | grep -E '^(godot|eframe|egui|winit) '
+          ! cargo tree --locked -p motif-runtime --features vello --prefix none | grep -E '^(godot|eframe|egui|winit) '
+      # The Vello frame against the CPU frame, on a software video card (lavapipe).
+      - name: motif-runtime frame as a Vello scene
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y mesa-vulkan-drivers
+          MOTIF_NEED_GPU=1 cargo test --locked -p motif-runtime --features vello vello_tests -- --nocapture
       - name: Windows updater rollback and package validation
         if: runner.os == 'Windows'
         shell: powershell

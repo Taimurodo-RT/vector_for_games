@@ -7,6 +7,7 @@ use crate::{Document, Spring};
 use kurbo::{Affine, Point, Vec2};
 
 /// Settings of `squash A F D`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Squash {
     /// Stretch per speed: 1 stretches by half at 500 artboard units per second.
@@ -30,6 +31,7 @@ const MIN: f64 = -0.6;
 const STILL: f64 = 5.0;
 
 /// A squashing object: where it was, which way it moved, and how stretched it is.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Stretch {
     node: usize,

@@ -23,6 +23,39 @@ use tiny_skia::Pixmap;
 /// The fixed step the machine and its simulation move by, in seconds.
 pub const TICK: f64 = 1.0 / SIM_FPS;
 
+/// The version of [`PlayerState`]'s layout: a state saved by another version is refused.
+pub const STATE_FORMAT: u32 = 1;
+
+/// Everything a playing scene keeps between frames, for a game save: the state and its time,
+/// the inputs, the pointer, springs, ropes, soft bodies, particles, the side faced and the
+/// seed. The scene itself is not in it: it is loaded back into a player of the same scene with
+/// [`Player::load_state`], and plays on exactly as it would have.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PlayerState {
+    format: u32,
+    /// The machine it was saved from, its states and inputs: a state of another one is refused.
+    machine: String,
+    states: usize,
+    inputs: usize,
+    run: MachinePlayer,
+    rest: f64,
+    base: f64,
+    told: Vec<(String, f64)>,
+    side: Option<usize>,
+    seed: u64,
+}
+
+impl PlayerState {
+    /// The state as bytes to write into a save (JSON, floats to the bit).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("a player state is plain data")
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<PlayerState, String> {
+        serde_json::from_slice(bytes).map_err(|e| format!("сохранённое состояние не читается: {e}"))
+    }
+}
+
 #[derive(Debug)]
 pub struct Player {
     doc: Document,
@@ -77,6 +110,19 @@ impl Frame {
     #[cfg(feature = "mesh")]
     pub fn pieces(&self, cutter: &mut Cutter, scale: f64) -> Vec<Piece> {
         cutter.pieces(&self.doc, scale)
+    }
+
+    /// Appends the pose to a Vello scene: `transform` maps artboard units to the target's pixels,
+    /// so a game draws all its characters into one scene and renders it in one pass. A flipped
+    /// side is turned over inside the artboard. With `background`, the artboard's colour first.
+    #[cfg(feature = "vello")]
+    pub fn scene(&self, scene: &mut motif_render::vello::Scene, transform: motif_core::kurbo::Affine, background: bool) {
+        let turn = if self.flipped {
+            motif_core::kurbo::Affine::new([-1.0, 0.0, 0.0, 1.0, self.doc.artboard.width, 0.0])
+        } else {
+            motif_core::kurbo::Affine::IDENTITY
+        };
+        motif_render::draw_pose(scene, &self.doc, transform * turn, background);
     }
 
     pub fn flipped(&self) -> bool {
@@ -412,6 +458,66 @@ impl Player {
         self.repose();
     }
 
+    /// Everything that plays on from now, to save with the game. See [`PlayerState`].
+    pub fn save_state(&self) -> PlayerState {
+        PlayerState {
+            format: STATE_FORMAT,
+            machine: self.plain.name.clone(),
+            states: self.plain.states.len(),
+            inputs: self.plain.inputs.len(),
+            run: self.run.clone(),
+            rest: self.rest,
+            base: self.base,
+            told: self.told.clone(),
+            side: self.side,
+            seed: self.doc.seed,
+        }
+    }
+
+    /// Plays on from a state saved by [`save_state`](Self::save_state) of the same scene and
+    /// machine: the same `advance` calls after it give the same poses and events as they would
+    /// have given then. A state of another machine is refused and the player stays as it was.
+    pub fn load_state(&mut self, state: &PlayerState) -> Result<(), String> {
+        let m = &self.plain;
+        if state.format != STATE_FORMAT {
+            return Err(format!("состояние сохранено в формате {}, а читается {STATE_FORMAT}", state.format));
+        }
+        if state.machine != m.name || state.states != m.states.len() || state.inputs != m.inputs.len() {
+            return Err(format!(
+                "состояние сохранено из машины «{}» ({} состояний, {} входов), а играет «{}» ({}, {})",
+                state.machine,
+                state.states,
+                state.inputs,
+                m.name,
+                m.states.len(),
+                m.inputs.len()
+            ));
+        }
+        let run = &state.run;
+        let side = match (state.side, self.doc.directions.as_ref()) {
+            (None, None) => true,
+            (Some(k), Some(d)) => k < d.names().len(),
+            _ => false,
+        };
+        let fits = side
+            && (run.state < m.states.len() || m.states.is_empty())
+            && run.prev.is_none_or(|(k, _)| k < m.states.len())
+            && run.values.len() == m.inputs.len()
+            && [state.rest, state.base, run.time].iter().all(|t| t.is_finite());
+        if !fits {
+            return Err("сохранённое состояние не подходит к этой сцене".into());
+        }
+        self.run = state.run.clone();
+        self.rest = state.rest;
+        self.base = state.base;
+        self.told = state.told.clone();
+        self.doc.seed = state.seed;
+        // Turning reposes from the loaded state; the game draws it again whatever it shows.
+        self.turn(state.side);
+        self.pose += 1;
+        Ok(())
+    }
+
     /// The pose now drawn at `scale` pixels a unit, premultiplied RGBA; a flipped side turned over.
     pub fn render(&self, scale: f64, background: bool) -> Option<Pixmap> {
         self.frame().render(scale, background)
@@ -714,6 +820,67 @@ machine M {
         );
     }
 
+    #[test]
+    fn a_saved_state_plays_on_the_same_in_a_new_player() {
+        let steps = [0.013, 0.021, 0.004, 0.05, 0.017, 0.033, 0.002, 0.016];
+        let on = |p: &mut Player| {
+            let mut log = Vec::new();
+            for (k, dt) in steps.iter().cycle().take(60).enumerate() {
+                if k == 25 {
+                    p.set("hurt", 1.0).unwrap();
+                }
+                let step = p.advance(*dt);
+                log.push((step, p.state(), p.time(), p.frame().doc.clone()));
+            }
+            log
+        };
+        let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+        p.set_seed(42);
+        // Saved mid-step, mid-spring, with sparks in the air, a trigger waiting and an event
+        // already told from the part of a step shown ahead.
+        p.advance(0.47);
+        while p.told.is_empty() {
+            p.advance(0.004);
+            assert!(p.time() < 2.0, "no event was shown ahead of a step");
+        }
+        p.fire("hurt").unwrap();
+        assert!(p.run.sim.is_some() && p.rest > 0.0);
+        let bytes = p.save_state().to_bytes();
+        let ahead = on(&mut p);
+        assert!(ahead.iter().any(|(s, ..)| s.names().contains(&"hit")), "the trigger fires after the load too");
+
+        let mut q = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let pose = q.pose();
+        q.load_state(&PlayerState::from_bytes(&bytes).unwrap()).unwrap();
+        assert_ne!(q.pose(), pose, "the loaded pose is drawn");
+        assert!(on(&mut q) == ahead, "a loaded game plays on otherwise than the saved one");
+    }
+
+    #[test]
+    fn a_saved_side_comes_back_and_a_foreign_state_is_refused() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "Walker", "").unwrap();
+        p.set("speed", 1.0).unwrap();
+        p.advance(0.3);
+        p.face_toward(-1.0, 0.0);
+        let state = p.save_state();
+        let mut q = Player::load(&src, None, "", "Walker", "").unwrap();
+        q.load_state(&state).unwrap();
+        assert_eq!((q.side(), q.flipped(), q.animation(), q.time()), (p.side(), true, p.animation(), p.time()));
+        assert!(*q.frame().doc == *p.frame().doc);
+
+        let mut other = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let before = other.save_state();
+        let err = other.load_state(&state).unwrap_err();
+        assert!(err.contains("«Walker»") && err.contains("«M»"), "{err}");
+        assert!(other.save_state() == before, "a refused state changes nothing");
+        assert!(PlayerState::from_bytes(b"{").unwrap_err().contains("не читается"));
+        let mut json: serde_json::Value = serde_json::from_slice(&state.to_bytes()).unwrap();
+        json["format"] = 99.into();
+        let err = q.load_state(&serde_json::from_value(json).unwrap()).unwrap_err();
+        assert!(err.contains("формате 99"), "{err}");
+    }
+
     /// The spring scene with hidden ids, as Motif saves it.
     const RELOADED: &str = r#"
 artboard "Пружина" 100x80
@@ -824,5 +991,93 @@ machine M {
         a.reload(&clips.replace("anim Hit ", "anim Smack "), None).unwrap();
         assert_eq!((a.animation().as_str(), a.state().as_str()), ("Smack", "Smack"));
         assert!((a.time() - 0.25).abs() < 1e-9, "{}", a.time());
+    }
+}
+
+/// The frame drawn by Vello on a video card matches the frame drawn on the CPU. Needs an adapter
+/// (a software one such as lavapipe will do): without one the check says so and passes, unless
+/// `MOTIF_NEED_GPU` is set.
+#[cfg(all(test, feature = "vello"))]
+mod vello_tests {
+    use super::*;
+    use motif_core::kurbo::Affine;
+    use motif_render::vello::{self, AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, wgpu};
+
+    fn gpu_render(frame: &Frame, scale: f64, width: u32, height: u32) -> Option<Vec<u8>> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+        let mut renderer = Renderer::new(&device, RendererOptions { antialiasing_support: AaSupport::area_only(), ..RendererOptions::default() }).ok()?;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut scene = vello::Scene::new();
+        frame.scene(&mut scene, Affine::scale(scale), true);
+        let params = RenderParams { base_color: vello::peniko::Color::from_rgba8(0, 0, 0, 255), width, height, antialiasing_method: AaConfig::Area };
+        renderer.render_to_texture(&device, &queue, &scene, &view, &params).ok()?;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (width * height * 4) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(width * 4), rows_per_image: Some(height) },
+            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        );
+        queue.submit([encoder.finish()]);
+        buffer.map_async(wgpu::MapMode::Read, .., |_| {});
+        device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+        let data = buffer.slice(..).get_mapped_range().ok()?.to_vec();
+        Some(data)
+    }
+
+    #[test]
+    fn a_frame_on_the_video_card_is_the_frame_on_the_cpu() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "", "").unwrap();
+        p.set("speed", 1.0).unwrap();
+        p.advance(0.3);
+        for side in ["right", "left"] {
+            p.set_side(side).unwrap();
+            let frame = p.frame();
+            let (w, h) = p.size();
+            // 256 pixels wide: rows copied off the card are whole multiples of 256 bytes.
+            let scale = 256.0 / w;
+            let cpu = frame.render(scale, true).unwrap();
+            let (width, height) = (256, ((h * scale) as u32).min(cpu.height()));
+            let Some(gpu) = gpu_render(&frame, scale, width, height) else {
+                // CI sets MOTIF_NEED_GPU where it installs a software card: there a skip is a failure.
+                assert!(std::env::var_os("MOTIF_NEED_GPU").is_none(), "нет видеокарты, а MOTIF_NEED_GPU требует её");
+                eprintln!("нет видеокарты (даже программной): сравнение пропущено");
+                return;
+            };
+            let mut off = 0usize;
+            for y in 0..height as usize {
+                for x in 0..width as usize {
+                    let c = cpu.pixels()[y * cpu.width() as usize + x].demultiply();
+                    let g = &gpu[(y * width as usize + x) * 4..][..3];
+                    let d = (c.red() as i32 - g[0] as i32).abs().max((c.green() as i32 - g[1] as i32).abs()).max((c.blue() as i32 - g[2] as i32).abs());
+                    off += (d > 24) as usize;
+                }
+            }
+            // Only the soft edges may differ: Vello and tiny-skia smooth them each their own way.
+            let share = off as f64 / (width * height) as f64;
+            eprintln!("{side}: {:.3}% of pixels differ", share * 100.0);
+            assert!(share < 0.01, "{side}: {:.2}% of pixels differ", share * 100.0);
+        }
     }
 }

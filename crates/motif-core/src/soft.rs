@@ -7,6 +7,7 @@ use crate::{Document, SIM_FPS};
 use kurbo::{Affine, BezPath, ParamCurveArclen, PathEl, PathSeg, Point, Vec2};
 
 /// Physical settings of a soft body (`soft 0.5 pressure 1 friction 0.3 …`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Soft {
     /// How strongly the body returns to its drawn shape, 0..1.
@@ -34,6 +35,7 @@ const SPACING: f64 = 5.0;
 /// How strongly each step evens out kinks in the outline, 0..1.
 const SMOOTH: f64 = 0.5;
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Body {
     node: usize,
