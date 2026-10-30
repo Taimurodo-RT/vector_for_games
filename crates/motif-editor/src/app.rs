@@ -2046,6 +2046,7 @@ impl App {
                     ui.label(RichText::new(node.display_name()).font(theme::semibold(14.0)).color(FG));
                 });
                 ui.label(RichText::new(format!("{} · id {}", kind_name(node.kind), node.id)).size(11.5).color(FAINT));
+                self.export_name_row(ui, &node.id);
             });
         }
 
@@ -3852,6 +3853,18 @@ pub(crate) mod editing_tests {
         app.save(false);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn export_name_is_stored_with_the_board_and_checked() {
+        let mut app = fixture("artboard \"Нужда: еда\" 24x24\nrect щека \"Щека\" size 8 fill #123456\nrect nose size 4 fill #654321\n");
+        app.set_export_name("щека", "cheek").unwrap();
+        let svg = motif_web::render(&app.scene, &motif_web::read(&app.src).unwrap(), None).unwrap();
+        assert!(svg.text.contains("id=\"Nuzhda-eda-node-cheek\" data-name=\"Щека\""), "{}", svg.text);
+        assert!(app.set_export_name("nose", "cheek").is_err(), "two layers cannot share a name");
+        assert!(app.set_export_name("nose", "нос").is_err(), "Latin only");
+        app.undo();
+        assert!(motif_web::read(&app.src).unwrap().assets.is_empty() || motif_web::read(&app.src).unwrap().assets["Нужда: еда"].layers.is_empty());
     }
 
     #[test]

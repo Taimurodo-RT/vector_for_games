@@ -3,7 +3,7 @@ mod config;
 mod effects;
 mod package;
 mod svg;
-pub use config::{Asset, Config, Layer, Profile, read, slug, validate_metadata, write};
+pub use config::{Asset, Config, Layer, Profile, ident, read, slug, validate_metadata, write};
 pub use package::{Package, build, export, gallery};
 pub use svg::{Svg, render};
 

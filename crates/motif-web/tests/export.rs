@@ -349,3 +349,31 @@ fn web_settings_keep_the_format_version_first() {
     assert_eq!(motif_web::write(&written, &c).unwrap(), written);
     assert!(motif_script::parse(&written).is_ok());
 }
+
+#[test]
+fn russian_names_stay_and_ids_are_transliterated() {
+    let s =
+        scene("artboard \"Нужда: еда\" 24x24\ngroup лицо \"Овал лица\" at 12 12 {\nrect щека size 8 fill #123456\nrect nose \"Нос\" size 4 fill #654321\n}\n");
+    let svg = motif_web::render(&s, &Config::default(), None).unwrap();
+    assert_eq!(svg.file, "Nuzhda-eda.svg");
+    let d = roxmltree::Document::parse(&svg.text).unwrap();
+    let face = d.descendants().find(|n| n.attribute("id") == Some("Nuzhda-eda-node-litso")).unwrap();
+    assert_eq!(face.attribute("data-name"), Some("Овал лица"));
+    let cheek = d.descendants().find(|n| n.attribute("id") == Some("Nuzhda-eda-node-shcheka")).unwrap();
+    assert_eq!(cheek.attribute("data-name"), Some("щека"));
+    let nose = d.descendants().find(|n| n.attribute("id") == Some("Nuzhda-eda-node-nose")).unwrap();
+    assert_eq!(nose.attribute("data-name"), Some("Нос"));
+    assert!(!svg.text.contains("u43"), "no letter codes: {}", svg.text);
+    // The export name of a layer wins over the transliteration.
+    let mut c = Config::default();
+    let mut a = Asset::default();
+    a.layers.insert("лицо".into(), Layer { id: "face".into(), class: "base".into() });
+    c.assets.insert("Нужда: еда".into(), a);
+    let svg = motif_web::render(&s, &c, None).unwrap();
+    let d = roxmltree::Document::parse(&svg.text).unwrap();
+    let face = d.descendants().find(|n| n.attribute("id") == Some("Nuzhda-eda-node-face")).unwrap();
+    assert_eq!(face.attribute("class"), Some("base"));
+    assert_eq!(motif_web::slug("Съешь ещё  этих"), "Sesh-eshchyo-etikh");
+    assert_eq!(motif_web::slug("ёлка №1"), "yolka-N1");
+    assert_eq!(motif_web::slug("★"), "u2605");
+}
