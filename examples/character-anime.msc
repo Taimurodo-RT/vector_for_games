@@ -1,3 +1,4 @@
+motif 1
 // @motif-characters {"schema":1,"characters":[{"root":"portrait","name":"Аниме-лицо","rig":"lattice-portrait-v1","bones":[],"slots":[],"looks":[],"motions":[{"name":"Спокойная поза","clip":"Idle"},{"name":"Эмоции и поворот","clip":"Expressions"},{"name":"Разговор","clip":"Talk"},{"name":"Сочетания: поворот / веки / рот","clip":"Combinations"}]}]}
 // Anime face: editable paths, nested 3x3 cages, gaze, blink and vector mouth forms.
 // All workspaces share the chosen clip and frame. Setup: select head / eye_l to edit the cage.

@@ -1,3 +1,4 @@
+motif 1
 // @motif-web {"tokens":{"ink":"currentColor","accent":"--icon-accent","panel":"--panel"},"themes":{"dark":{"ink":"#eee8db","accent":"#a5c77e","panel":"#414a3c"}},"assets":{"ui-leaf.24":{"id":"ui-leaf","file":"icons/ui-leaf.24.svg","profile":"icon24","variant":"default","stage":"example","keywords":["leaf","nature"],"pivot":[12,12],"layers":{"leaf":{"class":"base anim-leaf"}}},"ui-panel":{"id":"ui-panel","file":"nodes/ui-panel.svg","profile":"general","slices":[8,8,8,8],"layers":{"panel":{"class":"base"}}},"ui-tile":{"id":"ui-tile","file":"world/ui-tile.svg","profile":"tile"}}}
 let ink = #2b2620
 let accent = #628f47

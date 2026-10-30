@@ -1,0 +1,33 @@
+// Пружины: ключи стоят резко, а пружина догоняет их с перелётом.
+// Кнопка выпрыгивает (spring), хвост и антенна покачиваются вслед за телом (jiggle).
+artboard "Пружины" 480x320 bg #1b2030
+
+let ink = #10131d
+
+rect floor "Пол" at 240 300 size 480 40 fill #283049
+
+// Кнопка: масштаб прыгает с 0 до 1 мгновенно, пружина превращает это в «поп».
+rect button "Кнопка" at 400 44 size 120 44 r 22 fill #ffd23f stroke ink 4 scale 0 spring 3 0.35
+
+// Зверёк: тело прыгает и резко приземляется, хвост и антенна догоняют его сами.
+group critter "Зверёк" at 120 230 {
+  path tail "Хвост" at -40 0 d "M 0 -8 C -30 -10 -60 -8 -90 -4 C -94 -3 -94 3 -90 4 C -60 8 -30 10 0 8 Z" fill #ff7a59 stroke ink 4 skin k1 k2 k3 skin-sharp 2
+  bone k1 at -40 0 len 30 rot 180 jiggle 2.5 0.4 {
+    bone k2 at 30 0 len 30 jiggle 2.5 0.4 {
+      bone k3 at 30 0 len 30 jiggle 2.5 0.4
+    }
+  }
+  ellipse body "Тело" size 100 70 fill #ff7a59 stroke ink 4
+  ellipse eye at 26 -10 size 14 14 fill ink
+  bone stalk "Антенна" at 10 -30 len 44 rot -80 jiggle 3 0.12 {
+    rect stem at 22 0 size 44 5 r 2 fill ink
+    ellipse bulb at 44 0 size 18 18 fill #5ee0a0 stroke ink 3
+  }
+}
+
+anim Hop 3s loop {
+  button.sx 0: 0 hold | 0.3: 1 hold | 2.6: 0 hold
+  button.sy 0: 0 hold | 0.3: 1 hold | 2.6: 0 hold
+  critter.x 0: 120 ease-in-out | 0.8: 330 hold | 1.5: 330 ease-in-out | 2.3: 120 hold
+  critter.y 0: 230 ease-out | 0.4: 120 ease-in | 0.8: 230 hold | 1.5: 230 ease-out | 1.9: 120 ease-in | 2.3: 230 hold
+}

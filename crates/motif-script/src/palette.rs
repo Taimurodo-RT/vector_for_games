@@ -24,9 +24,9 @@ pub fn add_swatch(src: &str, scene: &Scene, name: &str, color: Color) -> String 
             splice(src, Span::new(at, at), &line)
         }
         None => {
-            // After the comments that open the file.
-            let mut at = 0;
-            for l in src.split_inclusive('\n') {
+            // After the format version and the comments that open the file.
+            let mut at = if crate::format::declared(src).is_some() { src.find('\n').map_or(src.len(), |i| i + 1) } else { 0 };
+            for l in src[at..].split_inclusive('\n') {
                 if !(l.trim().is_empty() || l.trim_start().starts_with("//")) {
                     break;
                 }

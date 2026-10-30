@@ -1,0 +1,49 @@
+// Символы: рисуем один раз — вставляем сколько угодно копий.
+// У каждой копии свои место, поворот, масштаб и параметры (size=, color=…).
+// Объекты копии называются «копия-объект»: ball1-band — полоса мяча ball1.
+artboard "Символы" 480x300 bg #1d2030
+let ink = #12131c
+
+symbol Coin size=28 color=#ffd23f shade=#d99a1e {
+  ellipse rim size {size} fill shade stroke ink 3
+  ellipse face size {size * 0.72} fill color
+  rect mark size {size * 0.14} {size * 0.4} r 2 fill shade
+}
+
+symbol Gem size=44 color=#4fd3ff {
+  star body size {size} points 4 inner 0.55 fill color stroke ink 3
+  star glint at {-size * 0.14} {-size * 0.14} size {size * 0.3} points 4 inner 0.4 fill #ffffffcc
+}
+
+// clip: первый объект — маска, полоса видна только внутри мяча
+// и сжимается вместе с ним.
+symbol Ball clip size=64 color=#ff5a36 band=#ffd23f {
+  ellipse mask size {size}
+  ellipse body size {size} fill color
+  rect band size {size * 1.6} {size * 0.24} rot -20 fill band
+  ellipse shine at {-size * 0.2} {-size * 0.22} size {size * 0.22} fill #ffffff88
+}
+
+rect floor at 240 262 size 440 8 r 4 fill #2c3146
+
+group coins "Монеты" at 60 44 {
+  for i in 0..6 {
+    use Coin coin{i} at {i * 40} 0
+  }
+}
+use Coin big "Большая монета" at 420 44 size=44 color=#c9d1e0 shade=#8a94a8
+
+use Gem gem1 at 330 170
+use Gem gem2 at 400 190 size=30 color=#7cff8f
+
+use Ball ball1 "Мяч" at 120 120
+use Ball ball2 "Синий мяч" at 220 196 size=48 color=#3b5bff band=#ffffff
+
+anim Idle 1.2s loop {
+  ball1.y 0: 120 ease-in | 0.6: 222 ease-out | 1.2: 120
+  ball1.sx 0: 1 | 0.55: 1 | 0.6: 1.3 | 0.7: 1 | 1.2: 1
+  ball1.sy 0: 1 | 0.55: 1 | 0.6: 0.7 | 0.7: 1 | 1.2: 1
+  ball1-band.x 0: -24 linear | 1.2: 24
+  gem1.rot 0: -8 | 0.6: 8 | 1.2: -8
+  big.sx 0: 1 ease-in-out-sine | 0.6: -1 ease-in-out-sine | 1.2: 1
+}

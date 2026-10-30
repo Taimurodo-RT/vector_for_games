@@ -1205,6 +1205,12 @@ impl App {
                 None => return,
             },
         };
+        // A file is saved in the current format, its version on the first line. Not an undo step:
+        // the drawing is the same.
+        if motif_script::format::declared(&self.src).is_none_or(|v| v < motif_script::format::VERSION) {
+            self.src = motif_script::format::stamp(&self.src);
+            self.reparse();
+        }
         let text = self.file_text();
         let expected = (self.path.as_ref() == Some(&path)).then_some(self.saved_src.as_str());
         match crate::storage::save_scene(&path, &text, expected) {
@@ -3825,6 +3831,28 @@ pub(crate) mod editing_tests {
     use super::*;
     use crate::compound::{Anchor, Compound};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn saving_writes_the_format_version_first() {
+        let dir = std::env::temp_dir().join(format!("motif-format-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("old.msc");
+        let old = "let ink = #123456\nartboard \"a\" 40x40\nrect r size 10 fill ink\nartboard \"b\" 40x40\nrect q size 10 fill ink\n";
+        std::fs::write(&path, old).unwrap();
+        let mut app = fixture(old);
+        app.path = Some(path.clone());
+        app.saved_src = app.file_text();
+        app.save(false);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(saved, format!("motif 1\n{old}"));
+        assert!(app.errors.is_empty());
+        assert!(!app.dirty(), "the saved file is what the editor holds");
+        assert_eq!(motif_script::parse_boards(&saved, None).unwrap().len(), 2);
+        // Saving again changes nothing.
+        app.save(false);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn setup_and_animation_share_the_frame_while_drawing_shows_the_drawing() {

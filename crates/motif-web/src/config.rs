@@ -100,7 +100,12 @@ pub fn read(src: &str) -> Result<Config, String> {
 pub fn write(src: &str, c: &Config) -> Result<String, String> {
     validate(c)?;
     let header = format!("{MARKER}{}\n", serde_json::to_string(c).map_err(|e| e.to_string())?);
-    let mut out = header;
+    // The format version stays the first line.
+    let (version, src) = match motif_script::format::declared(src) {
+        Some(_) => src.split_at(src.find('\n').map_or(src.len(), |i| i + 1)),
+        None => ("", src),
+    };
+    let mut out = format!("{version}{}{header}", if version.is_empty() || version.ends_with('\n') { "" } else { "\n" });
     for line in src.split_inclusive('\n') {
         if !line.trim_start().starts_with(MARKER) {
             out.push_str(line);

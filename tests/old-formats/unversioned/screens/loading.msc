@@ -1,0 +1,42 @@
+// Загрузка: крутящийся знак, полоса прогресса с процентами и совет внизу.
+// Полоса — ProgressBar: игра меняет value по мере загрузки. Знак крутит анимация Idle
+// (в Godot его можно вращать кодом или запечь кадрами через «Экспорт → Godot»).
+artboard "Загрузка" 640x360 bg #12162a ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let panel = #283049
+let well = #1b2132
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let gold = #ffc94d
+let off = #39415a
+
+rect loading_back "Фон" at 320 180 size 640 360 fill #12162a gradient radial #1f2747 #0d1020
+
+group spinner "Знак загрузки" at 0 -20 anchor center middle {
+  for i in 0..8 {
+    group spoke{i} rot {i * 45} {
+      rect spoke{i}_bar at 0 -26 size 10 20 r 5 fill light opacity {0.25 + i * 0.1}
+    }
+  }
+}
+
+group progress_box "Прогресс" at 0 70 anchor center middle stack column center gap 8 {
+  group loading_bar "Полоса" ui progress {
+    rect loading_frame "Рамка" size 320 24 r 12 fill well stroke ink 4 slice 12 part background
+    rect loading_fill "Заливка" at -50 0 size 212 16 r 8 fill primary gradient linear 0 #3b6cff #6f93ff slice 8 part fill
+  }
+  text loading_text "Подпись" content "Загрузка… 65%" font bold font-size 16 fill paper
+}
+
+group tip "Совет" at 0 -36 anchor center bottom stack row center gap 10 pad 10 {
+  rect tip_bg "Фон" r 14 fill panel stroke ink 4 fit
+  text tip_label "Метка" content "СОВЕТ" font bold font-size 13 letter-spacing 2 fill gold
+  text tip_text "Текст" content "Зажмите прыжок, чтобы прыгнуть выше" font-size 15 fill paper
+}
+
+anim Idle 1s loop {
+  spinner.rot 0: 0 linear | 1: 360
+}

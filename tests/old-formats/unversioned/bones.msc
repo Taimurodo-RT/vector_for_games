@@ -1,0 +1,37 @@
+// Кости: щупальце гнётся от поворотов костей, рука тянется к цели через IK.
+// Фигуры остаются векторными: точки контура следуют за костями с весами.
+artboard "Кости" 480x360 bg #1d2233
+
+let ink = #10131d
+
+rect floor "Пол" at 240 340 size 480 40 fill #283049
+
+// Щупальце: контур нарисован прямым, четыре кости гнут его. skin-sharp 2 — плавный изгиб по всей длине.
+path tentacle "Щупальце" at 130 320 d "M -22 0 C -22 -70 -14 -150 -3 -196 C -1 -203 1 -203 3 -196 C 14 -150 22 -70 22 0 Z" fill #ff7a59 stroke ink 4 skin t1 t2 t3 t4 skin-sharp 2
+ellipse spot1 at 130 290 size 12 12 fill #ffd0c2
+bone t1 at 130 320 len 50 rot -90 {
+  bone t2 at 50 0 len 50 {
+    bone t3 at 50 0 len 50 {
+      bone t4 at 50 0 len 50
+    }
+  }
+}
+
+// Рука: рукав гнётся в локте, кисть просто едет с предплечьем.
+rect sleeve "Рукав" at 360 120 size 140 30 r 15 fill #5ee0a0 stroke ink 4 skin upper fore
+bone upper "Плечо" at 290 120 len 70 {
+  bone fore "Предплечье" at 70 0 len 70 ik reach flip {
+    ellipse hand "Кисть" at 76 0 size 30 28 fill #ffd23f stroke ink 4
+  }
+}
+ellipse shoulder at 290 120 size 34 34 fill #3b8f6a stroke ink 4
+group reach "Цель руки" at 410 190
+
+anim Wave 2s loop {
+  t1.rot  0: -96 | 1: -84 | 2: -96
+  t2.rot  0: -18 | 1: 18 | 2: -18
+  t3.rot  0: -26 | 1: 26 | 2: -26
+  t4.rot  0: -28 | 1: 28 | 2: -28
+  reach.x 0: 410 | 0.5: 360 | 1: 300 | 1.5: 380 | 2: 410
+  reach.y 0: 190 | 0.5: 235 | 1: 235 | 1.5: 160 | 2: 190
+}

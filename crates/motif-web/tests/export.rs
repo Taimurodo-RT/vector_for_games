@@ -338,3 +338,14 @@ fn bundled_effect_examples_match_native_pixels() {
         motif_web::build(&scenes, &motif_web::read(&src).unwrap(), None).unwrap();
     }
 }
+
+#[test]
+fn web_settings_keep_the_format_version_first() {
+    let src = format!("motif 1\n{SIMPLE}");
+    let mut c = Config::default();
+    c.tokens.insert("ink".into(), "currentColor".into());
+    let written = motif_web::write(&src, &c).unwrap();
+    assert!(written.starts_with("motif 1\n// @motif-web "), "{written}");
+    assert_eq!(motif_web::write(&written, &c).unwrap(), written);
+    assert!(motif_script::parse(&written).is_ok());
+}

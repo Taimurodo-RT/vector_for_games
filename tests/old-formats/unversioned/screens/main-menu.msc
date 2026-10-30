@@ -1,0 +1,65 @@
+// Главное меню: название игры, столбик кнопок по центру, версия в углу.
+// Фон — простая ночная сцена из фигур: замените её своим рисунком.
+// «Экспорт → Экран для Godot» (motif screen) делает из холста сцену: стек — VBoxContainer,
+// кнопки — Button с подписью шрифтом Godot, фон — картинки. Меню остаётся в центре при любом окне.
+artboard "Главное меню" 640x360 bg #141a2e ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let deep = #2441a8
+let raised = #333c5a
+let lift = #3e4870
+let base = #1f2638
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+
+rect sky "Небо" at 320 180 size 640 360 fill #1d2747 gradient linear 90 #2c3b70 #141a2e
+ellipse moon "Луна" at 584 54 size 40 40 fill #fff3c4 glow 20 #ffe9a066
+ellipse star1 "Звезда" at 80 52 size 4 4 fill paper
+ellipse star2 "Звезда" at 170 108 size 3 3 fill paper opacity 0.6
+ellipse star3 "Звезда" at 262 40 size 4 4 fill paper opacity 0.8
+ellipse star4 "Звезда" at 430 120 size 3 3 fill paper opacity 0.6
+ellipse star5 "Звезда" at 602 150 size 4 4 fill paper opacity 0.8
+ellipse star6 "Звезда" at 380 30 size 3 3 fill paper
+path hills_far "Дальние холмы" d "M 0 286 Q 110 236 230 278 Q 360 224 490 268 Q 570 244 640 258 L 640 360 L 0 360 Z" fill #24305a
+path hills_near "Ближние холмы" d "M 0 318 Q 170 284 330 314 Q 490 290 640 318 L 640 360 L 0 360 Z" fill #10152a
+
+text title "Название" at 0 48 anchor center top content "ЗВЁЗДНЫЙ ПУТЬ" font bold font-size 40 letter-spacing 4 fill paper outline ink 8 shadow 0 5 0 #0a0d16
+text tagline "Подзаголовок" at 0 88 anchor center top content "Приключение среди созвездий" font-size 15 fill muted
+
+group menu "Меню" at 0 52 anchor center middle stack column center gap 8 {
+  group play "Играть" ui button slice 16 {
+    rect play_base at 0 4 size 200 40 r 12 fill deep stroke ink 4
+    rect play_body size 200 40 r 12 fill primary stroke ink 4
+    text play_text "Подпись" at 0 1 content "Играть" font bold font-size 18 fill paper part text
+  }
+  group resume "Продолжить" ui button slice 16 {
+    rect resume_base at 0 4 size 200 40 r 12 fill base stroke ink 4
+    rect resume_body size 200 40 r 12 fill raised stroke ink 4
+    text resume_text "Подпись" at 0 1 content "Продолжить" font bold font-size 18 fill paper part text
+  }
+  group options "Настройки" ui button slice 16 {
+    rect options_base at 0 4 size 200 40 r 12 fill base stroke ink 4
+    rect options_body size 200 40 r 12 fill raised stroke ink 4
+    text options_text "Подпись" at 0 1 content "Настройки" font bold font-size 18 fill paper part text
+  }
+  group quit "Выход" ui button slice 16 {
+    rect quit_base at 0 4 size 200 40 r 12 fill base stroke ink 4
+    rect quit_body size 200 40 r 12 fill raised stroke ink 4
+    text quit_text "Подпись" at 0 1 content "Выход" font bold font-size 18 fill paper part text
+  }
+}
+
+text version "Версия" at 16 -14 anchor left bottom content "v0.1" font-size 12 fill muted align left
+
+anim Hover 0.15s {
+  play_body.fill   0: primary | 0.15: light
+  resume_body.fill 0: raised | 0.15: lift
+}
+anim Press 0.08s {
+  play_body.y    0: 0 | 0.08: 4
+  play_text.y    0: 1 | 0.08: 5
+  resume_body.y  0: 0 | 0.08: 4
+  resume_text.y  0: 1 | 0.08: 5
+}
