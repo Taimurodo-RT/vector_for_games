@@ -66,10 +66,19 @@ pub(crate) struct Spray {
 
 /// A number in 0..1 from a seed (splitmix64).
 pub(crate) fn random(seed: u64) -> f64 {
+    (mix(seed) >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// What the game's seed (`Document::seed`) adds to a seed: nothing for 0.
+pub(crate) fn salt(game: u64) -> u64 {
+    if game == 0 { 0 } else { mix(game ^ 0x6a09_e667_f3bc_c908) }
+}
+
+fn mix(seed: u64) -> u64 {
     let mut z = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
     z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+    z ^ (z >> 31)
 }
 
 impl Spray {
@@ -82,7 +91,7 @@ impl Spray {
             let x = w * Point::new(1.0, 0.0) - w * Point::ZERO;
             x.y.atan2(x.x)
         };
-        let seed = ((self.node as u64) << 40) ^ (self.thrown * 8);
+        let seed = ((self.node as u64) << 40) ^ (self.thrown * 8) ^ salt(doc.seed);
         let r = |k: u64| random(seed + k);
         self.thrown += 1;
         let e = &self.emitter;

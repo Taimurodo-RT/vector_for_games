@@ -392,7 +392,10 @@ Motif, а кадр рисуется под размер узла на экран
 * Как это устроено и почему GDExtension, а не GDScript — [docs/runtime.html#how](docs/runtime.html#how).
 * Сам проигрыватель — крейт `motif-runtime` без Godot и без окна: его подключают Forge и другие игры на Rust
   (`Player::load`, `set`, `fire`, `advance(dt)`, `render`), время он получает только от игры —
-  [docs/runtime.html#library](docs/runtime.html#library).
+  [docs/runtime.html#library](docs/runtime.html#library). Машина и физика идут целыми шагами по 1/60 с, так что
+  игра одинакова при любой частоте кадров; `advance` возвращает все события по порядку с точным временем,
+  `advance(0)` ничего не меняет, `set_seed` задаёт случайность частиц, жидкостей и «рисованных» линий —
+  [docs/runtime.html#determinism](docs/runtime.html#determinism).
 * С возможностью `vello` кадр дописывается в общую `vello::Scene` (`frame().scene(&mut scene, transform, false)`):
   игра рисует всех персонажей на видеокарте одним проходом. Vello 0.11 и wgpu 30 — те же, что у Forge —
   [docs/runtime.html#vello](docs/runtime.html#vello).

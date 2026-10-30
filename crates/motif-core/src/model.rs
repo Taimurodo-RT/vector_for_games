@@ -25,6 +25,10 @@ pub struct Document {
     pub purpose: Purpose,
     /// The sides a character is shot from for a top-down game (`directions 8 turn …`).
     pub directions: Option<crate::Directions>,
+    /// Seed the game gives to what is random in the scene (particles, poured fluid, rough
+    /// lines), so two copies of one character differ and a replay repeats. 0 is the scene as
+    /// Motif shows it.
+    pub seed: u64,
 }
 
 /// What a scene is made for. The editor hides what the other kind of work needs.
@@ -1037,6 +1041,7 @@ impl Document {
             time: 0.0,
             purpose: Purpose::Any,
             directions: None,
+            seed: 0,
         }
     }
 
@@ -1213,6 +1218,12 @@ impl Animation {
     /// started, in order: each one whose time `t` (or, looping, `t` plus whole durations)
     /// satisfies `from < t <= to`. Start from a little below 0 to include events at 0.
     pub fn events_between(&self, from: f64, to: f64) -> Vec<&AnimEvent> {
+        self.events_passed(from, to).into_iter().map(|(_, e)| e).collect()
+    }
+
+    /// [`events_between`](Self::events_between) with the playback time each one is passed at
+    /// (counting whole loops, so it lies in `from..=to`).
+    pub fn events_passed(&self, from: f64, to: f64) -> Vec<(f64, &AnimEvent)> {
         let mut out: Vec<(f64, &AnimEvent)> = Vec::new();
         if to <= from {
             return Vec::new();
@@ -1233,7 +1244,7 @@ impl Animation {
             }
         }
         out.sort_by(|a, b| a.0.total_cmp(&b.0));
-        out.into_iter().map(|(_, e)| e).collect()
+        out
     }
 
     /// Wraps or clamps an unbounded playback time into the animation's range.

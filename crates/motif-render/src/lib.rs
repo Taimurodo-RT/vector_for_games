@@ -218,7 +218,7 @@ pub fn node_ops(doc: &Document, i: usize) -> Vec<Op> {
     let faces = node.body_faces(doc.light);
     let path = faces.as_deref().map_or(path, motif_core::silhouette);
     let brush = &node.brush;
-    let seed = brush.seed_at(&node.id, doc.time);
+    let seed = brush.seed_at(&node.id, doc.time) ^ (doc.seed as u32 ^ (doc.seed >> 32) as u32);
     // A body keeps its true outline: its faces are drawn from the shape itself.
     let path = if faces.is_none() { brush.roughen(&path, seed) } else { path };
     let opacity = doc.world_opacity(i).clamp(0.0, 1.0);
