@@ -16,6 +16,24 @@ use crate::{Animation, Document};
 pub const SIM_FPS: f64 = 60.0;
 const SUBSTEPS: usize = 10;
 
+/// One simulated thing of an object, whose motion can go on in a changed scene.
+pub(crate) trait Carry {
+    /// The object's index in the document.
+    fn node(&self) -> usize;
+    /// Takes the motion of `old`, the same thing before the change; keeps its own settings.
+    fn carry(&mut self, old: &Self);
+}
+
+/// Carries the motion of each of `old` to the thing of `new` on the object of the same name.
+fn carry<T: Carry>(new: &mut [T], old: &[T], (was, now): (&Document, &Document)) {
+    for n in new.iter_mut() {
+        let Some(id) = now.nodes.get(n.node()).map(|n| &n.id) else { continue };
+        for o in old.iter().filter(|o| was.nodes.get(o.node()).is_some_and(|w| w.id == *id)) {
+            n.carry(o);
+        }
+    }
+}
+
 /// Everything simulated at one moment.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SimState {
@@ -58,6 +76,25 @@ impl SimState {
             time: 0.0,
             nodes: keys.nodes.len(),
         }
+    }
+
+    /// The simulation of `keys`, a changed version of scene `old` this one was playing, going
+    /// on from where this one is: a spring still swinging, a rope still falling, sparks in the
+    /// air, with the new stiffness, length or rate. Objects are matched by their name; a new
+    /// one starts at rest, a removed one is dropped.
+    pub fn carried(&self, old: &Document, keys: &Document) -> SimState {
+        let mut new = SimState::new(keys);
+        let ids = (old, keys);
+        carry(&mut new.values, &self.values, ids);
+        carry(&mut new.rollers, &self.rollers, ids);
+        carry(&mut new.tips, &self.tips, ids);
+        carry(&mut new.stretches, &self.stretches, ids);
+        carry(&mut new.strands, &self.strands, ids);
+        carry(&mut new.pools, &self.pools, ids);
+        carry(&mut new.sprays, &self.sprays, ids);
+        carry(&mut new.bodies, &self.bodies, ids);
+        new.time = self.time;
+        new
     }
 
     /// True when the simulation was started from a document shaped like `doc`.

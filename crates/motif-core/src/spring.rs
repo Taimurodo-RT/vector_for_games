@@ -184,3 +184,23 @@ pub(crate) fn apply_tips(tips: &[Tip], doc: &mut Document) {
         }
     }
 }
+
+impl crate::sim::Carry for Sprung {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        if self.prop == old.prop {
+            (self.x, self.v) = (old.x, old.v);
+        }
+    }
+}
+
+impl crate::sim::Carry for Tip {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.p, self.v) = (old.p, old.v);
+    }
+}

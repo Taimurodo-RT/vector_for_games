@@ -173,6 +173,15 @@ pub(crate) fn apply_sprays(sprays: &[Spray], doc: &mut Document) {
     }
 }
 
+impl crate::sim::Carry for Spray {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.owed, self.thrown, self.parts) = (old.owed, old.thrown, old.parts.clone());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Animation, Artboard, Document, Emitter, Node, ShapeKind, SimCache};

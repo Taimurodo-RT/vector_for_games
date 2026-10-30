@@ -415,6 +415,15 @@ pub(crate) fn apply_pools(pools: &[Pool], doc: &mut Document) {
     }
 }
 
+impl crate::sim::Carry for Pool {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.p, self.v, self.owed, self.poured, self.spout) = (old.p.clone(), old.v.clone(), old.owed, old.poured, old.spout);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Animation, Artboard, Document, Fluid, Node, ShapeKind, SimCache};

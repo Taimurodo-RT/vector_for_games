@@ -720,6 +720,18 @@ fn chain(doc: &Document, i: usize, p: &[Point]) -> Vec<(Affine, f64)> {
         .collect()
 }
 
+impl crate::sim::Carry for Strand {
+    fn node(&self) -> usize {
+        self.node
+    }
+    /// Only a rope of as many points: one cut otherwise starts again as drawn.
+    fn carry(&mut self, old: &Self) {
+        if self.p.len() == old.p.len() {
+            (self.p, self.old, self.time) = (old.p.clone(), old.old.clone(), old.time);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Animation, Artboard, Document, Node, Pin, Rope, ShapeKind, SimCache};
