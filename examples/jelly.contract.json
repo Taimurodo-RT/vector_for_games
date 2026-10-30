@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Желе",
@@ -16,7 +16,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

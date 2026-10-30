@@ -1,14 +1,14 @@
 //! The contract of a scene: what a game can bind to without reading the drawing. Its boards and
 //! their sizes, animations, state machines with their states and inputs, pose parameters,
-//! events, sides and pointer listeners. `motif contract` writes it as JSON, and a game (Forge)
-//! checks its bindings against it when the `.msc` changes. Inputs, states, animations, events
+//! events, sides, pointer listeners, attachment points and areas. `motif contract` writes it as
+//! JSON, and a game (Forge) checks its bindings against it when the `.msc` changes. Inputs, states, animations, events
 //! and parameters carry their hidden ids (`id=…`), so a binding survives a rename.
 
 use motif_core::{Document, EventValue, IdKind, InputKind};
 use serde::{Deserialize, Serialize};
 
 /// The version of the contract's own layout: it grows when a field changes its meaning.
-pub const CONTRACT_VERSION: u32 = 3;
+pub const CONTRACT_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -28,6 +28,10 @@ pub struct Board {
     pub parameters: Vec<Parameter>,
     /// Every event the board's animations send, by name, sorted, each once.
     pub events: Vec<EventName>,
+    /// Attachment points (`socket`): objects whose place, turn and scale the game reads.
+    pub sockets: Vec<String>,
+    /// Areas (`area`): shapes whose outline the game reads and that are never drawn.
+    pub areas: Vec<String>,
     /// `directions`: the sides the game can face, from facing the viewer round clockwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sides: Option<Sides>,
@@ -195,6 +199,8 @@ fn board(doc: &Document) -> Board {
             .map(|p| Parameter { id: id(IdKind::Parameter, "", &p.id), name: p.id.clone(), title: p.name.clone(), min: p.min, max: p.max, default: p.default })
             .collect(),
         events,
+        sockets: doc.nodes.iter().filter(|n| n.socket).map(|n| n.id.clone()).collect(),
+        areas: doc.nodes.iter().filter(|n| n.area).map(|n| n.id.clone()).collect(),
         sides: doc.directions.as_ref().map(|d| Sides { names: d.names().iter().map(|s| s.to_string()).collect(), mirror: d.mirror }),
     }
 }

@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Голова героя — параметры",
@@ -55,7 +55,9 @@
           "default": 0.0
         }
       ],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Modern Button",
@@ -101,7 +101,9 @@
         }
       ],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

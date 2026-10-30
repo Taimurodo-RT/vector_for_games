@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Человек сбоку",
@@ -115,7 +115,9 @@
           "id": "zwue",
           "name": "step"
         }
-      ]
+      ],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

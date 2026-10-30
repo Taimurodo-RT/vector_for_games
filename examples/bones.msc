@@ -23,6 +23,9 @@ rect sleeve "Рукав" at 360 120 size 140 30 r 15 fill #5ee0a0 stroke ink 4 s
 bone upper "Плечо" at 290 120 len 70 {
   bone fore "Предплечье" at 70 0 len 70 ik reach flip {
     ellipse hand "Кисть" at 76 0 size 30 28 fill #ffd23f stroke ink 4
+    // Для игры: точка, к которой игра крепит предмет в руке, и зона удара кистью (не рисуется).
+    group grip "Хват" at 76 0 socket
+    ellipse punch "Удар" at 76 0 size 44 40 area
   }
 }
 ellipse shoulder at 290 120 size 34 34 fill #3b8f6a stroke ink 4

@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Контуры и слои",
@@ -8,7 +8,9 @@
       "animations": [],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

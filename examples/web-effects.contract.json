@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "web-effects",
@@ -8,7 +8,9 @@
       "animations": [],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "web-color",
@@ -25,7 +27,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "web-reveal",
@@ -42,7 +46,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

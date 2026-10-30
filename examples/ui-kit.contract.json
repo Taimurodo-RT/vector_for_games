@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Кнопки",
@@ -30,7 +30,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Переключатели",
@@ -47,7 +49,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Поля",
@@ -85,7 +89,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Полосы",
@@ -123,7 +129,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Панели",
@@ -147,7 +155,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Навигация",
@@ -171,7 +181,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     },
     {
       "name": "Текст",
@@ -180,7 +192,9 @@
       "animations": [],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

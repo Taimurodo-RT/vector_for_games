@@ -1077,6 +1077,17 @@ fn variables_named_like_bone_props_stay_values() {
 }
 
 #[test]
+fn sockets_and_areas_parse_and_an_area_must_be_a_shape() {
+    let s = scene("group muzzle at 10 0 socket\nrect hit size 40 20 area\nellipse hand socket area\n");
+    let flags = |id: &str| s.doc.node(id).map(|n| (n.socket, n.area)).unwrap();
+    assert_eq!((flags("muzzle"), flags("hit"), flags("hand")), ((true, false), (false, true), (true, true)));
+    for src in ["group g area\n", "bone b len 10 area\n"] {
+        let errs = parse(src).unwrap_err();
+        assert!(errs[0].to_string().contains("area — у фигуры"), "{src}: {:?}", errs[0].to_string());
+    }
+}
+
+#[test]
 fn soft_bodies_and_solids_parse() {
     let s = scene("ellipse b size 40 soft 0.2 pressure 1.1 gravity 900 drive 0\nrect w size 100 20 solid\nrect plain\n");
     let soft = s.doc.node("b").unwrap().soft.unwrap();

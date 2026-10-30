@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Кости",
@@ -16,7 +16,13 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [
+        "grip"
+      ],
+      "areas": [
+        "punch"
+      ]
     }
   ]
 }

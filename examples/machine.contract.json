@@ -1,5 +1,5 @@
 {
-  "contract": 3,
+  "contract": 4,
   "boards": [
     {
       "name": "Капля",
@@ -120,7 +120,9 @@
           "id": "zwue",
           "name": "step"
         }
-      ]
+      ],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

@@ -1399,6 +1399,11 @@ impl<'a> Evaluator<'a> {
                     _ => self.err(p.key_span, "«sail» — сколько ветра ловит объект: 1 обычно, 0 не замечает ветра"),
                 },
                 "solid" => node.solid = true,
+                "socket" => node.socket = true,
+                "area" if n.kind.is_container() || n.kind == ShapeKind::Bone => {
+                    self.err(p.key_span, "area — у фигуры: прямоугольник, эллипс или контур, который игра читает как область")
+                }
+                "area" => node.area = true,
                 "ui" => {
                     node.ui = true;
                     role_span = Some(p.key_span);
