@@ -262,7 +262,7 @@ impl App {
         }
     }
 
-    fn machine_edit(&mut self, kind: &str, f: impl FnOnce(&mut Machine)) -> bool {
+    pub(crate) fn machine_edit(&mut self, kind: &str, f: impl FnOnce(&mut Machine)) -> bool {
         let Some(name) = self.shown_machine().map(|m| m.name.clone()) else { return false };
         if !self.can_edit() {
             return false;
@@ -796,6 +796,7 @@ impl App {
             let name = free_name(base, |n| m.input(n).is_some());
             self.machine_edit("machine-input", |m| m.inputs.push(Input { name, kind, default: 0.0 }));
         }
+        self.game_hints(ui, m);
         if let Some(i) = remove {
             self.machine_pick = Some(MachineItem::Input(i));
             self.delete_machine_pick();

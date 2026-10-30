@@ -19,6 +19,7 @@ mod kit_ui;
 mod layers;
 mod layout_ui;
 mod library_ui;
+mod link_ui;
 mod machine_ui;
 mod morph_ui;
 mod motion_ui;
@@ -51,12 +52,28 @@ mod weights_ui;
 mod workspace;
 mod world_ui;
 
+/// The scene to open and the port of the live link: `motif-editor [--link[=ПОРТ]] [сцена.msc]`.
+/// A game that starts Motif passes `--link`; `MOTIF_LINK=ПОРТ` does the same.
+fn launch(args: impl Iterator<Item = String>) -> (Option<std::path::PathBuf>, Option<u16>) {
+    let (mut path, mut link) = (None, std::env::var("MOTIF_LINK").ok().and_then(|p| p.parse().ok()));
+    for a in args {
+        if a == "--link" {
+            link = Some(link.unwrap_or(motif_link::DEFAULT_PORT));
+        } else if let Some(port) = a.strip_prefix("--link=") {
+            link = port.parse().ok().or(Some(motif_link::DEFAULT_PORT));
+        } else if path.is_none() {
+            path = Some(std::path::PathBuf::from(a));
+        }
+    }
+    (path, link)
+}
+
 fn main() -> eframe::Result {
-    let path = std::env::args().nth(1).map(std::path::PathBuf::from);
+    let (path, link) = launch(std::env::args().skip(1));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_title("Motif").with_inner_size([1440.0, 900.0]).with_min_inner_size([900.0, 560.0]),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
-    eframe::run_native("Motif", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, path)))))
+    eframe::run_native("Motif", options, Box::new(move |cc| Ok(Box::new(app::App::new(cc, path, link)))))
 }
