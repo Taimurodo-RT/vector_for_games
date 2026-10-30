@@ -579,6 +579,18 @@ pub(crate) fn apply_bodies(bodies: &[Body], doc: &mut Document) {
 }
 
 /// Bounds of a soft body's particles, for tests.
+impl crate::sim::Carry for Body {
+    fn node(&self) -> usize {
+        self.node
+    }
+    /// Only a body of as many particles: one reshaped otherwise starts again as drawn.
+    fn carry(&mut self, old: &Self) {
+        if self.p.len() == old.p.len() {
+            (self.p, self.v, self.old, self.touch, self.start_angle) = (old.p.clone(), old.v.clone(), old.old.clone(), old.touch.clone(), old.start_angle);
+        }
+    }
+}
+
 #[cfg(test)]
 fn bounds(doc: &Document, node: &str) -> kurbo::Rect {
     use kurbo::Shape;

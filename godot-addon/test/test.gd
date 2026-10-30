@@ -41,6 +41,21 @@ func _initialize() -> void:
 	var img: Image = hero.get_image(0.5)
 	check(img.get_size() == Vector2i(240, 160), "get_image(0.5): %s" % img.get_size())
 	check(img.get_pixel(120, 75).a > 0.9, "капля нарисована")
+	# Сцену сохранили в Motif ещё раз, пока игра идёт: состояние и входы остаются.
+	hero.set_input("speed", 1)
+	await create_timer(0.6).timeout
+	var text := FileAccess.get_file_as_string("res://hero.msc")
+	var f := FileAccess.open("res://hero.msc", FileAccess.WRITE)
+	f.store_string(text.replace("artboard", "# правка\nartboard"))
+	f.close()
+	check(hero.hot_reload() and hero.get_state() == "Run" and hero.get_input("speed") == 1.0, "hot_reload: играет дальше из Run")
+	f = FileAccess.open("res://hero.msc", FileAccess.WRITE)
+	f.store_string(text + "\nmachine Hero {\n")
+	f.close()
+	check(not hero.hot_reload() and hero.get_state() == "Run", "hot_reload с ошибкой: старая сцена играет дальше")
+	f = FileAccess.open("res://hero.msc", FileAccess.WRITE)
+	f.store_string(text)
+	f.close()
 
 	var button = ClassDB.instantiate("MotifSprite")
 	button.scene = "res://ui/modern-button.msc"

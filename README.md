@@ -390,7 +390,7 @@ Motif, а кадр рисуется под размер узла на экран
   `background`, `pointer` (мышь для строк `listen`), `gpu` (рисовать на видеокарте; выключенное — весь кадр на
   процессоре, пиксель в пиксель как в Motif).
 * Из кода: `set_input("speed", 1)`, `fire("jump")`, `get_state()`, `jump_to("Hit")`, `restart()`, `get_image(2.0)`,
-  `advance(0.1)`; сигналы `event(name)`, `event_data(name, data)` и `state_changed(state)`.
+  `advance(0.1)`, `hot_reload()` (сцену сохранили в Motif — играет дальше с того же состояния); сигналы `event(name)`, `event_data(name, data)` и `state_changed(state)`.
 * Данные событий: `event hit 0.3 damage=2 crit=true side=left` — числа, true/false, слова и строки в кавычках
   приходят в игру вместе с событием (`Event::get("damage")`, сигнал `event_data`, поле `data` в договоре) —
   [docs/script.html#event-data](docs/script.html#event-data).
@@ -403,7 +403,9 @@ Motif, а кадр рисуется под размер узла на экран
   [docs/runtime.html#library](docs/runtime.html#library). Машина и физика идут целыми шагами по 1/60 с, так что
   игра одинакова при любой частоте кадров; `advance` возвращает все события по порядку с точным временем,
   `advance(0)` ничего не меняет, `set_seed` задаёт случайность частиц, жидкостей и «рисованных» линий,
-  `save_state`/`load_state` сохраняют игру и продолжают ровно с того же места (пружины, частицы, ждущие триггеры) —
+  `save_state`/`load_state` сохраняют игру и продолжают ровно с того же места (пружины, частицы, ждущие триггеры),
+  `reload(src)` принимает исправленную сцену на ходу: состояние, входы и движение пружин остаются, переименованное
+  находится по id —
   [docs/runtime.html#determinism](docs/runtime.html#determinism).
 * С возможностью `vello` кадр дописывается в общую `vello::Scene` (`frame().scene(&mut scene, transform, false)`):
   игра рисует всех персонажей на видеокарте одним проходом. Vello 0.11 и wgpu 30 — те же, что у Forge —

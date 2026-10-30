@@ -433,6 +433,32 @@ impl MotifSprite {
         self.size()
     }
 
+    /// Reads the scene file again and plays on from where it is: the state, its time, the
+    /// inputs, springs and particles go on with the change. A scene with errors is not taken:
+    /// the old one plays on and the errors are warned about. Returns whether it was taken.
+    #[func]
+    fn hot_reload(&mut self) -> bool {
+        if self.player.is_none() {
+            self.reload();
+            return self.player.is_some();
+        }
+        let taken = self.read().and_then(|(src, base)| self.player.as_mut().map_or(Ok(()), |p| p.reload(&src, base.as_deref())));
+        match &taken {
+            // Shapes may have changed under the same names: cut them again.
+            Ok(()) => {
+                self.shot = None;
+                self.pending = None;
+                self.pieces.clear();
+                self.cutter = Arc::default();
+            }
+            Err(e) => {
+                godot_warn!("MotifSprite {}: {e}", self.scene);
+            }
+        }
+        self.redraw();
+        taken.is_ok()
+    }
+
     /// Reads the scene file again (after it was edited in Motif).
     #[func]
     fn reload(&mut self) {
@@ -503,6 +529,12 @@ fn check_build() {
 
 impl MotifSprite {
     fn load(&self) -> Result<Player, String> {
+        let (src, base) = self.read()?;
+        Player::load(&src, base.as_deref(), &self.board.to_string(), &self.machine.to_string(), &self.animation.to_string())
+    }
+
+    /// The scene's text and the folder it is in.
+    fn read(&self) -> Result<(String, Option<std::path::PathBuf>), String> {
         check_build();
         let path = self.scene.to_string();
         if !FileAccess::file_exists(&self.scene) {
@@ -512,8 +544,7 @@ impl MotifSprite {
         // Fonts next to the scene are read through Godot, so they are found in an exported
         // game's pack too.
         motif_script::fonts::set_reader(read_res);
-        let base = path.rfind('/').map(|i| std::path::PathBuf::from(&path[..i]));
-        Player::load(&src, base.as_deref(), &self.board.to_string(), &self.machine.to_string(), &self.animation.to_string())
+        Ok((src, path.rfind('/').map(|i| std::path::PathBuf::from(&path[..i]))))
     }
 
     /// What the node should show now.

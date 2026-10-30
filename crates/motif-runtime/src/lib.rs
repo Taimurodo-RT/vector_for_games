@@ -14,7 +14,7 @@
 
 pub use motif_core::EventValue;
 use motif_core::kurbo::Point;
-use motif_core::{AnimEvent, Document, Machine, MachinePlayer, SIM_FPS, State};
+use motif_core::{AnimEvent, Document, IdKind, Machine, MachinePlayer, SIM_FPS, State};
 use motif_render::CpuOptions;
 #[cfg(feature = "mesh")]
 use motif_render::mesh::{Cutter, Piece};
@@ -60,6 +60,10 @@ impl PlayerState {
 #[derive(Debug)]
 pub struct Player {
     doc: Document,
+    /// The board played, by its place among the scene's boards.
+    board: usize,
+    /// Whether an animation plays alone, as a machine of one state named after it.
+    alone: bool,
     /// The machine as the scene has it.
     plain: Machine,
     /// The machine as it plays from the side faced: `Walk_up` instead of `Walk`.
@@ -173,6 +177,8 @@ impl Player {
             _ => boards.iter().position(|s| s.doc.artboard.name == board),
         };
         let doc = at.and_then(|i| boards.get(i)).map(|s| s.doc.clone()).ok_or_else(|| format!("нет холста «{board}»; холсты: {}", names()))?;
+        let board = at.unwrap_or(0);
+        let alone = !animation.is_empty() || (machine.is_empty() && doc.machines.is_empty());
         let machine = if !animation.is_empty() {
             doc.animation(animation).ok_or_else(|| {
                 let all: Vec<&str> = doc.animations.iter().map(|a| a.name.as_str()).collect();
@@ -193,9 +199,48 @@ impl Player {
         let side = doc.directions.as_ref().map(|_| 0);
         let plain = machine.clone();
         let shown = Arc::new(doc.clone());
-        let mut p = Player { doc, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0 };
+        let mut p = Player { doc, board, alone, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0 };
         p.turn(side);
         Ok(p)
+    }
+
+    /// Plays on in scene `src`, the same scene changed and saved again while the game runs: the
+    /// same board (by name, else by place) and machine (by name, else the only one), the state
+    /// and its time, the inputs, springs, ropes, particles, the side and the seed go on, so a
+    /// tweak shows at once without starting the scene again. A state, input or animation renamed
+    /// in Motif is found by its hidden id. When the new scene has errors, or its board or
+    /// machine is gone, the player plays on unchanged and the errors are returned.
+    pub fn reload(&mut self, src: &str, base: Option<&std::path::Path>) -> Result<(), String> {
+        let boards = motif_script::parse_boards(src, base).map_err(|errs| errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n"))?;
+        let name = &self.doc.artboard.name;
+        let doc = boards.iter().find(|s| s.doc.artboard.name == *name).or_else(|| boards.get(self.board)).map(|s| s.doc.clone());
+        let doc = doc.ok_or_else(|| format!("в сцене больше нет холста «{name}»"))?;
+        let plain = if self.alone {
+            let old = self.plain.name.as_str();
+            let id = self.doc.ids.get(IdKind::Animation, "", old);
+            let anim = id.and_then(|id| doc.ids.name_of(IdKind::Animation, "", id)).filter(|a| doc.animation(a).is_some()).unwrap_or(old);
+            match doc.animation(anim) {
+                Some(_) => Self::alone(anim),
+                None if old.is_empty() => Machine { name: String::new(), ..Self::alone("") },
+                None => return Err(format!("в сцене больше нет анимации «{old}»")),
+            }
+        } else {
+            let old = self.plain.name.as_str();
+            let only = (self.doc.machines.len() == 1 && doc.machines.len() == 1).then(|| &doc.machines[0]);
+            doc.machine(old).or(only).cloned().ok_or_else(|| format!("в сцене больше нет машины «{old}»"))?
+        };
+        self.run = self.run.carried(&self.plain, &self.doc, &plain, &doc);
+        let side = self.side().to_string();
+        let seed = self.doc.seed;
+        self.doc = doc;
+        self.doc.seed = seed;
+        self.plain = plain;
+        // The same side if the scene still has it, else down; none without `directions`.
+        let side = self.doc.directions.as_ref().map(|d| d.find(&side).unwrap_or(0));
+        self.side = None;
+        self.turn(side);
+        self.pose += 1;
+        Ok(())
     }
 
     /// A machine of one state playing `anim`.
@@ -865,6 +910,118 @@ machine M {
         json["format"] = 99.into();
         let err = q.load_state(&serde_json::from_value(json).unwrap()).unwrap_err();
         assert!(err.contains("формате 99"), "{err}");
+    }
+
+    /// The spring scene with hidden ids, as Motif saves it.
+    const RELOADED: &str = r#"
+artboard "Пружина" 100x80
+ellipse ball at 50 40 size 20 20 fill #5ee0a0 spring 3 0.2
+ellipse sparks at 50 40 size 4 4 fill #ffd23f emit 30 life 0.5 speed 60 spread 90
+anim Idle 0.4s loop id=a001 {
+  ball.x 0: 30 | 0.2: 70 | 0.4: 30
+  event step 0 0.2 id=e001
+}
+anim Hit 0.6s id=a002 {
+  ball.y 0: 40 | 0.3: 20 | 0.6: 40
+  event hit 0.1 id=e002
+}
+machine M {
+  input hurt trigger id=i001
+  input power 0 id=i002
+  state Idle id=s001
+  state Hit id=s002
+  any -> Hit when hurt
+  Hit -> Idle at end
+}
+"#;
+
+    fn ball(p: &Player) -> (f64, f64) {
+        p.frame().doc.nodes.iter().find(|n| n.id == "ball").map(|n| (n.x, n.y)).unwrap()
+    }
+
+    #[test]
+    fn a_reload_plays_on_from_the_same_state_with_the_change() {
+        let mut p = Player::load(RELOADED, None, "", "", "").unwrap();
+        p.set_seed(5);
+        p.set("power", 0.7).unwrap();
+        p.advance(0.5);
+        p.fire("hurt").unwrap();
+        // Whole steps: the pose shown is the spring's own, nothing played ahead with the old one.
+        p.advance(0.2);
+        let (time, at) = (p.time(), ball(&p));
+        assert_eq!(p.state(), "Hit");
+        // Everything but the ball, the sparks in the air among it.
+        let rest = |p: &Player| p.frame().doc.nodes.iter().filter(|n| n.id != "ball").cloned().collect::<Vec<_>>();
+        let flying = rest(&p);
+        assert!(flying.iter().any(|n| n.particles.as_ref().is_some_and(|p| !p.is_empty())), "no sparks in the air");
+        // Renamed in Motif (the ids stay), stiffer, recoloured.
+        let changed = RELOADED
+            .replace("state Hit id", "state Struck anim Hit id")
+            .replace("-> Hit", "-> Struck")
+            .replace("Hit ->", "Struck ->")
+            .replace("spring 3 0.2", "spring 6 0.2")
+            .replace("#5ee0a0", "#ff0000");
+        let pose = p.pose();
+        p.reload(&changed, None).unwrap();
+        assert_eq!((p.state().as_str(), p.time(), p.get("power")), ("Struck", time, Some(0.7)));
+        assert_ne!(p.pose(), pose, "the change is drawn");
+        let b = p.frame().doc.nodes.iter().find(|n| n.id == "ball").unwrap().clone();
+        assert_eq!(b.fill.map(|c| (c.r, c.g, c.b)), Some((255, 0, 0)));
+        // The spring goes on from where it was, behind its keys, and is not set back to rest.
+        assert_eq!((b.x, b.y), at);
+        let keyed = p.run.keys(&p.machine, &p.doc).nodes.iter().find(|n| n.id == "ball").map(|n| (n.x, n.y)).unwrap();
+        assert!((keyed.0 - at.0).abs() + (keyed.1 - at.1).abs() > 0.5, "the spring was at rest: {keyed:?} / {at:?}");
+        assert!(rest(&p) == flying, "the sparks in the air stay");
+        assert_eq!(p.doc.seed, 5);
+        // And plays on: the clip ends, the machine goes back to Idle.
+        let mut back = None;
+        for _ in 0..40 {
+            back = back.or(p.advance(1.0 / 60.0).state);
+        }
+        assert_eq!(back.as_deref(), Some("Idle"));
+    }
+
+    #[test]
+    fn a_broken_or_foreign_reload_changes_nothing_and_a_lost_state_starts_again() {
+        let mut p = Player::load(RELOADED, None, "", "", "").unwrap();
+        p.fire("hurt").unwrap();
+        p.advance(0.2);
+        let (state, time, frame) = (p.state(), p.time(), p.frame().doc.clone());
+        let broken = RELOADED.replace("ellipse ball", "ellipse ball ball");
+        assert!(p.reload(&broken, None).is_err());
+        let err = p
+            .reload(&RELOADED.replace("machine M", "machine N").replace("artboard", "anim Extra 1s {\n}\nmachine O {\n  state Extra\n}\nartboard"), None)
+            .unwrap_err();
+        assert!(err.contains("«M»"), "{err}");
+        assert_eq!((p.state(), p.time()), (state, time));
+        assert!(*p.frame().doc == *frame);
+        // A machine renamed, when it is the only one, is still the machine.
+        p.reload(&RELOADED.replace("machine M", "machine Hero"), None).unwrap();
+        assert_eq!((p.state(), p.time()), ("Hit".to_string(), time));
+        // The state played is gone (no id, no name): the machine starts again.
+        let gone = RELOADED.replace("  state Hit id=s002\n", "").replace("  any -> Hit when hurt\n  Hit -> Idle at end\n", "");
+        p.reload(&gone, None).unwrap();
+        assert_eq!(p.state(), "Idle");
+        assert!(p.time() < TICK, "{}", p.time());
+    }
+
+    #[test]
+    fn a_reload_keeps_the_side_and_a_lone_animation_renamed() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "Walker", "").unwrap();
+        p.set("speed", 1.0).unwrap();
+        p.advance(0.3);
+        p.face_toward(-1.0, 0.0);
+        let (side, anim, time) = (p.side(), p.animation(), p.time());
+        p.reload(&src, None).unwrap();
+        assert_eq!((p.side(), p.flipped(), p.animation(), p.time()), (side, true, anim, time));
+
+        let clips = RELOADED.split("machine M").next().unwrap();
+        let mut a = Player::load(clips, None, "", "", "Hit").unwrap();
+        a.advance(0.25);
+        a.reload(&clips.replace("anim Hit ", "anim Smack "), None).unwrap();
+        assert_eq!((a.animation().as_str(), a.state().as_str()), ("Smack", "Smack"));
+        assert!((a.time() - 0.25).abs() < 1e-9, "{}", a.time());
     }
 }
 

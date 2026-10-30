@@ -113,3 +113,12 @@ pub(crate) fn apply_stretches(items: &[Stretch], doc: &mut Document) {
         doc.nodes[s.node].warp = Some(turn * Affine::scale_non_uniform(k, 1.0 / k) * turn.inverse());
     }
 }
+
+impl crate::sim::Carry for Stretch {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.prev, self.vel, self.dir, self.e, self.v) = (old.prev, old.vel, old.dir, old.e, old.v);
+    }
+}
