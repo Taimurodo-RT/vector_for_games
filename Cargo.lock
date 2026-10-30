@@ -1564,6 +1564,7 @@ name = "motif-core"
 version = "0.1.0"
 dependencies = [
  "kurbo",
+ "serde",
  "ttf-parser",
 ]
 
@@ -1640,6 +1641,8 @@ dependencies = [
  "motif-core",
  "motif-render",
  "motif-script",
+ "serde",
+ "serde_json",
  "tiny-skia",
 ]
 

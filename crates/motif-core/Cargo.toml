@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+# Save the state of a playing scene (springs, ropes, soft bodies…) for a game save.
+serde = ["dep:serde", "kurbo/serde"]
+
 [dependencies]
 kurbo.workspace = true
+serde = { version = "1", features = ["derive"], optional = true }
 ttf-parser = "0.25"

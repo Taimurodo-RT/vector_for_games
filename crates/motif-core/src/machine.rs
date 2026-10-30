@@ -160,6 +160,7 @@ impl Machine {
 
 /// A running copy of a machine: what state it is in, how far its animation has played, and the
 /// values of the inputs.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachinePlayer {
     pub state: usize,
