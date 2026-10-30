@@ -97,10 +97,13 @@ pub struct Record {
     pub saved_text: String,
     pub board: usize,
     pub created: u64,
+    /// The recovery file this record was read from: removed once it is restored or dropped.
+    #[serde(skip)]
+    pub file: Option<PathBuf>,
 }
 impl Record {
     pub fn new(path: Option<PathBuf>, text: String, saved_text: String, board: usize) -> Self {
-        Self { schema: 1, path, text, saved_text, board, created: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
+        Self { schema: 1, path, text, saved_text, board, created: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(), file: None }
     }
 }
 
@@ -113,14 +116,35 @@ pub fn recovery_dir() -> PathBuf {
         .join("Motif/recovery")
 }
 
+/// The lock beside a recovery copy: held while its window runs, so other windows do not offer
+/// the copy of a document that is still open.
+fn lock_path(copy: &Path) -> PathBuf {
+    copy.with_extension("lock")
+}
+
+/// Whether a running window holds `lock`. A lock nobody holds is left by a crash.
+fn held(lock: &Path) -> bool {
+    let Ok(f) = fs::OpenOptions::new().write(true).open(lock) else { return false };
+    matches!(f.try_lock(), Err(fs::TryLockError::WouldBlock))
+}
+
 pub struct Recovery {
     pub dir: PathBuf,
     current: PathBuf,
     last: Option<(Option<PathBuf>, String, usize)>,
+    /// This window's lock, taken with its first copy.
+    lock: Option<fs::File>,
 }
 impl Recovery {
     pub fn new(dir: PathBuf) -> Self {
-        Self { current: dir.join(format!("{}.json", stamp())), dir, last: None }
+        Self { current: dir.join(format!("{}.json", stamp())), dir, last: None, lock: None }
+    }
+    fn take_lock(&mut self) {
+        if self.lock.is_some() {
+            return;
+        }
+        let lock = fs::OpenOptions::new().write(true).create(true).truncate(false).open(lock_path(&self.current));
+        self.lock = lock.ok().filter(|f| f.try_lock().is_ok());
     }
     pub fn write(&mut self, record: &Record) -> Result<(), String> {
         let key = (record.path.clone(), record.text.clone(), record.board);
@@ -128,6 +152,7 @@ impl Recovery {
             return Ok(());
         }
         fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
+        self.take_lock();
         let bytes = serde_json::to_vec(record).map_err(|e| e.to_string())?;
         if bytes.len() > 64 * 1024 * 1024 {
             return Err("Копия превышает 64 МиБ. Сохраните документ вручную.".into());
@@ -140,20 +165,49 @@ impl Recovery {
         let _ = fs::remove_file(&self.current);
         self.last = None;
     }
+    /// Copies left by windows that closed without saving or crashed, newest first. Copies of
+    /// windows still running are not offered, and neither are copies already saved.
     pub fn entries(&self) -> Vec<Record> {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return Vec::new();
         };
-        let mut out: Vec<Record> = entries
-            .flatten()
-            .filter(|e| e.path() != self.current)
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()) && e.path().extension().is_some_and(|x| x == "json"))
-            .filter(|e| e.metadata().is_ok_and(|m| m.len() <= 64 * 1024 * 1024))
-            .filter_map(|e| fs::read(e.path()).ok().and_then(|b| serde_json::from_slice::<Record>(&b).ok()))
+        let files: Vec<PathBuf> = entries.flatten().filter(|e| e.file_type().is_ok_and(|t| t.is_file())).map(|e| e.path()).collect();
+        for lock in files.iter().filter(|p| p.extension().is_some_and(|x| x == "lock")) {
+            // The lock of a window that crashed before its first copy, or after it was cleared.
+            if *lock != lock_path(&self.current) && !lock.with_extension("json").exists() && !held(lock) {
+                let _ = fs::remove_file(lock);
+            }
+        }
+        let mut out: Vec<Record> = files
+            .into_iter()
+            .filter(|p| *p != self.current && p.extension().is_some_and(|x| x == "json") && !held(&lock_path(p)))
+            .filter(|p| fs::metadata(p).is_ok_and(|m| m.len() <= 64 * 1024 * 1024))
+            .filter_map(|p| fs::read(&p).ok().and_then(|b| serde_json::from_slice::<Record>(&b).ok()).map(|r| Record { file: Some(p), ..r }))
             .filter(|r| r.schema == 1 && r.text != r.saved_text && !r.path.as_ref().is_some_and(|p| fs::read_to_string(p).is_ok_and(|s| s == r.text)))
             .collect();
         out.sort_by_key(|r| std::cmp::Reverse(r.created));
         out
+    }
+    /// Takes over a restored copy: it becomes this window's own, then the old file goes.
+    pub fn adopt(&mut self, record: &Record) -> Result<(), String> {
+        self.write(record)?;
+        Recovery::drop_copy(record);
+        Ok(())
+    }
+    /// Removes a copy offered by [`Recovery::entries`], with its lock.
+    pub fn drop_copy(record: &Record) {
+        if let Some(file) = &record.file {
+            let _ = fs::remove_file(file);
+            let _ = fs::remove_file(lock_path(file));
+        }
+    }
+}
+
+impl Drop for Recovery {
+    fn drop(&mut self) {
+        if self.lock.take().is_some() {
+            let _ = fs::remove_file(lock_path(&self.current));
+        }
     }
 }
 
@@ -240,7 +294,10 @@ mod tests {
         let mut writer = Recovery::new(d.0.join("recovery"));
         writer.write(&Record::new(Some(p.clone()), text.into(), "original".into(), 1)).unwrap();
         fs::write(writer.dir.join("bad.json"), "{").unwrap();
-        let reader = Recovery::new(writer.dir.clone());
+        // A crash leaves the copy and its lock, which nobody holds any more.
+        let dir = writer.dir.clone();
+        drop(writer.lock.take());
+        let reader = Recovery::new(dir);
         let records = reader.entries();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].text, text);
@@ -257,6 +314,45 @@ mod tests {
         a.write(&Record::new(None, "first".into(), "".into(), 0)).unwrap();
         b.write(&Record::new(None, "second".into(), "".into(), 0)).unwrap();
         a.clear();
+        // b is still open: its copy is its own, not one to restore.
+        assert!(Recovery::new(d.0.clone()).entries().is_empty());
+        // b crashes: now its copy is offered.
+        drop(b.lock.take());
         assert_eq!(Recovery::new(d.0.clone()).entries()[0].text, "second");
+    }
+    #[test]
+    fn a_restored_or_dropped_copy_is_not_offered_again() {
+        let d = Temp::new();
+        let mut crashed = Recovery::new(d.0.clone());
+        crashed.write(&Record::new(None, "one".into(), "".into(), 0)).unwrap();
+        drop(crashed.lock.take());
+        let mut crashed = Recovery::new(d.0.clone());
+        crashed.write(&Record::new(None, "two".into(), "".into(), 0)).unwrap();
+        drop(crashed.lock.take());
+
+        let mut next = Recovery::new(d.0.clone());
+        let found = next.entries();
+        assert_eq!(found.len(), 2);
+        // Restored: the copy is now this window's, so a crash right after still keeps it.
+        next.adopt(&found[0]).unwrap();
+        Recovery::drop_copy(&found[1]);
+        assert!(next.entries().is_empty());
+        drop(next.lock.take());
+        let left = Recovery::new(d.0.clone()).entries();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].text, found[0].text);
+        // No lock is left behind without its copy.
+        Recovery::drop_copy(&left[0]);
+        Recovery::new(d.0.clone()).entries();
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 0);
+    }
+    #[test]
+    fn a_window_closed_normally_leaves_nothing() {
+        let d = Temp::new();
+        let mut w = Recovery::new(d.0.clone());
+        w.write(&Record::new(None, "draft".into(), "".into(), 0)).unwrap();
+        w.clear();
+        drop(w);
+        assert_eq!(fs::read_dir(&d.0).unwrap().count(), 0);
     }
 }
