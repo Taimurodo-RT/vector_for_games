@@ -40,7 +40,7 @@ use Gem gem2 at 400 190 size=30 color=#7cff8f
 use Ball ball1 "Мяч" at 120 120
 use Ball ball2 "Синий мяч" at 220 196 size=48 color=#3b5bff band=#ffffff
 
-anim Idle 1.2s loop {
+anim Idle 1.2s loop id=twqs {
   ball1.y 0: 120 ease-in | 0.6: 222 ease-out | 1.2: 120
   ball1.sx 0: 1 | 0.55: 1 | 0.6: 1.3 | 0.7: 1 | 1.2: 1
   ball1.sy 0: 1 | 0.55: 1 | 0.6: 0.7 | 0.7: 1 | 1.2: 1

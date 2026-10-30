@@ -35,6 +35,7 @@ mod expr;
 pub mod fonts;
 pub mod format;
 pub mod forms;
+pub mod ids;
 mod lexer;
 mod machine;
 mod parser;

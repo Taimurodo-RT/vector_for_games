@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Кости",
@@ -7,6 +7,7 @@
       "height": 360.0,
       "animations": [
         {
+          "id": "c9h4",
           "name": "Wave",
           "duration": 2.0,
           "loop": true,

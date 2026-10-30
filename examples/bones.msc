@@ -28,7 +28,7 @@ bone upper "Плечо" at 290 120 len 70 {
 ellipse shoulder at 290 120 size 34 34 fill #3b8f6a stroke ink 4
 group reach "Цель руки" at 410 190
 
-anim Wave 2s loop {
+anim Wave 2s loop id=c9h4 {
   t1.rot  0: -96 | 1: -84 | 2: -96
   t2.rot  0: -18 | 1: 18 | 2: -18
   t3.rot  0: -26 | 1: 26 | 2: -26

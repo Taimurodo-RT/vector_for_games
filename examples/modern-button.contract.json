@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Modern Button",
@@ -7,30 +7,35 @@
       "height": 211.0,
       "animations": [
         {
+          "id": "v54r",
           "name": "Hover",
           "duration": 0.8,
           "loop": false,
           "events": []
         },
         {
+          "id": "gjh4",
           "name": "Leave",
           "duration": 0.8,
           "loop": false,
           "events": []
         },
         {
+          "id": "kb3k",
           "name": "Press",
           "duration": 0.6,
           "loop": false,
           "events": []
         },
         {
+          "id": "st4c",
           "name": "Release",
           "duration": 0.6,
           "loop": false,
           "events": []
         },
         {
+          "id": "npes",
           "name": "Normal",
           "duration": 0.1,
           "loop": false,
@@ -42,11 +47,13 @@
           "name": "Pointer",
           "inputs": [
             {
+              "id": "sejd",
               "name": "hover",
               "kind": "bool",
               "default": 0.0
             },
             {
+              "id": "fdxn",
               "name": "press",
               "kind": "bool",
               "default": 0.0
@@ -54,22 +61,27 @@
           ],
           "states": [
             {
+              "id": "utca",
               "name": "Normal",
               "animation": "Normal"
             },
             {
+              "id": "fkba",
               "name": "Hover",
               "animation": "Hover"
             },
             {
+              "id": "axsk",
               "name": "Leave",
               "animation": "Leave"
             },
             {
+              "id": "e7jb",
               "name": "Press",
               "animation": "Press"
             },
             {
+              "id": "yieu",
               "name": "Release",
               "animation": "Release"
             }

@@ -22,6 +22,6 @@ ellipse b3 "Мяч 3" at 370 312 size 30 30 fill #6aa8ff stroke ink 3 soft 0.7 d
 rect fan "Вентилятор" at 545 320 size 60 18 r 4 rot -90 fill #3a4258 stroke ink 3 fan 2000 range 260 cone 40
 ellipse balloon "Шарик" at 545 150 size 36 42 fill #ff5d73 stroke ink 3 soft 0.8 drive 0 weight 0.9 sail 1
 
-anim Fields 4s {
+anim Fields 4s id=cw4p {
   blast.pull 0: 0 | 1.45: 0 linear | 1.5: -9000 linear | 1.6: 0
 }

@@ -40,7 +40,7 @@ group ball "Мяч" on planet lat -25 lon 15 alt 10 roll 0 0.05 weight 0 {
   rect qs size 18 4 fill ink
 }
 
-anim Tilt 6s loop {
+anim Tilt 6s loop id=ni59 {
   globe.pitch 0: 0 ease-in-out | 1.2: -75 | 2: -75 ease-in-out | 3.2: 60 ease-in-out | 4.6: -75 ease-in-out | 6: 0
   planet.yaw  0: 0 | 6: 360
 }

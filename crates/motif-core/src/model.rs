@@ -25,6 +25,8 @@ pub struct Document {
     pub purpose: Purpose,
     /// The sides a character is shot from for a top-down game (`directions 8 turn …`).
     pub directions: Option<crate::Directions>,
+    /// Hidden ids (`id=…`) of inputs, states, animations, events and parameters.
+    pub ids: crate::Ids,
     /// Seed the game gives to what is random in the scene (particles, poured fluid, rough
     /// lines), so two copies of one character differ and a replay repeats. 0 is the scene as
     /// Motif shows it.
@@ -1041,6 +1043,7 @@ impl Document {
             time: 0.0,
             purpose: Purpose::Any,
             directions: None,
+            ids: crate::Ids::default(),
             seed: 0,
         }
     }

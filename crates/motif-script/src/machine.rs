@@ -151,7 +151,7 @@ pub fn edit_machine(src: &str, scene: &Scene, name: &str, f: impl FnOnce(&mut Ma
     for (i, b) in new.inputs.iter().enumerate() {
         match old.inputs.get(i) {
             Some(a) if fmt_input(a) == fmt_input(b) => {}
-            Some(_) => edits.push((site.inputs[i], fmt_input(b))),
+            Some(_) => edits.push((site.inputs[i], crate::ids::keep(&src[site.inputs[i].start..site.inputs[i].end], fmt_input(b)))),
             None => added += &format!("  {}\n", fmt_input(b)),
         }
     }
@@ -168,7 +168,7 @@ pub fn edit_machine(src: &str, scene: &Scene, name: &str, f: impl FnOnce(&mut Ma
     for (i, b) in new.states.iter().enumerate() {
         match old.states.get(i) {
             Some(a) if fmt_state(a) == fmt_state(b) => {}
-            Some(_) => edits.push((site.states[i], fmt_state(b))),
+            Some(_) => edits.push((site.states[i], crate::ids::keep(&src[site.states[i].start..site.states[i].end], fmt_state(b)))),
             None => added += &format!("  {}\n", fmt_state(b)),
         }
     }

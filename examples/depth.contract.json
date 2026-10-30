@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Глубина",
@@ -7,6 +7,7 @@
       "height": 300.0,
       "animations": [
         {
+          "id": "v54r",
           "name": "Hover",
           "duration": 1.4,
           "loop": true,

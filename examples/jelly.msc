@@ -18,5 +18,5 @@ ellipse j3 "Синий"    at 300 -90 size 60 fill #6aa8ff stroke ink 4 soft 0.3
 ellipse j4 "Жёлтый"   at 235 -170 size 50 fill #ffd23f stroke ink 4 soft 0.2 drive 0 weight 1
 ellipse j5 "Розовый"  at 200 -250 size 70 fill #ff5d9e stroke ink 4 soft 0.15 drive 0 weight 1
 
-anim Fall 4s {
+anim Fall 4s id=cimb {
 }

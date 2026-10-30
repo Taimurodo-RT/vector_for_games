@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "web-effects",
@@ -16,6 +16,7 @@
       "height": 96.0,
       "animations": [
         {
+          "id": "kqrb",
           "name": "Color",
           "duration": 2.0,
           "loop": true,
@@ -32,6 +33,7 @@
       "height": 120.0,
       "animations": [
         {
+          "id": "y5fj",
           "name": "Reveal",
           "duration": 2.0,
           "loop": true,

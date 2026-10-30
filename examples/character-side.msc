@@ -164,14 +164,14 @@ group hero "Персонаж" at 160 278 {
 }
 
 // Покой и циклы движений. Облик не имеет собственных дорожек: движение задаёт скелет.
-anim Idle 2s loop {
+anim Idle 2s loop id=twqs {
   pelvis.y 0: -112 ease-in-out-sine | 1: -114 ease-in-out-sine | 2: -112
   spine.rot 0: -90 ease-in-out-sine | 1: -88 ease-in-out-sine | 2: -90
   arm_front.rot 0: 170 ease-in-out-sine | 1: 173 ease-in-out-sine | 2: 170
   arm_back.rot 0: 170 ease-in-out-sine | 1: 167 ease-in-out-sine | 2: 170
 }
 
-anim Walk 0.8s loop {
+anim Walk 0.8s loop id=y4qf {
   pelvis.y 0: -110 ease-in-out-sine | 0.2: -113 ease-in-out-sine | 0.4: -110 ease-in-out-sine | 0.6: -113 ease-in-out-sine | 0.8: -110
   foot_front.x 0: 26 | 0.2: 0 | 0.4: -26 ease-in-out-sine | 0.6: -2 ease-in-out-sine | 0.8: 26
   foot_front.y 0: -4 | 0.4: -4 ease-out-sine | 0.6: -28 ease-in-sine | 0.8: -4
@@ -179,10 +179,10 @@ anim Walk 0.8s loop {
   foot_back.y 0: -4 ease-out-sine | 0.2: -28 ease-in-sine | 0.4: -4 | 0.8: -4
   arm_front.rot 0: 190 ease-in-out-sine | 0.4: 150 ease-in-out-sine | 0.8: 190
   arm_back.rot 0: 150 ease-in-out-sine | 0.4: 190 ease-in-out-sine | 0.8: 150
-  event step 0 0.4
+  event step 0 0.4 id=zwue
 }
 
-anim Run 0.6s loop {
+anim Run 0.6s loop id=wmn5 {
   pelvis.y 0: -108 ease-in-out-sine | 0.15: -115 ease-in-out-sine | 0.3: -108 ease-in-out-sine | 0.45: -115 ease-in-out-sine | 0.6: -108
   spine.rot 0: -78
   foot_front.x 0: 34 | 0.15: 10 | 0.3: -34 ease-in-out-sine | 0.45: -18 ease-in-out-sine | 0.6: 34
@@ -193,10 +193,10 @@ anim Run 0.6s loop {
   arm_back.rot 0: 120 ease-in-out-sine | 0.3: 220 ease-in-out-sine | 0.6: 120
   fore_front.rot 0: -65 | 0.3: -100 | 0.6: -65
   fore_back.rot 0: -100 | 0.3: -65 | 0.6: -100
-  event step 0.15 0.45
+  event step 0.15 0.45 id=zwue
 }
 
-anim Jump 1s {
+anim Jump 1s id=rdi9 {
   hero.y 0: 278 | 0.15: 278 ease-out | 0.45: 216 ease-in | 0.85: 278 | 1: 278
   pelvis.y 0: -112 ease-in-out | 0.15: -96 ease-out | 0.4: -115 | 0.7: -110 ease-in | 0.85: -94 ease-out | 1: -112
   foot_front.x 0: 7 | 0.15: 12 | 0.45: 22 | 0.85: 12 | 1: 7
@@ -205,17 +205,17 @@ anim Jump 1s {
   foot_back.y 0: -4 | 0.15: -4 ease-out | 0.45: -44 | 0.7: -20 | 0.85: -4 | 1: -4
   arm_front.rot 0: 170 | 0.15: 205 ease-out | 0.45: 85 | 0.85: 155 | 1: 170
   arm_back.rot 0: 170 | 0.15: 205 ease-out | 0.45: 110 | 0.85: 175 | 1: 170
-  event land 0.85
+  event land 0.85 id=wga2
 }
 
 // Игра получает speed и jump; внешний вид от них не зависит.
 machine Humanoid {
-  input speed 0
-  input jump trigger
-  state Idle
-  state Walk
-  state Run
-  state Jump
+  input speed 0 id=rsu9
+  input jump trigger id=s6f3
+  state Idle id=mmja
+  state Walk id=ac78
+  state Run id=upen
+  state Jump id=x7vs
   Idle -> Walk when speed > 0.1 blend 0.12s
   Walk -> Idle when speed <= 0.1 blend 0.12s
   Walk -> Run when speed > 0.7 blend 0.12s

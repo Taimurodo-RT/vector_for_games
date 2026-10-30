@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Кнопки",
@@ -7,18 +7,21 @@
       "height": 340.0,
       "animations": [
         {
+          "id": "v54r",
           "name": "Hover",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "kb3k",
           "name": "Press",
           "duration": 0.08,
           "loop": false,
           "events": []
         },
         {
+          "id": "drz9",
           "name": "Disabled",
           "duration": 0.2,
           "loop": false,
@@ -35,6 +38,7 @@
       "height": 240.0,
       "animations": [
         {
+          "id": "q4dn",
           "name": "Disabled",
           "duration": 0.2,
           "loop": false,
@@ -51,24 +55,28 @@
       "height": 280.0,
       "animations": [
         {
+          "id": "yf6v",
           "name": "Hover",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "rzcy",
           "name": "Press",
           "duration": 0.08,
           "loop": false,
           "events": []
         },
         {
+          "id": "f7vm",
           "name": "Focus",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "tcfn",
           "name": "Disabled",
           "duration": 0.2,
           "loop": false,
@@ -85,24 +93,28 @@
       "height": 340.0,
       "animations": [
         {
+          "id": "atug",
           "name": "Value",
           "duration": 1.0,
           "loop": false,
           "events": []
         },
         {
+          "id": "jhnp",
           "name": "Hover",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "sx6p",
           "name": "Press",
           "duration": 0.08,
           "loop": false,
           "events": []
         },
         {
+          "id": "w2d2",
           "name": "Disabled",
           "duration": 0.2,
           "loop": false,
@@ -119,12 +131,14 @@
       "height": 400.0,
       "animations": [
         {
+          "id": "wg6h",
           "name": "Hover",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "pycx",
           "name": "Press",
           "duration": 0.08,
           "loop": false,
@@ -141,12 +155,14 @@
       "height": 200.0,
       "animations": [
         {
+          "id": "hvvw",
           "name": "Hover",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "qrxd",
           "name": "Press",
           "duration": 0.08,
           "loop": false,

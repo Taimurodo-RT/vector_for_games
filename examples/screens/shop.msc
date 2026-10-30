@@ -76,10 +76,10 @@ group goods "Товары" at 0 24 anchor center middle stack row gap 16 {
   }
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   buy1_body.fill 0: good | 0.15: #7be3ad
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   buy1_body.y  0: 0 | 0.08: 4
   buy1_coin.y  0: 0 | 0.08: 4
   buy1_price.y 0: 1 | 0.08: 5

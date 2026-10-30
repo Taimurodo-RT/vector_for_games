@@ -43,7 +43,7 @@ group power "Сила" at 450 150 ui slider value 0.3 {
   }
 }
 
-anim Value 1s {
+anim Value 1s id=atug {
   knob_dot0.opacity 0: 1
   knob_dot1.opacity 0: 0.15 linear | 0.105: 0.15 linear | 0.125: 1
   knob_dot2.opacity 0: 0.15 linear | 0.23: 0.15 linear | 0.25: 1
@@ -66,12 +66,12 @@ anim Value 1s {
   power_bar4.fill 0: off linear | 0.8133: off linear | 0.8333: #ff9a4d
   power_bar5.fill 0: off linear | 0.98: off linear | 1.0: #ff5d5d
 }
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   knob_body.fill 0: #3a4361 | 0.15: #4a5578
   mana_glass.stroke 0: ink | 0.15: #6f93ff
   power_back.fill 0: #232a3d | 0.15: #2d3550
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   knob_body.sx 0: 1 | 0.08: 0.94
   knob_body.sy 0: 1 | 0.08: 0.94
   knob_hand.sx 0: 1 | 0.08: 0.94

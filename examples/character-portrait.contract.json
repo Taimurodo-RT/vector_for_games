@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Голова героя — параметры",
@@ -7,18 +7,21 @@
       "height": 420.0,
       "animations": [
         {
+          "id": "stze",
           "name": "Look",
           "duration": 4.0,
           "loop": true,
           "events": []
         },
         {
+          "id": "j8ks",
           "name": "Talk",
           "duration": 3.0,
           "loop": true,
           "events": []
         },
         {
+          "id": "cj7z",
           "name": "Expressions",
           "duration": 4.0,
           "loop": true,
@@ -28,22 +31,25 @@
       "machines": [],
       "parameters": [
         {
-          "id": "turn",
-          "name": "Поворот головы",
+          "id": "x753",
+          "name": "turn",
+          "title": "Поворот головы",
           "min": -1.0,
           "max": 1.0,
           "default": 0.0
         },
         {
-          "id": "blink",
-          "name": "Моргание",
+          "id": "wrdc",
+          "name": "blink",
+          "title": "Моргание",
           "min": 0.0,
           "max": 1.0,
           "default": 0.0
         },
         {
-          "id": "mouth",
-          "name": "Рот",
+          "id": "tdxg",
+          "name": "mouth",
+          "title": "Рот",
           "min": 0.0,
           "max": 1.0,
           "default": 0.0

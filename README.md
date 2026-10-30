@@ -235,6 +235,10 @@ cargo run --release -p motif-editor -- examples/bounce.msc
 Первая строка файла — версия формата `motif 1`. Motif пишет её сам при сохранении; файл без неё открывается как
 версия 1. Файлы прошлых форматов, которые обязаны открываться всегда, — в [`tests/old-formats/`](tests/old-formats).
 
+Входы и состояния машин, анимации, события и параметры позы носят скрытый id в конце строки (`input speed 0 id=k7f2`).
+Motif дописывает его сам при сохранении и сохраняет при переименовании, поэтому привязки в игре (Forge) не рвутся, когда
+`speed` становится `скорость`. Подробнее — [docs/script.html](docs/script.html).
+
 ```text
 motif 1
 artboard "Главный" 480x360 bg #fff4e4
@@ -327,7 +331,8 @@ cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кноп
 и `video` берут холст, где есть анимация `--anim`.
 
 `contract` пишет договор сцены для игры (Forge) в JSON: холсты, анимации с длиной, повтором и событиями, машины с
-состояниями, входами и связями с мышью, параметры позы, имена событий, стороны. В Rust — `motif_script::contract`.
+состояниями, входами и связями с мышью, параметры позы, имена событий, стороны; у входов, состояний, анимаций, событий и
+параметров — их скрытые id. В Rust — `motif_script::contract`.
 У каждого примера в `examples/` лежит образец `ИМЯ.contract.json`, тест сверяет с ним договор (после намеренной
 правки: `MOTIF_BLESS=1 cargo test -p motif-script --test contracts`). Подробнее —
 [docs/export.html#contract](docs/export.html#contract).

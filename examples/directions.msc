@@ -22,34 +22,34 @@ ellipse nose "Нос" size 16 13 on body lat 4 alt 5 fill #5fb872 stroke ink 3
 ellipse cheekL "Щека Л" size 16 9 on body lat 2 lon -38 wrap fill #ff8fa3
 ellipse cheekR "Щека П" size 16 9 on body lat 2 lon 38 wrap fill #ff8fa3
 
-anim Idle 1.6s loop {
+anim Idle 1.6s loop id=twqs {
   body.h 0: 120 ease-in-out-sine | 0.8: 114 ease-in-out-sine | 1.6: 120
   body.w 0: 110 ease-in-out-sine | 0.8: 114 ease-in-out-sine | 1.6: 110
 }
 
-anim Walk 0.6s loop {
+anim Walk 0.6s loop id=y4qf {
   body.y   0: 128 ease-out | 0.15: 120 ease-in | 0.3: 128 ease-out | 0.45: 120 ease-in | 0.6: 128
   footL.lat 0: -62 ease-in-out | 0.3: -45 ease-in-out | 0.6: -62
   footR.lat 0: -45 ease-in-out | 0.3: -62 ease-in-out | 0.6: -45
   shadow.w 0: 92 | 0.15: 80 | 0.3: 92 | 0.45: 80 | 0.6: 92
-  event step 0 0.3
+  event step 0 0.3 id=zwue
 }
 
-anim Walk_up 0.6s loop {
+anim Walk_up 0.6s loop id=q2hg {
   body.y   0: 128 ease-out | 0.15: 120 ease-in | 0.3: 128 ease-out | 0.45: 120 ease-in | 0.6: 128
   footL.lat 0: -62 ease-in-out | 0.3: -45 ease-in-out | 0.6: -62
   footR.lat 0: -45 ease-in-out | 0.3: -62 ease-in-out | 0.6: -45
   pack.lat 0: 0 ease-in-out | 0.15: 8 ease-in-out | 0.3: 0 ease-in-out | 0.45: 8 ease-in-out | 0.6: 0
   shadow.w 0: 92 | 0.15: 80 | 0.3: 92 | 0.45: 80 | 0.6: 92
-  event step 0 0.3
+  event step 0 0.3 id=zwue
 }
 
 // Машина для игры: стоит, пока speed не больше 0.5, и идёт, когда больше. В Godot узел MotifSprite
 // играет её с той стороны, куда смотрит facing, а шаги приходят сигналом event("step").
 machine Walker {
-  input speed 0
-  state Idle
-  state Walk
+  input speed 0 id=yhfs
+  state Idle id=wfkn
+  state Walk id=vw6g
   Idle -> Walk when speed > 0.5 blend 0.1s
   Walk -> Idle when speed <= 0.5 blend 0.1s
 }

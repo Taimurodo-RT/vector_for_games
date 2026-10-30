@@ -32,7 +32,7 @@ group lantern "Фонарь" pivot 0 -22 hang cord {
 // Мячик — мягкое тело с весом: падает, и ветер катит его по земле.
 ellipse ball "Мяч" at 130 260 size 50 50 fill #6aa8ff stroke ink 3 soft 0.6 drive 0 weight 1 sail 0.5
 
-anim Storm 6s {
+anim Storm 6s id=ncci {
   world.wind-x 0: 60 ease-in | 2: 700 | 3.5: 700 ease-out | 4.5: 40
   world.gravity-y 0: 900 | 4.6: 900 ease-out | 5: 0 ease-in | 5.6: 900
 }

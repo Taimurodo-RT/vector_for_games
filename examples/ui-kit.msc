@@ -93,7 +93,7 @@ group back_btn "Назад-значок" at 486 259 ui {
   rect back_body size 52 52 r 14 fill back stroke light 4
   path back_icon at -2 0 d "M 5 -10 L -5 0 L 5 10" fill none stroke light 5 cap round join round
 }
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   body.fill         0: primary | 0.15: light
   shine.fill        0: light | 0.15: #a8c0ff
   sec_body.fill     0: raised | 0.15: #414b6e
@@ -108,7 +108,7 @@ anim Hover 0.15s {
   add_body.fill     0: good | 0.15: #7be3ad
   back_body.fill    0: back | 0.15: #434c6a
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   body.y            0: 0 | 0.08: 5
   shine.y           0: -14 | 0.08: -9
   caption.y         0: 2 | 0.08: 7
@@ -137,7 +137,7 @@ anim Press 0.08s {
   add_v.y           0: 0 | 0.08: 4
   back_body.fill    0: back | 0.08: #2e3550
 }
-anim Disabled 0.2s {
+anim Disabled 0.2s id=drz9 {
   body.fill         0: primary | 0.2: off
   base.fill         0: deep | 0.2: off_deep
   shine.fill        0: light | 0.2: #737a94
@@ -213,7 +213,7 @@ group hard "Радио: сложный" at 420 150 ui check radio difficulty {
   }
   text radio_label3 "Подпись" at -30 0 content "Сложный" font bold font-size 18 fill paper align left part text
 }
-anim Disabled 0.2s {
+anim Disabled 0.2s id=q4dn {
   box.fill          0: primary | 0.2: off
   check_label.fill  0: paper | 0.2: muted
   switch_track_on.fill 0: good | 0.2: off
@@ -262,14 +262,14 @@ group plus "Больше" at 500 170 ui button {
   rect plus_h size 16 4 r 2 fill paper
   rect plus_v size 4 16 r 2 fill paper
 }
-anim Hover 0.15s {
+anim Hover 0.15s id=yf6v {
   field_frame.stroke  0: ink | 0.15: #4a5578
   search_frame.stroke 0: ink | 0.15: #4a5578
   option_body.fill    0: raised | 0.15: #414b6e
   minus_body.fill     0: raised | 0.15: #414b6e
   plus_body.fill      0: raised | 0.15: #414b6e
 }
-anim Press 0.08s {
+anim Press 0.08s id=rzcy {
   option_body.y       0: 0 | 0.08: 5
   option_caption.y    0: 2 | 0.08: 7
   option_arrow.y      0: 2 | 0.08: 7
@@ -279,11 +279,11 @@ anim Press 0.08s {
   plus_h.y            0: 0 | 0.08: 4
   plus_v.y            0: 0 | 0.08: 4
 }
-anim Focus 0.15s {
+anim Focus 0.15s id=f7vm {
   field_frame.stroke  0: ink | 0.15: light
   search_frame.stroke 0: ink | 0.15: light
 }
-anim Disabled 0.2s {
+anim Disabled 0.2s id=tcfn {
   field_frame.fill    0: well | 0.2: off_deep
   field_hint.fill     0: paper | 0.2: muted
   search_frame.fill   0: well | 0.2: off_deep
@@ -343,7 +343,7 @@ group loading "Загрузка" at 440 220 ui slider dial turn 360 value 0.65 {
     }
   }
 }
-anim Value 1s {
+anim Value 1s id=atug {
   rating_star0.fill 0: off linear | 0.08: off linear | 0.10: gold
   rating_star1.fill 0: off linear | 0.28: off linear | 0.30: gold
   rating_star2.fill 0: off linear | 0.48: off linear | 0.50: gold
@@ -362,16 +362,16 @@ anim Value 1s {
   loading_seg10.fill 0: off linear | 0.860: off linear | 0.875: light
   loading_seg11.fill 0: off linear | 0.943: off linear | 0.958: light
 }
-anim Hover 0.15s {
+anim Hover 0.15s id=jhnp {
   level.fill   0: primary | 0.15: light
   knob.fill    0: paper | 0.15: #ffffff
   thumb.fill   0: light | 0.15: #a8c0ff
   rating_pad.fill 0: well | 0.15: #232b42
 }
-anim Press 0.08s {
+anim Press 0.08s id=sx6p {
   thumb.fill   0: light | 0.08: paper
 }
-anim Disabled 0.2s {
+anim Disabled 0.2s id=w2d2 {
   knob.fill    0: paper | 0.2: #737a94
 }
 
@@ -418,11 +418,11 @@ group key "Клавиша" at 300 352 ui label slice 10 {
   text key_text "Подпись" at 0 1 content "E" font bold font-size 18 fill ink part text
 }
 text key_hint "Подсказка клавиши" at 330 352 content "Взять" font bold font-size 18 fill paper align left ui label
-anim Hover 0.15s {
+anim Hover 0.15s id=wg6h {
   slot_glow.opacity  0: 0 | 0.15: 1
   slot_frame.fill    0: well | 0.15: #232b42
 }
-anim Press 0.08s {
+anim Press 0.08s id=pycx {
   slot_glow.opacity  0: 0 | 0.08: 1
   slot_glow.stroke   0: light | 0.08: gold
 }
@@ -448,14 +448,14 @@ group pages "Точки страниц" at 280 150 {
   ellipse dot2 "Страница 2" at 14 0 size 12 12 fill off stroke ink 2 ui
   ellipse dot3 "Страница 3" at 34 0 size 12 12 fill off stroke ink 2 ui
 }
-anim Hover 0.15s {
+anim Hover 0.15s id=hvvw {
   tab_on_body.fill 0: primary | 0.15: light
   tab_body.fill    0: panel | 0.15: raised
   tab_text.fill    0: muted | 0.15: paper
   tab_body2.fill   0: panel | 0.15: raised
   tab_text2.fill   0: muted | 0.15: paper
 }
-anim Press 0.08s {
+anim Press 0.08s id=qrxd {
   tab_body.fill    0: panel | 0.08: #222941
   tab_body2.fill   0: panel | 0.08: #222941
 }
