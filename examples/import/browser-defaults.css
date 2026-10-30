@@ -1,0 +1,6 @@
+/* Component settings only: the chosen browser profile supplies default fonts,
+   form padding/borders and paragraph/heading/list margins. */
+#browser-demo { width: 400px; }
+#player-name { width: 180px; }
+#comment { width: 280px; height: 48px; }
+#play:hover { background-color: #2761c3; color: white; }

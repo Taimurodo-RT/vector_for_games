@@ -4,7 +4,8 @@ use std::io::Write;
 
 pub(super) fn run(args: &Args, html: &str) -> Result<(), String> {
     let css = args.css.as_ref().map(|p| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))).transpose()?.unwrap_or_default();
-    let imported = motif_html::import(html, &css)?;
+    let options = motif_html::ImportOptions { browser: args.browser.unwrap_or_default() };
+    let imported = motif_html::import_with_options(html, &css, options)?;
     if let Some(out) = &args.out {
         if [&args.scene, args.css.as_ref().unwrap_or(&args.scene)]
             .iter()

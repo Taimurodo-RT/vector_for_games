@@ -277,7 +277,7 @@ pub(crate) fn warn_inline_limits(nodes: &[Element], styles: &[Style], warnings: 
             warnings.push(format!("HTML <{}>: составная подпись сохранена отдельными векторными текстами; штатный экспорт screen/kit использует первый текстовый part, полную подпись и оформление настройте в игровом UI", n.tag));
         }
         if styles[i].inline
-            && n.tag != "#text"
+            && !matches!(n.tag.as_str(), "#text" | "br")
             && multiline(i, nodes, styles)
             && n.parent.is_some_and(|p| nodes[p].children.iter().filter(|c| !styles[**c].hidden).count() > 1)
         {
@@ -346,7 +346,7 @@ pub(crate) fn emit_parts(n: &Element, s: &Style, b: &BoxNode, id: &str, ind: &st
             ));
         }
         "option" => {
-            let x = b.w / 2.0 - s.padding[1] - 5.0;
+            let x = b.w / 2.0 - (s.padding[1] - crate::browser::SELECT_ARROW_SPACE).max(0.0) - s.border_width - 5.0;
             out.push_str(&format!(
                 "{ind}path {id}_arrow at {} 0 d \"M -4 -2 L 0 2 L 4 -2\" fill none stroke {} 1.5 cap round join round part arrow\n",
                 num(x),

@@ -221,7 +221,11 @@ pub(crate) fn declarations(body: &str, warnings: &mut Vec<String>) -> Vec<(Strin
         let value = value.trim();
         let important = value.ends_with("!important");
         let value = value.trim_end_matches("!important").trim();
-        if ["animation", "transition"].contains(&key.as_str()) {
+        if key == "font" && matches!(value, "inherit" | "unset" | "initial") {
+            for property in ["font-family", "font-size", "font-weight", "font-style", "line-height"] {
+                out.push((property.into(), value.into(), important));
+            }
+        } else if ["animation", "transition"].contains(&key.as_str()) {
             if let Some(properties) = animation::expand_shorthand(&key, value, warnings) {
                 out.extend(properties.into_iter().map(|(key, value)| (key, value, important)));
             } else {

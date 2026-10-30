@@ -1,6 +1,6 @@
 //! CSS time is sampled into ordinary editable MSC keys; rendering remains vector based.
 use crate::animation::{AnimationSpec, TransitionSpec};
-use crate::{BoxNode, Element, animation, css, emit, interpolate, layout, num, style::Style};
+use crate::{BoxNode, BrowserProfile, Element, animation, css, emit, interpolate, layout, num, style::Style};
 use motif_core::{Document, Prop, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,10 +16,19 @@ struct StateScene<'a> {
     animations: Vec<Vec<AnimationSpec>>,
     transitions: Vec<Vec<TransitionSpec>>,
     normal: bool,
+    browser: BrowserProfile,
 }
 
 impl<'a> StateScene<'a> {
-    fn new(nodes: &'a [Element], sheet: &'a css::Stylesheet, ids: &'a [String], base: &'a [Style], state: css::State, warnings: &mut Vec<String>) -> Self {
+    fn new(
+        nodes: &'a [Element],
+        sheet: &'a css::Stylesheet,
+        ids: &'a [String],
+        base: &'a [Style],
+        state: css::State,
+        warnings: &mut Vec<String>,
+        browser: BrowserProfile,
+    ) -> Self {
         let declarations: Vec<_> = (0..nodes.len()).map(|i| css::cascade(&sheet.rules, nodes, i, state, warnings)).collect();
         let animations: Vec<_> = declarations.iter().map(|d| animation::parse_animations(d, warnings)).collect();
         let transitions = declarations
@@ -44,7 +53,7 @@ impl<'a> StateScene<'a> {
                 }
             }
         }
-        Self { nodes, sheet, ids, base, declarations, animations, transitions, normal: state == css::State::Base }
+        Self { nodes, sheet, ids, base, declarations, animations, transitions, normal: state == css::State::Base, browser }
     }
 
     fn durations(&self, warnings: &mut Vec<String>) -> (f64, Option<f64>) {
@@ -90,7 +99,7 @@ impl<'a> StateScene<'a> {
         let mut styles: Vec<Style> = Vec::with_capacity(self.nodes.len());
         for (i, node) in self.nodes.iter().enumerate() {
             let parent = node.parent.map(|p| &styles[p]);
-            let underlying = Style::compute(node, parent, &self.declarations[i], warnings);
+            let underlying = Style::compute_with_browser(node, parent, &self.declarations[i], warnings, self.browser);
             let mut current = underlying.clone();
             if !self.normal {
                 for property in interpolate::PROPERTIES {
@@ -112,7 +121,7 @@ impl<'a> StateScene<'a> {
                         if let Some(value) = value {
                             let mut declarations = self.declarations[i].clone();
                             declarations.insert(property.to_owned(), value.to_owned());
-                            Style::compute(node, parent, &declarations, warnings)
+                            Style::compute_with_browser(node, parent, &declarations, warnings, self.browser)
                         } else {
                             underlying.clone()
                         }
@@ -305,10 +314,11 @@ pub(crate) fn emit_clips(
     base_styles: &[Style],
     source: &mut String,
     warnings: &mut Vec<String>,
+    browser: BrowserProfile,
 ) -> Result<(), String> {
     let base = motif_script::parse(source).map_err(|e| format!("HTML сцена: {e:?}"))?.doc;
     let mut states = Vec::new();
-    let normal = StateScene::new(nodes, sheet, ids, base_styles, css::State::Base, warnings);
+    let normal = StateScene::new(nodes, sheet, ids, base_styles, css::State::Base, warnings, browser);
     if normal.animations.iter().flatten().next().is_some() {
         states.push((css::State::Base, normal));
     } else if sheet.rules.iter().any(|rule| css::State::ANIMATED.iter().any(|state| rule.stateful_for(*state))) {
@@ -318,7 +328,7 @@ pub(crate) fn emit_clips(
     }
     for state in css::State::ANIMATED {
         if sheet.rules.iter().any(|r| r.stateful_for(state)) {
-            states.push((state, StateScene::new(nodes, sheet, ids, base_styles, state, warnings)));
+            states.push((state, StateScene::new(nodes, sheet, ids, base_styles, state, warnings, browser)));
         }
     }
     let mut notices = BTreeSet::new();

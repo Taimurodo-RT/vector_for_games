@@ -1,6 +1,7 @@
 //! Converts a deliberately bounded HTML/CSS subset into ordinary editable MSC nodes.
 //! No browser, script evaluation, network, or external resource loading is involved.
 mod animation;
+mod browser;
 mod canvas;
 mod css;
 mod font;
@@ -10,6 +11,7 @@ mod semantic;
 mod style;
 mod timeline;
 
+pub use browser::{BrowserProfile, ImportOptions};
 use html5gum::{Token, Tokenizer};
 use motif_core::{TextShape, TextStyle};
 use std::collections::{BTreeMap, BTreeSet};
@@ -35,6 +37,12 @@ struct Element {
 
 /// Imports UTF-8 markup and an additional stylesheet. Embedded styles precede `css`.
 pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
+    import_with_options(html, css, ImportOptions::default())
+}
+
+/// Imports the supported HTML/CSS subset using a fixed browser UA baseline.
+/// The profile applies to both the authored scene and every sampled state/keyframe.
+pub fn import_with_options(html: &str, css: &str, options: ImportOptions) -> Result<ImportResult, String> {
     if html.len() > 200_000 || css.len() > 200_000 {
         return Err("Фрагмент HTML/CSS должен быть не больше 200 КБ на поле".into());
     }
@@ -43,7 +51,7 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
     semantic::prepare(&mut nodes, &mut warnings)?;
     let sheet = css::parse_stylesheet(&format!("{embedded}\n{css}"), &mut warnings)?;
     let rules = &sheet.rules;
-    let styles = computed(&nodes, rules, css::State::Base, &mut warnings);
+    let styles = computed_with_browser(&nodes, rules, css::State::Base, &mut warnings, options.browser);
     semantic::normalize_text(&mut nodes, &styles);
     semantic::warn_inline_limits(&nodes, &styles, &mut warnings);
     let mut boxes = vec![BoxNode::default(); nodes.len()];
@@ -74,12 +82,17 @@ pub fn import(html: &str, css: &str) -> Result<ImportResult, String> {
         used.extend(reserved_ids(&id, lines));
         ids.push(id);
     }
-    let mut source =
-        format!("// Imported HTML/CSS subset: editable groups, backgrounds and text.\nartboard \"HTML UI\" {}x{} bg #00000000 ui\n", num(width), num(height));
+    let mut source = format!(
+        "// Imported HTML/CSS subset: editable groups, backgrounds and text.\n// Browser UA profile: {} (source {})\nartboard \"HTML UI\" {}x{} bg #00000000 ui\n",
+        options.browser.as_str(),
+        options.browser.source_revision(),
+        num(width),
+        num(height)
+    );
     for &child in &nodes[0].children {
         emit(child, 0, &nodes, &styles, &boxes, &ids, &mut source);
     }
-    timeline::emit_clips(&nodes, &sheet, &ids, &styles, &mut source, &mut warnings)?;
+    timeline::emit_clips(&nodes, &sheet, &ids, &styles, &mut source, &mut warnings, options.browser)?;
     canvas::fit(&mut source, &mut warnings)?;
     // Validate the result before returning it to a visual editor or generator.
     motif_script::parse(&source).map_err(|e| format!("Не удалось построить сцену: {}", e.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")))?;
@@ -215,12 +228,17 @@ fn add_text(nodes: &mut Vec<Element>, parent: usize, text: &str) {
     nodes[parent].children.push(i);
 }
 
+#[cfg(test)]
 fn computed(nodes: &[Element], rules: &[css::Rule], state: css::State, warnings: &mut Vec<String>) -> Vec<style::Style> {
+    computed_with_browser(nodes, rules, state, warnings, BrowserProfile::default())
+}
+
+fn computed_with_browser(nodes: &[Element], rules: &[css::Rule], state: css::State, warnings: &mut Vec<String>, browser: BrowserProfile) -> Vec<style::Style> {
     let mut styles = Vec::new();
     for (i, node) in nodes.iter().enumerate() {
         let parent = node.parent.map(|p| &styles[p]);
         let declarations = css::cascade(rules, nodes, i, state, warnings);
-        let mut style = style::Style::compute(node, parent, &declarations, warnings);
+        let mut style = style::Style::compute_with_browser(node, parent, &declarations, warnings, browser);
         style.hidden |= node.suppressed;
         styles.push(style);
     }

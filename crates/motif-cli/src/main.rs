@@ -14,7 +14,7 @@ motif — скрипты сцен Motif без окна редактора
 
 Использование:
   motif check   <сцена.msc>
-  motif import-html <фрагмент.html> [--css стиль.css] [-o сцена.msc]
+  motif import-html <фрагмент.html> [--css стиль.css] [--browser chrome|firefox] [-o сцена.msc]
   motif inspect <сцена.msc> [--board ИМЯ] [--anim ИМЯ --time СЕК] [--node ID] [-o отчёт.json]
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
@@ -40,6 +40,9 @@ motif — скрипты сцен Motif без окна редактора
   --width W        итоговая ширина в пикселях вместо --scale
   --no-aa          без сглаживания краёв (удобно перед пикселизацией)
   --transparent    без фона артборда
+
+Импорт HTML: --browser chrome|firefox выбирает фиксированные базовые UA-стили (по умолчанию chrome).
+Параметр относится только к import-html; CSS компонента перекрывает выбранные базовые стили.
 
 frames кладёт PNG-кадры ИМЯ_0000.png… в папку: их можно обработать в PixaTool пакетом.
 video сохраняет анимацию одним файлом, формат — по расширению -o (по умолчанию СЦЕНА_ИМЯ.mp4):
@@ -95,6 +98,7 @@ struct Args {
     web_profile: Option<motif_web::Profile>,
     strict: bool,
     css: Option<PathBuf>,
+    browser: Option<motif_html::BrowserProfile>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -130,6 +134,7 @@ fn parse_args() -> Result<Args, String> {
         web_profile: None,
         strict: false,
         css: None,
+        browser: None,
     };
     let num = |v: Option<String>, flag: &str| v.and_then(|s| s.parse::<f64>().ok()).ok_or(format!("после {flag} нужно число"));
     while let Some(arg) = it.next() {
@@ -158,12 +163,23 @@ fn parse_args() -> Result<Args, String> {
             "--profile" => a.web_profile = Some(motif_web::Profile::parse(&it.next().ok_or("после --profile нужен профиль")?)?),
             "--strict" => a.strict = true,
             "--css" => a.css = Some(it.next().ok_or("после --css нужен файл стилей")?.into()),
+            "--browser" => {
+                let profile = it.next().ok_or("после --browser нужен профиль chrome или firefox")?;
+                a.browser = Some(match profile.as_str() {
+                    "chrome" => motif_html::BrowserProfile::Chrome,
+                    "firefox" => motif_html::BrowserProfile::Firefox,
+                    _ => return Err(format!("неизвестный профиль браузера «{profile}»: доступны chrome и firefox")),
+                });
+            }
             "--pixelize" => a.pixelize = true,
             "--transparent" => a.background = false,
             s if s.starts_with('-') => return Err(format!("неизвестный параметр {s}\n\n{HELP}")),
             s if a.scene.as_os_str().is_empty() => a.scene = s.into(),
             s => return Err(format!("лишний аргумент {s}")),
         }
+    }
+    if a.browser.is_some() && a.cmd != "import-html" {
+        return Err("--browser доступен только для import-html".into());
     }
     if a.scene.as_os_str().is_empty() {
         return Err(format!("не указан файл сцены\n\n{HELP}"));
