@@ -33,12 +33,18 @@ impl App {
         if self.check.is_some() || self.run.is_some() {
             self.check = None;
             self.run = None;
+            // Back where the check started: the clip and frame in the workspace that showed them.
+            if let Some(space) = self.check_from.take() {
+                self.set_workspace(space);
+            }
             self.status = "Проверка остановлена".into();
             return;
         }
         self.clear_draft_pose();
         if self.has_ui() {
+            let from = self.workspace();
             self.set_mode_animate(false);
+            self.check_from = Some(from);
         }
         if self.shown_machine().is_some_and(|m| !m.listeners.is_empty()) {
             self.toggle_run();

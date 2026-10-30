@@ -560,7 +560,14 @@ impl App {
             None => set_prop(&self.src, &self.scene, node, prop, value),
         };
         let kind = self.edit_group.clone().unwrap_or_else(|| format!("{node}.{}", prop.path_name()));
-        self.apply(&kind, new_src);
+        if self.apply(&kind, new_src) && self.key_time().is_none() {
+            // The drawing changed for every clip; a clip that keys this property still plays its own value.
+            let keyed: Vec<&str> =
+                self.scene.doc.animations.iter().filter(|a| a.tracks.iter().any(|t| t.node == node && t.prop == prop)).map(|a| a.name.as_str()).collect();
+            if !keyed.is_empty() {
+                self.status = format!("Рисунок изменён. В клипах {} {node}.{} задано ключами — там играет ключ", keyed.join(", "), prop.path_name());
+            }
+        }
     }
 
     /// The diamond next to a property: removes the key at the current time, or keys the current value.
@@ -639,8 +646,18 @@ impl App {
         self.scene.doc.animation(self.anim.as_deref()?)
     }
 
-    /// The selected animation and the time within it, rounded the way keys are written.
+    /// The clip the canvas shows posed: in «Рисование» only while it plays, so the drawing
+    /// itself is what is drawn and edited there.
+    pub(crate) fn posed_anim(&self) -> Option<&motif_core::Animation> {
+        self.current_anim().filter(|_| self.workspace() != crate::workspace::Workspace::Drawing || self.playing)
+    }
+
+    /// The selected animation and the time within it, rounded the way keys are written. None in
+    /// «Рисование»: edits there change the drawing for every clip, keys are written elsewhere.
     pub(crate) fn key_time(&self) -> Option<(String, f64)> {
+        if self.workspace() == crate::workspace::Workspace::Drawing {
+            return None;
+        }
         let anim = self.current_anim()?;
         Some((anim.name.clone(), (anim.local_time(self.time) * 100.0).round() / 100.0))
     }
@@ -710,6 +727,7 @@ impl App {
             return;
         }
         self.remember_clip_time();
+        self.check_from = None;
         self.panels.switch(space);
         self.deformer.form = None;
         self.deformer.corrective = None;
@@ -864,7 +882,7 @@ impl App {
     }
 
     pub(crate) fn display_doc(&self) -> Document {
-        let mut doc = match (self.running(), self.current_anim()) {
+        let mut doc = match (self.running(), self.posed_anim()) {
             (Some((m, player)), _) => player.pose(&self.faced(m), &self.scene.doc),
             // A UI check owns state playback. The clip selected for authoring is
             // retained in the workspace, but cannot become the normal-state base.
@@ -891,7 +909,7 @@ impl App {
             if parameters_changed {
                 doc.apply_parameters();
                 needs_rig = true;
-                if let Some(a) = self.current_anim() {
+                if let Some(a) = self.posed_anim() {
                     a.apply_node_keys(&mut doc, self.time);
                 }
             }
@@ -983,7 +1001,7 @@ impl App {
     /// The current pose with onion-skin ghosts behind it, when onion skin is on and the
     /// animation is paused.
     fn onion_doc(&self) -> Option<Document> {
-        let anim = self.current_anim().filter(|_| self.onion && !self.playing)?;
+        let anim = self.posed_anim().filter(|_| self.onion && !self.playing)?;
         let now = anim.local_time(self.time);
         let mut out = self.display_doc();
         let current = std::mem::take(&mut out.nodes);
@@ -2448,8 +2466,8 @@ impl App {
             ui.label(small(format!("{:.0} fps", 1000.0 / self.frame_ms.max(1.0)), FAINT));
             let (x, y) = self.pointer_doc.map_or(("—".into(), "—".into()), |p| (format!("{:.0}", p.x), format!("{:.0}", p.y)));
             ui.label(small(format!("x {x}  y {y}"), FAINT));
-            let mode = match &self.anim {
-                Some(a) => format!("Animate · {a}"),
+            let mode = match self.key_time() {
+                Some((a, _)) => format!("Animate · {a}"),
                 None => "Design".into(),
             };
             ui.label(small(mode, FAINT));
@@ -2904,7 +2922,7 @@ impl App {
         } else {
             0.0
         };
-        if self.anim.is_some() {
+        if self.key_time().is_some() {
             painter.rect_stroke(rect, 0.0, Stroke::new(2.0, ACCENT), StrokeKind::Inside);
             let badge = painter.layout_no_wrap("ANIMATE · АВТОКЛЮЧИ".into(), theme::semibold(11.0), ACCENT_INK);
             let b = Rect::from_min_size(rect.min + vec2(12.0 + ruler, 10.0 + ruler), galley_size(&badge) + vec2(16.0, 6.0));
@@ -3806,12 +3824,13 @@ pub(crate) mod editing_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    fn character_work_modes_share_the_frame_and_allow_deliberate_key_overrides() {
+    fn setup_and_animation_share_the_frame_while_drawing_shows_the_drawing() {
         use crate::workspace::Workspace;
         let source = include_str!("../../../examples/character-portrait.msc");
         let mut app = fixture(source);
         let original = app.file_text();
         let drivers = app.scene.doc.drivers.clone();
+        app.set_workspace(Workspace::Animate);
         app.select_anim("Look".into());
         app.time = 0.4;
         assert!(app.auto_key);
@@ -3824,9 +3843,14 @@ pub(crate) mod editing_tests {
         for space in Workspace::ALL {
             app.set_workspace(space);
             assert_eq!(app.time, 0.4);
-            assert_eq!(app.display_doc(), pose);
+            if space == Workspace::Drawing {
+                assert_eq!(app.display_doc().node("shirt").unwrap().fill, app.scene.doc.node("shirt").unwrap().fill, "the drawing, not the frame");
+            } else {
+                assert_eq!(app.display_doc(), pose);
+            }
             assert_eq!(app.file_text(), keyed);
         }
+        app.set_workspace(Workspace::Animate);
         app.edit("head", Prop::Yaw, Value::Num(42.0));
         assert_eq!(app.display_doc().node("head").unwrap().yaw, 42.0);
         assert_eq!(app.scene.doc.drivers, drivers);
@@ -3839,7 +3863,7 @@ pub(crate) mod editing_tests {
         app.parameter_preview("turn", 0.8);
         assert_eq!(app.file_text(), keyed);
         assert!((app.display_doc().node("head").unwrap().yaw - 27.2).abs() < 1e-9);
-        app.set_workspace(Workspace::Drawing);
+        app.set_workspace(Workspace::Setup);
         assert_eq!(app.display_doc(), pose);
     }
 
