@@ -1,5 +1,6 @@
 extends SceneTree
-# -- N res://сцена.msc: N узлов MotifSprite играют сцену, их машина идёт (speed = 1).
+# -- N res://сцена.msc [cpu]: N узлов MotifSprite играют сцену, их машина идёт (speed = 1);
+# cpu — кадр целиком рисуется на процессоре (gpu = false).
 # Меряется работа кадра: от начала обновления (process_frame) до конца рисования
 # узлов — отложенного вызова после всех _process, он идёт за кадрами узлов (draw).
 # Сон между кадрами, которым Godot без экрана держит 144 кадра в секунду, в замер
@@ -26,6 +27,7 @@ func _initialize():
 			quit(1)
 			return
 		w.scene = args[1]
+		w.gpu = not (args.size() > 2 and args[2] == "cpu")
 		w.position = Vector2(100 + (i % 5) * 200, 100 + (i / 5) * 200)
 		root.add_child(w)
 		if w.get_inputs().has("speed"):

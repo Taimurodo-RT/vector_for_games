@@ -1,6 +1,7 @@
 #!/bin/sh
 # Замер скорости MotifSprite в настоящем Godot: N персонажей на экране, работа кадра.
 # run.sh ПУТЬ_К_GODOT ПУТЬ_К_БИБЛИОТЕКЕ [N ...]
+# MOTIF_DRAW=cpu — замерить рисование на процессоре вместо видеокарты.
 # Библиотеку берите из release-сборки: cargo build --release -p motif-godot.
 # Для каждой сцены и каждого N печатает среднее и p95 работы кадра, её долю в кадре
 # 60 fps и память процесса.
@@ -29,7 +30,7 @@ run() { "$godot" --headless --path "$p" -s bench.gd -- "$@" 2>&1 | grep '^bench'
 run 0 res://directions.msc | sed 's/^bench /пустая сцена: /'
 for s in directions character-platformer character-anime; do
   for n in $counts; do
-    run "$n" "res://$s.msc" | sed "s/^bench /$s: /"
+    run "$n" "res://$s.msc" ${MOTIF_DRAW:-gpu} | sed "s/^bench /$s: /"
   done
 done
 rm -rf "$p"

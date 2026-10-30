@@ -1,11 +1,12 @@
 //! Motif in Godot 4 without baking: the `MotifSprite` node reads a `.msc` scene and plays it in
 //! the game with the same core as the editor, so bones, soft bodies, morphs, 3D turns, the state
-//! machine and its events behave exactly as they do in Motif. Each frame the pose is drawn on the
-//! CPU at the size the node has on screen, so it stays sharp when the camera zooms in.
+//! machine and its events behave exactly as they do in Motif. Each frame the pose goes to the video
+//! card as triangles (or, with `gpu` off, is drawn on the CPU at the size the node has on
+//! screen), so it stays sharp when the camera zooms in.
 
 use godot::classes::canvas_item_material::BlendMode;
 use godot::classes::image::Format;
-use godot::classes::{CanvasItemMaterial, FileAccess, INode2D, Image, ImageTexture, Input, Node2D};
+use godot::classes::{CanvasItemMaterial, FileAccess, INode2D, Image, ImageTexture, Input, Node2D, RenderingServer};
 use godot::global::MouseButton;
 use godot::prelude::*;
 
@@ -13,6 +14,9 @@ mod player;
 mod pool;
 
 pub use player::{Frame, Player, Step};
+
+use motif_render::mesh::{Cutter, Piece};
+use std::sync::{Arc, Mutex};
 
 struct MotifExtension;
 
@@ -55,6 +59,11 @@ pub struct MotifSprite {
     /// Paint the artboard's background colour behind the scene.
     #[export]
     background: bool,
+    /// Draw on the video card: shapes go to Godot as triangles, and only blurs, shadows, masks,
+    /// gradients and blend modes are drawn on the processor, each as a small picture. Off — the
+    /// whole frame is drawn on the processor, exactly as `get_image` and Motif draw it.
+    #[export]
+    gpu: bool,
     /// Feed the mouse to the machine's `listen` lines (hover, press, click, x, y).
     #[export]
     pointer: bool,
@@ -75,7 +84,12 @@ pub struct MotifSprite {
     /// What the texture shows: the pose, its scale and background.
     shot: Option<Shot>,
     /// The frame being drawn on the drawing threads, and what it will show.
-    pending: Option<(Shot, pool::Pending)>,
+    pending: Option<(Shot, pool::Pending<Picture>)>,
+    /// The pieces shown on the video card, and the textures of their pictures.
+    pieces: Vec<Piece>,
+    patches: Vec<Gd<ImageTexture>>,
+    /// Remembers the shapes cut, so a shape that only moves is not cut again.
+    cutter: Arc<Mutex<Cutter>>,
     dirty: bool,
     base: Base<Node2D>,
 }
@@ -93,6 +107,7 @@ impl INode2D for MotifSprite {
             centered: true,
             resolution: 1.0,
             background: false,
+            gpu: true,
             pointer: true,
             facing: Vector2::DOWN,
             side: GString::new(),
@@ -102,6 +117,9 @@ impl INode2D for MotifSprite {
             drawn: (0, 0),
             shot: None,
             pending: None,
+            pieces: Vec::new(),
+            patches: Vec::new(),
+            cutter: Arc::default(),
             dirty: true,
             base,
         }
@@ -139,17 +157,63 @@ impl INode2D for MotifSprite {
         self.dirty = false;
         let Some(want) = self.wanted() else { return };
         if self.shot != Some(want) {
-            let px = match self.pending.take() {
+            let picture = match self.pending.take() {
                 Some((shot, pending)) if shot == want => pending.wait(),
-                _ => self.player.as_ref().and_then(|p| p.render(want.scale, want.background)),
+                _ => self.player.as_ref().map(|p| self.work(p.frame(), want)()),
             };
             self.shot = Some(want);
-            self.upload(px);
+            match picture {
+                Some(Picture::Pieces(pieces)) => self.keep(pieces),
+                Some(Picture::Pixels(px)) => self.upload(px),
+                None => self.upload(None),
+            }
         }
         let rect = Rect2::new(self.origin(), self.size());
-        if let Some(t) = self.texture.clone() {
-            self.base_mut().draw_texture_rect(&t, rect, false);
+        if !want.gpu {
+            if let Some(t) = self.texture.clone() {
+                self.base_mut().draw_texture_rect(&t, rect, false);
+            }
+            return;
         }
+        let flipped = self.player.as_ref().is_some_and(|p| p.flipped());
+        if want.background
+            && let Some(p) = &self.player
+        {
+            let c = p.background();
+            let color = Color::from_rgba8(c.r, c.g, c.b, c.a);
+            // Premultiplied, as the material blends.
+            let a = color.a;
+            self.base_mut().draw_rect(rect, Color::from_rgba(color.r * a, color.g * a, color.b * a, a));
+        }
+        // Artboard units from here on; a flipped side turned over around the artboard.
+        let o = self.origin();
+        let place = if flipped {
+            Transform2D::from_cols(Vector2::new(-1.0, 0.0), Vector2::new(0.0, 1.0), Vector2::new(o.x + rect.size.x, o.y))
+        } else {
+            Transform2D::from_cols(Vector2::new(1.0, 0.0), Vector2::new(0.0, 1.0), o)
+        };
+        self.base_mut().draw_set_transform_matrix(place);
+        let item = self.base().get_canvas_item();
+        let mut server = RenderingServer::singleton();
+        let mut patch = 0;
+        for piece in &self.pieces {
+            match piece {
+                Piece::Mesh(m) => {
+                    let points: PackedVector2Array = m.points.iter().map(|p| Vector2::new(p[0], p[1])).collect();
+                    let colors: PackedColorArray = m.colors.iter().map(|c| Color::from_rgba(c[0], c[1], c[2], c[3])).collect();
+                    let indices = PackedInt32Array::from(m.indices.as_slice());
+                    server.canvas_item_add_triangle_array(item, &indices, &points, &colors);
+                }
+                Piece::Patch(p) => {
+                    let Some(texture) = self.patches.get(patch) else { continue };
+                    patch += 1;
+                    let size = Vector2::new(p.pixmap.width() as f32, p.pixmap.height() as f32) / p.scale as f32;
+                    let at = Rect2::new(Vector2::new(p.at.x as f32, p.at.y as f32), size);
+                    server.canvas_item_add_texture_rect(item, at, texture.get_rid());
+                }
+            }
+        }
+        self.base_mut().draw_set_transform_matrix(Transform2D::IDENTITY);
     }
 
     fn get_configuration_warnings(&self) -> PackedStringArray {
@@ -370,6 +434,8 @@ impl MotifSprite {
         self.error = None;
         self.shot = None;
         self.pending = None;
+        self.pieces.clear();
+        self.cutter = Arc::default();
         if !self.scene.is_empty() {
             match self.load() {
                 Ok(mut p) => {
@@ -393,6 +459,13 @@ struct Shot {
     pose: u64,
     scale: f64,
     background: bool,
+    gpu: bool,
+}
+
+/// A frame drawn: the whole picture, or pieces for the video card.
+enum Picture {
+    Pixels(Option<tiny_skia::Pixmap>),
+    Pieces(Vec<Piece>),
 }
 
 /// A file of the project (`res://…`), packed or not.
@@ -440,7 +513,47 @@ impl MotifSprite {
     /// What the node should show now.
     fn wanted(&self) -> Option<Shot> {
         let pose = self.player.as_ref()?.pose();
-        Some(Shot { pose, scale: self.screen_scale() * self.resolution.clamp(0.25, 4.0), background: self.background })
+        Some(Shot { pose, scale: self.screen_scale() * self.resolution.clamp(0.25, 4.0), background: self.background, gpu: self.gpu })
+    }
+
+    /// The work of drawing `frame` as `shot` asks: a whole picture, or pieces for the video card.
+    fn work(&self, frame: Frame, shot: Shot) -> impl FnOnce() -> Picture + Send + 'static {
+        let cutter = self.cutter.clone();
+        move || {
+            if shot.gpu {
+                let Ok(mut cutter) = cutter.lock() else { return Picture::Pieces(Vec::new()) };
+                Picture::Pieces(frame.pieces(&mut cutter, shot.scale))
+            } else {
+                Picture::Pixels(frame.render(shot.scale, shot.background))
+            }
+        }
+    }
+
+    /// Keeps the pieces to draw and puts their pictures into textures, reusing those of the
+    /// same size.
+    fn keep(&mut self, pieces: Vec<Piece>) {
+        let mut k = 0;
+        for piece in &pieces {
+            let Piece::Patch(p) = piece else { continue };
+            let (w, h) = (p.pixmap.width() as i32, p.pixmap.height() as i32);
+            let Some(image) = Image::create_from_data(w, h, false, Format::RGBA8, &PackedByteArray::from(p.pixmap.data())) else { continue };
+            match self.patches.get_mut(k) {
+                Some(t) if t.get_width() == w && t.get_height() == h => t.update(&image),
+                Some(t) => {
+                    if let Some(new) = ImageTexture::create_from_image(&image) {
+                        *t = new;
+                    }
+                }
+                None => {
+                    if let Some(new) = ImageTexture::create_from_image(&image) {
+                        self.patches.push(new);
+                    }
+                }
+            }
+            k += 1;
+        }
+        self.patches.truncate(k);
+        self.pieces = pieces;
     }
 
     /// Starts drawing the frame on the drawing threads when the picture shown is out of date: a
@@ -452,7 +565,8 @@ impl MotifSprite {
             return;
         }
         let Some(player) = &self.player else { return };
-        self.pending = Some((want, pool::draw(player.frame(), want.scale, want.background)));
+        let work = self.work(player.frame(), want);
+        self.pending = Some((want, pool::start(work)));
         self.dirty = true;
     }
 
