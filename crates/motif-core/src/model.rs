@@ -453,6 +453,9 @@ pub struct Node {
     pub lattice: Option<crate::Lattice>,
     pub forms: Option<crate::Forms>,
     pub(crate) lattice_path: Option<BezPath>,
+    /// How the cages of parent groups bend this shape, when they do: `lattice_path` is the
+    /// outline before them mapped through it. A renderer may bend shapes cut once instead.
+    pub(crate) lattice_map: Option<std::sync::Arc<crate::LatticeMap>>,
     /// A soft body: the outline is simulated as an elastic ring while an animation plays.
     pub soft: Option<crate::Soft>,
     /// Soft bodies cannot pass through this shape.
@@ -686,6 +689,7 @@ impl Node {
             lattice: None,
             forms: None,
             lattice_path: None,
+            lattice_map: None,
             soft: None,
             solid: false,
             spring: None,
@@ -916,6 +920,19 @@ impl Node {
         if let Some(p) = &self.lattice_path {
             return Some(p.clone());
         }
+        self.unbent_path()
+    }
+
+    /// When cages of parent groups bend this shape: its outline before them, the outline they
+    /// make of it (what [`Node::path`] gives), and the map that bends a point of the first.
+    pub fn cage_bend(&self) -> Option<(BezPath, &BezPath, &crate::LatticeMap)> {
+        let map = self.lattice_map.as_deref()?;
+        let bent = self.lattice_path.as_ref()?;
+        Some((self.unbent_path()?, bent, map))
+    }
+
+    /// Geometry in local space before the cages of parent groups bend it.
+    fn unbent_path(&self) -> Option<BezPath> {
         match &self.deformed {
             Some(d) => Some(d.clone()),
             None => self.base_path(),

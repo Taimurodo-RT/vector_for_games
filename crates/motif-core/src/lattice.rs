@@ -90,6 +90,7 @@ impl Document {
     pub fn deform_lattices(&mut self) {
         for n in &mut self.nodes {
             n.lattice_path = None;
+            n.lattice_map = None;
         }
         if !self.nodes.iter().any(|n| n.lattice.as_ref().is_some_and(|l| !l.neutral())) {
             return;
@@ -118,16 +119,29 @@ impl Document {
             let Some(path) = self.nodes[i].path() else {
                 continue;
             };
-            let inverse = world.inverse();
-            let map = |p: Point| {
-                let mut q = world * p;
-                for (w, inv, l) in &cages {
-                    q = *w * l.map(*inv * q);
-                }
-                inverse * q
-            };
-            self.nodes[i].lattice_path = Some(map_path(&path, map, world));
+            let bend = LatticeMap { world, inverse: world.inverse(), cages };
+            self.nodes[i].lattice_path = Some(map_path(&path, |p| bend.map(p), world));
+            self.nodes[i].lattice_map = Some(std::sync::Arc::new(bend));
         }
+    }
+}
+
+/// How the cages around a shape bend it, in the shape's own coordinates: deepest cage first.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LatticeMap {
+    world: Affine,
+    inverse: Affine,
+    cages: Vec<(Affine, Affine, Lattice)>,
+}
+
+impl LatticeMap {
+    /// Where the cages put point `p` of the shape (both in the shape's own coordinates).
+    pub fn map(&self, p: Point) -> Point {
+        let mut q = self.world * p;
+        for (w, inv, l) in &self.cages {
+            q = *w * l.map(*inv * q);
+        }
+        self.inverse * q
     }
 }
 

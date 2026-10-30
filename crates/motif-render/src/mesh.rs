@@ -6,15 +6,17 @@
 //! a [`Patch`]. Pieces come in paint order.
 //!
 //! A shape is cut once in its own coordinates and kept: while it only moves, turns or scales,
-//! the next frames just move its triangles. Only a shape whose outline changes is cut again.
+//! the next frames just move its triangles. A shape in cages (`deform`) is cut as it lies before
+//! them, and each frame the cages bend its points; a stroke bends along its line and keeps its
+//! width. Only a shape whose own outline changes (bones, morphs) is cut again.
 
 use crate::{Op, Paint, blur, cpu};
 use lyon_tessellation::math::point;
 use lyon_tessellation::path::Path as LyonPath;
 use lyon_tessellation::{
-    BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, VertexBuffers,
+    BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, LineCap, LineJoin, StrokeOptions, StrokeTessellator, StrokeVertex, VertexBuffers,
 };
-use motif_core::kurbo::{Affine, BezPath, PathEl, Point, Rect};
+use motif_core::kurbo::{Affine, BezPath, CubicBez, ParamCurve, PathEl, PathSeg, Point, QuadBez, Rect, Vec2};
 use motif_core::{Blend, Color, Document};
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -67,6 +69,14 @@ struct Cut {
     /// whether it is on the filled side (opaque) or the open one (clear).
     band: Vec<([f32; 2], [f32; 2], bool)>,
     band_indices: Vec<u32>,
+    /// A stroke cut along its unbent line: the point on the line and the offset to the stroke's
+    /// side, so that a cage bends the line and the stroke keeps its width.
+    line: Vec<([f32; 2], [f32; 2])>,
+    line_indices: Vec<u32>,
+    /// The points of `line` on the stroke's outer sides, along which its edge band runs.
+    line_band: Vec<u32>,
+    /// The outer sides, as pairs of places in `line_band`.
+    line_edges: Vec<[u32; 2]>,
 }
 
 impl Cutter {
@@ -87,7 +97,7 @@ impl Cutter {
                         out.push(Piece::Mesh(Mesh::default()));
                     }
                     if let Some(Piece::Mesh(mesh)) = out.last_mut() {
-                        self.item(item, scale, mesh);
+                        self.item(doc, item, scale, mesh);
                     }
                     i += 1;
                     continue;
@@ -122,23 +132,63 @@ impl Cutter {
         out
     }
 
-    fn item(&mut self, item: &crate::Item, scale: f64, mesh: &mut Mesh) {
+    fn item(&mut self, doc: &Document, item: &crate::Item, scale: f64, mesh: &mut Mesh) {
         // How finely to cut, in the shape's own units: its curves are seen `zoom` times larger.
         let zoom = blur::scale_of(item.transform).max(1e-9) * scale;
+        let tolerance = (0.2 / zoom) as f32;
+        // A shape bent by cages is cut as it is before them, once, and its points are bent each
+        // frame: animating a cage costs no cutting. Its sides are split so that they bend too.
+        let cage = doc.nodes.get(item.node).and_then(|n| n.cage_bend()).filter(|(_, bent, _)| **bent == item.path);
+        let cage = cage.map(|(unbent, _, map)| (split(&unbent, 12.0 / zoom), map));
+        let bend = cage.as_ref().map(|(_, map)| move |p: Point| map.map(p));
+        let bend = bend.as_ref().map(|b| b as &dyn Fn(Point) -> Point);
         if let Some(Paint::Solid(c)) = &item.fill {
-            let key = key(&item.path, item.even_odd, None, zoom);
-            self.place(key, item, scale, premultiplied(*c, item.opacity), mesh, |item| (item.path.clone(), item.even_odd));
+            let color = premultiplied(*c, item.opacity);
+            let even_odd = item.even_odd;
+            match &cage {
+                Some((unbent, _)) => {
+                    let key = key(unbent, even_odd, None, zoom) ^ BENT;
+                    self.place(key, item, scale, color, bend, mesh, |fill, stroke| cut(fill, stroke, unbent, even_odd, tolerance));
+                }
+                None => {
+                    let key = key(&item.path, even_odd, None, zoom);
+                    self.place(key, item, scale, color, None, mesh, |fill, stroke| cut(fill, stroke, &item.path, even_odd, tolerance));
+                }
+            }
         }
         if let Some((c, width)) = item.stroke
             && width > 0.0
         {
-            let key = key(&item.path, false, Some((width, &item.line)), zoom);
-            self.place(key, item, scale, premultiplied(c, item.opacity), mesh, |item| (crate::stroke_outline(&item.path, width, &item.line), false));
+            let color = premultiplied(c, item.opacity);
+            let line = &item.line;
+            match &cage {
+                // Dashes are laid along the line as drawn: such a stroke is cut as drawn.
+                Some((unbent, _)) if line.dash.is_empty() => {
+                    let key = key(unbent, false, Some((width, line)), zoom) ^ BENT;
+                    self.place(key, item, scale, color, bend, mesh, |_, stroke| cut_line(stroke, unbent, width, line, tolerance));
+                }
+                _ => {
+                    let key = key(&item.path, false, Some((width, line)), zoom);
+                    let outline = || crate::stroke_outline(&item.path, width, line);
+                    self.place(key, item, scale, color, None, mesh, |fill, stroke| cut(fill, stroke, &outline(), false, tolerance));
+                }
+            }
         }
     }
 
-    /// Adds the cut shape `key` to `mesh` where `item` puts it, cutting it first if it is new.
-    fn place(&mut self, key: u64, item: &crate::Item, scale: f64, color: [f32; 4], mesh: &mut Mesh, shape: impl FnOnce(&crate::Item) -> (BezPath, bool)) {
+    /// Adds the cut shape `key` to `mesh` where `item` puts it, cutting it first if it is new;
+    /// `bend` moves its points first, in the shape's own coordinates.
+    #[allow(clippy::too_many_arguments)]
+    fn place(
+        &mut self,
+        key: u64,
+        item: &crate::Item,
+        scale: f64,
+        color: [f32; 4],
+        bend: Option<&dyn Fn(Point) -> Point>,
+        mesh: &mut Mesh,
+        shape: impl FnOnce(&mut FillTessellator, &mut StrokeTessellator) -> Cut,
+    ) {
         if color[3] <= 0.0 {
             return;
         }
@@ -146,29 +196,201 @@ impl Cutter {
         if let Some((_, seen)) = self.cuts.get_mut(&key) {
             *seen = frame;
         } else {
-            let (path, even_odd) = shape(item);
-            let zoom = blur::scale_of(item.transform).max(1e-9) * scale;
-            let cut = cut(&mut self.fill, &mut self.stroke, &path, even_odd, (0.2 / zoom) as f32);
+            let cut = shape(&mut self.fill, &mut self.stroke);
             self.cuts.insert(key, (cut, frame));
         }
         let Some((cut, _)) = self.cuts.get(&key) else { return };
         let t = item.transform;
         // The band is one pixel wide on screen, whatever the shape's own scale.
-        let width = 1.0 / (blur::scale_of(t).max(1e-9) * scale);
+        let pixel = 1.0 / (blur::scale_of(t).max(1e-9) * scale);
         let linear = Affine::new([t.as_coeffs()[0], t.as_coeffs()[1], t.as_coeffs()[2], t.as_coeffs()[3], 0.0, 0.0]);
-        let at = |p: [f32; 2]| t * Point::new(p[0] as f64, p[1] as f64);
+        let local = |p: [f32; 2]| Point::new(p[0] as f64, p[1] as f64);
+        let mut bender = Bender { bend, step: pixel * 0.25, last: None };
+        let screen = |at: Point, offset: Vec2| to_f32(t * at + (linear * offset.to_point()).to_vec2());
         let base = mesh.points.len() as i32;
-        mesh.points.extend(cut.points.iter().map(|p| to_f32(at(*p))));
+        mesh.points.extend(cut.points.iter().map(|p| to_f32(t * bend.map_or(local(*p), |b| b(local(*p))))));
         mesh.colors.extend(std::iter::repeat_n(color, cut.points.len()));
         mesh.indices.extend(cut.indices.iter().map(|i| base + *i as i32));
         let base = mesh.points.len() as i32;
-        mesh.points.extend(cut.band.iter().map(|(on, offset, _)| {
-            let off = linear * Point::new(offset[0] as f64 * width, offset[1] as f64 * width);
-            to_f32(at(*on) + off.to_vec2())
-        }));
+        for (on, offset, _) in &cut.band {
+            let (at, offset) = bender.place(*on, local(*offset).to_vec2() * pixel);
+            mesh.points.push(screen(at, offset));
+        }
         mesh.colors.extend(cut.band.iter().map(|(_, _, filled)| if *filled { color } else { [0.0; 4] }));
         mesh.indices.extend(cut.band_indices.iter().map(|i| base + *i as i32));
+        if cut.line.is_empty() {
+            return;
+        }
+        // A stroke along a bent line: its sides, then a band a pixel wide straddling each
+        // outer side, opaque inside and clear outside.
+        let sides: Vec<(Point, Vec2)> = cut.line.iter().map(|(on, offset)| bender.place(*on, local(*offset).to_vec2())).collect();
+        let base = mesh.points.len() as i32;
+        mesh.points.extend(sides.iter().map(|(at, offset)| screen(*at, *offset)));
+        mesh.colors.extend(std::iter::repeat_n(color, sides.len()));
+        mesh.indices.extend(cut.line_indices.iter().map(|i| base + *i as i32));
+        let half = |offset: Vec2| {
+            let l = offset.hypot();
+            if l > 1e-12 { offset * (pixel * 0.5 / l) } else { Vec2::ZERO }
+        };
+        // Each outer point of the stroke gets its two band points once: `band[i]` is where they
+        // start, for the `i`-th point of `line_band`.
+        let base = mesh.points.len() as i32;
+        for i in &cut.line_band {
+            let (at, offset) = sides[*i as usize];
+            mesh.points.push(screen(at, offset - half(offset)));
+            mesh.points.push(screen(at, offset + half(offset)));
+            mesh.colors.extend([color, [0.0; 4]]);
+        }
+        for [a, b] in &cut.line_edges {
+            let (a, b) = (base + 2 * *a as i32, base + 2 * *b as i32);
+            mesh.indices.extend([a, b, b + 1, a, b + 1, a + 1]);
+        }
     }
+}
+
+/// Bends the points of a shape cut before its cages. Band and stroke points come in pairs on
+/// one point of the outline, so the last point bent is remembered.
+struct Bender<'a> {
+    bend: Option<&'a dyn Fn(Point) -> Point>,
+    /// How far apart the points are that tell which way the cage turns a direction.
+    step: f64,
+    last: Option<([f32; 2], Point, Vec2, Vec2)>,
+}
+
+impl Bender<'_> {
+    /// Where point `on` of the outline goes, and where `offset` from it: the offset turns with
+    /// the bent outline and keeps its length, so bands stay a pixel wide and strokes keep their
+    /// width however the cage stretches the shape.
+    fn place(&mut self, on: [f32; 2], offset: Vec2) -> (Point, Vec2) {
+        let p = Point::new(on[0] as f64, on[1] as f64);
+        let Some(bend) = self.bend else { return (p, offset) };
+        let (at, dx, dy) = match self.last {
+            Some((last, at, dx, dy)) if last == on => (at, dx, dy),
+            _ => {
+                let at = bend(p);
+                let dx = bend(p + Vec2::new(self.step, 0.0)) - at;
+                let dy = bend(p + Vec2::new(0.0, self.step)) - at;
+                self.last = Some((on, at, dx, dy));
+                (at, dx, dy)
+            }
+        };
+        let turned = dx * offset.x + dy * offset.y;
+        let (len, l) = (offset.hypot(), turned.hypot());
+        (at, if l > 1e-12 { turned * (len / l) } else { offset })
+    }
+}
+
+/// Cuts the stroke of `path`, `width` wide, along the line: see [`Cut::line`].
+fn cut_line(stroke: &mut StrokeTessellator, path: &BezPath, width: f64, line: &crate::Line, tolerance: f32) -> Cut {
+    let mut out = Cut::default();
+    let cap = match line.cap {
+        crate::Cap::Butt => LineCap::Butt,
+        crate::Cap::Round => LineCap::Round,
+        crate::Cap::Square => LineCap::Square,
+    };
+    let join = match line.join {
+        crate::Join::Miter => LineJoin::Miter,
+        crate::Join::Round => LineJoin::Round,
+        crate::Join::Bevel => LineJoin::Bevel,
+    };
+    let options = StrokeOptions::tolerance(tolerance).with_line_width(width as f32).with_line_cap(cap).with_line_join(join).with_miter_limit(4.0);
+    let mut buffers: VertexBuffers<([f32; 2], [f32; 2]), u32> = VertexBuffers::new();
+    let ok = stroke.tessellate_path(
+        &to_lyon(path),
+        &options,
+        &mut BuffersBuilder::new(&mut buffers, |v: StrokeVertex| {
+            let on = v.position_on_path().to_array();
+            let p = v.position().to_array();
+            (on, [p[0] - on[0], p[1] - on[1]])
+        }),
+    );
+    if ok.is_err() {
+        return out;
+    }
+    // The outer sides are the edges of one triangle only; the band runs along them.
+    let mut edges: HashMap<(u32, u32), u32> = HashMap::new();
+    for tri in buffers.indices.as_chunks::<3>().0 {
+        for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+            *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+        }
+    }
+    let mut outer: Vec<(u32, u32)> = edges.into_iter().filter(|(_, n)| *n == 1).map(|(e, _)| e).collect();
+    outer.sort_unstable();
+    let mut place: HashMap<u32, u32> = HashMap::new();
+    for (a, b) in outer {
+        let mut at = |i: u32| {
+            *place.entry(i).or_insert_with(|| {
+                out.line_band.push(i);
+                out.line_band.len() as u32 - 1
+            })
+        };
+        let edge = [at(a), at(b)];
+        out.line_edges.push(edge);
+    }
+    (out.line, out.line_indices) = (buffers.vertices, buffers.indices);
+    out
+}
+
+/// Marks the key of a shape cut before its cages bend it: not the same cut as that outline drawn
+/// straight, which is not split as finely.
+const BENT: u64 = 0x9e37_79b9_7f4a_7c15;
+
+/// `path` with its lines and curves split into pieces at most `step` long, so that bending its
+/// points bends its sides too: a straight side crossing a cage curves with it.
+fn split(path: &BezPath, step: f64) -> BezPath {
+    let mut out = BezPath::new();
+    let mut last = Point::ZERO;
+    let mut start = Point::ZERO;
+    let line = |out: &mut BezPath, from: Point, to: Point| {
+        let n = ((to - from).hypot() / step).ceil().clamp(1.0, 4096.0) as usize;
+        for k in 1..=n {
+            out.line_to(from.lerp(to, k as f64 / n as f64));
+        }
+    };
+    for el in path.elements() {
+        match *el {
+            PathEl::MoveTo(p) => {
+                out.move_to(p);
+                (last, start) = (p, p);
+            }
+            PathEl::LineTo(p) => {
+                line(&mut out, last, p);
+                last = p;
+            }
+            PathEl::ClosePath => {
+                if last != start {
+                    line(&mut out, last, start);
+                }
+                out.close_path();
+                last = start;
+            }
+            PathEl::QuadTo(..) | PathEl::CurveTo(..) => {
+                let seg = match *el {
+                    PathEl::QuadTo(a, b) => PathSeg::Quad(QuadBez::new(last, a, b)),
+                    PathEl::CurveTo(a, b, c) => PathSeg::Cubic(CubicBez::new(last, a, b, c)),
+                    _ => unreachable!(),
+                };
+                // Curves stay curves, cut where the pieces are about `step` long.
+                // The control polygon is never shorter than the curve.
+                let hull = match seg {
+                    PathSeg::Quad(q) => (q.p1 - q.p0).hypot() + (q.p2 - q.p1).hypot(),
+                    PathSeg::Cubic(c) => (c.p1 - c.p0).hypot() + (c.p2 - c.p1).hypot() + (c.p3 - c.p2).hypot(),
+                    PathSeg::Line(l) => (l.p1 - l.p0).hypot(),
+                };
+                let n = (hull / step).ceil().clamp(1.0, 4096.0) as usize;
+                for k in 0..n {
+                    let piece = seg.subsegment((k as f64 / n as f64)..((k + 1) as f64 / n as f64));
+                    match piece {
+                        PathSeg::Quad(q) => out.quad_to(q.p1, q.p2),
+                        PathSeg::Cubic(c) => out.curve_to(c.p1, c.p2, c.p3),
+                        PathSeg::Line(l) => out.line_to(l.p1),
+                    }
+                }
+                last = seg.end();
+            }
+        }
+    }
+    out
 }
 
 /// Whether triangles show the item as the CPU would draw it.
@@ -457,6 +679,28 @@ mod tests {
         assert_eq!(at(&gpu, 180, 80), 0, "the hole stays open");
         assert_eq!(at(&gpu, 80, 80), 255);
         assert_eq!(at(&gpu, 0, 0), 0);
+    }
+
+    #[test]
+    fn shapes_in_a_bending_cage_are_cut_once_and_bent_like_on_the_cpu() {
+        let src = "artboard \"t\" 200x200\ngroup face at 100 100 deform 140 140 {\npath shape d \"M -50 -40 C -20 -70 30 -70 50 -40 L 50 50 L -50 50 Z M -10 -10 L 10 -10 L 10 10 L -10 10 Z\" fill #ff5a36 evenodd\npath line d \"M -60 60 Q 0 30 60 60\" fill none stroke #1b1d24 4 cap round\n}\nanim Idle 2s {\nface.warp-x4 0: 0 | 1: 35 | 2: 0\nface.warp-y1 0: 0 | 1: -20 | 2: 0\n}\n";
+        let scene = motif_script::parse(src).unwrap();
+        let mut cutter = Cutter::default();
+        for (n, t) in [0.6, 1.0, 1.3].into_iter().enumerate() {
+            let pose = scene.doc.animations[0].pose(&scene.doc, t);
+            assert!(pose.nodes[pose.index_of("shape").unwrap()].cage_bend().is_some());
+            assert!(pose.nodes[pose.index_of("line").unwrap()].cage_bend().is_some());
+            let pieces = cutter.pieces(&pose, 2.0);
+            // Every pose of the cage reuses the cuts: the shape and the line.
+            assert_eq!(cutter.cuts.len(), 2, "pose {n}");
+            let cpu = crate::render_cpu(&pose, crate::CpuOptions { scale: 2.0, antialias: true, background: false }).unwrap();
+            let gpu = paint(&pieces, cpu.width(), cpu.height(), 2.0);
+            let off = cpu.pixels().iter().zip(gpu.pixels()).filter(|(a, b)| (a.alpha() as i32 - b.alpha() as i32).abs() > 140).count();
+            // Only a few edge pixels may differ: the bent sides follow the CPU's curves.
+            assert!(off < 80, "pose {n}: {off} pixels differ");
+            let hole = pose.world_transform(pose.index_of("shape").unwrap()) * pose.map_lattice_point(pose.index_of("shape").unwrap(), Point::ZERO);
+            assert_eq!(gpu.pixel((hole.x * 2.0) as u32, (hole.y * 2.0) as u32).unwrap().alpha(), 0, "pose {n}: the hole stays open");
+        }
     }
 }
 #[cfg(test)]

@@ -7,7 +7,7 @@ mod directions;
 mod forms;
 mod lattice;
 pub use forms::Forms;
-pub use lattice::Lattice;
+pub use lattice::{Lattice, LatticeMap};
 mod ease;
 mod field;
 mod fluid;

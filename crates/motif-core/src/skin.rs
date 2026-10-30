@@ -17,6 +17,7 @@ impl Document {
     pub fn rig(&mut self) {
         for node in &mut self.nodes {
             node.lattice_path = None;
+            node.lattice_map = None;
         }
         self.layout();
         self.morph_all();
