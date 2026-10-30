@@ -10,8 +10,9 @@ use godot::global::MouseButton;
 use godot::prelude::*;
 
 mod player;
+mod pool;
 
-pub use player::{Player, Step};
+pub use player::{Frame, Player, Step};
 
 struct MotifExtension;
 
@@ -71,6 +72,10 @@ pub struct MotifSprite {
     texture: Option<Gd<ImageTexture>>,
     /// The size of the last drawn image, to reuse its texture.
     drawn: (i32, i32),
+    /// What the texture shows: the pose, its scale and background.
+    shot: Option<Shot>,
+    /// The frame being drawn on the drawing threads, and what it will show.
+    pending: Option<(Shot, pool::Pending)>,
     dirty: bool,
     base: Base<Node2D>,
 }
@@ -95,6 +100,8 @@ impl INode2D for MotifSprite {
             error: None,
             texture: None,
             drawn: (0, 0),
+            shot: None,
+            pending: None,
             dirty: true,
             base,
         }
@@ -122,6 +129,7 @@ impl INode2D for MotifSprite {
         if self.playing {
             self.step(delta * self.speed);
         }
+        self.prepare();
         if self.dirty {
             self.base_mut().queue_redraw();
         }
@@ -129,17 +137,15 @@ impl INode2D for MotifSprite {
 
     fn draw(&mut self) {
         self.dirty = false;
-        let Some(player) = &self.player else { return };
-        let scale = self.screen_scale() * self.resolution.clamp(0.25, 4.0);
-        let Some(px) = player.render(scale, self.background) else { return };
-        let (w, h) = (px.width() as i32, px.height() as i32);
-        let data = PackedByteArray::from(px.data());
-        let Some(image) = Image::create_from_data(w, h, false, Format::RGBA8, &data) else { return };
-        match &mut self.texture {
-            Some(t) if self.drawn == (w, h) => t.update(&image),
-            _ => self.texture = ImageTexture::create_from_image(&image),
+        let Some(want) = self.wanted() else { return };
+        if self.shot != Some(want) {
+            let px = match self.pending.take() {
+                Some((shot, pending)) if shot == want => pending.wait(),
+                _ => self.player.as_ref().and_then(|p| p.render(want.scale, want.background)),
+            };
+            self.shot = Some(want);
+            self.upload(px);
         }
-        self.drawn = (w, h);
         let rect = Rect2::new(self.origin(), self.size());
         if let Some(t) = self.texture.clone() {
             self.base_mut().draw_texture_rect(&t, rect, false);
@@ -362,6 +368,8 @@ impl MotifSprite {
     fn reload(&mut self) {
         self.player = None;
         self.error = None;
+        self.shot = None;
+        self.pending = None;
         if !self.scene.is_empty() {
             match self.load() {
                 Ok(mut p) => {
@@ -377,6 +385,14 @@ impl MotifSprite {
         self.base_mut().update_configuration_warnings();
         self.redraw();
     }
+}
+
+/// What a picture of the scene shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Shot {
+    pose: u64,
+    scale: f64,
+    background: bool,
 }
 
 /// A file of the project (`res://…`), packed or not.
@@ -421,6 +437,42 @@ impl MotifSprite {
         Player::load(&src, base.as_deref(), &self.board.to_string(), &self.machine.to_string(), &self.animation.to_string())
     }
 
+    /// What the node should show now.
+    fn wanted(&self) -> Option<Shot> {
+        let pose = self.player.as_ref()?.pose();
+        Some(Shot { pose, scale: self.screen_scale() * self.resolution.clamp(0.25, 4.0), background: self.background })
+    }
+
+    /// Starts drawing the frame on the drawing threads when the picture shown is out of date: a
+    /// new pose, a zoom, another background. All the sprites' frames are drawn at once while
+    /// the game goes on, and each is taken in its `draw`.
+    fn prepare(&mut self) {
+        let Some(want) = self.wanted() else { return };
+        if self.shot == Some(want) || self.pending.as_ref().is_some_and(|(s, _)| *s == want) || !self.base().is_visible_in_tree() {
+            return;
+        }
+        let Some(player) = &self.player else { return };
+        self.pending = Some((want, pool::draw(player.frame(), want.scale, want.background)));
+        self.dirty = true;
+    }
+
+    /// Puts the picture into the texture drawn; nothing is drawn without one.
+    fn upload(&mut self, px: Option<tiny_skia::Pixmap>) {
+        let image = px.and_then(|px| {
+            let (w, h) = (px.width() as i32, px.height() as i32);
+            Image::create_from_data(w, h, false, Format::RGBA8, &PackedByteArray::from(px.data())).map(|i| (i, (w, h)))
+        });
+        let Some((image, size)) = image else {
+            self.texture = None;
+            return;
+        };
+        match &mut self.texture {
+            Some(t) if self.drawn == size => t.update(&image),
+            _ => self.texture = ImageTexture::create_from_image(&image),
+        }
+        self.drawn = size;
+    }
+
     /// Moves time on by `dt`, sending the events passed and the state entered.
     fn step(&mut self, dt: f64) {
         let Some(player) = &mut self.player else { return };
@@ -431,7 +483,6 @@ impl MotifSprite {
         if let Some(state) = step.state {
             self.base_mut().emit_signal("state_changed", &[state.to_variant()]);
         }
-        self.dirty = true;
     }
 
     /// After a turn: the side is announced and drawn.

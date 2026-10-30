@@ -4,6 +4,7 @@
 use motif_core::kurbo::Point;
 use motif_core::{Document, Machine, MachinePlayer, State};
 use motif_render::CpuOptions;
+use std::sync::Arc;
 use tiny_skia::Pixmap;
 
 #[derive(Debug)]
@@ -17,7 +18,31 @@ pub struct Player {
     /// The side of the scene's `directions` faced: down at first; none without `directions`.
     side: Option<usize>,
     /// The pose shown now: what the pointer is tested against.
-    shown: Document,
+    shown: Arc<Document>,
+    /// Counts the changes of the pose shown: a frame that did not change is not drawn again.
+    pose: u64,
+}
+
+/// One pose to draw, apart from the player: it can be drawn on another thread while the game
+/// goes on.
+#[derive(Clone, Debug)]
+pub struct Frame {
+    doc: Arc<Document>,
+    flipped: bool,
+}
+
+impl Frame {
+    /// The pose drawn at `scale` pixels a unit, premultiplied RGBA; a flipped side turned over.
+    pub fn render(&self, scale: f64, background: bool) -> Option<Pixmap> {
+        let mut px = motif_render::render_cpu(&self.doc, CpuOptions { scale, antialias: true, background })?;
+        if self.flipped {
+            let w = px.width() as usize * 4;
+            for row in px.data_mut().chunks_exact_mut(w) {
+                row.as_chunks_mut::<4>().0.reverse();
+            }
+        }
+        Some(px)
+    }
 }
 
 /// What happened in one [`Player::advance`].
@@ -61,8 +86,8 @@ impl Player {
         let run = MachinePlayer::new(&machine);
         let side = doc.directions.as_ref().map(|_| 0);
         let plain = machine.clone();
-        let shown = doc.clone();
-        let mut p = Player { doc, plain, machine, run, side, shown };
+        let shown = Arc::new(doc.clone());
+        let mut p = Player { doc, plain, machine, run, side, shown, pose: 0 };
         p.turn(side);
         Ok(p)
     }
@@ -134,16 +159,33 @@ impl Player {
             None => self.plain.clone(),
         };
         self.repose();
+        // A mirrored side shows the same pose turned over: a new picture all the same.
+        self.pose += changed as u64;
         changed
     }
 
     /// Poses the scene as it is now, seen from the side faced.
     fn repose(&mut self) {
-        self.shown = self.run.pose(&self.machine, &self.doc);
+        let mut shown = self.run.pose(&self.machine, &self.doc);
         if let (Some(d), Some(k)) = (&self.doc.directions, self.side) {
-            self.shown.face(d.shot(k).0);
-            self.shown.rig();
+            shown.face(d.shot(k).0);
+            shown.rig();
         }
+        // A held pose, a paused or finished clip: the same picture, nothing to draw again.
+        if !same_picture(&mut shown, &self.shown) {
+            self.shown = Arc::new(shown);
+            self.pose += 1;
+        }
+    }
+
+    /// Changes whenever the pose shown changes.
+    pub fn pose(&self) -> u64 {
+        self.pose
+    }
+
+    /// The pose shown now, to draw.
+    pub fn frame(&self) -> Frame {
+        Frame { doc: self.shown.clone(), flipped: self.flipped() }
     }
 
     /// The animation playing now: the state's, from the side faced (`Walk_up`).
@@ -218,15 +260,19 @@ impl Player {
 
     /// The pose now drawn at `scale` pixels a unit, premultiplied RGBA; a flipped side turned over.
     pub fn render(&self, scale: f64, background: bool) -> Option<Pixmap> {
-        let mut px = motif_render::render_cpu(&self.shown, CpuOptions { scale, antialias: true, background })?;
-        if self.flipped() {
-            let w = px.width() as usize * 4;
-            for row in px.data_mut().chunks_exact_mut(w) {
-                row.as_chunks_mut::<4>().0.reverse();
-            }
-        }
-        Some(px)
+        self.frame().render(scale, background)
     }
+}
+
+/// Whether `new` looks as `old` does. Time runs on in every pose, but only boiling lines are
+/// drawn by it: they count as changed when their tick does.
+fn same_picture(new: &mut Document, old: &Document) -> bool {
+    let time = new.time;
+    let boiled = new.nodes.iter().any(|n| n.brush.seed_at(&n.id, time) != n.brush.seed_at(&n.id, old.time));
+    new.time = old.time;
+    let same = !boiled && *new == *old;
+    new.time = time;
+    same
 }
 
 #[cfg(test)]
@@ -361,5 +407,72 @@ machine Hero {
         assert!(Player::load(SCENE, None, "", "Boss", "").unwrap_err().contains("Hero"));
         assert!(Player::load(SCENE, None, "", "", "Run").unwrap_err().contains("Idle, Jump"));
         assert!(Player::load("rect", None, "", "", "").is_err());
+    }
+
+    #[test]
+    fn a_still_pose_is_not_drawn_again_and_a_turn_always_is() {
+        let mut p = Player::load(SCENE, None, "", "", "").unwrap();
+        let first = p.pose();
+        // Idle keeps the ball where it is: the same picture, frame after frame.
+        p.advance(0.1);
+        p.advance(0.1);
+        assert_eq!(p.pose(), first);
+        p.fire("jump").unwrap();
+        // The jump starts from where the ball is and lifts it on the next step.
+        p.advance(0.1);
+        p.advance(0.1);
+        assert_eq!(p.state(), "Jump");
+        assert_ne!(p.pose(), first);
+        let walker = std::fs::read_to_string("../../examples/directions.msc").unwrap();
+        let mut w = Player::load(&walker, None, "", "", "").unwrap();
+        w.set_side("right").unwrap();
+        let right = w.pose();
+        // The left side is the right one turned over: the same pose, another picture.
+        w.set_side("left").unwrap();
+        assert!(w.flipped() && w.pose() != right);
+        // Boiling lines redraw with time though nothing moves.
+        let boil = "artboard \"Кипение\" 100x80\nrect r at 50 40 size 40 30 fill #5ee0a0 rough 3 40 boil 8\nanim Idle 1s loop {\n  r.x 0: 50 | 1: 50\n}\n";
+        let mut b = Player::load(boil, None, "", "", "").unwrap();
+        b.advance(0.01);
+        let before = b.pose();
+        b.advance(0.2);
+        assert_ne!(b.pose(), before);
+    }
+
+    #[test]
+    fn a_frame_drawn_on_the_drawing_threads_is_the_frame_drawn_here() {
+        let walker = std::fs::read_to_string("../../examples/directions.msc").unwrap();
+        let mut w = Player::load(&walker, None, "", "", "").unwrap();
+        w.set_side("left").unwrap();
+        w.advance(0.3);
+        let pending: Vec<_> = (0..4).map(|_| crate::pool::draw(w.frame(), 0.75, true)).collect();
+        let here = w.render(0.75, true).unwrap();
+        for p in pending {
+            assert_eq!(p.wait().unwrap().data(), here.data());
+        }
+    }
+
+    /// How long a frame of the example characters takes, apart from Godot:
+    /// `cargo test --release -p motif-godot frame_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn frame_cost() {
+        for f in ["directions", "character-platformer", "character-anime"] {
+            let src = std::fs::read_to_string(format!("../../examples/{f}.msc")).unwrap();
+            let mut p = Player::load(&src, Some(std::path::Path::new("../../examples")), "", "", "").unwrap();
+            let n = 200;
+            let t = std::time::Instant::now();
+            for _ in 0..n {
+                p.advance(1.0 / 60.0);
+            }
+            let advance = t.elapsed().as_secs_f64() * 1000.0 / n as f64;
+            let t = std::time::Instant::now();
+            for _ in 0..n {
+                p.render(1.0, false);
+            }
+            let render = t.elapsed().as_secs_f64() * 1000.0 / n as f64;
+            let (w, h) = p.size();
+            println!("{f}: advance {advance:.3} ms, render {render:.3} ms ({w}x{h})");
+        }
     }
 }
