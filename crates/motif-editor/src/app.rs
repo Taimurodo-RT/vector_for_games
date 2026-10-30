@@ -138,6 +138,8 @@ pub struct App {
     recovery: crate::storage::Recovery,
     recovery_records: Vec<crate::storage::Record>,
     show_recovery: bool,
+    /// The copy waiting for «Точно удалить»: one of them, or all (`Some(None)`).
+    recovery_drop: Option<Option<usize>>,
     recovery_title: String,
     last_recovery: Instant,
     close_allowed: bool,
@@ -292,6 +294,7 @@ impl App {
         let recovery_records = recovery.entries();
         let mut app = App {
             show_recovery: !recovery_records.is_empty(),
+            recovery_drop: None,
             recovery,
             recovery_records,
             recovery_title: "Восстановление документов".into(),
@@ -1078,6 +1081,11 @@ impl App {
                 if let Some(record) = self.recovery_records.get(index).cloned() {
                     self.checkpoint("restore");
                     self.recovery.clear();
+                    if record.file.is_some()
+                        && let Err(e) = self.recovery.adopt(&record)
+                    {
+                        self.status = format!("Не удалось перенести копию восстановления: {e}");
+                    }
                     self.path = record.path;
                     self.saved_src = record.saved_text;
                     self.set_file(&record.text, record.board);
@@ -1222,6 +1230,8 @@ impl App {
         }
         let mut open = true;
         let mut restore = None;
+        let mut dropped = Vec::new();
+        let asked = self.recovery_drop;
         egui::Window::new(&self.recovery_title).id(egui::Id::unique("recovery")).open(&mut open).default_width(580.0).show(ctx, |ui| {
             ui.label("Копия открывается в редакторе. Исходный файл меняется только после сохранения.");
             if self.recovery_records.is_empty() {
@@ -1236,6 +1246,19 @@ impl App {
                         if ui.button("Восстановить").clicked() {
                             restore = Some(index);
                         }
+                        // Only a recovery copy can go: earlier saves are kept by the history.
+                        if record.file.is_some() {
+                            if asked == Some(Some(index)) {
+                                if ui.button("Точно удалить").on_hover_text("Копия удалится насовсем").clicked() {
+                                    dropped.push(index);
+                                }
+                                if ui.button("Оставить").clicked() {
+                                    self.recovery_drop = None;
+                                }
+                            } else if ui.button("Удалить").on_hover_text("Больше не предлагать эту копию").clicked() {
+                                self.recovery_drop = Some(Some(index));
+                            }
+                        }
                     });
                     ui.collapsing(format!("Текст копии {}", index + 1), |ui| {
                         ui.monospace(record.text.chars().take(1200).collect::<String>());
@@ -1243,10 +1266,33 @@ impl App {
                 }
             });
             ui.separator();
+            let copies = self.recovery_records.iter().filter(|r| r.file.is_some()).count();
+            if copies > 1 {
+                ui.horizontal(|ui| {
+                    if asked == Some(None) {
+                        if ui.button(format!("Точно удалить все {copies}")).clicked() {
+                            dropped.extend(0..self.recovery_records.len());
+                        }
+                        if ui.button("Оставить").clicked() {
+                            self.recovery_drop = None;
+                        }
+                    } else if ui.button("Удалить все копии").clicked() {
+                        self.recovery_drop = Some(None);
+                    }
+                });
+            }
             ui.small(format!("Автокопии: {}", self.recovery.dir.display()));
         });
         self.show_recovery = open;
+        if !dropped.is_empty() {
+            for index in dropped.into_iter().rev() {
+                crate::storage::Recovery::drop_copy(&self.recovery_records.remove(index));
+            }
+            self.recovery_drop = None;
+            self.status = "Копии восстановления удалены".into();
+        }
         if let Some(index) = restore {
+            self.recovery_drop = None;
             self.file_action(FileAction::Restore(index));
         }
     }
