@@ -90,12 +90,12 @@ group levels "Уровни" at 0 30 anchor center middle stack column gap 14 {
   }
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   level1_body.fill 0: primary | 0.15: light
   level6_body.fill 0: gold | 0.15: #ffd978
   back_body.fill   0: panel | 0.15: raised
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   level1_body.y 0: 0 | 0.08: 4
   level1_num.y  0: -6 | 0.08: -2
   level6_body.y 0: 0 | 0.08: 4

@@ -25,6 +25,6 @@ path cup "Чашка" at 440 290 d "M -45 -60 L -35 -60 L -35 30 L 35 30 L 35 -6
 rect plank "Доска" at 570 170 size 110 12 r 3 rot 18 fill #6b4a2f stroke ink 3 solid
 ellipse honey "Мёд" at 545 130 size 50 40 fill #ffb400 stroke #b06d00 3 fluid 0.6
 
-anim Splash 4s {
+anim Splash 4s id=wd25 {
   stone.y 0: -40 | 1.4: -40 ease-in | 1.9: 300
 }

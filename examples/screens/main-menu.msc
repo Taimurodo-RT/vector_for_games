@@ -54,11 +54,11 @@ group menu "Меню" at 0 52 anchor center middle stack column center gap 8 {
 
 text version "Версия" at 16 -14 anchor left bottom content "v0.1" font-size 12 fill muted align left
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   play_body.fill   0: primary | 0.15: light
   resume_body.fill 0: raised | 0.15: lift
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   play_body.y    0: 0 | 0.08: 4
   play_text.y    0: 1 | 0.08: 5
   resume_body.y  0: 0 | 0.08: 4

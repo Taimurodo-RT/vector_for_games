@@ -73,14 +73,14 @@ group settings "Окно настроек" anchor center middle stack column cen
   }
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   apply_body.fill   0: primary | 0.15: light
   back_body.fill    0: raised | 0.15: lift
   quality_body.fill 0: raised | 0.15: lift
   music_level.fill  0: primary | 0.15: light
   sound_level.fill  0: primary | 0.15: light
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   apply_body.y   0: 0 | 0.08: 3
   apply_text.y   0: 1 | 0.08: 4
   back_body.y    0: 0 | 0.08: 3

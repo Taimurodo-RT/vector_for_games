@@ -95,12 +95,12 @@ group close "Закрыть" at -36 36 anchor right top ui {
   path close_cross d "M -7 -7 L 7 7 M -7 7 L 7 -7" fill none stroke paper 4 cap round
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   slot5_frame.fill 0: well | 0.15: raised
   equip_body.fill  0: primary | 0.15: light
   close_ring.fill  0: bad | 0.15: #ff7f8b
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   slot5_frame.stroke 0: ink | 0.08: gold
   equip_body.y       0: 0 | 0.08: 4
   equip_text.y       0: 1 | 0.08: 5

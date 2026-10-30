@@ -18,7 +18,7 @@ group coins "Монеты" at 36 40 {
   }
 }
 
-anim Idle 1.2s loop {
+anim Idle 1.2s loop id=twqs {
   ball.y         0: 120 ease-in | 0.6: 278 ease-out | 1.2: 120
   ball.h         0: 76 linear | 0.55: 76 ease-out | 0.6: 58 ease-out | 0.7: 74
   ball.w         0: 70 linear | 0.55: 70 ease-out | 0.6: 86 ease-out | 0.7: 72
@@ -27,7 +27,7 @@ anim Idle 1.2s loop {
   star.rot       0: 0 linear | 1.2: 72
 }
 
-anim Hover 0.8s loop {
+anim Hover 0.8s loop id=v54r {
   star.w    0: 130 | 0.4: 152 | 0.8: 130
   star.h    0: 130 | 0.4: 152 | 0.8: 130
   star.fill 0: #ffc531 | 0.4: #ff8a3d | 0.8: #ffc531

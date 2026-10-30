@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Слайдеры",
@@ -7,18 +7,21 @@
       "height": 300.0,
       "animations": [
         {
+          "id": "atug",
           "name": "Value",
           "duration": 1.0,
           "loop": false,
           "events": []
         },
         {
+          "id": "v54r",
           "name": "Hover",
           "duration": 0.15,
           "loop": false,
           "events": []
         },
         {
+          "id": "kb3k",
           "name": "Press",
           "duration": 0.08,
           "loop": false,

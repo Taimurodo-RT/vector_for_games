@@ -20,7 +20,7 @@ bone hip2 "Бедро" at 330 80 len 80 rot 90 {
   bone shin2 "Голень" at 80 0 len 80
 }
 
-anim Kick 1.6s loop {
+anim Kick 1.6s loop id=bfsm {
   shin1.rot 0: 0 | 0.8: -95 ease-in-out-back | 1.6: 0
   shin2.rot 0: 0 | 0.8: -95 ease-in-out-back | 1.6: 0
 }

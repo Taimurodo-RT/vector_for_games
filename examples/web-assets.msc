@@ -9,7 +9,7 @@ group leaf at 12 12 {
   path body d "M -8 8 Q -9 -8 8 -8 Q 8 8 -8 8 Z" fill accent stroke ink 1.75
   path vein d "M -8 8 L 3 -3" fill none stroke ink 1.75
 }
-anim Sway 1s loop {
+anim Sway 1s loop id=hye3 {
   leaf.rot 0: -5 ease-in-out | 0.5: 5 ease-in-out | 1: -5
 }
 

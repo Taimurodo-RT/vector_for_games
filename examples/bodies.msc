@@ -17,7 +17,7 @@ polygon pyramid "Пирамида" at 260 275 size 110 110 points 4 fill #c89bff
 path coin "Монета" at 400 270 d "M 0 -45 C 25 -45 45 -25 45 0 C 45 25 25 45 0 45 C -25 45 -45 25 -45 0 C -45 -25 -25 -45 0 -45 Z M 0 -18 L 6 -6 L 18 -4 L 9 5 L 11 18 L 0 12 L -11 18 L -9 5 L -18 -4 L -6 -6 Z" fill #ffc94a stroke ink 4 extrude 14
 path ribbon "Лента" at 545 270 d "M -60 0 C -30 -50 30 50 60 0" fill #5ee0a0 stroke ink 4 extrude 50 pitch 50
 
-anim Spin 4s loop {
+anim Spin 4s loop id=rmzk {
   cube.yaw     0: 30 linear | 4: 390
   can.pitch    0: -70 ease-in-out-sine | 2: -20 ease-in-out-sine | 4: -70
   cone.yaw     0: 0 linear | 4: 360

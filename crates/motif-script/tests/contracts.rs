@@ -63,7 +63,7 @@ fn the_contract_names_what_a_game_binds_to() {
     let idle = &b.animations[0];
     assert!(idle.looping);
     assert_eq!(idle.events.iter().map(|e| (e.name.as_str(), e.time)).collect::<Vec<_>>(), [("tick", 0.2), ("blink", 0.6)]);
-    assert_eq!(b.events, ["blink", "tick"]);
+    assert_eq!(b.events.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["blink", "tick"]);
     let m = &b.machines[0];
     assert_eq!(
         m.inputs.iter().map(|i| (i.name.as_str(), i.kind.as_str(), i.default)).collect::<Vec<_>>(),
@@ -72,6 +72,6 @@ fn the_contract_names_what_a_game_binds_to() {
     assert_eq!((m.states[1].name.as_str(), m.states[1].animation.as_str()), ("Over", "Hover"));
     assert_eq!((m.pointer[0].node.as_str(), m.pointer[0].event.as_str(), m.pointer[0].input.as_str()), ("btn", "hover", "hover"));
     let p = &b.parameters[0];
-    assert_eq!((p.id.as_str(), p.min, p.max, p.default), ("mood", -1.0, 1.0, 0.5));
+    assert_eq!((p.name.as_str(), p.title.as_str(), p.min, p.max, p.default), ("mood", "Настроение", -1.0, 1.0, 0.5));
     assert!(b.sides.is_none());
 }

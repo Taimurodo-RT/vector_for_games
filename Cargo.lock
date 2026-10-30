@@ -1641,6 +1641,7 @@ dependencies = [
  "motif-core",
  "motif-render",
  "motif-script",
+ "pollster 1.0.1",
  "serde",
  "serde_json",
  "tiny-skia",

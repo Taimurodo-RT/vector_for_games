@@ -15,7 +15,7 @@ text label "Подпись" at 240 205 content "Играть" font bold font-siz
 text title "Заголовок" at 240 120 content "Пауза" font bold font-size 40 fill #1b1d24 shadow 0 3 0 #5b3bff55
 star coin "Монета" at 400 60 size 50 points 6 inner 0.6 fill #ffc531 elevation 18
 
-anim Hover 1.4s loop {
+anim Hover 1.4s loop id=v54r {
   button.elevation 0: 4 ease-in-out-sine | 0.7: 14 ease-in-out-sine | 1.4: 4
   button.y 0: 205 ease-in-out-sine | 0.7: 199 ease-in-out-sine | 1.4: 205
   label.y 0: 205 ease-in-out-sine | 0.7: 199 ease-in-out-sine | 1.4: 205

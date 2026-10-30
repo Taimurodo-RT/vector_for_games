@@ -20,7 +20,7 @@ ellipse comet "Комета" at 60 80 size 10 10 fill #9fe8ff emit 80 life 0.6 s
 // Залп: звёздочки разлетаются при старте и падают.
 star burst "Залп" at 380 200 size 14 14 points 5 inner 0.45 fill #ffd23f stroke ink 2 emit 0 burst 24 life 2.5 speed 260 angle -90 spread 120 weight 0.55 spin 360 fade 0.3
 
-anim Night 3s loop {
+anim Night 3s loop id=de25 {
   comet.x 0: 60 ease-in-out | 3: 470
   comet.y 0: 80 ease-out | 1.5: 40 ease-in | 3: 110
 }

@@ -1211,6 +1211,12 @@ impl App {
             self.src = motif_script::format::stamp(&self.src);
             self.reparse();
         }
+        // Everything a game binds to gets its hidden id, so a rename later does not break it.
+        let stamped = motif_script::ids::stamp(&self.src);
+        if stamped != self.src {
+            self.src = stamped;
+            self.reparse();
+        }
         let text = self.file_text();
         let expected = (self.path.as_ref() == Some(&path)).then_some(self.saved_src.as_str());
         match crate::storage::save_scene(&path, &text, expected) {
@@ -3832,6 +3838,32 @@ pub(crate) mod editing_tests {
     use super::*;
     use crate::compound::{Anchor, Compound};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn saving_gives_hidden_ids_and_a_rename_keeps_them() {
+        let dir = std::env::temp_dir().join(format!("motif-ids-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ids.msc");
+        let old = "motif 1\nartboard \"a\" 40x40\nrect r size 10 fill #123456\nanim Idle 1s loop {\n  r.x 0: 0 | 1: 0\n  event step 0.5\n}\nmachine Hero {\n  input speed 0\n  state Idle\n}\n";
+        std::fs::write(&path, old).unwrap();
+        let mut app = fixture(old);
+        app.path = Some(path.clone());
+        app.saved_src = app.file_text();
+        app.save(false);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let ids = motif_script::parse(&saved).unwrap().doc.ids;
+        let speed = ids.get(motif_core::IdKind::Input, "Hero", "speed").expect("the input got an id").to_string();
+        for (kind, owner, name) in
+            [(motif_core::IdKind::State, "Hero", "Idle"), (motif_core::IdKind::Animation, "", "Idle"), (motif_core::IdKind::Event, "", "step")]
+        {
+            assert!(ids.get(kind, owner, name).is_some(), "{kind:?} {name}:\n{saved}");
+        }
+        assert!(!app.dirty() && app.errors.is_empty());
+        let renamed = motif_script::edit_machine(&app.src, &app.scene, "Hero", |m| m.inputs[0].name = "скорость".into()).unwrap();
+        let ids = motif_script::parse(&renamed).unwrap().doc.ids;
+        assert_eq!(ids.get(motif_core::IdKind::Input, "Hero", "скорость"), Some(speed.as_str()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn saving_writes_the_format_version_first() {

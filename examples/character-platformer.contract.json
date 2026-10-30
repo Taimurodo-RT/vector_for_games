@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Герой платформера",
@@ -7,47 +7,56 @@
       "height": 384.0,
       "animations": [
         {
+          "id": "twqs",
           "name": "Idle",
           "duration": 2.0,
           "loop": true,
           "events": []
         },
         {
+          "id": "y4qf",
           "name": "Walk",
           "duration": 0.8,
           "loop": true,
           "events": [
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.0
             },
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.4
             }
           ]
         },
         {
+          "id": "wmn5",
           "name": "Run",
           "duration": 0.6,
           "loop": true,
           "events": [
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.15
             },
             {
+              "id": "zwue",
               "name": "step",
               "time": 0.45
             }
           ]
         },
         {
+          "id": "rdi9",
           "name": "Jump",
           "duration": 1.0,
           "loop": false,
           "events": [
             {
+              "id": "wga2",
               "name": "land",
               "time": 0.85
             }
@@ -59,11 +68,13 @@
           "name": "Humanoid",
           "inputs": [
             {
+              "id": "rsu9",
               "name": "speed",
               "kind": "number",
               "default": 0.0
             },
             {
+              "id": "s6f3",
               "name": "jump",
               "kind": "trigger",
               "default": 0.0
@@ -71,18 +82,22 @@
           ],
           "states": [
             {
+              "id": "mmja",
               "name": "Idle",
               "animation": "Idle"
             },
             {
+              "id": "ac78",
               "name": "Walk",
               "animation": "Walk"
             },
             {
+              "id": "upen",
               "name": "Run",
               "animation": "Run"
             },
             {
+              "id": "x7vs",
               "name": "Jump",
               "animation": "Jump"
             }
@@ -92,8 +107,14 @@
       ],
       "parameters": [],
       "events": [
-        "land",
-        "step"
+        {
+          "id": "wga2",
+          "name": "land"
+        },
+        {
+          "id": "zwue",
+          "name": "step"
+        }
       ]
     }
   ]

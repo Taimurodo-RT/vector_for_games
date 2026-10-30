@@ -91,11 +91,11 @@ group hotbar "Панель предметов" at 0 -44 anchor center bottom sta
   }
 }
 
-anim Hover 0.15s {
+anim Hover 0.15s id=v54r {
   pause_body.fill   0: panel | 0.15: raised
   slot4_frame.fill  0: raised | 0.15: #3e4870
 }
-anim Press 0.08s {
+anim Press 0.08s id=kb3k {
   pause_body.fill   0: panel | 0.08: #1f2638
   slot4_frame.stroke 0: ink | 0.08: gold
 }

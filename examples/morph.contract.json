@@ -1,5 +1,5 @@
 {
-  "contract": 1,
+  "contract": 2,
   "boards": [
     {
       "name": "Морфинг",
@@ -7,6 +7,7 @@
       "height": 360.0,
       "animations": [
         {
+          "id": "zwsn",
           "name": "Flow",
           "duration": 4.0,
           "loop": true,

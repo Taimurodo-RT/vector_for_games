@@ -35,19 +35,19 @@ group close "Закрыть" at -28 28 anchor right ui button {
   path close-x "Крестик" d "M -6 -6 L 6 6 M 6 -6 L -6 6" fill none stroke ink 2.5 cap round
 }
 
-anim Idle 0.2s {
+anim Idle 0.2s id=twqs {
 }
 
-anim Hover 0.25s {
+anim Hover 0.25s id=v54r {
   play-face.h  0: 44 ease-out | 0.25: 64
   play-face.w  0: 200 ease-out | 0.25: 220
 }
 
 machine Buttons {
-  input hover false
+  input hover false id=wpbp
   listen play hover -> hover
-  state Idle
-  state Hover
+  state Idle id=d7hf
+  state Hover id=xc77
   Idle -> Hover when hover blend 0.15s
   Hover -> Idle when not hover blend 0.15s
 }

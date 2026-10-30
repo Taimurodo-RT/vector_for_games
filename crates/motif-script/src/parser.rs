@@ -72,7 +72,9 @@ pub struct EventAst {
     pub name_span: Span,
     /// Each time with the span of its number.
     pub times: Vec<(f64, Span)>,
-    /// From `event` to the last time.
+    /// `id=…`: the hidden id of the event name.
+    pub uid: Option<(String, Span)>,
+    /// From `event` to the last time (or the id).
     pub span: Span,
 }
 
@@ -137,11 +139,11 @@ pub struct CondAst {
 #[derive(Clone, Debug, PartialEq)]
 pub enum MachineLine {
     /// `input speed 0`, `input hover false`, `input jump trigger`.
-    Input { name: String, name_span: Span, kind: motif_core::InputKind, default: f64 },
+    Input { name: String, name_span: Span, kind: motif_core::InputKind, default: f64, uid: Option<(String, Span)> },
     /// `any at 40 12`: where the `any` box sits in the editor graph.
     AnyAt(f64, f64),
     /// `state Run anim Running at 220 40`.
-    State { name: String, name_span: Span, anim: Option<(String, Span)>, at: Option<(f64, f64)> },
+    State { name: String, name_span: Span, anim: Option<(String, Span)>, at: Option<(f64, f64)>, uid: Option<(String, Span)> },
     /// `listen btn hover -> hover`: the pointer on an object drives an input.
     Listen { node: String, node_span: Span, event: motif_core::PointerEvent, input: String, input_span: Span },
     /// `Idle -> Run when speed > 0.5 at end blend 0.2s`; `from` is `None` for `any`.
@@ -176,6 +178,7 @@ pub enum Stmt {
         parameter: motif_core::PoseParameter,
         span: Span,
         value_span: Span,
+        uid: Option<(String, Span)>,
     },
     Driver {
         parameter: String,
@@ -249,6 +252,7 @@ pub enum Stmt {
         duration_span: Span,
         /// The `loop` word, when present.
         loop_span: Option<Span>,
+        uid: Option<(String, Span)>,
     },
     /// `machine Player { … }`: states, the transitions between them and the inputs they read.
     Machine {
@@ -397,6 +401,20 @@ impl<'a> Parser<'a> {
             Some(t) => Err(self.err(t.span, format!("ожидалось {what}"))),
             None => Err(self.err(self.peek_span(), format!("ожидалось {what}"))),
         }
+    }
+
+    /// `id=k7f2` before the end of a line: the hidden id a game binds to, kept when the thing
+    /// is renamed. `None` when the line has none.
+    fn uid(&mut self) -> Result<Option<(String, Span)>, ScriptError> {
+        if !(self.word_is("id") && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq))) {
+            return Ok(None);
+        }
+        self.pos += 2;
+        let (id, span) = self.ident("id из букв и цифр, например id=k7f2")?;
+        if id.contains('{') {
+            return Err(self.err(span, "id пишется буквами и цифрами, без выражений"));
+        }
+        Ok(Some((id, span)))
     }
 
     fn expect(&mut self, tok: Tok, what: &str) -> Result<Span, ScriptError> {
@@ -864,11 +882,12 @@ impl<'a> Parser<'a> {
             return Err(self.err(span, "нужно value — текущее значение"));
         }
         let (value, value_span) = self.num("текущее значение")?;
+        let uid = self.uid()?;
         if !self.at_line_end() {
             return Err(self.err(self.peek_span(), "лишнее в конце параметра"));
         }
         let parameter = motif_core::PoseParameter { id, name, min, max, default, value };
-        Ok(Stmt::Parameter { parameter, span: Span::new(start.start, value_span.end), value_span })
+        Ok(Stmt::Parameter { parameter, span: Span::new(start.start, value_span.end), value_span, uid })
     }
 
     fn pose_driver(&mut self, start: Span) -> Result<Stmt, ScriptError> {
@@ -945,6 +964,7 @@ impl<'a> Parser<'a> {
             loop_span = Some(self.peek_span());
             self.pos += 1;
         }
+        let uid = self.uid()?;
         self.expect(Tok::BlockOpen, "«{» в конце строки")?;
         let mut tracks = Vec::new();
         let mut events = Vec::new();
@@ -970,7 +990,7 @@ impl<'a> Parser<'a> {
             }
         }
         let close = self.close_block()?;
-        Ok(Stmt::Anim { name, duration, looping, tracks, events, span, close, duration_span, loop_span })
+        Ok(Stmt::Anim { name, duration, looping, tracks, events, span, close, duration_span, loop_span, uid })
     }
 
     fn event(&mut self) -> Result<EventAst, ScriptError> {
@@ -981,14 +1001,15 @@ impl<'a> Parser<'a> {
         while matches!(self.peek(), Some(Tok::Num(_) | Tok::Seconds(_))) {
             times.push(self.num("время события")?);
         }
+        let uid = self.uid()?;
         if !self.at_line_end() && !matches!(self.peek(), Some(Tok::BlockClose)) {
             return Err(self.err(self.peek_span(), "после имени события — времена в секундах: event шаг 0.1 0.3"));
         }
-        let end = times.last().map_or(name_span.end, |(_, s)| s.end);
+        let end = uid.as_ref().map(|(_, s)| s.end).or(times.last().map(|(_, s)| s.end)).unwrap_or(name_span.end);
         if times.is_empty() {
             return Err(self.err(name_span, "у события нет времени: event шаг 0.1 0.3"));
         }
-        Ok(EventAst { name, name_span, times, span: Span::new(start, end) })
+        Ok(EventAst { name, name_span, times, uid, span: Span::new(start, end) })
     }
 
     fn machine(&mut self, span: Span) -> Result<Stmt, ScriptError> {
@@ -1094,20 +1115,25 @@ impl<'a> Parser<'a> {
                     Some(t) => return Err(self.err(t.span, hint)),
                     None => return Err(self.err(self.peek_span(), hint)),
                 };
-                MachineLine::Input { name, name_span, kind, default }
+                let uid = self.uid()?;
+                MachineLine::Input { name, name_span, kind, default, uid }
             }
             "state" => {
                 let (name, name_span) = self.ident("имя состояния")?;
-                let (mut anim, mut at) = (None, None);
+                let (mut anim, mut at, mut uid) = (None, None, None);
                 while !self.at_line_end() {
+                    if let Some(id) = self.uid()? {
+                        uid = Some(id);
+                        continue;
+                    }
                     let (key, key_span) = self.ident("anim или at")?;
                     match key.as_str() {
                         "anim" => anim = Some(self.ident("имя анимации")?),
                         "at" => at = Some((self.num("число")?.0, self.num("число")?.0)),
-                        _ => return Err(self.err(key_span, format!("у состояния нет «{key}»: anim Имя, at x y"))),
+                        _ => return Err(self.err(key_span, format!("у состояния нет «{key}»: anim Имя, at x y, id=…"))),
                     }
                 }
-                MachineLine::State { name, name_span, anim, at }
+                MachineLine::State { name, name_span, anim, at, uid }
             }
             "listen" if self.peek() != Some(&Tok::Arrow) => {
                 let (node, node_span) = self.ident("объект: listen btn hover -> hover")?;

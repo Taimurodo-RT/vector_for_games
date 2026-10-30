@@ -37,6 +37,6 @@ path chain "Цепь" at 470 190 d "M 0 0 L 90 0" fill none rope pin start
 ellipse link "Звено" size 14 9 fill none stroke #b8c0d0 3 links chain
 ellipse weight "Гиря" size 26 26 pivot 0 -13 hang chain fill #8b93a8 stroke ink 3
 
-anim Sway 4s loop {
+anim Sway 4s loop id=hye3 {
   rig.x 0: 110 ease-in-out | 1: 170 ease-in-out | 2: 110 ease-in-out | 3: 60 ease-in-out | 4: 110
 }

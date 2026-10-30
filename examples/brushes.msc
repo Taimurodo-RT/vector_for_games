@@ -31,7 +31,7 @@ rect crate "Ящик" at 540 235 size 70 70 fill #d08a4a stroke ink 3 extrude 70
 ellipse slime "Слизень" at 250 300 size 90 56 fill #8fd6ff stroke ink 3 rough 2.5 18 boil 8 grain 0.08 3 #ffffff
 ellipse eye "Глаз" at 268 292 size 12 16 fill ink rough 0.8 10 boil 8
 
-anim Wobble 2s loop {
+anim Wobble 2s loop id=q3ci {
   slime.sx  0: 1 ease-in-out-sine | 1: 1.12 ease-in-out-sine | 2: 1
   slime.sy  0: 1 ease-in-out-sine | 1: 0.88 ease-in-out-sine | 2: 1
   crate.yaw 0: 30 linear | 2: 120
