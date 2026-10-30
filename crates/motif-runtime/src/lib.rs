@@ -691,6 +691,27 @@ machine M {
             }
         );
     }
+
+    #[test]
+    fn events_come_with_their_data() {
+        let src = SPRUNG.replace("event hit 0.1", "event hit 0.1 damage=2 crit=true from=\"спина\"");
+        // Whole frames and frames that show part of a step ahead: the data comes either way.
+        for dt in [0.25, 0.004] {
+            let mut p = Player::load(&src, None, "", "", "").unwrap();
+            p.fire("hurt").unwrap();
+            let mut hits = Vec::new();
+            for _ in 0..(0.3 / dt) as usize {
+                hits.extend(p.advance(dt).events.into_iter().filter(|e| e.name == "hit"));
+            }
+            assert_eq!(hits.len(), 1, "{hits:?}");
+            assert_eq!(hits[0].get("damage"), Some(&EventValue::Number(2.0)));
+            assert_eq!(hits[0].get("crit"), Some(&EventValue::Bool(true)));
+            assert_eq!(hits[0].get("from"), Some(&EventValue::Text("спина".into())));
+            assert_eq!(hits[0].get("nothing"), None);
+        }
+        let mut p = Player::load(&src, None, "", "", "").unwrap();
+        assert!(p.advance(0.1).events.iter().all(|e| e.data.is_empty()), "an event without data has none");
+    }
 }
 
 /// The frame drawn by Vello on a video card matches the frame drawn on the CPU. Needs an adapter
@@ -778,26 +799,5 @@ mod vello_tests {
             eprintln!("{side}: {:.3}% of pixels differ", share * 100.0);
             assert!(share < 0.01, "{side}: {:.2}% of pixels differ", share * 100.0);
         }
-    }
-
-    #[test]
-    fn events_come_with_their_data() {
-        let src = SPRUNG.replace("event hit 0.1", "event hit 0.1 damage=2 crit=true from=\"спина\"");
-        // Whole frames and frames that show part of a step ahead: the data comes either way.
-        for dt in [0.25, 0.004] {
-            let mut p = Player::load(&src, None, "", "", "").unwrap();
-            p.fire("hurt").unwrap();
-            let mut hits = Vec::new();
-            for _ in 0..(0.3 / dt) as usize {
-                hits.extend(p.advance(dt).events.into_iter().filter(|e| e.name == "hit"));
-            }
-            assert_eq!(hits.len(), 1, "{hits:?}");
-            assert_eq!(hits[0].get("damage"), Some(&EventValue::Number(2.0)));
-            assert_eq!(hits[0].get("crit"), Some(&EventValue::Bool(true)));
-            assert_eq!(hits[0].get("from"), Some(&EventValue::Text("спина".into())));
-            assert_eq!(hits[0].get("nothing"), None);
-        }
-        let mut p = Player::load(&src, None, "", "", "").unwrap();
-        assert!(p.advance(0.1).events.iter().all(|e| e.data.is_empty()), "an event without data has none");
     }
 }
