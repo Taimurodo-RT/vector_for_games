@@ -78,10 +78,14 @@ pub fn render(ops: &[Op], radius: f64, view: Affine, antialias: bool, clip: Opti
     }
     let k = (MAX_SIDE / area.width().max(area.height())).min(SIGMA_PX / sigma.max(1e-9)).min(1.0);
     let mut pixmap = Pixmap::new((area.width() * k).ceil() as u32, (area.height() * k).ceil() as u32)?;
-    let inner = Affine::scale(k) * Affine::translate(-area.origin().to_vec2()) * view;
+    // Rounding the downsampled size adds a fractional pixel. Distribute it
+    // equally around the layer, rather than shifting the lower/right edge of
+    // an otherwise symmetric shadow onto a different sampling phase.
+    let origin = area.center() - motif_core::kurbo::Vec2::new(pixmap.width() as f64 / (2.0 * k), pixmap.height() as f64 / (2.0 * k));
+    let inner = Affine::scale(k) * Affine::translate(-origin.to_vec2()) * view;
     crate::cpu::draw_ops(&mut pixmap, ops, inner, antialias, None);
     gaussian(&mut pixmap, sigma * k);
-    Some(Layer { pixmap, transform: Affine::translate(area.origin().to_vec2()) * Affine::scale(1.0 / k) })
+    Some(Layer { pixmap, transform: Affine::translate(origin.to_vec2()) * Affine::scale(1.0 / k) })
 }
 
 /// Box radii whose three passes approximate a Gaussian of `sigma` (Kovesi, "Fast almost-Gaussian

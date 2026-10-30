@@ -124,7 +124,7 @@ fn supplied_play_component_retains_text_shapes_arrows_and_state_geometry() {
         near(node.width, 52.0);
         near(node.height, 52.0);
         near(doc.world_transform(doc.index_of(&format!("{id}_bg")).unwrap()).as_coeffs()[0].abs(), std::f64::consts::FRAC_1_SQRT_2);
-        assert!(node.inset.is_some());
+        assert!(doc.node(&format!("{id}__inset")).unwrap().inset.is_some());
     }
     for id in ["leftArrow", "rightArrow"] {
         let node = doc.node(&format!("{id}_bg")).unwrap();
@@ -181,6 +181,7 @@ fn supplied_keyframes_combine_color_scale_shadows_and_a_continuous_alternating_l
         let node = final_pose.node(&bg).unwrap();
         assert_eq!(node.fill, Color::from_hex("#27c39f"));
         assert!(node.inset.is_none_or(|s| s.color.a == 0), "the outer-shadow keyframe must replace the initial inset: {id}");
+        assert!(final_pose.node(&format!("{id}__inset")).unwrap().inset.is_none_or(|s| s.color.a == 0));
         let shadow = node.shadow.unwrap();
         near(shadow.blur, 2.0);
         assert_eq!(shadow.color, Color::from_hex("#27c39f").unwrap());

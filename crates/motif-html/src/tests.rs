@@ -52,7 +52,7 @@ fn state_styles_become_standard_ui_clips_and_leave_source_unchanged() {
     assert_eq!(press.node("b_bg").unwrap().fill, Color::from_hex("#abcdef"));
     assert_eq!(doc.node("b_bg").unwrap().fill, Color::from_hex("#112233"));
     assert_eq!(doc.animation("Disabled").unwrap().pose(&doc, 0.2).node("b").unwrap().opacity, 0.3);
-    assert_eq!(doc.animations[0].tracks[0].prop, Prop::Fill);
+    assert_eq!(doc.animation("Hover").unwrap().tracks[0].prop, Prop::Fill);
     assert!(out.warnings.is_empty(), "{:?}", out.warnings);
 }
 

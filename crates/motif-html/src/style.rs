@@ -64,6 +64,7 @@ pub(crate) struct Style {
     pub font_size: f64,
     pub line_height: f64,
     pub letter_spacing: f64,
+    pub font_family: crate::font::Family,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -110,6 +111,7 @@ impl Default for Style {
             font_size: 16.0,
             line_height: 1.2,
             letter_spacing: 0.0,
+            font_family: crate::font::Family::Plex,
             bold: false,
             italic: false,
             underline: false,
@@ -160,6 +162,7 @@ impl Style {
             s.font_size = p.font_size;
             s.line_height = p.line_height;
             s.letter_spacing = p.letter_spacing;
+            s.font_family = p.font_family;
             s.bold = p.bold;
             s.italic = p.italic;
             s.underline = p.underline;
@@ -171,7 +174,8 @@ impl Style {
             s.vars = p.vars.clone();
         }
         if node.tag == "button" {
-            s.padding = [2.0, 6.0, 2.0, 6.0];
+            s.font_family = crate::font::Family::Sans;
+            s.padding = [1.0, 6.0, 1.0, 6.0];
             s.border_box = true;
             s.background = "#e9edf5".into();
             s.border_color = "#7b8496".into();
@@ -232,14 +236,15 @@ impl Style {
             s.preserve_space = true;
         }
         if ["pre", "code", "kbd", "samp"].contains(&node.tag.as_str()) {
-            warnings.push(format!("HTML <{}>: использован встроенный IBM Plex Sans; моноширинный шрифт автоматически не подключается", node.tag));
+            warnings.push(format!("HTML <{}>: использован встроенный {}; моноширинный шрифт автоматически не подключается", node.tag, s.font_family.name()));
         }
         if node.tag == "input" {
             let input_type = node.attrs.get("type").map_or("text", String::as_str).to_ascii_lowercase();
             match input_type.as_str() {
                 "hidden" => s.hidden = true,
                 "button" | "submit" | "reset" => {
-                    s.padding = [2.0, 6.0, 2.0, 6.0];
+                    s.font_family = crate::font::Family::Sans;
+                    s.padding = [1.0, 6.0, 1.0, 6.0];
                     s.border_box = true;
                     s.background = "#e9edf5".into();
                     s.border_color = "#7b8496".into();
@@ -571,7 +576,7 @@ impl Style {
                     _ => bad(key, value, warnings),
                 },
                 "font-family" => {
-                    warnings.push(format!("CSS font-family {value}: использован встроенный IBM Plex Sans; внешний шрифт не загружается"));
+                    s.font_family = crate::font::select(value, parent.map_or(crate::font::Family::Plex, |p| p.font_family), s.font_family, warnings);
                 }
                 "line-height" => {
                     if value == "normal" {
@@ -1023,6 +1028,26 @@ mod style_tests {
         assert!(child.inset_shadow.is_none() && child.width_percent.is_none());
         let reset = Style::compute(&element("div"), None, &declarations(&[("box-shadow", "none")]), &mut warnings);
         assert!(reset.shadow.is_none() && reset.inset_shadow.is_none());
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn button_uses_portable_browser_sans_but_explicit_family_and_inheritance_are_respected() {
+        use crate::font::Family;
+        let mut warnings = Vec::new();
+        let plain = Style::compute(&element("div"), None, &BTreeMap::new(), &mut warnings);
+        assert_eq!(plain.font_family, Family::Plex);
+        let button = Style::compute(&element("button"), Some(&plain), &declarations(&[("font-size", "13px"), ("font-weight", "bold")]), &mut warnings);
+        assert_eq!(button.font_family, Family::Sans);
+        assert!(button.bold);
+        assert_eq!(button.font_size, 13.0);
+        let text = Style::compute(&element("#text"), Some(&button), &BTreeMap::new(), &mut warnings);
+        assert_eq!(text.font_family, Family::Sans);
+        assert!(text.bold);
+        let explicit = Style::compute(&element("button"), Some(&plain), &declarations(&[("font-family", "'IBM Plex Sans', Arial")]), &mut warnings);
+        assert_eq!(explicit.font_family, Family::Plex);
+        let inherit = Style::compute(&element("button"), Some(&plain), &declarations(&[("font-family", "inherit")]), &mut warnings);
+        assert_eq!(inherit.font_family, Family::Plex);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

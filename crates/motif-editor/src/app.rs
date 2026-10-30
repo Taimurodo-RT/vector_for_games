@@ -863,6 +863,9 @@ impl App {
     pub(crate) fn display_doc(&self) -> Document {
         let mut doc = match (self.running(), self.current_anim()) {
             (Some((m, player)), _) => player.pose(&self.faced(m), &self.scene.doc),
+            // A UI check owns state playback. The clip selected for authoring is
+            // retained in the workspace, but cannot become the normal-state base.
+            (None, _) if self.check.is_some() => self.scene.doc.clone(),
             (None, Some(a)) => self.pose_anim(a, self.time),
             (None, None) => self.scene.doc.clone(),
         };
@@ -4229,3 +4232,7 @@ mod html_ui;
 #[cfg(test)]
 #[path = "performance_tests.rs"]
 mod performance_tests;
+
+#[cfg(test)]
+#[path = "check_integration_tests.rs"]
+mod check_integration_tests;

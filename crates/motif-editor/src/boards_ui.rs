@@ -249,6 +249,12 @@ impl App {
         self.reset_workspace_document();
         self.time = 0.0;
         self.reparse();
+        // A new imported board starts from its authored drawing. A previous
+        // board's selected Hover may otherwise survive because the names match.
+        if self.scene.doc.animation("Normal").is_some() {
+            self.select_anim("Normal".into());
+            self.time = 0.0;
+        }
         self.boards.reveal = true;
         self.status = format!("Добавлен UI-холст «{name}» из HTML + CSS");
         true
