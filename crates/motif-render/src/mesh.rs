@@ -418,7 +418,8 @@ mod tests {
     #[test]
     fn every_example_is_cut_into_well_formed_pieces() {
         let dir = std::path::Path::new("../../examples");
-        let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "msc")).collect();
+        let mut files: Vec<_> =
+            std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x == "msc")).collect();
         files.sort();
         assert!(files.len() > 20);
         for f in files {
