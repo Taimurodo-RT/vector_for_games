@@ -93,7 +93,7 @@ fn unsupported_css_units_resources_and_code_produce_warnings_without_execution()
 fn text_is_visible_and_gradient_shadow_alpha_render_through_the_existing_renderer() {
     let out = import(
         "<button id='b'>Hello</button>",
-        "button {background:linear-gradient(90deg,#123456,#abcdef);box-shadow:0 3px 8px rgba(0,0,0,.3);color:rgb(255,255,255);font-weight:700}",
+        "button {background:linear-gradient(90deg,#123456,#abcdef);box-shadow:0 3px 8px rgba(0,0,0,.3);color:rgb(255,255,255);font-weight:700;font-size:16px}",
     )
     .unwrap();
     let s = scene(&out);
@@ -157,7 +157,7 @@ fn inline_text_retains_boundary_spaces_and_paragraph_baseline_and_br_creates_a_n
     let doc = scene(&out).doc;
     let texts: Vec<_> =
         doc.nodes.iter().enumerate().filter(|(_, n)| n.text.is_some()).map(|(i, _)| doc.world_transform(i) * motif_core::kurbo::Point::ZERO).collect();
-    assert!((texts[1].y - texts[0].y - 19.2).abs() < 0.1, "{texts:?}");
+    assert!((texts[1].y - texts[0].y - 16.0).abs() < 0.1, "{texts:?}");
     assert!(out.warnings.iter().all(|w| w.contains("составная подпись")), "{:?}", out.warnings);
     let out = import("<button>A&nbsp;B</button>", "").unwrap();
     assert!(scene(&out).doc.nodes.iter().any(|n| n.text.as_ref().is_some_and(|t| t.content == "A\u{a0}B")));
@@ -219,7 +219,7 @@ fn br_empty_lines_pre_tabs_and_literal_escapes_survive_as_editable_text() {
     assert!((texts[2].2 - texts[1].2 - 38.4).abs() < 0.1);
     assert_eq!(texts[3].0, " a\n    b  c \\n \"q\" ");
     assert_eq!(texts[4].0, "a b c");
-    assert!(out.warnings.iter().any(|w| w.contains("IBM Plex Sans")));
+    assert!(doc.nodes.iter().any(|n| n.text.as_ref().is_some_and(|t| t.font.as_ref().is_some_and(|f| f.name == "LiberationMono-Regular.ttf"))));
     assert!(!out.warnings.iter().any(|w| w.contains("<br>")));
 }
 
@@ -355,7 +355,8 @@ fn empty_input_keeps_an_editable_caption_part_and_check_parts_keep_full_bounds()
     assert!(
         doc.nodes.iter().any(|n| n.parent == Some(empty) && n.text.as_ref().is_some_and(|t| t.content.is_empty()) && n.part == Some(motif_core::UiPart::Text))
     );
-    assert!(doc.node("empty_bg").unwrap().height > 30.0);
+    let frame = doc.node("empty_bg").unwrap();
+    assert!((frame.height + frame.stroke_width - 21.0).abs() < 0.1);
     for id in ["check", "radio"] {
         let off = doc.node(&format!("{id}_unchecked")).unwrap().path().unwrap().bounding_box();
         let on = doc.node(&format!("{id}_checked_bounds")).unwrap().path().unwrap().bounding_box();

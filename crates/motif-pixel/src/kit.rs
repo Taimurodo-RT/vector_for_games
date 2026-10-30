@@ -1104,7 +1104,7 @@ pub fn write_kit(dir: &Path, theme: &str, items: &[KitItem]) -> Result<Vec<PathB
 
 fn write_font_notices(dir: &Path, data: &[u8], files: &mut Vec<PathBuf>) -> Result<(), String> {
     use std::io::Write;
-    let Some(notices) = motif_script::fonts::css_sans_notices(data) else {
+    let Some(notices) = motif_script::fonts::css_font_notices(data) else {
         return Ok(());
     };
     for (name, text) in notices {
@@ -1140,9 +1140,13 @@ mod tests {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!("motif-kit-css-font-{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
         let scene = doc(&format!(
-            "artboard 200x100\ntext regular content \"Menu\" font \"{}\" ui label\ntext bold content \"Play\" font \"{}\" ui label\n",
+            "artboard 200x100\ntext regular content \"Menu\" font \"{}\" ui label\ntext bold content \"Play\" font \"{}\" ui label\ntext serif content \"Title\" font \"{}\" ui label\ntext serif_bold content \"Title\" font \"{}\" ui label\ntext mono content \"Code\" font \"{}\" ui label\ntext mono_bold content \"Code\" font \"{}\" ui label\n",
             motif_script::fonts::CSS_SANS_REGULAR,
-            motif_script::fonts::CSS_SANS_BOLD
+            motif_script::fonts::CSS_SANS_BOLD,
+            motif_script::fonts::CSS_SERIF_REGULAR,
+            motif_script::fonts::CSS_SERIF_BOLD,
+            motif_script::fonts::CSS_MONO_REGULAR,
+            motif_script::fonts::CSS_MONO_BOLD
         ));
         let items = render_kit(&scene, CpuOptions::default()).unwrap();
         let dir = root.join("sans");
@@ -1152,6 +1156,10 @@ mod tests {
             assert_eq!(std::fs::read(dir.join(&font.file)).unwrap().as_slice(), font.data.as_slice());
         }
         for (name, text) in motif_script::fonts::css_sans_notices(motif_script::fonts::css_sans_data(false)).unwrap() {
+            assert_eq!(std::fs::read_to_string(dir.join(name)).unwrap(), text);
+            assert_eq!(files.iter().filter(|p| p.file_name().is_some_and(|p| p == name)).count(), 1);
+        }
+        for (name, text) in motif_script::fonts::css_font_notices(motif_script::fonts::css_serif_data(false)).unwrap() {
             assert_eq!(std::fs::read_to_string(dir.join(name)).unwrap(), text);
             assert_eq!(files.iter().filter(|p| p.file_name().is_some_and(|p| p == name)).count(), 1);
         }

@@ -219,7 +219,10 @@ fn apply(property: &str, into: &mut Style, from: &Style, to: &Style, k: f64) -> 
         }
         "border-width" => numeric!(border_width),
         "border-radius" => numeric!(radius),
-        "font-size" => numeric!(font_size),
+        "font-size" => {
+            numeric!(font_size);
+            into.medium_scale = from.medium_scale.zip(to.medium_scale).map(|(a, b)| number(a, b, k));
+        }
         "line-height" => numeric!(line_height),
         "letter-spacing" => numeric!(letter_spacing),
         "gap" => numeric!(gap),
@@ -354,5 +357,20 @@ mod tests {
         property("box-shadow", &mut out, &a, &b, 1.0);
         assert_eq!(out.inset_shadow, b.inset_shadow);
         assert_eq!(out.shadow, b.shadow);
+    }
+
+    #[test]
+    fn numeric_font_size_keys_do_not_reset_inherited_monospace_to_medium() {
+        let element = crate::Element { tag: "span".into(), ..Default::default() };
+        let styled = |size: &str| Style::compute(&element, None, &std::collections::BTreeMap::from([("font-size".into(), size.into())]), &mut Vec::new());
+        let a = styled("20px");
+        let b = styled("30px");
+        let mut out = Style::default();
+        assert!(property("font-size", &mut out, &a, &b, 0.5));
+        assert_eq!(out.font_size, 25.0);
+        assert_eq!(out.medium_scale, None);
+        let child =
+            Style::compute(&crate::Element { tag: "code".into(), ..Default::default() }, Some(&out), &std::collections::BTreeMap::new(), &mut Vec::new());
+        assert_eq!(child.font_size, 25.0);
     }
 }

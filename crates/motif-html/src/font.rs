@@ -7,6 +7,8 @@ pub(crate) enum Family {
     #[default]
     Plex,
     Sans,
+    Serif,
+    Mono,
 }
 impl Family {
     pub fn bytes(self, bold: bool) -> &'static [u8] {
@@ -19,6 +21,8 @@ impl Family {
                 }
             }
             Self::Sans => motif_script::fonts::css_sans_data(bold),
+            Self::Serif => motif_script::fonts::css_serif_data(bold),
+            Self::Mono => motif_script::fonts::css_mono_data(bold),
         }
     }
     /// Includes its own leading space so the existing optional MSC attributes stay simple.
@@ -32,17 +36,24 @@ impl Family {
                 }
             }
             Self::Sans => format!(" font \"{}\"", if bold { motif_script::fonts::CSS_SANS_BOLD } else { motif_script::fonts::CSS_SANS_REGULAR }),
+            Self::Serif => format!(" font \"{}\"", if bold { motif_script::fonts::CSS_SERIF_BOLD } else { motif_script::fonts::CSS_SERIF_REGULAR }),
+            Self::Mono => format!(" font \"{}\"", if bold { motif_script::fonts::CSS_MONO_BOLD } else { motif_script::fonts::CSS_MONO_REGULAR }),
         }
     }
     pub fn name(self) -> &'static str {
         match self {
             Self::Plex => "IBM Plex Sans",
             Self::Sans => "Liberation Sans",
+            Self::Serif => "Liberation Serif",
+            Self::Mono => "Liberation Mono",
         }
     }
 }
 
 pub(crate) fn select(value: &str, inherited: Family, fallback: Family, warnings: &mut Vec<String>) -> Family {
+    if value.trim().eq_ignore_ascii_case("initial") {
+        return Family::Serif;
+    }
     if matches!(value.trim(), "inherit" | "unset") {
         return inherited;
     }
@@ -51,6 +62,8 @@ pub(crate) fn select(value: &str, inherited: Family, fallback: Family, warnings:
         let name = item.trim().trim_matches(['\'', '"']).split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase();
         let choice = match name.as_str() {
             "arial" | "helvetica" | "helvetica neue" | "liberation sans" | "sans-serif" => Some(Family::Sans),
+            "times new roman" | "times" | "liberation serif" | "serif" | "ui-serif" => Some(Family::Serif),
+            "courier new" | "courier" | "liberation mono" | "monospace" | "ui-monospace" => Some(Family::Mono),
             "ibm plex sans" => Some(Family::Plex),
             "system-ui" | "ui-sans-serif" => {
                 warnings.push(format!("CSS font-family {name}: использована переносимая Liberation Sans; системный шрифт браузера может отличаться"));
@@ -86,8 +99,11 @@ mod tests {
         assert_eq!(select("inherit", Family::Sans, Family::Plex, &mut warnings), Family::Sans);
         assert_eq!(select("sans-serif", Family::Plex, Family::Plex, &mut warnings), Family::Sans);
         assert!(warnings.is_empty());
-        assert_eq!(select("monospace", Family::Plex, Family::Plex, &mut warnings), Family::Plex);
-        assert!(warnings.iter().any(|w| w.contains("monospace") && w.contains("не встроено")));
+        assert_eq!(select("monospace", Family::Plex, Family::Plex, &mut warnings), Family::Mono);
+        assert_eq!(select("Times New Roman, serif", Family::Plex, Family::Plex, &mut warnings), Family::Serif);
+        assert_eq!(select("Courier New, monospace", Family::Plex, Family::Plex, &mut warnings), Family::Mono);
+        assert_eq!(select("initial", Family::Mono, Family::Sans, &mut warnings), Family::Serif);
+        assert!(warnings.is_empty());
     }
     #[test]
     fn family_faces_and_script_attributes_select_the_same_embedded_font() {
@@ -108,5 +124,13 @@ mod tests {
         });
         // Headless Edge with explicit Arial 700 13px and fontKerning=normal: 43.836914.
         assert!((bounds.width() - 43.836914).abs() < 0.01, "{}", bounds.width());
+        for family in [Family::Serif, Family::Mono] {
+            for bold in [false, true] {
+                let scene = motif_script::parse(&format!("artboard 200x100\ntext t content \"Играть\"{}\n", family.attribute(bold))).unwrap();
+                let face = scene.doc.nodes[0].text.as_ref().unwrap().font.as_ref().unwrap();
+                assert_eq!(face.data.as_slice(), family.bytes(bold));
+                assert!(face.name.starts_with(if family == Family::Serif { "LiberationSerif-" } else { "LiberationMono-" }));
+            }
+        }
     }
 }

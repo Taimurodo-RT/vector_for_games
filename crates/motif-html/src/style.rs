@@ -65,6 +65,8 @@ pub(crate) struct Style {
     pub line_height: f64,
     pub letter_spacing: f64,
     pub font_family: crate::font::Family,
+    pub medium_scale: Option<f64>,
+    pub list_depth: usize,
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
@@ -112,6 +114,8 @@ impl Default for Style {
             line_height: 1.2,
             letter_spacing: 0.0,
             font_family: crate::font::Family::Plex,
+            medium_scale: Some(1.0),
+            list_depth: 0,
             bold: false,
             italic: false,
             underline: false,
@@ -156,13 +160,26 @@ impl Style {
         Affine::translate(origin) * matrix * Affine::translate((-origin.0, -origin.1))
     }
 
+    #[cfg(test)]
     pub fn compute(node: &Element, parent: Option<&Self>, declarations: &BTreeMap<String, String>, warnings: &mut Vec<String>) -> Self {
-        let mut s = Self::default();
+        Self::compute_with_browser(node, parent, declarations, warnings, crate::BrowserProfile::Chrome)
+    }
+
+    pub fn compute_with_browser(
+        node: &Element,
+        parent: Option<&Self>,
+        declarations: &BTreeMap<String, String>,
+        warnings: &mut Vec<String>,
+        browser: crate::BrowserProfile,
+    ) -> Self {
+        let mut s = Self { font_family: crate::font::Family::Serif, color: "#000000".into(), ..Self::default() };
         if let Some(p) = parent {
             s.font_size = p.font_size;
             s.line_height = p.line_height;
             s.letter_spacing = p.letter_spacing;
             s.font_family = p.font_family;
+            s.medium_scale = p.medium_scale;
+            s.list_depth = p.list_depth;
             s.bold = p.bold;
             s.italic = p.italic;
             s.underline = p.underline;
@@ -173,130 +190,13 @@ impl Style {
             s.hidden = p.hidden;
             s.vars = p.vars.clone();
         }
-        if node.tag == "button" {
-            s.font_family = crate::font::Family::Sans;
-            s.padding = [1.0, 6.0, 1.0, 6.0];
-            s.border_box = true;
-            s.background = "#e9edf5".into();
-            s.border_color = "#7b8496".into();
-            s.border_width = 1.0;
-            s.radius = 4.0;
-            s.align_center = true;
-            s.justify_center = true;
+        crate::browser::prepare(node, &mut s);
+        let mut ua = crate::browser::declarations(node, parent, browser, warnings);
+        if matches!(node.tag.as_str(), "ul" | "ol") {
+            s.list_depth += 1;
         }
-        if [
-            "#text", "span", "strong", "b", "em", "i", "u", "s", "del", "ins", "small", "sub", "sup", "code", "kbd", "samp", "mark", "button", "label",
-            "input", "textarea", "select", "a",
-        ]
-        .contains(&node.tag.as_str())
-        {
-            s.inline = true;
-            s.row = true;
-        }
-        if ["b", "strong", "h1", "h2", "h3", "h4", "h5", "h6"].contains(&node.tag.as_str()) {
-            s.bold = true;
-        }
-        if ["h1", "h2", "h3", "h4", "h5", "h6"].contains(&node.tag.as_str()) {
-            s.font_size = match node.tag.as_str() {
-                "h1" => 32.0,
-                "h2" => 24.0,
-                "h3" => 20.0,
-                "h4" => 16.0,
-                "h5" => 13.28,
-                _ => 10.72,
-            };
-        }
-        if ["em", "i"].contains(&node.tag.as_str()) {
-            s.italic = true;
-        }
-        if ["u", "ins"].contains(&node.tag.as_str()) {
-            s.underline = true;
-        }
-        if ["s", "del"].contains(&node.tag.as_str()) {
-            s.strike = true;
-        }
-        if node.tag == "a" && node.attrs.contains_key("href") {
-            s.color = "#0066cc".into();
-            s.underline = true;
-        }
-        if node.tag == "ul" || node.tag == "ol" {
-            s.padding[3] = 24.0;
-            s.gap = 4.0;
-        }
-        if ["small", "sub", "sup"].contains(&node.tag.as_str()) {
-            s.font_size *= 0.8;
-        }
-        if node.tag == "sub" {
-            s.baseline_shift = 0.2;
-        }
-        if node.tag == "sup" {
-            s.baseline_shift = -0.35;
-        }
-        if node.tag == "pre" {
-            s.preserve_space = true;
-        }
-        if ["pre", "code", "kbd", "samp"].contains(&node.tag.as_str()) {
-            warnings.push(format!("HTML <{}>: использован встроенный {}; моноширинный шрифт автоматически не подключается", node.tag, s.font_family.name()));
-        }
-        if node.tag == "input" {
-            let input_type = node.attrs.get("type").map_or("text", String::as_str).to_ascii_lowercase();
-            match input_type.as_str() {
-                "hidden" => s.hidden = true,
-                "button" | "submit" | "reset" => {
-                    s.font_family = crate::font::Family::Sans;
-                    s.padding = [1.0, 6.0, 1.0, 6.0];
-                    s.border_box = true;
-                    s.background = "#e9edf5".into();
-                    s.border_color = "#7b8496".into();
-                    s.border_width = 1.0;
-                    s.radius = 4.0;
-                    s.align_center = true;
-                    s.justify_center = true;
-                }
-                "checkbox" | "radio" => {
-                    s.width = Some(18.0);
-                    s.height = Some(18.0);
-                    s.border_box = true;
-                    s.border_width = 1.0;
-                    s.border_color = "#7b8496".into();
-                    s.background = "#ffffff".into();
-                    s.radius = if input_type == "radio" { 9.0 } else { 3.0 };
-                }
-                "range" => {
-                    s.width = Some(160.0);
-                    s.height = Some(20.0);
-                    s.border_box = true;
-                }
-                _ => {
-                    s.width = Some(180.0);
-                    s.padding = [6.0, 8.0, 6.0, 8.0];
-                    s.border_box = true;
-                    s.border_width = 1.0;
-                    s.border_color = "#7b8496".into();
-                    s.background = "#ffffff".into();
-                    s.radius = 3.0;
-                }
-            }
-        }
-        if node.tag == "textarea" || node.tag == "select" {
-            s.width = Some(if node.tag == "textarea" { 220.0 } else { 180.0 });
-            s.height = Some(if node.tag == "textarea" { 72.0 } else { 34.0 });
-            s.padding = [6.0, 8.0, 6.0, 8.0];
-            s.border_box = true;
-            s.border_width = 1.0;
-            s.border_color = "#7b8496".into();
-            s.background = "#ffffff".into();
-            s.radius = 3.0;
-        }
-        if node.tag == "textarea" {
-            s.preserve_space = true;
-        }
-        if node.tag == "hr" {
-            s.width = Some(160.0);
-            s.height = Some(1.0);
-            s.background = "#7b8496".into();
-            s.border_box = true;
-        }
+        ua.extend(declarations.clone());
+        let declarations = &ua;
         for (key, value) in declarations {
             if key.starts_with("--") {
                 s.vars.insert(key.clone(), value.clone());
@@ -312,12 +212,45 @@ impl Style {
                 (key.clone(), value.unwrap_or_else(|| v.clone()))
             })
             .collect();
+        if let Some(value) = values.get("font-family") {
+            s.font_family = crate::font::select(value, parent.map_or(crate::font::Family::Serif, |p| p.font_family), s.font_family, warnings);
+        }
+        let medium = if s.font_family == crate::font::Family::Mono { 13.0 } else { 16.0 };
+        if parent.is_some_and(|p| p.font_family != s.font_family)
+            && let Some(scale) = s.medium_scale
+        {
+            s.font_size = medium * scale;
+        }
         if let Some(size) = values.get("font-size") {
-            if let Some(size) = length(size, parent.map_or(16.0, |p| p.font_size)) {
-                s.font_size = size.clamp(1.0, 512.0);
-            } else {
-                bad("font-size", size, warnings);
+            match size.as_str() {
+                "inherit" | "unset" => {}
+                "initial" | "medium" => {
+                    s.font_size = medium;
+                    s.medium_scale = Some(1.0);
+                }
+                "smaller" | "larger" => {
+                    let scale = if size == "smaller" { 1.0 / 1.2 } else { 1.2 };
+                    s.font_size *= scale;
+                    s.medium_scale = s.medium_scale.map(|v| v * scale);
+                }
+                _ => {
+                    let relative = size
+                        .strip_suffix("em")
+                        .filter(|_| !size.ends_with("rem"))
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .or_else(|| size.strip_suffix('%').and_then(|v| v.parse::<f64>().ok()).map(|v| v / 100.0));
+                    if let Some(scale) = relative.filter(|v| v.is_finite() && *v >= 0.0) {
+                        s.font_size *= scale;
+                        s.medium_scale = s.medium_scale.map(|v| v * scale);
+                    } else if let Some(size) = length(size, parent.map_or(16.0, |p| p.font_size)).filter(|v| *v >= 0.0) {
+                        s.font_size = size;
+                        s.medium_scale = None;
+                    } else {
+                        bad("font-size", size, warnings);
+                    }
+                }
             }
+            s.font_size = s.font_size.clamp(1.0, 512.0);
         }
         if let Some(value) = values.get("color")
             && let Some(value) = color(value, &s.color)
@@ -539,11 +472,15 @@ impl Style {
                     }
                 }
                 "font-weight" => match value.as_str() {
+                    "inherit" | "unset" => s.bold = parent.is_some_and(|p| p.bold),
+                    "initial" => s.bold = false,
                     "bold" | "600" | "700" | "800" | "900" => s.bold = true,
                     "normal" | "100" | "200" | "300" | "400" | "500" => s.bold = false,
                     _ => bad(key, value, warnings),
                 },
                 "font-style" => match value.as_str() {
+                    "inherit" | "unset" => s.italic = parent.is_some_and(|p| p.italic),
+                    "initial" => s.italic = false,
                     "normal" => s.italic = false,
                     "italic" | "oblique" => s.italic = true,
                     _ => bad(key, value, warnings),
@@ -575,11 +512,11 @@ impl Style {
                     "super" => s.baseline_shift = -0.35,
                     _ => bad(key, value, warnings),
                 },
-                "font-family" => {
-                    s.font_family = crate::font::select(value, parent.map_or(crate::font::Family::Plex, |p| p.font_family), s.font_family, warnings);
-                }
+                "font-family" => {}
                 "line-height" => {
-                    if value == "normal" {
+                    if matches!(value.as_str(), "inherit" | "unset") {
+                        s.line_height = parent.map_or(1.2, |p| p.line_height);
+                    } else if value == "normal" || value == "initial" {
                         s.line_height = 1.2;
                     } else if let Ok(v) = value.parse::<f64>() {
                         if v.is_finite() && v > 0.0 {
@@ -629,8 +566,8 @@ impl Style {
                 "text-align" => {
                     if value != "center" && value != "left" {
                         bad(key, value, warnings);
-                    } else if value == "center" {
-                        s.align_center = true;
+                    } else {
+                        s.align_center = value == "center";
                     }
                 }
                 "outline" if value == "none" => {}
@@ -654,6 +591,7 @@ impl Style {
                 _ => warnings.push(format!("CSS-свойство не поддерживается: {key}: {value}")),
             }
         }
+        crate::browser::intrinsic(node, &mut s, browser);
         s
     }
 }
@@ -930,7 +868,7 @@ mod style_tests {
         assert_eq!(child.baseline_shift, 0.0);
         let sub = Style::compute(&element("sub"), Some(&parent), &BTreeMap::new(), &mut warnings);
         let sup = Style::compute(&element("sup"), Some(&parent), &BTreeMap::new(), &mut warnings);
-        assert_eq!(sub.font_size, 16.0);
+        assert!((sub.font_size - 20.0 / 1.2).abs() < 1e-9);
         assert_eq!(sub.baseline_shift, 0.2);
         assert_eq!(sup.baseline_shift, -0.35);
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -965,11 +903,11 @@ mod style_tests {
         input.attrs.insert("type".into(), "checkbox".into());
         let check = Style::compute(&input, None, &declarations(&[("width", "24px"), ("background-color", "#123456")]), &mut warnings);
         assert_eq!(check.width, Some(24.0));
-        assert_eq!(check.height, Some(18.0));
+        assert_eq!(check.height, Some(13.0));
         assert_eq!(check.background, "#123456");
         let list = Style::compute(&element("ul"), None, &BTreeMap::new(), &mut warnings);
-        assert_eq!(list.padding[3], 24.0);
-        assert_eq!(list.gap, 4.0);
+        assert_eq!(list.padding[3], 40.0);
+        assert_eq!(list.gap, 0.0);
         let mut link = element("a");
         link.attrs.insert("href".into(), "/demo".into());
         let link = Style::compute(&link, None, &declarations(&[("color", "#abcdef"), ("text-decoration", "none")]), &mut warnings);
@@ -1036,7 +974,7 @@ mod style_tests {
         use crate::font::Family;
         let mut warnings = Vec::new();
         let plain = Style::compute(&element("div"), None, &BTreeMap::new(), &mut warnings);
-        assert_eq!(plain.font_family, Family::Plex);
+        assert_eq!(plain.font_family, Family::Serif);
         let button = Style::compute(&element("button"), Some(&plain), &declarations(&[("font-size", "13px"), ("font-weight", "bold")]), &mut warnings);
         assert_eq!(button.font_family, Family::Sans);
         assert!(button.bold);
@@ -1047,7 +985,7 @@ mod style_tests {
         let explicit = Style::compute(&element("button"), Some(&plain), &declarations(&[("font-family", "'IBM Plex Sans', Arial")]), &mut warnings);
         assert_eq!(explicit.font_family, Family::Plex);
         let inherit = Style::compute(&element("button"), Some(&plain), &declarations(&[("font-family", "inherit")]), &mut warnings);
-        assert_eq!(inherit.font_family, Family::Plex);
+        assert_eq!(inherit.font_family, Family::Serif);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

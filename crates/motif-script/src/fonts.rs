@@ -21,10 +21,35 @@ static READER: OnceLock<Reader> = OnceLock::new();
 /// not filesystem paths, so an imported scene also opens on another computer.
 pub const CSS_SANS_REGULAR: &str = "builtin:css-sans-regular";
 pub const CSS_SANS_BOLD: &str = "builtin:css-sans-bold";
+pub const CSS_SERIF_REGULAR: &str = "builtin:css-serif-regular";
+pub const CSS_SERIF_BOLD: &str = "builtin:css-serif-bold";
+pub const CSS_MONO_REGULAR: &str = "builtin:css-mono-regular";
+pub const CSS_MONO_BOLD: &str = "builtin:css-mono-bold";
 
 /// Liberation Sans is an OFL-licensed, metrically compatible substitute for Arial.
 pub fn css_sans_data(bold: bool) -> &'static [u8] {
     if bold { include_bytes!("../assets/fonts/LiberationSans-Bold.ttf") } else { include_bytes!("../assets/fonts/LiberationSans-Regular.ttf") }
+}
+
+/// Portable Times New Roman-compatible faces for CSS serif text.
+pub fn css_serif_data(bold: bool) -> &'static [u8] {
+    if bold { include_bytes!("../assets/fonts/LiberationSerif-Bold.ttf") } else { include_bytes!("../assets/fonts/LiberationSerif-Regular.ttf") }
+}
+
+/// Portable Courier New-compatible faces for CSS fixed-width text.
+pub fn css_mono_data(bold: bool) -> &'static [u8] {
+    if bold { include_bytes!("../assets/fonts/LiberationMono-Bold.ttf") } else { include_bytes!("../assets/fonts/LiberationMono-Regular.ttf") }
+}
+
+/// Notices for the exact portable faces, independent of an exported file's name.
+pub fn css_font_notices(data: &[u8]) -> Option<[(&'static str, &'static str); 2]> {
+    if let Some(notices) = css_sans_notices(data) {
+        return Some(notices);
+    }
+    [css_serif_data(false), css_serif_data(true), css_mono_data(false), css_mono_data(true)].contains(&data).then_some([
+        ("LiberationFonts-LICENSE.txt", include_str!("../assets/fonts/LiberationFonts-LICENSE.txt")),
+        ("LiberationFonts-AUTHORS.txt", include_str!("../assets/fonts/LiberationFonts-AUTHORS.txt")),
+    ])
 }
 
 /// Notices for these exact embedded faces, not merely a file with the same name.
@@ -36,7 +61,7 @@ pub fn css_sans_notices(data: &[u8]) -> Option<[(&'static str, &'static str); 2]
 }
 
 fn builtin_name(name: &str) -> bool {
-    matches!(name, "" | "regular" | "bold" | CSS_SANS_REGULAR | CSS_SANS_BOLD)
+    matches!(name, "" | "regular" | "bold" | CSS_SANS_REGULAR | CSS_SANS_BOLD | CSS_SERIF_REGULAR | CSS_SERIF_BOLD | CSS_MONO_REGULAR | CSS_MONO_BOLD)
 }
 
 /// Makes fonts load through `reader` first, falling back to the disk. Set once, at start.
@@ -51,6 +76,10 @@ pub fn load(font: Option<&str>, base: Option<&Path>) -> Result<Arc<Vec<u8>>, Str
         Some("bold") => return Ok(builtin(true)),
         Some(CSS_SANS_REGULAR) => return Ok(css_sans(false)),
         Some(CSS_SANS_BOLD) => return Ok(css_sans(true)),
+        Some(CSS_SERIF_REGULAR) => return Ok(css_serif(false)),
+        Some(CSS_SERIF_BOLD) => return Ok(css_serif(true)),
+        Some(CSS_MONO_REGULAR) => return Ok(css_mono(false)),
+        Some(CSS_MONO_BOLD) => return Ok(css_mono(true)),
         Some(f) => f,
     };
     let path = match base {
@@ -98,6 +127,10 @@ pub fn file_name(font: Option<&str>) -> String {
         Some("bold") => "IBMPlexSans-SemiBold.ttf".into(),
         Some(CSS_SANS_REGULAR) => "LiberationSans-Regular.ttf".into(),
         Some(CSS_SANS_BOLD) => "LiberationSans-Bold.ttf".into(),
+        Some(CSS_SERIF_REGULAR) => "LiberationSerif-Regular.ttf".into(),
+        Some(CSS_SERIF_BOLD) => "LiberationSerif-Bold.ttf".into(),
+        Some(CSS_MONO_REGULAR) => "LiberationMono-Regular.ttf".into(),
+        Some(CSS_MONO_BOLD) => "LiberationMono-Bold.ttf".into(),
         Some(f) => Path::new(f).file_name().map_or_else(|| f.to_string(), |n| n.to_string_lossy().into_owned()),
     }
 }
@@ -117,6 +150,20 @@ fn css_sans(bold: bool) -> Arc<Vec<u8>> {
     static BOLD: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
     let cache = if bold { &BOLD } else { &REGULAR };
     cache.get_or_init(|| Arc::new(css_sans_data(bold).to_vec())).clone()
+}
+
+fn css_serif(bold: bool) -> Arc<Vec<u8>> {
+    static REGULAR: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
+    static BOLD: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
+    let cache = if bold { &BOLD } else { &REGULAR };
+    cache.get_or_init(|| Arc::new(css_serif_data(bold).to_vec())).clone()
+}
+
+fn css_mono(bold: bool) -> Arc<Vec<u8>> {
+    static REGULAR: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
+    static BOLD: OnceLock<Arc<Vec<u8>>> = OnceLock::new();
+    let cache = if bold { &BOLD } else { &REGULAR };
+    cache.get_or_init(|| Arc::new(css_mono_data(bold).to_vec())).clone()
 }
 
 #[cfg(test)]
@@ -145,7 +192,35 @@ mod tests {
 
     #[test]
     fn builtin_css_aliases_are_not_reported_as_files_to_copy() {
-        let source = format!("text a font \"{CSS_SANS_REGULAR}\"\ntext b font \"{CSS_SANS_BOLD}\"\ntext c font \"fonts/custom.ttf\"\ntext d font bold\n");
+        let source = format!(
+            "text a font \"{CSS_SANS_REGULAR}\"\ntext b font \"{CSS_SANS_BOLD}\"\ntext c font \"fonts/custom.ttf\"\ntext d font bold\ntext e font \"{CSS_SERIF_REGULAR}\"\ntext f font \"{CSS_SERIF_BOLD}\"\ntext g font \"{CSS_MONO_REGULAR}\"\ntext h font \"{CSS_MONO_BOLD}\"\n"
+        );
         assert_eq!(named(&source).unwrap(), vec!["fonts/custom.ttf"]);
+    }
+
+    #[test]
+    fn serif_and_monospace_are_portable_and_include_only_their_own_notices() {
+        for (name, data, file) in [
+            (CSS_SERIF_REGULAR, css_serif_data(false), "LiberationSerif-Regular.ttf"),
+            (CSS_SERIF_BOLD, css_serif_data(true), "LiberationSerif-Bold.ttf"),
+            (CSS_MONO_REGULAR, css_mono_data(false), "LiberationMono-Regular.ttf"),
+            (CSS_MONO_BOLD, css_mono_data(true), "LiberationMono-Bold.ttf"),
+        ] {
+            let bytes = load(Some(name), Some(Path::new("no-font-folder"))).unwrap();
+            assert_eq!(bytes.as_slice(), data);
+            assert!(Arc::ptr_eq(&bytes, &load(Some(name), None).unwrap()));
+            assert_eq!(file_name(Some(name)), file);
+            let scene = crate::parse(&format!("artboard 200x100\ntext t content \"Menu — Меню\" font \"{name}\"\n")).unwrap();
+            let text = scene.doc.nodes[0].text.as_ref().unwrap();
+            assert_eq!(text.font.as_ref().unwrap().name, file);
+            assert!(!scene.doc.nodes[0].path().unwrap().elements().is_empty());
+            assert!(css_font_notices(bytes.as_slice()).unwrap()[0].0.starts_with("LiberationFonts-"));
+        }
+        assert!(css_font_notices(motif_core::text::DEFAULT_FONT).is_none());
+        let mono = motif_core::TextShape::new("iii", css_mono_data(false)).unwrap();
+        let wide = motif_core::TextShape::new("WWW", css_mono_data(false)).unwrap();
+        let style =
+            motif_core::TextStyle { size: 13.0, line_height: 1.2, spacing: 0.0, align: motif_core::TextAlign::Left, reveal: 1.0, wave: 0.0, phase: 0.0 };
+        assert_eq!(mono.bounds(&style).width(), wide.bounds(&style).width());
     }
 }

@@ -11,6 +11,7 @@ pub(super) struct HtmlImport {
     elements: usize,
     shown: bool,
     preview_background: PreviewBackground,
+    browser: motif_html::BrowserProfile,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -48,7 +49,7 @@ impl Default for HtmlImport {
     fn default() -> Self {
         Self { open:false, html:"<button class=\"action\">Начать игру</button>".into(),
             css:".action { width: 220px; height: 56px; background: #7667d9; color: #ffffff; border-radius: 14px; font-size: 20px; }\n.action:hover { background: #9587ef; }\n.action:active { background: #5546b8; }".into(),
-            generated:None,warnings:vec![],error:None,preview:None,elements:0,shown:false,preview_background:PreviewBackground::default() }
+            generated:None,warnings:vec![],error:None,preview:None,elements:0,shown:false,preview_background:PreviewBackground::default(),browser:motif_html::BrowserProfile::default() }
     }
 }
 
@@ -61,7 +62,7 @@ impl HtmlImport {
     }
     fn convert(&mut self, ctx: &egui::Context) {
         self.invalidate();
-        match motif_html::import(&self.html, &self.css) {
+        match motif_html::import_with_options(&self.html, &self.css, motif_html::ImportOptions { browser: self.browser }) {
             Ok(result) => match motif_script::parse(&result.source) {
                 Ok(scene) => {
                     let scale = (400.0 / scene.doc.artboard.width).min(200.0 / scene.doc.artboard.height).min(1.0);
@@ -98,6 +99,13 @@ impl App {
         egui::Window::new("Импорт HTML + CSS").id(egui::Id::unique("html-css-import")).open(&mut open).default_width(760.0).resizable(true).show(ctx, |ui| {
             ui.label("HTML задаёт элементы, CSS — их внешний вид. Результат добавляется отдельным редактируемым UI-холстом.");
             let mut changed = false;
+            ui.horizontal(|ui| {
+                ui.label("Базовые стили браузера").on_hover_text(
+                    "Эталонные встроенные стили для поддерживаемых элементов. Ваш CSS имеет приоритет; общие стили сайта добавляются в поле CSS.",
+                );
+                changed |= ui.selectable_value(&mut state.browser, motif_html::BrowserProfile::Chrome, "Chrome").changed();
+                changed |= ui.selectable_value(&mut state.browser, motif_html::BrowserProfile::Firefox, "Firefox").changed();
+            });
             ui.columns(2, |columns| {
                 let (left, right) = columns.split_at_mut(1);
                 for (column, title, filter, content) in
@@ -198,6 +206,45 @@ fn request_paste(ctx: &egui::Context, field: egui::Id) {
 mod tests {
     use super::super::editing_tests::fixture;
     use super::*;
+
+    #[test]
+    fn browser_switch_invalidates_preview_and_imports_only_the_selected_profile() {
+        let mut app = fixture("artboard 100x100\nrect original size 20 fill #123456\n");
+        let original = app.file_text();
+        let ctx = app.ctx.clone();
+        app.html_import.open = true;
+        app.html_import.html = "<button id=\"play\">Play</button>".into();
+        app.html_import.css = "button{width:100px;height:40px}button:hover{color:red}".into();
+        let html = app.html_import.html.clone();
+        let css = app.html_import.css.clone();
+        assert_eq!(app.html_import.browser, motif_html::BrowserProfile::Chrome);
+        app.html_import.convert(&ctx);
+        assert!(app.html_import.generated.is_some() && app.html_import.preview.is_some());
+        for _ in 0..3 {
+            input_frame(&mut app, vec![]).drop_without_applying_deltas();
+        }
+        click_control(&mut app, "Firefox").drop_without_applying_deltas();
+        assert_eq!(app.html_import.browser, motif_html::BrowserProfile::Firefox);
+        assert!(app.html_import.generated.is_none() && app.html_import.preview.is_none());
+        assert_eq!(app.html_import.html, html);
+        assert_eq!(app.html_import.css, css);
+        assert_eq!(app.file_text(), original);
+        assert!(app.undo.is_empty());
+        click_control(&mut app, "Преобразовать").drop_without_applying_deltas();
+        let expected = motif_html::import_with_options(&html, &css, motif_html::ImportOptions { browser: motif_html::BrowserProfile::Firefox }).unwrap();
+        assert_eq!(app.html_import.generated.as_deref(), Some(expected.source.as_str()));
+        app.html_import.open = false;
+        input_frame(&mut app, vec![]).drop_without_applying_deltas();
+        app.html_import.open = true;
+        input_frame(&mut app, vec![]).drop_without_applying_deltas();
+        assert_eq!(app.html_import.browser, motif_html::BrowserProfile::Firefox);
+        click_control(&mut app, "Добавить UI-холст").drop_without_applying_deltas();
+        assert_eq!(app.board_count(), 2);
+        assert_eq!(app.scene.doc, motif_script::parse(&expected.source).unwrap().doc);
+        app.undo();
+        assert_eq!(app.file_text(), original);
+        assert_eq!(app.html_import.browser, motif_html::BrowserProfile::Firefox);
+    }
 
     #[test]
     fn preview_backdrops_do_not_change_the_imported_scene_or_its_alpha() {
