@@ -303,7 +303,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "outline" => (2, 8),
         "gradient" | "stroke-gradient" => (2, 10),
         "len" | "chain" | "skin-sharp" | "ik" => (1, 1),
-        "flip" | "solid" => (0, 0),
+        "flip" | "solid" | "socket" | "area" => (0, 0),
         "soft" => (0, 1),
         "spring" | "jiggle" => (0, 2),
         "squash" => (0, 3),

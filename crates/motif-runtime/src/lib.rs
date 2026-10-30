@@ -12,7 +12,7 @@
 //! the same `dt` sequence always gives the same state. Between steps the pose is shown as far as
 //! the time has got, so the picture moves on every frame. `advance(0)` changes nothing.
 
-use motif_core::kurbo::Point;
+use motif_core::kurbo::{Affine, PathEl, Point, Rect};
 use motif_core::{Document, Machine, MachinePlayer, SIM_FPS, State};
 use motif_render::CpuOptions;
 #[cfg(feature = "mesh")]
@@ -78,6 +78,96 @@ impl Frame {
     pub fn flipped(&self) -> bool {
         self.flipped
     }
+
+    /// Where every attachment point (`socket`) is in this pose, in the order of the scene.
+    pub fn sockets(&self) -> Vec<Socket> {
+        let doc = &self.doc;
+        (0..doc.nodes.len())
+            .filter(|&i| doc.nodes[i].socket)
+            .map(|i| {
+                let t = self.turn() * doc.world_transform(i);
+                let [a, b, c, d, x, y] = t.as_coeffs();
+                let scale_x = a.hypot(b);
+                Socket {
+                    name: doc.nodes[i].id.clone(),
+                    x,
+                    y,
+                    rotation: b.atan2(a).to_degrees(),
+                    scale_x,
+                    scale_y: if scale_x > 1e-12 { (a * d - b * c) / scale_x } else { c.hypot(d) },
+                    transform: t,
+                }
+            })
+            .collect()
+    }
+
+    /// The attachment point named `name` in this pose.
+    pub fn socket(&self, name: &str) -> Option<Socket> {
+        self.sockets().into_iter().find(|s| s.name == name)
+    }
+
+    /// Every area (`area`) in this pose, in the order of the scene, hidden ones too.
+    pub fn areas(&self) -> Vec<Area> {
+        let doc = &self.doc;
+        (0..doc.nodes.len())
+            .filter(|&i| doc.nodes[i].area)
+            .map(|i| {
+                let n = &doc.nodes[i];
+                let path = n.path().map(|p| self.turn() * doc.world_transform(i) * p).unwrap_or_default();
+                let mut outline: Vec<Vec<Point>> = Vec::new();
+                motif_core::kurbo::flatten(path.elements().iter().copied(), AREA_TOLERANCE, |el| match el {
+                    PathEl::MoveTo(p) => outline.push(vec![p]),
+                    PathEl::LineTo(p) => outline.last_mut().map_or((), |l| l.push(p)),
+                    _ => {}
+                });
+                outline.retain(|l| l.len() > 2);
+                let bounds = outline.iter().flatten().fold(None, |r: Option<Rect>, p| Some(r.map_or(Rect::from_points(*p, *p), |r| r.union_pt(*p))));
+                Area { name: n.id.clone(), active: doc.is_visible(i) && doc.world_opacity(i) > 0.0, bounds: bounds.unwrap_or_default(), outline }
+            })
+            .collect()
+    }
+
+    /// The area named `name` in this pose.
+    pub fn area(&self, name: &str) -> Option<Area> {
+        self.areas().into_iter().find(|a| a.name == name)
+    }
+
+    /// Turns the artboard over for a flipped side, as it is drawn.
+    fn turn(&self) -> Affine {
+        if self.flipped { Affine::new([-1.0, 0.0, 0.0, 1.0, self.doc.artboard.width, 0.0]) } else { Affine::IDENTITY }
+    }
+}
+
+/// How far an area's outline may stray from its curves, in artboard units.
+const AREA_TOLERANCE: f64 = 0.25;
+
+/// An attachment point in one pose, in artboard units (y down), on the side shown: a flipped
+/// side has it turned over too.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Socket {
+    /// The object's name in the scene.
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    /// Degrees, clockwise, of the object's x axis.
+    pub rotation: f64,
+    pub scale_x: f64,
+    /// Negative when the point is mirrored (a flipped side, a negative scale).
+    pub scale_y: f64,
+    /// The whole placement: artboard units of the object to artboard units of the board.
+    pub transform: Affine,
+}
+
+/// An area in one pose: its outline as closed polygons in artboard units (y down), on the side
+/// shown.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Area {
+    /// The shape's name in the scene.
+    pub name: String,
+    /// Shown in this pose: keyed `visible` or opacity can switch a hit zone on and off.
+    pub active: bool,
+    pub outline: Vec<Vec<Point>>,
+    pub bounds: Rect,
 }
 
 /// What happened in one [`Player::advance`].
@@ -365,6 +455,16 @@ impl Player {
         self.rest = 0.0;
         self.told.clear();
         self.repose();
+    }
+
+    /// The attachment points of the pose shown now. See [`Frame::sockets`].
+    pub fn sockets(&self) -> Vec<Socket> {
+        self.frame().sockets()
+    }
+
+    /// The areas of the pose shown now. See [`Frame::areas`].
+    pub fn areas(&self) -> Vec<Area> {
+        self.frame().areas()
     }
 
     /// The pose now drawn at `scale` pixels a unit, premultiplied RGBA; a flipped side turned over.
@@ -667,5 +767,51 @@ machine M {
                 p.frame().doc.clone()
             }
         );
+    }
+
+    /// An arm that swings a gun: a muzzle to attach a flash to, and a hit zone shown for a
+    /// moment of the swing.
+    const ARMED: &str = r#"
+artboard "Рука" 200x200
+bone arm at 100 100 len 60 {
+  group muzzle at 60 0 socket
+}
+rect hitbox at 100 40 size 40 20 fill #ff0000 area
+anim Swing 1s {
+  arm.rot 0: 0 | 1: 90
+  hitbox.visible 0: 0 | 0.5: 1
+}
+"#;
+
+    #[test]
+    fn sockets_follow_the_bones_and_areas_are_read_but_not_drawn() {
+        let mut p = Player::load(ARMED, None, "", "", "Swing").unwrap();
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        let m = p.frame().socket("muzzle").unwrap();
+        assert!(near(m.x, 160.0) && near(m.y, 100.0) && near(m.rotation, 0.0) && near(m.scale_x, 1.0) && near(m.scale_y, 1.0), "{m:?}");
+        assert_eq!(p.areas().iter().map(|a| (a.name.as_str(), a.active)).collect::<Vec<_>>(), [("hitbox", false)]);
+        p.advance(1.0);
+        // The bone has turned a quarter clockwise (y down): the muzzle is below the shoulder.
+        let m = p.frame().socket("muzzle").unwrap();
+        assert!(near(m.x, 100.0) && near(m.y, 160.0) && near(m.rotation, 90.0), "{m:?}");
+        let hit = p.frame().area("hitbox").unwrap();
+        assert!(hit.active);
+        assert_eq!(hit.outline.len(), 1);
+        let b = hit.bounds;
+        assert!(near(b.x0, 80.0) && near(b.y0, 30.0) && near(b.x1, 120.0) && near(b.y1, 50.0), "{b:?}");
+        // Never painted: the red rectangle is not in the picture.
+        let px = p.render(1.0, false).unwrap();
+        assert_eq!(px.pixel(100, 40).unwrap().alpha(), 0);
+
+        // A flipped side turns both over, as it turns the picture over.
+        let turned = Frame { doc: p.frame().doc, flipped: true };
+        let m = turned.socket("muzzle").unwrap();
+        assert!(near(m.x, 100.0) && near(m.y, 160.0) && near(m.rotation, 90.0) && m.scale_y < 0.0, "{m:?}");
+        let b = turned.area("hitbox").unwrap().bounds;
+        assert!(near(b.x0, 80.0) && near(b.x1, 120.0), "{b:?}");
+        let mut q = Player::load(&ARMED.replace("at 60 0", "at 60 10"), None, "", "", "Swing").unwrap();
+        q.advance(1.0);
+        let (a, b) = (q.frame().socket("muzzle").unwrap(), Frame { doc: q.frame().doc, flipped: true }.socket("muzzle").unwrap());
+        assert!(near(a.x, 90.0) && near(b.x, 110.0) && near(a.y, b.y), "{a:?} / {b:?}");
     }
 }

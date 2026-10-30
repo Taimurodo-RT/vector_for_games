@@ -168,7 +168,7 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
         while open.last().is_some_and(|o| !inside(i, o.group)) {
             close(&mut ops, &mut open);
         }
-        if !doc.is_visible(i) {
+        if !doc.is_drawn(i) {
             continue;
         }
         let node = &doc.nodes[i];
@@ -210,7 +210,7 @@ pub fn display_ops(doc: &Document) -> Vec<Op> {
 /// this painter without reimplementing shadows, brushes or three-dimensional faces.
 pub fn node_ops(doc: &Document, i: usize) -> Vec<Op> {
     let Some(node) = doc.nodes.get(i) else { return Vec::new() };
-    if node.kind.is_container() || !doc.is_visible(i) {
+    if node.kind.is_container() || !doc.is_drawn(i) {
         return Vec::new();
     }
     let Some(path) = node.path() else { return Vec::new() };

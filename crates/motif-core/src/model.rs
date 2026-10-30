@@ -466,6 +466,12 @@ pub struct Node {
     pub soft: Option<crate::Soft>,
     /// Soft bodies cannot pass through this shape.
     pub solid: bool,
+    /// A point the game reads each step to attach things to (a hand, a muzzle, above the head):
+    /// where the object is, its turn and its scale, as bones and keys put it.
+    pub socket: bool,
+    /// A shape the game reads each step as an area (a body, a hit zone) and never draws: the
+    /// editor shows it dashed, exports leave it out.
+    pub area: bool,
     /// Keyed position, size and rotation follow on a spring: they overshoot and settle.
     pub spring: Option<crate::Spring>,
     /// Bone only: the bone lags behind and swings after the motion of the bone it hangs from.
@@ -698,6 +704,8 @@ impl Node {
             lattice_map: None,
             soft: None,
             solid: false,
+            socket: false,
+            area: false,
             spring: None,
             jiggle: None,
             squash: None,
@@ -1075,6 +1083,11 @@ impl Document {
     pub fn is_visible(&self, index: usize) -> bool {
         let node = &self.nodes[index];
         node.visible && node.parent.is_none_or(|p| self.is_visible(p))
+    }
+
+    /// Whether node `index` is painted: visible and not an `area`, which only the game reads.
+    pub fn is_drawn(&self, index: usize) -> bool {
+        !self.nodes[index].area && self.is_visible(index)
     }
 
     /// Depth in the hierarchy, 0 for top-level nodes.

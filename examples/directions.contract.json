@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "boards": [
     {
       "name": "Стороны",
@@ -83,6 +83,8 @@
           "name": "step"
         }
       ],
+      "sockets": [],
+      "areas": [],
       "sides": {
         "names": [
           "down",
