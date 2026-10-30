@@ -9,8 +9,14 @@ rust-version.workspace = true
 [features]
 default = ["gpu"]
 gpu = ["dep:vello"]
+# Triangles for a GPU that paints them itself (MotifSprite in Godot).
+mesh = ["dep:lyon_tessellation"]
 
 [dependencies]
 motif-core.workspace = true
 tiny-skia.workspace = true
 vello = { workspace = true, optional = true }
+lyon_tessellation = { workspace = true, optional = true }
+
+[dev-dependencies]
+motif-script.workspace = true

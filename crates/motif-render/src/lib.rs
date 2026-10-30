@@ -7,6 +7,8 @@ mod blur;
 mod cpu;
 #[cfg(feature = "gpu")]
 mod gpu;
+#[cfg(feature = "mesh")]
+pub mod mesh;
 
 pub use cpu::{CpuOptions, render_cpu, render_cpu_with, render_region};
 #[cfg(feature = "gpu")]
@@ -593,7 +595,7 @@ fn noise_ops(node: usize, path: &BezPath, transform: Affine, n: motif_core::Nois
 }
 
 /// The outline of a stroke as a shape to fill: how a gradient stroke is painted.
-fn stroke_outline(path: &BezPath, width: f64, line: &Line) -> BezPath {
+pub(crate) fn stroke_outline(path: &BezPath, width: f64, line: &Line) -> BezPath {
     use motif_core::kurbo;
     let mut dash = line.dash.clone();
     if dash.len() % 2 == 1 {

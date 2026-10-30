@@ -4,6 +4,7 @@
 use motif_core::kurbo::Point;
 use motif_core::{Document, Machine, MachinePlayer, State};
 use motif_render::CpuOptions;
+use motif_render::mesh::{Cutter, Piece};
 use std::sync::Arc;
 use tiny_skia::Pixmap;
 
@@ -42,6 +43,16 @@ impl Frame {
             }
         }
         Some(px)
+    }
+
+    /// The pose as triangles and small pictures for `scale` pixels a unit, in artboard units,
+    /// not turned over: Godot turns a flipped side over when it draws them.
+    pub fn pieces(&self, cutter: &mut Cutter, scale: f64) -> Vec<Piece> {
+        cutter.pieces(&self.doc, scale)
+    }
+
+    pub fn flipped(&self) -> bool {
+        self.flipped
     }
 }
 
@@ -105,6 +116,10 @@ impl Player {
     }
 
     /// The artboard's width and height.
+    pub fn background(&self) -> motif_core::Color {
+        self.doc.artboard.background
+    }
+
     pub fn size(&self) -> (f64, f64) {
         (self.doc.artboard.width, self.doc.artboard.height)
     }
@@ -445,10 +460,15 @@ machine Hero {
         let mut w = Player::load(&walker, None, "", "", "").unwrap();
         w.set_side("left").unwrap();
         w.advance(0.3);
-        let pending: Vec<_> = (0..4).map(|_| crate::pool::draw(w.frame(), 0.75, true)).collect();
+        let pending: Vec<_> = (0..4)
+            .map(|_| {
+                let f = w.frame();
+                crate::pool::start(move || f.render(0.75, true))
+            })
+            .collect();
         let here = w.render(0.75, true).unwrap();
         for p in pending {
-            assert_eq!(p.wait().unwrap().data(), here.data());
+            assert_eq!(p.wait().flatten().unwrap().data(), here.data());
         }
     }
 
@@ -471,8 +491,15 @@ machine Hero {
                 p.render(1.0, false);
             }
             let render = t.elapsed().as_secs_f64() * 1000.0 / n as f64;
+            let mut cutter = Cutter::default();
+            let t = std::time::Instant::now();
+            for _ in 0..n {
+                p.advance(1.0 / 60.0);
+                p.frame().pieces(&mut cutter, 1.0);
+            }
+            let pieces = t.elapsed().as_secs_f64() * 1000.0 / n as f64 - advance;
             let (w, h) = p.size();
-            println!("{f}: advance {advance:.3} ms, render {render:.3} ms ({w}x{h})");
+            println!("{f}: advance {advance:.3} ms, render {render:.3} ms, pieces {pieces:.3} ms ({w}x{h})");
         }
     }
 }
