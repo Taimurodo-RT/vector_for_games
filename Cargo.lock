@@ -1640,6 +1640,7 @@ dependencies = [
  "motif-core",
  "motif-render",
  "motif-script",
+ "pollster 1.0.1",
  "tiny-skia",
 ]
 
