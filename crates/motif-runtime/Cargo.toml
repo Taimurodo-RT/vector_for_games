@@ -1,0 +1,18 @@
+[package]
+name = "motif-runtime"
+description = "Проигрыватель сцены Motif для игр: холст, машина состояний, входы, стороны, события и кадр — без движка и окна"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# The frame as triangles for a GPU that paints them itself (MotifSprite in Godot).
+mesh = ["motif-render/mesh"]
+
+[dependencies]
+motif-core.workspace = true
+motif-script.workspace = true
+motif-render.workspace = true
+tiny-skia.workspace = true
