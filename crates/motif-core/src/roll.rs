@@ -8,6 +8,7 @@ use crate::orbit::{Ball, Turn, V3, frame};
 use crate::{Document, SIM_FPS, ShapeKind};
 
 /// Settings of an object rolling on its ball (`roll 0.3 0.05`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Roll {
     /// How much a turning ball carries the object along, 0..1: 1 turns it with the ball.
@@ -30,6 +31,7 @@ const BOUNCE: f64 = 0.3;
 
 /// An object rolling on a ball. Directions are on the unit sphere as the viewer sees it: x
 /// right, y down, z towards the viewer.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Roller {
     node: usize,

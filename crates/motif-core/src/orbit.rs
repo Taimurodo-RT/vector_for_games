@@ -7,6 +7,7 @@ use crate::{Document, ShapeKind};
 use kurbo::{Affine, Point, Vec2};
 
 /// A point of the unit sphere: x right, y down, z towards the viewer.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct V3 {
     pub(crate) x: f64,
@@ -45,6 +46,7 @@ impl V3 {
 }
 
 /// How a ball is turned: around the vertical axis by `yaw`, then tipped by `pitch` (degrees).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Turn {
     pub(crate) yaw: f64,

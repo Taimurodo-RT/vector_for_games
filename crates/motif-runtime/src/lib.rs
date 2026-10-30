@@ -23,6 +23,39 @@ use tiny_skia::Pixmap;
 /// The fixed step the machine and its simulation move by, in seconds.
 pub const TICK: f64 = 1.0 / SIM_FPS;
 
+/// The version of [`PlayerState`]'s layout: a state saved by another version is refused.
+pub const STATE_FORMAT: u32 = 1;
+
+/// Everything a playing scene keeps between frames, for a game save: the state and its time,
+/// the inputs, the pointer, springs, ropes, soft bodies, particles, the side faced and the
+/// seed. The scene itself is not in it: it is loaded back into a player of the same scene with
+/// [`Player::load_state`], and plays on exactly as it would have.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PlayerState {
+    format: u32,
+    /// The machine it was saved from, its states and inputs: a state of another one is refused.
+    machine: String,
+    states: usize,
+    inputs: usize,
+    run: MachinePlayer,
+    rest: f64,
+    base: f64,
+    told: Vec<(String, f64)>,
+    side: Option<usize>,
+    seed: u64,
+}
+
+impl PlayerState {
+    /// The state as bytes to write into a save (JSON, floats to the bit).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("a player state is plain data")
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<PlayerState, String> {
+        serde_json::from_slice(bytes).map_err(|e| format!("сохранённое состояние не читается: {e}"))
+    }
+}
+
 #[derive(Debug)]
 pub struct Player {
     doc: Document,
@@ -380,6 +413,66 @@ impl Player {
         self.repose();
     }
 
+    /// Everything that plays on from now, to save with the game. See [`PlayerState`].
+    pub fn save_state(&self) -> PlayerState {
+        PlayerState {
+            format: STATE_FORMAT,
+            machine: self.plain.name.clone(),
+            states: self.plain.states.len(),
+            inputs: self.plain.inputs.len(),
+            run: self.run.clone(),
+            rest: self.rest,
+            base: self.base,
+            told: self.told.clone(),
+            side: self.side,
+            seed: self.doc.seed,
+        }
+    }
+
+    /// Plays on from a state saved by [`save_state`](Self::save_state) of the same scene and
+    /// machine: the same `advance` calls after it give the same poses and events as they would
+    /// have given then. A state of another machine is refused and the player stays as it was.
+    pub fn load_state(&mut self, state: &PlayerState) -> Result<(), String> {
+        let m = &self.plain;
+        if state.format != STATE_FORMAT {
+            return Err(format!("состояние сохранено в формате {}, а читается {STATE_FORMAT}", state.format));
+        }
+        if state.machine != m.name || state.states != m.states.len() || state.inputs != m.inputs.len() {
+            return Err(format!(
+                "состояние сохранено из машины «{}» ({} состояний, {} входов), а играет «{}» ({}, {})",
+                state.machine,
+                state.states,
+                state.inputs,
+                m.name,
+                m.states.len(),
+                m.inputs.len()
+            ));
+        }
+        let run = &state.run;
+        let side = match (state.side, self.doc.directions.as_ref()) {
+            (None, None) => true,
+            (Some(k), Some(d)) => k < d.names().len(),
+            _ => false,
+        };
+        let fits = side
+            && (run.state < m.states.len() || m.states.is_empty())
+            && run.prev.is_none_or(|(k, _)| k < m.states.len())
+            && run.values.len() == m.inputs.len()
+            && [state.rest, state.base, run.time].iter().all(|t| t.is_finite());
+        if !fits {
+            return Err("сохранённое состояние не подходит к этой сцене".into());
+        }
+        self.run = state.run.clone();
+        self.rest = state.rest;
+        self.base = state.base;
+        self.told = state.told.clone();
+        self.doc.seed = state.seed;
+        // Turning reposes from the loaded state; the game draws it again whatever it shows.
+        self.turn(state.side);
+        self.pose += 1;
+        Ok(())
+    }
+
     /// The pose now drawn at `scale` pixels a unit, premultiplied RGBA; a flipped side turned over.
     pub fn render(&self, scale: f64, background: bool) -> Option<Pixmap> {
         self.frame().render(scale, background)
@@ -680,6 +773,67 @@ machine M {
                 p.frame().doc.clone()
             }
         );
+    }
+
+    #[test]
+    fn a_saved_state_plays_on_the_same_in_a_new_player() {
+        let steps = [0.013, 0.021, 0.004, 0.05, 0.017, 0.033, 0.002, 0.016];
+        let on = |p: &mut Player| {
+            let mut log = Vec::new();
+            for (k, dt) in steps.iter().cycle().take(60).enumerate() {
+                if k == 25 {
+                    p.set("hurt", 1.0).unwrap();
+                }
+                let step = p.advance(*dt);
+                log.push((step, p.state(), p.time(), p.frame().doc.clone()));
+            }
+            log
+        };
+        let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+        p.set_seed(42);
+        // Saved mid-step, mid-spring, with sparks in the air, a trigger waiting and an event
+        // already told from the part of a step shown ahead.
+        p.advance(0.47);
+        while p.told.is_empty() {
+            p.advance(0.004);
+            assert!(p.time() < 2.0, "no event was shown ahead of a step");
+        }
+        p.fire("hurt").unwrap();
+        assert!(p.run.sim.is_some() && p.rest > 0.0);
+        let bytes = p.save_state().to_bytes();
+        let ahead = on(&mut p);
+        assert!(ahead.iter().any(|(s, ..)| s.names().contains(&"hit")), "the trigger fires after the load too");
+
+        let mut q = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let pose = q.pose();
+        q.load_state(&PlayerState::from_bytes(&bytes).unwrap()).unwrap();
+        assert_ne!(q.pose(), pose, "the loaded pose is drawn");
+        assert!(on(&mut q) == ahead, "a loaded game plays on otherwise than the saved one");
+    }
+
+    #[test]
+    fn a_saved_side_comes_back_and_a_foreign_state_is_refused() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "Walker", "").unwrap();
+        p.set("speed", 1.0).unwrap();
+        p.advance(0.3);
+        p.face_toward(-1.0, 0.0);
+        let state = p.save_state();
+        let mut q = Player::load(&src, None, "", "Walker", "").unwrap();
+        q.load_state(&state).unwrap();
+        assert_eq!((q.side(), q.flipped(), q.animation(), q.time()), (p.side(), true, p.animation(), p.time()));
+        assert!(*q.frame().doc == *p.frame().doc);
+
+        let mut other = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let before = other.save_state();
+        let err = other.load_state(&state).unwrap_err();
+        assert!(err.contains("«Walker»") && err.contains("«M»"), "{err}");
+        assert!(other.save_state() == before, "a refused state changes nothing");
+        assert!(PlayerState::from_bytes(b"{").unwrap_err().contains("не читается"));
+        let mut json: serde_json::Value = serde_json::from_slice(&state.to_bytes()).unwrap();
+        json["format"] = 99.into();
+        let err = q.load_state(&serde_json::from_value(json).unwrap()).unwrap_err();
+        assert!(err.contains("формате 99"), "{err}");
     }
 }
 
