@@ -73,6 +73,7 @@ fn displayed_pose_matches_export_pose_without_extra_rigging() {
         [include_str!("../../../examples/character-anime.msc"), include_str!("../../../examples/bounce.msc"), include_str!("../../../examples/ropes.msc")]
     {
         let mut app = fixture(source);
+        app.set_workspace(crate::workspace::Workspace::Animate);
         let name = app.scene.doc.animations[0].name.clone();
         app.select_anim(name);
         for t in [0.0, 0.3, 0.7] {
