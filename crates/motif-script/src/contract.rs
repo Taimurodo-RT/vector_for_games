@@ -4,11 +4,11 @@
 //! checks its bindings against it when the `.msc` changes. Inputs, states, animations, events
 //! and parameters carry their hidden ids (`id=…`), so a binding survives a rename.
 
-use motif_core::{Document, IdKind, InputKind};
+use motif_core::{Document, EventValue, IdKind, InputKind};
 use serde::{Deserialize, Serialize};
 
 /// The version of the contract's own layout: it grows when a field changes its meaning.
-pub const CONTRACT_VERSION: u32 = 2;
+pub const CONTRACT_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,6 +59,9 @@ pub struct Event {
     pub name: String,
     /// Seconds into the animation.
     pub time: f64,
+    /// What the game is told with the event (`damage=2`): numbers, true/false and text.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub data: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -167,7 +170,7 @@ fn board(doc: &Document) -> Board {
             .iter()
             .map(|a| {
                 let mut events: Vec<Event> =
-                    a.events.iter().map(|e| Event { id: id(IdKind::Event, "", &e.name), name: e.name.clone(), time: e.time }).collect();
+                    a.events.iter().map(|e| Event { id: id(IdKind::Event, "", &e.name), name: e.name.clone(), time: e.time, data: data(&e.data) }).collect();
                 events.sort_by(|a, b| a.time.total_cmp(&b.time));
                 Animation { id: id(IdKind::Animation, "", &a.name), name: a.name.clone(), duration: a.duration, looping: a.looping, events }
             })
@@ -194,6 +197,20 @@ fn board(doc: &Document) -> Board {
         events,
         sides: doc.directions.as_ref().map(|d| Sides { names: d.names().iter().map(|s| s.to_string()).collect(), mirror: d.mirror }),
     }
+}
+
+fn data(pairs: &[(String, EventValue)]) -> serde_json::Map<String, serde_json::Value> {
+    pairs
+        .iter()
+        .map(|(k, v)| {
+            let v = match v {
+                EventValue::Number(n) => serde_json::json!(n),
+                EventValue::Bool(b) => serde_json::json!(b),
+                EventValue::Text(t) => serde_json::json!(t),
+            };
+            (k.clone(), v)
+        })
+        .collect()
 }
 
 fn kind(k: InputKind) -> &'static str {

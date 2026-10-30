@@ -171,10 +171,14 @@ impl<'a> Evaluator<'a> {
                         if t < 0.0 || t > *duration + 1e-9 {
                             self.err(span, format!("время события вне анимации: от 0 до {}", crate::fmt_num(*duration)));
                         } else {
-                            anim.events.push(motif_core::AnimEvent { name: e.name.clone(), time: t });
+                            anim.events.push(motif_core::AnimEvent {
+                                name: e.name.clone(),
+                                time: t,
+                                data: e.data.iter().map(|(k, v, _)| (k.clone(), v.clone())).collect(),
+                            });
                         }
                     }
-                    site.events.push(EventSite { name: e.name.clone(), span: e.span, times: e.times.clone() });
+                    site.events.push(EventSite { name: e.name.clone(), span: e.span, times: e.times.clone(), data: e.data_span });
                 }
                 anim.events.sort_by(|a, b| a.time.total_cmp(&b.time));
                 for t in tracks {

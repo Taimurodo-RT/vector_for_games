@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn events_become_a_signal_by_frame() {
         let mut doc = hero();
-        let ev = |name: &str, time| motif_core::AnimEvent { name: name.into(), time };
+        let ev = |name: &str, time| motif_core::AnimEvent { name: name.into(), time, ..Default::default() };
         doc.animations[0].events = vec![ev("blink", 1.0)];
         doc.animations[1].events = vec![ev("push", 0.25), ev("land", 0.5), ev("dust", 0.5)];
         let opts = GodotExport { fps: 4.0, only: Some("ball".into()), ..GodotExport::default() };
@@ -691,7 +691,7 @@ mod tests {
         eye.wrap = true;
         doc.nodes.push(eye);
         doc.directions = Some(motif_core::Directions { count: 4, turn: vec!["ball".into()], mirror: true });
-        doc.animations[1].events = vec![motif_core::AnimEvent { name: "land".into(), time: 0.5 }];
+        doc.animations[1].events = vec![motif_core::AnimEvent { name: "land".into(), time: 0.5, ..Default::default() }];
         // Jump seen from the back is an animation of its own, a longer one.
         let mut back = doc.animations[1].clone();
         (back.name, back.duration) = ("Jump_up".into(), 1.0);

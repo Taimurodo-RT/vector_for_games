@@ -1210,10 +1210,31 @@ pub struct Animation {
 
 /// `event step 0.15 0.35` in an animation: the game is told «step» when playback passes 0.15 s
 /// and 0.35 s.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct AnimEvent {
     pub name: String,
     pub time: f64,
+    /// What the game is told with it, in the order written: `event hit 0.3 damage=2 side=left`.
+    pub data: Vec<(String, EventValue)>,
+}
+
+/// One value of an event's data.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EventValue {
+    Number(f64),
+    /// `true` or `false`.
+    Bool(bool),
+    /// A word or a quoted string.
+    Text(String),
+}
+
+impl EventValue {
+    pub fn as_number(&self) -> Option<f64> {
+        match self {
+            EventValue::Number(v) => Some(*v),
+            _ => None,
+        }
+    }
 }
 
 impl Animation {
@@ -1436,7 +1457,7 @@ mod tests {
 
     #[test]
     fn events_fire_once_per_pass() {
-        let ev = |name: &str, time| AnimEvent { name: name.into(), time };
+        let ev = |name: &str, time| AnimEvent { name: name.into(), time, ..Default::default() };
         let run =
             Animation { name: "Run".into(), duration: 0.4, looping: true, tracks: vec![], events: vec![ev("step", 0.1), ev("step2", 0.3), ev("start", 0.0)] };
         let names = |v: Vec<&AnimEvent>| v.iter().map(|e| e.name.clone()).collect::<Vec<_>>();

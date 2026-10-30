@@ -162,9 +162,11 @@
 <h2 id="anim">Анимации</h2>
 <pre><code><span class="k">anim</span> Имя <span class="n">1.2s</span> [<span class="k">loop</span>] {
   объект.свойство  время: значение [кривая] | время: значение [кривая] | …
-  <span class="k">event</span> имя время время …
+  <span class="k">event</span> имя время время … [ключ=значение …]
 }</code></pre>
-<p>Строка <code>event</code> — событие для игры: имя одним словом и одно или несколько времён в секундах, в пределах анимации (<code>event step 0 0.2</code>). У одной анимации каждое имя пишется одной строкой. Объект с именем <code>event</code> по-прежнему анимируется как <code>event.x …</code>.</p>
+<p>Строка <code>event</code> — событие для игры: имя одним словом и одно или несколько времён в секундах, в пределах анимации (<code>event step 0 0.2</code>). У одной анимации каждое имя пишется одной строкой.</p>
+<p id="event-data">После времён — данные, которые игра получает вместе с событием: <code>event hit 0.3 damage=2 crit=true side=left say="ой, больно"</code>. Значение — число, <code>true</code>/<code>false</code>, слово или строка в кавычках; ключ в строке один раз, <code>id</code> занят скрытым id. Данные общие для всех времён строки. Когда событие двигают или переименовывают на таймлайне, данные остаются как написаны. В игре: <code>Event::get("damage")</code> в <code>motif-runtime</code>, сигнал <code>event_data(имя, словарь)</code> у <code>MotifSprite</code>, поле <code>data</code> у событий в <a href="export.html#contract">договоре сцены</a>. Запечённая выгрузка в Godot передаёт только имя.</p>
+<p>Объект с именем <code>event</code> по-прежнему анимируется как <code>event.x …</code>.</p>
 <p>Время — в секундах от начала анимации. Кривая после значения действует до следующего ключа, по умолчанию это <code>ease-in-out</code>. Имена свойств в анимации:</p>
 <p><code>x y w h rot sx sy kx ky opacity r points inner fill stroke stroke_w</code>, у текста ещё <code>font-size letter-spacing reveal wave phase</code>, для эффектов <code>blur elevation shadow-x shadow-y shadow-blur glow inset-x inset-y inset-blur noise</code>.</p>
 <div class="table-wrap"><table>

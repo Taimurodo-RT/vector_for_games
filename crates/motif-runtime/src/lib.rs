@@ -12,8 +12,9 @@
 //! the same `dt` sequence always gives the same state. Between steps the pose is shown as far as
 //! the time has got, so the picture moves on every frame. `advance(0)` changes nothing.
 
+pub use motif_core::EventValue;
 use motif_core::kurbo::Point;
-use motif_core::{Document, Machine, MachinePlayer, SIM_FPS, State};
+use motif_core::{AnimEvent, Document, Machine, MachinePlayer, SIM_FPS, State};
 use motif_render::CpuOptions;
 #[cfg(feature = "mesh")]
 use motif_render::mesh::{Cutter, Piece};
@@ -108,6 +109,15 @@ pub struct Event {
     pub name: String,
     /// Seconds after the start of that `advance` it falls at, from 0 to its `dt`.
     pub time: f64,
+    /// The event's data, in the order written: `event hit 0.3 damage=2` gives `damage` 2.
+    pub data: Vec<(String, EventValue)>,
+}
+
+impl Event {
+    /// The value of `key` in the event's data.
+    pub fn get(&self, key: &str) -> Option<&EventValue> {
+        self.data.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
 }
 
 impl Step {
@@ -242,7 +252,7 @@ impl Player {
 
     /// Poses the scene as it is now, seen from the side faced: the last whole step played on by
     /// the time since. Returns the events of that part, at their game time.
-    fn repose(&mut self) -> Vec<(String, f64)> {
+    fn repose(&mut self) -> Vec<(AnimEvent, f64)> {
         let (mut shown, passed) = if self.rest > 0.0 {
             let mut ahead = self.run.clone();
             let passed = ahead.pass(&self.machine, &self.doc, self.rest);
@@ -263,7 +273,7 @@ impl Player {
             self.shown = Arc::new(shown);
             self.pose += 1;
         }
-        passed.into_iter().map(|(name, t)| (name, self.base + t)).collect()
+        passed.into_iter().map(|(e, t)| (e, self.base + t)).collect()
     }
 
     /// Changes whenever the pose shown changes.
@@ -299,7 +309,7 @@ impl Player {
         self.rest += dt;
         while self.rest >= TICK - 1e-9 {
             let at = self.base;
-            passed.extend(self.run.pass(&self.machine, &self.doc, TICK).into_iter().map(|(name, t)| (name, at + t)));
+            passed.extend(self.run.pass(&self.machine, &self.doc, TICK).into_iter().map(|(e, t)| (e, at + t)));
             self.run.settle(&self.machine, &self.doc);
             if self.doc.has_sim() {
                 let keys = self.run.keys(&self.machine, &self.doc);
@@ -311,13 +321,13 @@ impl Player {
             self.rest = (self.rest - TICK).max(0.0);
         }
         let ahead = self.repose();
-        passed.extend(ahead.iter().cloned());
-        let mut told = std::mem::replace(&mut self.told, ahead);
+        let mut told = std::mem::replace(&mut self.told, ahead.iter().map(|(e, t)| (e.name.clone(), *t)).collect());
+        passed.extend(ahead);
         let mut events = Vec::new();
-        for (name, t) in passed {
-            match told.iter().position(|e| e.0 == name && e.1 == t) {
+        for (e, t) in passed {
+            match told.iter().position(|(name, at)| *name == e.name && *at == t) {
                 Some(k) => _ = told.swap_remove(k),
-                None => events.push(Event { name, time: (t - start).clamp(0.0, dt) }),
+                None => events.push(Event { name: e.name, time: (t - start).clamp(0.0, dt), data: e.data }),
             }
         }
         let state = self.state();
@@ -768,5 +778,26 @@ mod vello_tests {
             eprintln!("{side}: {:.3}% of pixels differ", share * 100.0);
             assert!(share < 0.01, "{side}: {:.2}% of pixels differ", share * 100.0);
         }
+    }
+
+    #[test]
+    fn events_come_with_their_data() {
+        let src = SPRUNG.replace("event hit 0.1", "event hit 0.1 damage=2 crit=true from=\"спина\"");
+        // Whole frames and frames that show part of a step ahead: the data comes either way.
+        for dt in [0.25, 0.004] {
+            let mut p = Player::load(&src, None, "", "", "").unwrap();
+            p.fire("hurt").unwrap();
+            let mut hits = Vec::new();
+            for _ in 0..(0.3 / dt) as usize {
+                hits.extend(p.advance(dt).events.into_iter().filter(|e| e.name == "hit"));
+            }
+            assert_eq!(hits.len(), 1, "{hits:?}");
+            assert_eq!(hits[0].get("damage"), Some(&EventValue::Number(2.0)));
+            assert_eq!(hits[0].get("crit"), Some(&EventValue::Bool(true)));
+            assert_eq!(hits[0].get("from"), Some(&EventValue::Text("спина".into())));
+            assert_eq!(hits[0].get("nothing"), None);
+        }
+        let mut p = Player::load(&src, None, "", "", "").unwrap();
+        assert!(p.advance(0.1).events.iter().all(|e| e.data.is_empty()), "an event without data has none");
     }
 }

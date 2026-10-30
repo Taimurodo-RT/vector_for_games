@@ -1181,12 +1181,42 @@ pub fn write_event(src: &str, scene: &Scene, anim: &str, name: &str, new_name: &
             let others = |n: &str| scene.anims.iter().any(|(a, s)| a != anim && s.events.iter().any(|e| e.name == n));
             let own = scene.doc.ids.get(motif_core::IdKind::Event, "", name);
             let keep = new_name == name || (!others(name) && scene.doc.ids.get(motif_core::IdKind::Event, "", new_name).is_none_or(|id| Some(id) == own));
+            // The data goes with the event, whatever its name and times; an id among it stays
+            // the id's own business.
+            let data = e.data.map(|d| without_id(&src[d.start..d.end]));
+            let line = match data {
+                Some(d) if !d.is_empty() => format!("{line} {d}"),
+                _ => line,
+            };
             let line = if keep { crate::ids::keep(&src[e.span.start..e.span.end], line) } else { line };
             Some(splice(src, e.span, &line))
         }
         None if times.is_empty() => Some(src.to_string()),
         None => Some(insert_before_close(src, site.close, &format!("  {line}\n"))),
     }
+}
+
+/// Event data with an `id=…` among it taken out; quoted text is left as written.
+fn without_id(data: &str) -> String {
+    let (mut out, mut quoted, mut word) = (String::new(), false, 0);
+    for (i, c) in data.char_indices() {
+        if c == '"' {
+            quoted = !quoted;
+        }
+        if !quoted && c.is_whitespace() {
+            let w = &data[word..i];
+            if !w.starts_with("id=") && !w.is_empty() {
+                out.push_str(w);
+                out.push(' ');
+            }
+            word = i + c.len_utf8();
+        }
+    }
+    let w = &data[word..];
+    if !w.starts_with("id=") {
+        out.push_str(w);
+    }
+    out.trim_end().to_string()
 }
 
 /// Fails when the position of `node` is written by a formula: moving it to another parent would

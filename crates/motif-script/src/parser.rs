@@ -74,7 +74,11 @@ pub struct EventAst {
     pub times: Vec<(f64, Span)>,
     /// `id=…`: the hidden id of the event name.
     pub uid: Option<(String, Span)>,
-    /// From `event` to the last time (or the id).
+    /// `key=value` pairs told to the game with the event, each with the span of its key.
+    pub data: Vec<(String, motif_core::EventValue, Span)>,
+    /// The source of the pairs, from the first key to the last value (an id among them too).
+    pub data_span: Option<Span>,
+    /// From `event` to the last word of the line.
     pub span: Span,
 }
 
@@ -1001,15 +1005,46 @@ impl<'a> Parser<'a> {
         while matches!(self.peek(), Some(Tok::Num(_) | Tok::Seconds(_))) {
             times.push(self.num("время события")?);
         }
-        let uid = self.uid()?;
-        if !self.at_line_end() && !matches!(self.peek(), Some(Tok::BlockClose)) {
-            return Err(self.err(self.peek_span(), "после имени события — времена в секундах: event шаг 0.1 0.3"));
+        let mut end = times.last().map_or(name_span.end, |(_, s)| s.end);
+        let (mut uid, mut data, mut data_span) = (None, Vec::<(String, motif_core::EventValue, Span)>::new(), None::<Span>);
+        loop {
+            if let Some(id) = self.uid()? {
+                end = id.1.end;
+                uid = Some(id);
+                continue;
+            }
+            let Some(Tok::Ident(key)) = self.peek().cloned() else { break };
+            if !matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq)) {
+                break;
+            }
+            let key_span = self.peek_span();
+            self.pos += 2;
+            let value = match self.next() {
+                Some(Token { tok: Tok::Num(v), span }) => (motif_core::EventValue::Number(v), span),
+                Some(Token { tok: Tok::Ident(w), span }) if w == "true" || w == "false" => (motif_core::EventValue::Bool(w == "true"), span),
+                Some(Token { tok: Tok::Ident(w), span }) if !w.contains('{') => (motif_core::EventValue::Text(w), span),
+                Some(Token { tok: Tok::Str(w), span }) => (motif_core::EventValue::Text(w), span),
+                t => {
+                    let at = t.map_or(key_span, |t| t.span);
+                    return Err(
+                        self.err(at, format!("значение «{key}» — число, true/false, слово или строка в кавычках: {key}=2, {key}=left, {key}=\"текст\""))
+                    );
+                }
+            };
+            if data.iter().any(|(k, ..)| *k == key) {
+                return Err(self.err(key_span, format!("«{key}» уже есть у этого события")));
+            }
+            end = value.1.end;
+            data_span = Some(Span::new(data_span.map_or(key_span.start, |d| d.start), value.1.end));
+            data.push((key, value.0, key_span));
         }
-        let end = uid.as_ref().map(|(_, s)| s.end).or(times.last().map(|(_, s)| s.end)).unwrap_or(name_span.end);
+        if !self.at_line_end() && !matches!(self.peek(), Some(Tok::BlockClose)) {
+            return Err(self.err(self.peek_span(), "после имени события — времена в секундах и данные: event удар 0.3 damage=2"));
+        }
         if times.is_empty() {
             return Err(self.err(name_span, "у события нет времени: event шаг 0.1 0.3"));
         }
-        Ok(EventAst { name, name_span, times, uid, span: Span::new(start, end) })
+        Ok(EventAst { name, name_span, times, uid, data, data_span, span: Span::new(start, end) })
     }
 
     fn machine(&mut self, span: Span) -> Result<Stmt, ScriptError> {

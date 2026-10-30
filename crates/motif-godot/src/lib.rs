@@ -234,6 +234,11 @@ impl MotifSprite {
     #[signal]
     fn event(name: GString);
 
+    /// The same event with its data (`event hit 0.3 damage=2` gives `{"damage": 2.0}`), sent
+    /// right after `event` for every event, an empty dictionary when it has none.
+    #[signal]
+    fn event_data(name: GString, data: VarDictionary);
+
     /// The machine moved to another state.
     #[signal]
     fn state_changed(state: GString);
@@ -594,6 +599,16 @@ impl MotifSprite {
         let step = player.advance(dt);
         for e in &step.events {
             self.base_mut().emit_signal("event", &[e.name.to_variant()]);
+            let mut data = VarDictionary::new();
+            for (k, v) in &e.data {
+                let v = match v {
+                    motif_runtime::EventValue::Number(n) => n.to_variant(),
+                    motif_runtime::EventValue::Bool(b) => b.to_variant(),
+                    motif_runtime::EventValue::Text(t) => t.to_variant(),
+                };
+                data.set(k.as_str(), &v);
+            }
+            self.base_mut().emit_signal("event_data", &[e.name.to_variant(), data.to_variant()]);
         }
         if let Some(state) = step.state {
             self.base_mut().emit_signal("state_changed", &[state.to_variant()]);

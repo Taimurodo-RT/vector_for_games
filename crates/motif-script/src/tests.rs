@@ -1598,6 +1598,36 @@ fn events_are_read_checked_and_written() {
 }
 
 #[test]
+fn event_data_is_read_typed_and_kept_when_the_event_is_written_again() {
+    use motif_core::EventValue::{Bool, Number, Text};
+    let src = "artboard \"a\" 100x80\nrect r size 10\nanim Run 1s {\n  r.x 0: 0 | 1: 10\n  event hit 0.3 damage=2 crit=true side=left say=\"ой, больно\" id=h1t5 knock=-1.5\n}\n";
+    let s = scene(src);
+    let hit = &s.doc.animation("Run").unwrap().events[0];
+    let want = [("damage", Number(2.0)), ("crit", Bool(true)), ("side", Text("left".into())), ("say", Text("ой, больно".into())), ("knock", Number(-1.5))];
+    assert_eq!(hit.data, want.map(|(k, v)| (k.to_string(), v)));
+    assert_eq!(s.doc.ids.get(motif_core::IdKind::Event, "", "hit"), Some("h1t5"), "an id among the data is the id");
+    // Moved and renamed in the timeline: the data stays as written, the id once at the end.
+    let out = write_event(src, &s, "Run", "hit", "hit", &[0.4]).unwrap();
+    assert!(out.contains("  event hit 0.4 damage=2 crit=true side=left say=\"ой, больно\" knock=-1.5 id=h1t5\n"), "{out}");
+    let out = write_event(src, &s, "Run", "hit", "удар", &[0.4, 0.6]).unwrap();
+    assert_eq!(scene(&out).doc.animation("Run").unwrap().events.iter().map(|e| e.data.len()).collect::<Vec<_>>(), [5, 5]);
+    // Saving stamps no second id; a line without one gets it after the data.
+    let event_line = |s: &str| s.lines().find(|l| l.trim_start().starts_with("event")).unwrap().to_string();
+    assert_eq!(event_line(&crate::ids::stamp(src)), event_line(src));
+    let bare = src.replace(" id=h1t5", "");
+    let stamped = crate::ids::stamp(&bare);
+    assert!(stamped.contains("knock=-1.5 id="), "{stamped}");
+    assert_eq!(scene(&stamped).doc.animation("Run").unwrap().events[0].data.len(), 5);
+    // The same key twice, a value that is not one, data before the times.
+    for (bad, says) in [("damage=1 damage=2", "уже есть"), ("damage=#ff0000", "значение «damage»"), ("damage=", "значение «damage»")]
+    {
+        let errs = parse(&src.replace("damage=2 crit=true side=left say=\"ой, больно\" id=h1t5 knock=-1.5", bad)).unwrap_err();
+        assert!(errs[0].to_string().contains(says), "{bad}: {}", errs[0]);
+    }
+    assert!(parse(&src.replace("hit 0.3 damage=2", "hit damage=2 0.3")).is_err());
+}
+
+#[test]
 fn animations_are_renamed_copied_reversed_and_deleted() {
     let src = "rect a\nanim Open 1s {\n  a.x  0: 0 ease-in | 0.6: 80 cubic 0.3 0 0.6 1.2 | 1: 100\n  a.y  0: 0 hold | 0.5: 40\n  event click 0.2\n}\n\nanim Idle 1s loop {\n  a.r  0: 0 | 1: 5\n}\nmachine M {\n  state Shut anim Open\n  state Idle\n}\n";
     let s = scene(src);

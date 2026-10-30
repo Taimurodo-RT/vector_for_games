@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "boards": [
     {
       "name": "Капля",
@@ -35,12 +35,18 @@
             {
               "id": "fg3h",
               "name": "push",
-              "time": 0.1
+              "time": 0.1,
+              "data": {
+                "force": 1.5
+              }
             },
             {
               "id": "wga2",
               "name": "land",
-              "time": 0.7
+              "time": 0.7,
+              "data": {
+                "dust": true
+              }
             }
           ]
         },

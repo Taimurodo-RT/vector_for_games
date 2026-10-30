@@ -159,11 +159,12 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
 <h3 id="contract">Договор сцены</h3>
 <p>Договор — то, к чему игра привязывается, не заглядывая в рисунок: имена анимаций, состояний, входов, параметров и событий. Пример для капли из <code>examples/machine.msc</code>:</p>
 <pre><code>{
-  "contract": 2,
+  "contract": 3,
   "boards": [{
     "name": "Капля", "width": 480.0, "height": 320.0,
     "animations": [{ "id": "rdi9", "name": "Jump", "duration": 0.7, "loop": false,
-                     "events": [{ "id": "fg3h", "name": "push", "time": 0.1 }, { "id": "wga2", "name": "land", "time": 0.7 }] }, …],
+                     "events": [{ "id": "fg3h", "name": "push", "time": 0.1, "data": { "force": 1.5 } },
+                                { "id": "wga2", "name": "land", "time": 0.7, "data": { "dust": true } }] }, …],
     "machines": [{ "name": "Hero",
                    "inputs": [{ "id": "wyac", "name": "speed", "kind": "number", "default": 0.0 }, …],
                    "states": [{ "id": "cfs2", "name": "Idle", "animation": "Idle" }, …], "pointer": [] }],
@@ -171,7 +172,8 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
   }]
 }</code></pre>
 <p><b>Привязывайтесь по <code>id</code>.</b> Это скрытый id из строки скрипта (<code>input speed 0 id=wyac</code>): он не меняется при переименовании, так что игра узнаёт вход <code>speed</code>, даже когда он стал <code>скорость</code>. Id появляются, когда Motif сохраняет файл; у файла, который ещё не сохраняли в Motif, поля <code>id</code> нет. У параметра позы <code>name</code> — имя из скрипта и дорожек (<code>turn</code>), <code>title</code> — подпись в Motif.</p>
-<p>Поле <code>contract</code> — версия самого договора (2: с id); <code>sides</code> появляется только у сцены со строкой <code>directions</code>. В Rust то же даёт <code>motif_script::contract(&amp;docs)</code> (структура <code>Contract</code>, читается обратно через serde) и <code>contract_json</code>. Рядом с каждым примером в <code>examples/</code> лежит образец <code>ИМЯ.contract.json</code>, и тест сверяет с ним договор: случайное переименование входа или события ломает тест, а не игру. После намеренной правки образцы переписывает <code>MOTIF_BLESS=1 cargo test -p motif-script --test contracts</code>.</p>
+<p>У события с <a href="script.html#event-data">данными</a> (<code>event push 0.1 force=1.5</code>) есть поле <code>data</code>: числа, true/false и текст; без данных поля нет.</p>
+<p>Поле <code>contract</code> — версия самого договора (3: с данными событий); <code>sides</code> появляется только у сцены со строкой <code>directions</code>. В Rust то же даёт <code>motif_script::contract(&amp;docs)</code> (структура <code>Contract</code>, читается обратно через serde) и <code>contract_json</code>. Рядом с каждым примером в <code>examples/</code> лежит образец <code>ИМЯ.contract.json</code>, и тест сверяет с ним договор: случайное переименование входа или события ломает тест, а не игру. После намеренной правки образцы переписывает <code>MOTIF_BLESS=1 cargo test -p motif-script --test contracts</code>.</p>
 
 <h2 id="ui-kit">UI-наборы для Godot</h2>
 <p>Кнопки, панели, рамки, полосы здоровья и подсказки рисуются в Motif как обычные фигуры, а в игру уходят готовой темой Godot. Начните с «Файл → Новый UI-набор»: это заготовка из семи <a href="tools.html#boards">холстов</a> — кнопки, переключатели, поля, полосы, панели, навигация и текст, цвета общие в начале файла. «Экспорт → Холсты: Все» собирает детали всех холстов в одну тему. Она открывается в режиме UI (<code>artboard … ui</code>, переключатель «Всё / UI / Игра» сверху): экспорт UI-набора стоит в окне «Экспорт» первым, а лишние для интерфейса разделы спрятаны. Кнопка «Добавить состояния Hover и Press» в разделе «Интерфейс» заводит пустые анимации состояний и включает Animate.</p>
