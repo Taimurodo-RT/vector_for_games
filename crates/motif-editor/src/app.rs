@@ -140,6 +140,8 @@ pub struct App {
     show_recovery: bool,
     /// The copy waiting for «Точно удалить»: one of them, or all (`Some(None)`).
     recovery_drop: Option<Option<usize>>,
+    /// The workspace a UI check started from, to return to when it stops.
+    pub(crate) check_from: Option<crate::workspace::Workspace>,
     recovery_title: String,
     last_recovery: Instant,
     close_allowed: bool,
@@ -295,6 +297,7 @@ impl App {
         let mut app = App {
             show_recovery: !recovery_records.is_empty(),
             recovery_drop: None,
+            check_from: None,
             recovery,
             recovery_records,
             recovery_title: "Восстановление документов".into(),
