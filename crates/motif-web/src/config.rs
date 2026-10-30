@@ -115,21 +115,121 @@ pub fn ident(s: &str) -> bool {
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+/// `s` as a name for SVG ids, classes and files: Latin letters, digits, `_` and `-`. Russian
+/// letters are transliterated (`Лицо` → `Litso`), spaces and punctuation become `-`, anything
+/// else that has no Latin spelling is written as its code (`u2605`).
 pub fn slug(s: &str) -> String {
     let mut out = String::new();
     for ch in s.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
             out.push(ch);
-        } else if ch == '.' || ch.is_whitespace() {
+        } else if ch.is_ascii_punctuation() || ch.is_whitespace() {
             out.push('-');
+        } else if let Some(latin) = translit(ch) {
+            out.push_str(latin);
         } else {
             out.push_str(&format!("u{:x}", ch as u32));
         }
     }
+    // Hard and soft signs and runs of spaces leave no doubled or trailing dashes.
+    let mut tidy = String::with_capacity(out.len());
+    for ch in out.chars() {
+        if !(ch == '-' && (tidy.is_empty() || tidy.ends_with('-'))) {
+            tidy.push(ch);
+        }
+    }
+    let mut out = tidy.trim_end_matches('-').to_string();
     if !out.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
         out.insert_str(0, "asset-");
     }
     out
+}
+
+/// Latin spelling of a Russian (or Ukrainian, Belarusian) letter, keeping its case; the signs
+/// `ъ` and `ь` have none.
+fn translit(ch: char) -> Option<&'static str> {
+    const LOWER: [(char, &str); 40] = [
+        ('а', "a"),
+        ('б', "b"),
+        ('в', "v"),
+        ('г', "g"),
+        ('д', "d"),
+        ('е', "e"),
+        ('ё', "yo"),
+        ('ж', "zh"),
+        ('з', "z"),
+        ('и', "i"),
+        ('й', "y"),
+        ('к', "k"),
+        ('л', "l"),
+        ('м', "m"),
+        ('н', "n"),
+        ('о', "o"),
+        ('п', "p"),
+        ('р', "r"),
+        ('с', "s"),
+        ('т', "t"),
+        ('у', "u"),
+        ('ф', "f"),
+        ('х', "kh"),
+        ('ц', "ts"),
+        ('ч', "ch"),
+        ('ш', "sh"),
+        ('щ', "shch"),
+        ('ъ', ""),
+        ('ы', "y"),
+        ('ь', ""),
+        ('э', "e"),
+        ('ю', "yu"),
+        ('я', "ya"),
+        ('і', "i"),
+        ('ї', "yi"),
+        ('є', "ye"),
+        ('ґ', "g"),
+        ('ў', "u"),
+        ('\u{2116}', "N"),
+        ('’', ""),
+    ];
+    const UPPER: [(char, &str); 37] = [
+        ('А', "A"),
+        ('Б', "B"),
+        ('В', "V"),
+        ('Г', "G"),
+        ('Д', "D"),
+        ('Е', "E"),
+        ('Ё', "Yo"),
+        ('Ж', "Zh"),
+        ('З', "Z"),
+        ('И', "I"),
+        ('Й', "Y"),
+        ('К', "K"),
+        ('Л', "L"),
+        ('М', "M"),
+        ('Н', "N"),
+        ('О', "O"),
+        ('П', "P"),
+        ('Р', "R"),
+        ('С', "S"),
+        ('Т', "T"),
+        ('У', "U"),
+        ('Ф', "F"),
+        ('Х', "Kh"),
+        ('Ц', "Ts"),
+        ('Ч', "Ch"),
+        ('Ш', "Sh"),
+        ('Щ', "Shch"),
+        ('Ъ', ""),
+        ('Ы', "Y"),
+        ('Ь', ""),
+        ('Э', "E"),
+        ('Ю', "Yu"),
+        ('Я', "Ya"),
+        ('І', "I"),
+        ('Ї', "Yi"),
+        ('Є', "Ye"),
+        ('Ґ', "G"),
+    ];
+    LOWER.iter().chain(UPPER.iter()).find(|(c, _)| *c == ch).map(|(_, s)| *s)
 }
 
 pub fn file_ok(s: &str) -> bool {
