@@ -110,6 +110,7 @@ impl ShapeKind {
 }
 
 /// Every property that can be set from the scene script, the inspector or an animation track.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Prop {
     X,
