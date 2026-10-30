@@ -1,3 +1,4 @@
+motif 1
 // @motif-web {"tokens":{"accent":"--accent","ink":"currentColor"},"themes":{"night":{"accent":"#98c4ff","ink":"#c9dbf0"},"warm":{"accent":"#edaa65","ink":"#633e2c"}},"assets":{"web-effects":{"file":"effects.svg","stage":"example","keywords":["effects","vector"],"layers":{"shadow":{"class":"base"}}},"web-color":{"file":"color.svg"},"web-reveal":{"file":"reveal.svg"}}}
 let accent = #6c9ee8
 let ink = #294563

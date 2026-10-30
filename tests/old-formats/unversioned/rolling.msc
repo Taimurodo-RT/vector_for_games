@@ -1,0 +1,45 @@
+// Физика на шаре: объекты на шаре (on) с roll сами катятся по нему к его нижнему полюсу,
+// крутятся на ходу, прячутся за шаром и толкают друг друга. Наклоните шар (pitch) — и они
+// покатятся в другую сторону. Широта и долгота задают, откуда они стартуют.
+artboard "Шар" 600x320 bg #141826
+
+let ink = #0d1018
+
+// Глобус качается вперёд-назад, шарики перекатываются по нему и сталкиваются.
+ellipse globe "Глобус" at 160 165 size 220 220 fill #3b6fd8 stroke ink 4
+ellipse land1 "Материк" size 80 50 on globe lat 10 lon -40 wrap fill #5ee0a0 stroke ink 3
+ellipse land2 "Остров" size 40 34 on globe lat -30 lon 70 wrap fill #5ee0a0 stroke ink 3
+group m1 "Шарик 1" on globe lat 40 lon -40 alt 12 roll 0.2 0.03 {
+  ellipse b1 size 24 24 fill #ffd23f stroke ink 3
+  rect s1 size 22 5 fill #ff5d73
+}
+group m2 "Шарик 2" on globe lat 30 lon 10 alt 12 roll 0.2 0.03 {
+  ellipse b2 size 24 24 fill #ff8a3c stroke ink 3
+  rect s2 size 22 5 fill #ffffff
+}
+group m3 "Шарик 3" on globe lat 50 lon 40 alt 12 roll 0.2 0.03 {
+  ellipse b3 size 24 24 fill #c58bff stroke ink 3
+  rect s3 size 22 5 fill #ffd23f
+}
+group m4 "Шарик 4" on globe lat 10 lon 50 alt 12 roll 0.2 0.03 {
+  ellipse b4 size 24 24 fill #e8f0ff stroke ink 3
+  rect s4 size 22 5 fill #3b6fd8
+}
+
+// Планета вращается. Ровер держится за неё (сцепление 1) и уезжает за край,
+// мяч без сцепления (0) остаётся спереди, а планета скользит под ним.
+ellipse planet "Планета" at 450 165 size 180 180 fill #ff7a59 stroke ink 4
+ellipse crater "Кратер" size 50 40 on planet lat 20 lon 0 wrap fill #d65a3c stroke ink 3
+group rover "Ровер" on planet lat -10 lon -20 alt 10 roll 1 0.05 weight 0 {
+  rect rb size 26 16 r 4 fill #e8f0ff stroke ink 3
+  ellipse rw size 8 8 at 0 9 fill ink
+}
+group ball "Мяч" on planet lat -25 lon 15 alt 10 roll 0 0.05 weight 0 {
+  ellipse qb size 20 20 fill #5ee0a0 stroke ink 3
+  rect qs size 18 4 fill ink
+}
+
+anim Tilt 6s loop {
+  globe.pitch 0: 0 ease-in-out | 1.2: -75 | 2: -75 ease-in-out | 3.2: 60 ease-in-out | 4.6: -75 ease-in-out | 6: 0
+  planet.yaw  0: 0 | 6: 360
+}

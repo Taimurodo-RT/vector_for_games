@@ -1,0 +1,106 @@
+// Инвентарь: слева сетка слотов 4×3, справа описание выбранного предмета с кнопкой.
+// Сетка — столбик из рядов (стек в стеке): в Godot это VBox из HBox, слоты — кнопки.
+// Пустые слоты нарисованы одинаково — в теме это один стиль; слоты с предметами несут
+// картинку предмета. Выбранный слот — в золотой рамке.
+artboard "Инвентарь" 640x360 bg #161b2c ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let deep = #2441a8
+let panel = #283049
+let raised = #333c5a
+let lift = #3e4870
+let well = #1b2132
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let gold = #ffc94d
+let bad = #ff5c6c
+let good = #4fd18f
+
+group inventory "Окно инвентаря" anchor center middle stack column gap 12 pad 20 {
+  rect inventory_bg "Фон" r 20 fill panel stroke ink 4 fit shadow 0 8 0 #0a0d16
+  text inventory_title "Заголовок" content "ИНВЕНТАРЬ" font bold font-size 22 letter-spacing 4 fill paper
+  group content "Содержимое" stack row gap 16 {
+    group grid "Сетка" stack column gap 8 {
+      group row1 "Ряд 1" stack row gap 8 {
+        group slot_sword "Меч" ui button {
+          rect sword_frame size 56 56 r 12 fill well stroke gold 4
+          path sword_icon d "M -6 6 L 13 -13 M -13 -1 L 1 13 M -7 7 L -14 14" fill none stroke paper 5 cap round join round
+        }
+        group slot_potion "Зелье" ui button {
+          rect potion_frame size 56 56 r 12 fill well stroke ink 4
+          ellipse potion_icon at 0 5 size 26 26 fill bad stroke ink 3
+          rect potion_neck at 0 -12 size 10 10 r 2 fill paper stroke ink 2
+          text potion_count at 17 18 content "3" font bold font-size 12 fill paper
+        }
+        group slot_gem "Камень" ui button {
+          rect gem_frame size 56 56 r 12 fill well stroke ink 4
+          path gem_icon d "M 0 -14 L 12 -2 L 0 14 L -12 -2 Z" fill #6fe3ff stroke ink 3 join round
+        }
+        group slot_key "Ключ" ui button {
+          rect key_frame size 56 56 r 12 fill well stroke ink 4
+          ellipse key_ring at -6 -6 size 16 16 fill none stroke gold 4
+          path key_stem d "M 0 0 L 12 12 M 8 8 L 4 12" fill none stroke gold 4 cap round
+        }
+      }
+      group row2 "Ряд 2" stack row gap 8 {
+        group slot_shield "Щит" ui button {
+          rect shield_frame size 56 56 r 12 fill well stroke ink 4
+          path shield_icon d "M -12 -12 L 12 -12 L 12 0 Q 12 10 0 15 Q -12 10 -12 0 Z" fill light stroke ink 3 join round
+        }
+        group slot5 "Пусто" ui button {
+          rect slot5_frame size 56 56 r 12 fill well stroke ink 4
+        }
+        group slot6 "Пусто" ui button {
+          rect slot6_frame size 56 56 r 12 fill well stroke ink 4
+        }
+        group slot7 "Пусто" ui button {
+          rect slot7_frame size 56 56 r 12 fill well stroke ink 4
+        }
+      }
+      group row3 "Ряд 3" stack row gap 8 {
+        group slot8 "Пусто" ui button {
+          rect slot8_frame size 56 56 r 12 fill well stroke ink 4
+        }
+        group slot9 "Пусто" ui button {
+          rect slot9_frame size 56 56 r 12 fill well stroke ink 4
+        }
+        group slot10 "Пусто" ui button {
+          rect slot10_frame size 56 56 r 12 fill well stroke ink 4
+        }
+        group slot11 "Пусто" ui button {
+          rect slot11_frame size 56 56 r 12 fill well stroke ink 4
+        }
+      }
+    }
+    group details "Описание" stack column gap 8 pad 14 {
+      rect details_bg "Фон" r 14 fill raised stroke ink 4 fit
+      text item_name "Название" content "Меч рассвета" font bold font-size 18 fill paper
+      text item_kind "Тип" content "Оружие · редкое" font-size 13 fill gold
+      text item_stat "Урон" content "Урон 24–30" font-size 15 fill paper
+      text item_note "Описание" content "Светится у врагов" font-size 13 fill muted
+      group equip "Надеть" ui button slice 14 {
+        rect equip_base at 0 4 size 150 38 r 12 fill deep stroke ink 4
+        rect equip_body size 150 38 r 12 fill primary stroke ink 4
+        text equip_text "Подпись" at 0 1 content "Надеть" font bold font-size 17 fill paper part text
+      }
+    }
+  }
+}
+
+group close "Закрыть" at -36 36 anchor right top ui {
+  ellipse close_ring size 40 40 fill bad stroke ink 4
+  path close_cross d "M -7 -7 L 7 7 M -7 7 L 7 -7" fill none stroke paper 4 cap round
+}
+
+anim Hover 0.15s {
+  slot5_frame.fill 0: well | 0.15: raised
+  equip_body.fill  0: primary | 0.15: light
+  close_ring.fill  0: bad | 0.15: #ff7f8b
+}
+anim Press 0.08s {
+  slot5_frame.stroke 0: ink | 0.08: gold
+  equip_body.y       0: 0 | 0.08: 4
+  equip_text.y       0: 1 | 0.08: 5
+}

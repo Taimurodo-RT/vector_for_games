@@ -1,0 +1,41 @@
+// Верёвки, цепи и ткань: контур становится цепочкой точек (rope) или сеткой (cloth),
+// которая провисает, качается и полощется на ветру. Фонарь висит на шнуре (hang),
+// флажки — на гирлянде, цепь нарисована звеньями (links), флаг — ткань (cloth) на ветру.
+artboard "Верёвки" 640x360 bg #141826
+
+let ink = #0d1018
+
+rect ground "Земля" at 320 345 size 640 30 fill #232a3d
+
+// Балка едет ключами, фонарь качается на шнуре, огонёк в нём искрит.
+group rig "Балка" at 110 30 {
+  rect beam "Брус" size 150 14 r 4 fill #6b4a2f stroke ink 3
+  path cord "Шнур" at 0 7 d "M 0 0 L 0 100" fill none stroke #c9a26b 3 rope
+}
+group lantern "Фонарь" pivot 0 -22 hang cord {
+  rect glass "Стекло" size 28 34 r 7 fill #ffd23f stroke ink 3
+  rect lid "Крышка" at 0 -20 size 20 7 r 2 fill #6b4a2f stroke ink 2
+  ellipse flame "Огонёк" size 5 5 fill #ff8a3c emit 18 life 0.5 speed 25 spread 50 grow 0 fade 0
+}
+
+// Гирлянда между столбами: нарисована с провисом, ветер её раскачивает.
+rect postL "Столб Л" at 250 200 size 10 270 fill #3a4258 stroke ink 2
+rect postR "Столб П" at 610 140 size 10 390 fill #3a4258 stroke ink 2
+path garland "Гирлянда" at 430 70 d "M -180 0 Q 0 90 180 -60" fill none stroke #e8f0ff 2 rope 1 0.03 pin start end wind 140
+polygon f1 size 18 20 points 3 rot 180 pivot 0 -8 hang garland 0.15 fill #ff5d73 stroke ink 2
+polygon f2 size 18 20 points 3 rot 180 pivot 0 -8 hang garland 0.3 fill #ffd23f stroke ink 2
+polygon f3 size 18 20 points 3 rot 180 pivot 0 -8 hang garland 0.45 fill #5ee0a0 stroke ink 2
+polygon f4 size 18 20 points 3 rot 180 pivot 0 -8 hang garland 0.6 fill #6aa8ff stroke ink 2
+polygon f5 size 18 20 points 3 rot 180 pivot 0 -8 hang garland 0.75 fill #c58bff stroke ink 2
+
+// Флаг на столбе: ткань закреплена левым краем и полощется на ветру.
+rect flag "Флаг" at 312 140 size 110 64 fill #ff5d73 stroke ink 3 cloth 1 0.02 pin left weight 0.33 wind 900
+
+// Цепь с гирей: начинается горизонтально и падает маятником.
+path chain "Цепь" at 470 190 d "M 0 0 L 90 0" fill none rope pin start
+ellipse link "Звено" size 14 9 fill none stroke #b8c0d0 3 links chain
+ellipse weight "Гиря" size 26 26 pivot 0 -13 hang chain fill #8b93a8 stroke ink 3
+
+anim Sway 4s loop {
+  rig.x 0: 110 ease-in-out | 1: 170 ease-in-out | 2: 110 ease-in-out | 3: 60 ease-in-out | 4: 110
+}

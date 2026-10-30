@@ -170,6 +170,8 @@ pub struct StrokeAst {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
+    /// `motif 1`: the format version, first in the file.
+    Format,
     Parameter {
         parameter: motif_core::PoseParameter,
         span: Span,
@@ -344,11 +346,13 @@ pub struct Parser<'a> {
     /// Names from `let` and `for`: such a name is a value even where it is also a property
     /// (`let skin = #5ee0a0` then `fill skin`).
     vars: std::collections::HashSet<String>,
+    /// Whether a statement was read: the format version can only come before any.
+    started: bool,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(src: &'a str, toks: Vec<Token>) -> Self {
-        Parser { src, toks, pos: 0, errors: Vec::new(), vars: Default::default() }
+        Parser { src, toks, pos: 0, errors: Vec::new(), vars: Default::default(), started: false }
     }
 
     fn peek(&self) -> Option<&Tok> {
@@ -464,10 +468,30 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
+        let first = !std::mem::replace(&mut self.started, true);
         let (word, span) = self.ident(
             "команда: artboard, world, directions, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
         )?;
         match word.as_str() {
+            "motif" => {
+                let (v, v_span) = self.num("номер версии формата")?;
+                if !first {
+                    return Err(self.err(span, "«motif N» — версия формата, она пишется только первой строкой файла"));
+                }
+                if v.fract() != 0.0 || v < 1.0 {
+                    return Err(self.err(v_span, "версия формата — целое число от 1"));
+                }
+                if v > crate::format::VERSION as f64 {
+                    return Err(self.err(
+                        v_span,
+                        format!(
+                            "файл сохранён более новой версией Motif (формат {v}), эта читает формат до {}. Обновите Motif (update.bat)",
+                            crate::format::VERSION
+                        ),
+                    ));
+                }
+                Ok(Stmt::Format)
+            }
             "artboard" => self.artboard(),
             "backdrop" => self.backdrop(span.start),
             "world" => self.world(span.start),

@@ -574,6 +574,7 @@ impl<'a> Evaluator<'a> {
                         }
                     }
                 }
+                Stmt::Format => {}
                 Stmt::Let { name, value } => {
                     let v = self.value(value);
                     if parent.is_none()

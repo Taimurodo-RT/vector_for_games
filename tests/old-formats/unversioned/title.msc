@@ -1,0 +1,21 @@
+// Заголовок в духе игровых логотипов: буквы — обычные контуры,
+// поэтому к ним применяются градиент, слои обводки, тень и анимация букв.
+artboard "Титул" 480x270 bg #241a3a
+
+let gold = #ffd23f
+
+rect glow at 240 135 size 420 200 r 40 gradient radial #6b4bd8 #241a3a opacity 0.8
+
+text title "Заголовок" at 240 112 content "МОТИФ" font bold font-size 84 letter-spacing 6 gradient linear 90 #fff3b0 gold #ff8a3d outline #1b1d24 18 #ffffff 10 #1b1d24 4 shadow 0 8 12 #00000088
+text sub "Подзаголовок" at 240 196 content "нажмите любую клавишу" font-size 20 letter-spacing 2 fill #c9c3ff wave 0
+
+anim Intro 1.6s {
+  title.reveal 0: 0 linear | 0.9: 1
+  title.sy 0.9: 1 | 1.05: 1.08 ease-out | 1.3: 1 ease-in-out-back
+  sub.opacity 0: 0 | 0.9: 0 | 1.3: 1
+}
+
+anim Idle 2s loop {
+  sub.wave 0: 4 linear | 2: 4
+  sub.phase 0: 0 linear | 2: 1
+}

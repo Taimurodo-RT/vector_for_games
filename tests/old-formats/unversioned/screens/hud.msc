@@ -1,0 +1,100 @@
+// HUD — интерфейс поверх игры: слева сверху портрет, здоровье и мана; по центру таймер;
+// справа монеты и пауза; внизу панель быстрых предметов с номерами клавиш.
+// Каждый блок привязан к своему краю (anchor), поэтому в окне любого размера он остаётся
+// у края, а середина экрана свободна для игры. Полосы — ProgressBar: игра меняет value.
+artboard "HUD" 640x360 bg #6aa6e8 ui
+
+let primary = #3b6cff
+let light = #6f93ff
+let panel = #283049
+let raised = #333c5a
+let well = #1b2132
+let ink = #10131d
+let paper = #f4f1ea
+let muted = #a3a8b8
+let good = #4fd18f
+let gold = #ffc94d
+let bad = #ff5c6c
+
+// Игра под интерфейсом.
+rect sky "Небо" at 320 180 size 640 360 fill #6aa6e8 gradient linear 90 #9cc8f5 #5d95da
+ellipse cloud1 "Облако" at 150 120 size 90 34 fill #ffffff opacity 0.8
+ellipse cloud2 "Облако" at 470 90 size 120 40 fill #ffffff opacity 0.7
+rect ground "Земля" at 320 330 size 640 60 fill #4c9a52
+rect grass "Трава" at 320 302 size 640 8 fill #6cc070
+rect crate "Ящик" at 420 280 size 36 36 r 4 fill #b07a4a stroke ink 3
+ellipse hero "Герой" at 250 278 size 40 40 fill #ffb23e stroke ink 3
+
+// Слева сверху: портрет и полосы.
+group player "Игрок" at 128 44 anchor left top stack row center gap 10 {
+  group portrait "Портрет" {
+    ellipse portrait_ring size 52 52 fill panel stroke ink 4
+    ellipse portrait_face at 0 2 size 30 30 fill #ffb23e stroke ink 3
+  }
+  group bars "Полосы" stack column start gap 6 {
+    group health "Здоровье" ui progress {
+      rect health_frame "Рамка" size 150 20 r 10 fill well stroke ink 4 slice 10 part background
+      rect health_fill "Заливка" at -18 0 size 106 12 r 6 fill bad slice 6 part fill
+    }
+    group mana "Мана" ui progress {
+      rect mana_frame "Рамка" size 120 14 r 7 fill well stroke ink 4 slice 7 part background
+      rect mana_fill "Заливка" at -22 0 size 68 6 r 3 fill light slice 3 part fill
+    }
+  }
+}
+
+// По центру сверху: таймер.
+group timer "Таймер" at 0 34 anchor center top stack row center gap 0 pad 10 {
+  rect timer_bg "Фон" r 14 fill panel stroke ink 4 fit
+  text time "Время" content "02:45" font bold font-size 20 fill paper
+}
+
+// Справа сверху: монеты и пауза.
+group coins "Монеты" at -128 34 anchor right top stack row center gap 8 pad 8 {
+  rect coins_bg "Фон" r 14 fill panel stroke ink 4 fit
+  ellipse coin "Монета" size 22 22 fill gold stroke ink 3
+  text coin_count "Число" content "1 250" font bold font-size 18 fill paper
+}
+group pause "Пауза" at -36 34 anchor right top ui button {
+  rect pause_body size 40 40 r 12 fill panel stroke ink 4
+  rect pause_left at -5 0 size 6 16 r 2 fill paper
+  rect pause_right at 5 0 size 6 16 r 2 fill paper
+}
+
+// Внизу по центру: быстрые предметы. Выбранный — в золотой рамке.
+group hotbar "Панель предметов" at 0 -44 anchor center bottom stack row center gap 6 pad 6 {
+  rect hotbar_bg "Фон" r 14 fill #10131dcc fit
+  group slot1 "Слот 1" ui button {
+    rect slot1_frame size 48 48 r 10 fill raised stroke gold 4
+    path slot1_sword d "M -5 5 L 11 -11 M -11 -1 L 1 11 M -6 6 L -12 12" fill none stroke paper 4 cap round join round
+    text slot1_key at 15 15 content "1" font bold font-size 11 fill gold
+  }
+  group slot2 "Слот 2" ui button {
+    rect slot2_frame size 48 48 r 10 fill raised stroke ink 4
+    ellipse slot2_potion at 0 4 size 22 22 fill bad stroke ink 3
+    rect slot2_neck at 0 -10 size 8 8 r 2 fill paper stroke ink 2
+    text slot2_key at 15 15 content "2" font bold font-size 11 fill muted
+  }
+  group slot3 "Слот 3" ui button {
+    rect slot3_frame size 48 48 r 10 fill raised stroke ink 4
+    ellipse slot3_bomb at 0 3 size 24 24 fill well stroke paper 3
+    text slot3_key at 15 15 content "3" font bold font-size 11 fill muted
+  }
+  group slot4 "Слот 4" ui button {
+    rect slot4_frame size 48 48 r 10 fill raised stroke ink 4
+    text slot4_key at 15 15 content "4" font bold font-size 11 fill muted
+  }
+  group slot5 "Слот 5" ui button {
+    rect slot5_frame size 48 48 r 10 fill raised stroke ink 4
+    text slot5_key at 15 15 content "5" font bold font-size 11 fill muted
+  }
+}
+
+anim Hover 0.15s {
+  pause_body.fill   0: panel | 0.15: raised
+  slot4_frame.fill  0: raised | 0.15: #3e4870
+}
+anim Press 0.08s {
+  pause_body.fill   0: panel | 0.08: #1f2638
+  slot4_frame.stroke 0: ink | 0.08: gold
+}

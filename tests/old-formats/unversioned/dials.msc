@@ -1,0 +1,79 @@
+// Необычные слайдеры: каждый рисует анимация Value. Значение от 0 до 1 проигрывает её от начала до
+// конца, а мышь тянет его вбок, вверх или по кругу — как скажет dial, или как подскажет форма:
+// широкий тянется вбок, высокий вверх, круглый по кругу. value — где слайдер стоит сейчас.
+// Hover и Press играют поверх. «▶ Проверить» оживляет их на холсте; «Экспорт → Экран для Godot…»
+// запекает кадры Value в картинку и делает узел Range со скриптом motif_dial.gd.
+let ink = #10131d
+let paper = #f4f1ea
+let warm = #ffb347
+let off = #2c3450
+artboard "Слайдеры" 560x300 bg #1b2030 ui
+
+// Ручка: стрелка поворачивается, точки по дуге загораются одна за другой.
+group knob "Громкость" at 110 150 ui slider dial turn 270 value 0.5 {
+  ellipse knob_ring "Кольцо" size 136 136 fill #232a3d stroke ink 4
+  for i in 0..9 {
+    group knob_tick{i} rot {-135 + i * 33.75} {
+      ellipse knob_dot{i} at 0 -56 size 9 9 fill warm opacity 0.15
+    }
+  }
+  ellipse knob_body "Ручка" size 84 84 fill #3a4361 stroke ink 4 shadow 0 6 0 #0a0d16
+  group knob_hand "Стрелка" rot -135 {
+    rect knob_mark at 0 -26 size 8 22 r 4 fill warm
+  }
+}
+
+// Колба: жидкость поднимается и меняет цвет. Высокая — тянется вверх.
+group mana "Мана" at 290 150 ui slider value 0.6 {
+  rect mana_glass "Колба" size 52 200 r 26 fill #151a28 stroke ink 4
+  group mana_inside "Внутри" clip {
+    rect mana_mask size 40 188 r 20 fill paper
+    rect mana_water "Жидкость" at 0 94 size 40 0 fill #3fa9ff
+    ellipse mana_top "Поверхность" at 0 94 size 40 8 fill #9ad8ff
+  }
+  rect mana_shine "Блик" at -11 -40 size 6 80 r 3 fill paper opacity 0.25
+}
+
+// Сила: столбики загораются слева направо. Широкая — тянется вбок.
+group power "Сила" at 450 150 ui slider value 0.3 {
+  rect power_back "Подложка" size 170 90 r 16 fill #232a3d stroke ink 4
+  for i in 0..6 {
+    rect power_bar{i} at {-60 + i * 24} {28 - i * 6} size 14 {16 + i * 12} r 4 fill off
+  }
+}
+
+anim Value 1s {
+  knob_dot0.opacity 0: 1
+  knob_dot1.opacity 0: 0.15 linear | 0.105: 0.15 linear | 0.125: 1
+  knob_dot2.opacity 0: 0.15 linear | 0.23: 0.15 linear | 0.25: 1
+  knob_dot3.opacity 0: 0.15 linear | 0.355: 0.15 linear | 0.375: 1
+  knob_dot4.opacity 0: 0.15 linear | 0.48: 0.15 linear | 0.5: 1
+  knob_dot5.opacity 0: 0.15 linear | 0.605: 0.15 linear | 0.625: 1
+  knob_dot6.opacity 0: 0.15 linear | 0.73: 0.15 linear | 0.75: 1
+  knob_dot7.opacity 0: 0.15 linear | 0.855: 0.15 linear | 0.875: 1
+  knob_dot8.opacity 0: 0.15 linear | 0.98: 0.15 linear | 1.0: 1
+  knob_hand.rot 0: -135 linear | 1: 135
+  mana_water.h 0: 0 linear | 1: 188
+  mana_water.y 0: 94 linear | 1: 0
+  mana_top.y 0: 94 linear | 1: -90
+  mana_water.fill 0: #3fa9ff linear | 1: #a77bff
+  mana_top.fill 0: #9ad8ff linear | 1: #d4bdff
+  power_bar0.fill 0: off linear | 0.1467: off linear | 0.1667: #5ee0a0
+  power_bar1.fill 0: off linear | 0.3133: off linear | 0.3333: #9be36b
+  power_bar2.fill 0: off linear | 0.48: off linear | 0.5: #d9e45a
+  power_bar3.fill 0: off linear | 0.6467: off linear | 0.6667: #ffc94d
+  power_bar4.fill 0: off linear | 0.8133: off linear | 0.8333: #ff9a4d
+  power_bar5.fill 0: off linear | 0.98: off linear | 1.0: #ff5d5d
+}
+anim Hover 0.15s {
+  knob_body.fill 0: #3a4361 | 0.15: #4a5578
+  mana_glass.stroke 0: ink | 0.15: #6f93ff
+  power_back.fill 0: #232a3d | 0.15: #2d3550
+}
+anim Press 0.08s {
+  knob_body.sx 0: 1 | 0.08: 0.94
+  knob_body.sy 0: 1 | 0.08: 0.94
+  knob_hand.sx 0: 1 | 0.08: 0.94
+  knob_hand.sy 0: 1 | 0.08: 0.94
+  mana_glass.fill 0: #151a28 | 0.08: #1d2336
+}

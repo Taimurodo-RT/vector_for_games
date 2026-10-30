@@ -340,6 +340,17 @@ fn bundled_effect_examples_match_native_pixels() {
 }
 
 #[test]
+fn web_settings_keep_the_format_version_first() {
+    let src = format!("motif 1\n{SIMPLE}");
+    let mut c = Config::default();
+    c.tokens.insert("ink".into(), "currentColor".into());
+    let written = motif_web::write(&src, &c).unwrap();
+    assert!(written.starts_with("motif 1\n// @motif-web "), "{written}");
+    assert_eq!(motif_web::write(&written, &c).unwrap(), written);
+    assert!(motif_script::parse(&written).is_ok());
+}
+
+#[test]
 fn russian_names_stay_and_ids_are_transliterated() {
     let s =
         scene("artboard \"Нужда: еда\" 24x24\ngroup лицо \"Овал лица\" at 12 12 {\nrect щека size 8 fill #123456\nrect nose \"Нос\" size 4 fill #654321\n}\n");

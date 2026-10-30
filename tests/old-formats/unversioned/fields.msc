@@ -1,0 +1,26 @@
+// Притяжение и вентиляторы: объект с pull тянет к себе всё, что считает физика (с минусом —
+// отталкивает), объект с fan дует туда, куда повёрнут. Радиус (range) — докуда они достают.
+// Силу можно анимировать ключами: так получается взрывная волна.
+artboard "Поля" 640x360 bg #141826
+
+let ink = #0d1018
+
+rect ground "Земля" at 320 345 size 640 30 fill #232a3d solid
+
+// Чёрная дыра: пыль летит мимо, закручивается вокруг неё и падает внутрь.
+ellipse hole "Чёрная дыра" at 150 170 size 36 36 fill #05060a stroke #8a5cff 3 pull 2600 range 200
+ellipse dust "Пыль" at 20 60 size 5 5 fill #c9b8ff emit 30 life 4 speed 170 angle 15 spread 20 drag 0.4 fade 0.2 grow 0.6
+
+// Взрывная волна: в 1.5 с центр на миг сильно отталкивает, мячи разлетаются и падают.
+ellipse blast "Взрыв" at 330 330 size 16 16 fill #ff8a3c stroke ink 2 pull 0 range 220
+ellipse b1 "Мяч 1" at 290 312 size 30 30 fill #ffd23f stroke ink 3 soft 0.7 drive 0 weight 1
+ellipse b2 "Мяч 2" at 330 300 size 30 30 fill #5ee0a0 stroke ink 3 soft 0.7 drive 0 weight 1
+ellipse b3 "Мяч 3" at 370 312 size 30 30 fill #6aa8ff stroke ink 3 soft 0.7 drive 0 weight 1
+
+// Вентилятор дует вверх: лёгкий шарик парит над ним и покачивается.
+rect fan "Вентилятор" at 545 320 size 60 18 r 4 rot -90 fill #3a4258 stroke ink 3 fan 2000 range 260 cone 40
+ellipse balloon "Шарик" at 545 150 size 36 42 fill #ff5d73 stroke ink 3 soft 0.8 drive 0 weight 0.9 sail 1
+
+anim Fields 4s {
+  blast.pull 0: 0 | 1.45: 0 linear | 1.5: -9000 linear | 1.6: 0
+}

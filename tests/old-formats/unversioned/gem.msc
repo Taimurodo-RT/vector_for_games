@@ -1,0 +1,19 @@
+// Кристалл в окне: градиенты и маска. Пример сцены Motif.
+artboard "Кристалл" 360x360 bg #1b1d24
+
+rect sky "Небо" at 180 180 size 360 gradient linear 90 #2b2f6b #6b3b8f #e0607a
+
+// Маска: круг обрезает всё, что лежит в группе после него.
+group window "Окно" at 180 170 clip {
+  ellipse lens "Круг" size 220
+  rect sun "Свет" at 0 0 size 240 gradient radial #ffe7a3 #ff9d5c #e0607a
+  path hill "Холм" at 0 90 d "M -120 0 C -60 -60 40 -70 120 -20 L 120 40 L -120 40 Z" fill #2a2e39
+}
+
+path gem "Кристалл" at 180 170 d "M 0 -60 L 40 -15 L 0 60 L -40 -15 Z" gradient linear 45 #9ff0ff #3b5bff stroke #ffffff 2
+
+anim Shine 2s loop {
+  gem.rot 0: 0 ease-in-out | 1: 8 ease-in-out | 2: 0
+  gem.sx  0: 1 ease-in-out | 1: 1.08 ease-in-out | 2: 1
+  gem.sy  0: 1 ease-in-out | 1: 1.08 ease-in-out | 2: 1
+}

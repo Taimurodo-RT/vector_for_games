@@ -1,0 +1,27 @@
+// 2.5D-орбиты: объекты ездят по шару как по глобусу и остаются плоскими векторами.
+// Луна облетает планету и прячется за ней, пятна лежат на поверхности (wrap) и уходят за край.
+// Голова поворачивается ключами yaw: глаза и нос съезжают вбок и сужаются сами.
+artboard "Орбита" 560x320 bg #141826
+
+let ink = #0d1018
+
+// Планета вращается: долгота пятен не меняется, крутится сам шар (yaw).
+ellipse planet "Планета" at 170 160 size 180 180 fill #3b6fd8 stroke ink 4
+ellipse land1 "Материк" size 70 46 on planet lat 20 lon -30 wrap fill #5ee0a0 stroke ink 3
+ellipse land2 "Остров" size 36 30 on planet lat -25 lon 120 wrap fill #5ee0a0 stroke ink 3
+ellipse cap "Шапка" size 60 60 on planet lat 80 wrap fill #e8f0ff
+ellipse moon "Луна" size 26 26 on planet lat 18 alt 50 fill #ffd23f stroke ink 3
+
+// Голова: эллипс с глазами и носом на поверхности.
+ellipse head "Голова" at 420 170 size 150 170 fill #ffb08a stroke ink 4
+ellipse eyeL "Глаз Л" size 18 24 on head lat 12 lon -22 wrap fill ink
+ellipse eyeR "Глаз П" size 18 24 on head lat 12 lon 22 wrap fill ink
+ellipse nose "Нос" size 22 18 on head lat -6 wrap fill #ff7a59 stroke ink 3
+rect mouth "Рот" size 46 8 r 4 on head lat -30 wrap fill ink
+
+anim Spin 4s loop {
+  planet.yaw 0: 0 | 4: 360
+  moon.lon   0: 0 | 4: -720
+  head.yaw   0: 0 ease-in-out | 1: 50 ease-in-out | 2: 0 ease-in-out | 3: -50 ease-in-out | 4: 0
+  head.pitch 0: 0 ease-in-out | 2: 15 ease-in-out | 4: 0
+}
