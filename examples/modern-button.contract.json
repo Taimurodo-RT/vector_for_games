@@ -1,0 +1,95 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Modern Button",
+      "width": 333.0,
+      "height": 211.0,
+      "animations": [
+        {
+          "name": "Hover",
+          "duration": 0.8,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Leave",
+          "duration": 0.8,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.6,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Release",
+          "duration": 0.6,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Normal",
+          "duration": 0.1,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [
+        {
+          "name": "Pointer",
+          "inputs": [
+            {
+              "name": "hover",
+              "kind": "bool",
+              "default": 0.0
+            },
+            {
+              "name": "press",
+              "kind": "bool",
+              "default": 0.0
+            }
+          ],
+          "states": [
+            {
+              "name": "Normal",
+              "animation": "Normal"
+            },
+            {
+              "name": "Hover",
+              "animation": "Hover"
+            },
+            {
+              "name": "Leave",
+              "animation": "Leave"
+            },
+            {
+              "name": "Press",
+              "animation": "Press"
+            },
+            {
+              "name": "Release",
+              "animation": "Release"
+            }
+          ],
+          "pointer": [
+            {
+              "node": "button",
+              "event": "hover",
+              "input": "hover"
+            },
+            {
+              "node": "button",
+              "event": "press",
+              "input": "press"
+            }
+          ]
+        }
+      ],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

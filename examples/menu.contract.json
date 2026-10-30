@@ -1,0 +1,55 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Меню",
+      "width": 480.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 0.2,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Hover",
+          "duration": 0.25,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [
+        {
+          "name": "Buttons",
+          "inputs": [
+            {
+              "name": "hover",
+              "kind": "bool",
+              "default": 0.0
+            }
+          ],
+          "states": [
+            {
+              "name": "Idle",
+              "animation": "Idle"
+            },
+            {
+              "name": "Hover",
+              "animation": "Hover"
+            }
+          ],
+          "pointer": [
+            {
+              "node": "play",
+              "event": "hover",
+              "input": "hover"
+            }
+          ]
+        }
+      ],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

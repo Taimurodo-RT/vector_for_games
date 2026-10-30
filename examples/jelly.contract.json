@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Желе",
+      "width": 480.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Fall",
+          "duration": 4.0,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

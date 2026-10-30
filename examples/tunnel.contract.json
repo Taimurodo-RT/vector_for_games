@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Тоннель",
+      "width": 480.0,
+      "height": 300.0,
+      "animations": [
+        {
+          "name": "Squeeze",
+          "duration": 3.0,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

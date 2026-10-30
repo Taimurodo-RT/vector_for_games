@@ -1,0 +1,87 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Аниме — лицо и деформеры",
+      "width": 640.0,
+      "height": 720.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 4.0,
+          "loop": true,
+          "events": []
+        },
+        {
+          "name": "Expressions",
+          "duration": 5.0,
+          "loop": true,
+          "events": []
+        },
+        {
+          "name": "Talk",
+          "duration": 2.0,
+          "loop": true,
+          "events": []
+        },
+        {
+          "name": "Hover",
+          "duration": 0.2,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Press",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Combinations",
+          "duration": 8.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [
+        {
+          "id": "turn",
+          "name": "Поворот лица",
+          "min": -1.0,
+          "max": 1.0,
+          "default": 0.0
+        },
+        {
+          "id": "look",
+          "name": "Взгляд",
+          "min": -1.0,
+          "max": 1.0,
+          "default": 0.0
+        },
+        {
+          "id": "blink",
+          "name": "Моргание",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.0
+        },
+        {
+          "id": "mouth",
+          "name": "Рот: улыбка / речь",
+          "min": -1.0,
+          "max": 1.0,
+          "default": 0.0
+        },
+        {
+          "id": "mood",
+          "name": "Брови",
+          "min": -1.0,
+          "max": 1.0,
+          "default": 0.0
+        }
+      ],
+      "events": []
+    }
+  ]
+}

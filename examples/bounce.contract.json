@@ -1,0 +1,27 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Главный",
+      "width": 480.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 1.2,
+          "loop": true,
+          "events": []
+        },
+        {
+          "name": "Hover",
+          "duration": 0.8,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

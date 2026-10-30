@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Сжатие",
+      "width": 480.0,
+      "height": 320.0,
+      "animations": [
+        {
+          "name": "Bounce",
+          "duration": 2.4,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

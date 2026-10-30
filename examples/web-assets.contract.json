@@ -1,0 +1,39 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "ui-leaf.24",
+      "width": 24.0,
+      "height": 24.0,
+      "animations": [
+        {
+          "name": "Sway",
+          "duration": 1.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "ui-panel",
+      "width": 96.0,
+      "height": 48.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "ui-tile",
+      "width": 32.0,
+      "height": 32.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

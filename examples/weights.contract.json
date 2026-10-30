@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Веса",
+      "width": 480.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Kick",
+          "duration": 1.6,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

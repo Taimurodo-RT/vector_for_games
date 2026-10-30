@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Поля",
+      "width": 640.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Fields",
+          "duration": 4.0,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

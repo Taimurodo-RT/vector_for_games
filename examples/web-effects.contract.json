@@ -1,0 +1,46 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "web-effects",
+      "width": 560.0,
+      "height": 300.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "web-color",
+      "width": 96.0,
+      "height": 96.0,
+      "animations": [
+        {
+          "name": "Color",
+          "duration": 2.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    },
+    {
+      "name": "web-reveal",
+      "width": 160.0,
+      "height": 120.0,
+      "animations": [
+        {
+          "name": "Reveal",
+          "duration": 2.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

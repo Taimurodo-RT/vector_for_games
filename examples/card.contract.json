@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Карточка",
+      "width": 400.0,
+      "height": 300.0,
+      "animations": [
+        {
+          "name": "Wave",
+          "duration": 1.6,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

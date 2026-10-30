@@ -1,0 +1,27 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Титул",
+      "width": 480.0,
+      "height": 270.0,
+      "animations": [
+        {
+          "name": "Intro",
+          "duration": 1.6,
+          "loop": false,
+          "events": []
+        },
+        {
+          "name": "Idle",
+          "duration": 2.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "contract": 1,
+  "boards": [
+    {
+      "name": "Кисти",
+      "width": 640.0,
+      "height": 360.0,
+      "animations": [
+        {
+          "name": "Wobble",
+          "duration": 2.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": []
+    }
+  ]
+}
