@@ -168,6 +168,15 @@ pub(crate) fn apply_rollers(rollers: &[Roller], doc: &mut Document) {
     }
 }
 
+impl crate::sim::Carry for Roller {
+    fn node(&self) -> usize {
+        self.node
+    }
+    fn carry(&mut self, old: &Self) {
+        (self.q, self.v, self.spin, self.turn) = (old.q, old.v, old.spin, old.turn);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Animation, Artboard, Document, Ease, Keyframe, Node, Prop, Roll, ShapeKind, SimCache, Track, Value};
