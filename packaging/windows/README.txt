@@ -10,6 +10,8 @@ Motif: редактор векторной анимации для игр (сб�
 SVG / Web assets:
   «Экспорт» → «SVG холста…» или «Web-пакет…».
   «Токены, темы и метаданные…» сохраняет настройки в .msc с Undo/Redo.
+  Русские имена слоёв переводятся латиницей в id и имена файлов, само имя
+  остаётся в data-name. Своё имя — поле «Имя для экспорта» в «Свойствах» слоя.
   Пример: examples\web-assets.msc. Инструкция: docs\web.html.
   CLI: motif web examples\web-assets.msc -o web-output --strict
 

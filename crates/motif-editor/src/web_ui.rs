@@ -30,6 +30,53 @@ fn point(ui: &mut egui::Ui, label: &str, p: &mut Option<[f64; 2]>) {
 }
 
 impl App {
+    /// The layer's name for SVG and the game: Latin, used as its id. Empty takes the
+    /// transliterated layer id, shown as the hint. Stored with the web settings of the board.
+    pub(crate) fn export_name_row(&mut self, ui: &mut egui::Ui, node: &str) {
+        let board = self.scene.doc.artboard.name.clone();
+        let Ok(config) = motif_web::read(&self.src) else { return };
+        let current = config.assets.get(&board).and_then(|a| a.layers.get(node)).map(|l| l.id.clone()).unwrap_or_default();
+        let key = egui::Id::unique(("export-name", node));
+        let mut text = ui.data_mut(|d| d.get_temp::<String>(key)).unwrap_or_else(|| current.clone());
+        let mut commit = false;
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Имя для экспорта").size(11.5))
+                .on_hover_text("Латиница для id и class в SVG и для игры. Пусто — транслитерация id слоя. Русское имя слоя сохраняется в SVG как data-name.");
+            let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text(motif_web::slug(node)).desired_width(ui.available_width()));
+            if r.changed() {
+                ui.data_mut(|d| d.insert_temp(key, text.clone()));
+            }
+            commit = r.lost_focus();
+        });
+        let text = text.trim().to_string();
+        let bad = !text.is_empty() && !motif_web::ident(&text);
+        if bad {
+            ui.add(egui::Label::new(egui::RichText::new("Только латиница, цифры, _ и -; первая — буква").size(11.5).color(egui::Color32::LIGHT_RED)).wrap());
+        }
+        if !commit {
+            return;
+        }
+        ui.data_mut(|d| d.remove::<String>(key));
+        if bad || text == current {
+            return;
+        }
+        if let Err(e) = self.set_export_name(node, &text) {
+            self.status = format!("Имя для экспорта: {e}");
+        }
+    }
+
+    /// Sets the export name of layer `node` on this board (empty clears it), as one undo step.
+    pub(crate) fn set_export_name(&mut self, node: &str, name: &str) -> Result<(), String> {
+        let mut config = motif_web::read(&self.src)?;
+        let asset = config.assets.entry(self.scene.doc.artboard.name.clone()).or_default();
+        asset.layers.entry(node.to_string()).or_default().id = name.trim().to_string();
+        asset.layers.retain(|_, l| !l.id.is_empty() || !l.class.is_empty());
+        motif_web::validate_metadata(&self.scene, &config)?;
+        let src = motif_web::write(&self.src, &config)?;
+        self.apply("export-name", Some(src));
+        Ok(())
+    }
+
     pub(crate) fn web_export(&mut self, ui: &mut egui::Ui) {
         theme::caption(ui, "SVG / Web assets");
         ui.horizontal(|ui| {
@@ -212,13 +259,14 @@ impl App {
                     }
                 });
                 ui.checkbox(&mut asset.manual_fix, "Требует ручной правки");
-                ui.collapsing("ID и CSS class слоёв", |ui| {
+                ui.collapsing("Имена для экспорта (id) и CSS class слоёв", |ui| {
                     for n in &self.scene.doc.nodes {
                         ui.push_id(&n.id, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(&n.id);
+                                ui.label(n.name.as_deref().map_or_else(|| n.id.clone(), |name| format!("{name} · {}", n.id)));
                                 let layer = asset.layers.entry(n.id.clone()).or_default();
-                                ui.add(egui::TextEdit::singleline(&mut layer.id).hint_text("id (необязательно)").desired_width(140.0));
+                                ui.add(egui::TextEdit::singleline(&mut layer.id).hint_text(motif_web::slug(&n.id)).desired_width(140.0))
+                                    .on_hover_text("Имя для экспорта: латиница для id. Пусто — транслитерация");
                                 ui.add(egui::TextEdit::singleline(&mut layer.class).hint_text("base accent anim-body…").desired_width(180.0));
                             });
                         });

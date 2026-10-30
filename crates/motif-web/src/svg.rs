@@ -144,6 +144,10 @@ impl Writer<'_> {
         let layer = self.asset.layers.get(&n.id);
         let class = layer.map(|l| l.class.as_str()).filter(|s| !s.is_empty()).or_else(|| n.name.as_deref().filter(|s| s.split_whitespace().all(config::ident)));
         let mut attrs = format!(" id=\"{id}\"{}", transform(n.local_transform()));
+        // The layer's own name, in Russian as written: ids and classes are Latin, the name stays.
+        if let Some(name) = n.name.as_deref().filter(|s| !s.trim().is_empty()).or_else(|| (!n.id.is_ascii()).then_some(n.id.as_str())) {
+            attrs.push_str(&format!(" data-name=\"{}\"", xml(name)));
+        }
         if let Some(c) = class {
             attrs.push_str(&format!(" class=\"{}\"", xml(c)));
         }
