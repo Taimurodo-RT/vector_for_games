@@ -2188,6 +2188,9 @@ impl App {
             if show(Cat::Physics) {
                 self.physics_section(ui, &node);
             }
+            if show(Cat::Game) {
+                self.game_section(ui, &node);
+            }
         }
         if !node.kind.is_container() {
             if show(Cat::Fill) {
@@ -2887,6 +2890,7 @@ impl App {
         self.paint_bones(&painter, rect, view, &doc);
         self.paint_motion(&painter, rect, view, pointer.filter(|_| self.drag.is_none() && resp.hovered()));
         self.paint_fields(&painter, rect, view, &doc);
+        self.paint_marks(&painter, rect, view, &doc);
         if let Some(h) = &self.hovered
             && self.selected.as_ref() != Some(h)
             && let Some(i) = doc.index_of(h)

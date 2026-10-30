@@ -260,3 +260,34 @@ fn focus_keeps_animation_timeline_and_preview_layout_preserves_canvas() {
     }
     assert!(app.undo.is_empty());
 }
+
+#[test]
+fn game_marks_are_set_in_the_inspector_and_an_area_is_dashed_not_painted() {
+    let mut app = fixture(include_str!("../../../examples/bounce.msc"));
+    app.auto_key = false;
+    let p = ball(&mut app);
+    click(&mut app, p, egui::PointerButton::Secondary);
+    let item = label(&mut app, "Для игры");
+    click(&mut app, item, egui::PointerButton::Primary);
+    let area = label(&mut app, "Область");
+    click(&mut app, area, egui::PointerButton::Primary);
+    let line = |app: &App| app.src.lines().find(|l| l.trim_start().starts_with("ellipse ball")).unwrap().to_string();
+    assert!(line(&app).split_whitespace().any(|w| w == "area"), "{}", line(&app));
+    let doc = app.display_doc();
+    let i = doc.index_of("ball").unwrap();
+    assert!(doc.nodes[i].area && motif_render::node_ops(&doc, i).is_empty(), "an area is never painted");
+    let socket = label(&mut app, "Точка крепления");
+    click(&mut app, socket, egui::PointerButton::Primary);
+    assert!(line(&app).split_whitespace().any(|w| w == "socket"), "{}", line(&app));
+    // On the canvas: the point's name by its cross.
+    app.floating = None;
+    let _ = label(&mut app, "Мяч");
+    // Unticked, the flag leaves the line.
+    let p = ball(&mut app);
+    click(&mut app, p, egui::PointerButton::Secondary);
+    let item = label(&mut app, "Для игры");
+    click(&mut app, item, egui::PointerButton::Primary);
+    let area = label(&mut app, "Область");
+    click(&mut app, area, egui::PointerButton::Primary);
+    assert!(!line(&app).split_whitespace().any(|w| w == "area"), "{}", line(&app));
+}

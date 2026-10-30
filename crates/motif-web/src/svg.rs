@@ -120,7 +120,7 @@ impl Writer<'_> {
     // World-space bounds deliberately overestimate clipping, never cut off a soft edge.
     fn bounds(&self, index: usize) -> Option<motif_core::kurbo::Rect> {
         let n = &self.doc.nodes[index];
-        if !self.doc.is_visible(index) {
+        if !self.doc.is_drawn(index) {
             return None;
         }
         if !n.kind.is_container() {
@@ -271,7 +271,7 @@ pub fn render(scene: &Scene, config: &Config, override_profile: Option<Profile>)
             return Err(format!("Повторяющийся SVG id: {nid}"));
         }
         ids.insert(n.id.clone(), nid);
-        if !doc.is_visible(doc.index_of(&n.id).unwrap()) {
+        if !doc.is_drawn(doc.index_of(&n.id).unwrap()) {
             continue;
         }
         let mut unsupported = Vec::new();

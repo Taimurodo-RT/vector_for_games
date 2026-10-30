@@ -1,5 +1,5 @@
 {
-  "contract": 2,
+  "contract": 3,
   "boards": [
     {
       "name": "Слайдеры",
@@ -30,7 +30,9 @@
       ],
       "machines": [],
       "parameters": [],
-      "events": []
+      "events": [],
+      "sockets": [],
+      "areas": []
     }
   ]
 }

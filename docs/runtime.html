@@ -56,6 +56,17 @@ let image = hero.render(2.0, false);  // кадр картинкой tiny-skia �
 // … позже, после загрузки сцены:
 hero.load_state(&amp;PlayerState::from_bytes(&amp;saved)?)?;</code></pre>
 
+<h3 id="sockets">Точки крепления и области</h3>
+<p>Флаг <code>socket</code> делает объект точкой крепления: рука, дуло, место над головой. Она двигается с костями и ключами как обычный объект, а игра каждый шаг читает <code>frame.sockets()</code> (или <code>socket("muzzle")</code>): имя, место <code>x</code>, <code>y</code>, поворот в градусах по часовой, масштаб и всё размещение <code>transform</code> (<code>kurbo::Affine</code>). Флаг <code>area</code> делает фигуру областью: тело, зона удара. Она не рисуется ни в игре, ни при выгрузке (PNG, SVG, видео, Godot), в Motif видна пунктиром, а <code>frame.areas()</code> отдаёт её контур замкнутыми ломаными (<code>outline</code>, точность 0,25 единицы), рамку <code>bounds</code> и <code>active</code>: включена ли она в этой позе (ключи <code>visible</code> и прозрачности включают зону удара на нужные кадры). Всё в единицах холста, y вниз; у отражённой стороны точки и области тоже отражены, как картинка. Имена — те же, что в договоре сцены (<code>sockets</code>, <code>areas</code>).</p>
+<pre><code>bone arm at 100 100 len 60 {
+  group muzzle at 60 0 socket
+}
+rect hitbox at 100 40 size 40 20 area
+anim Swing 1s {
+  arm.rot 0: 0 | 1: 90
+  hitbox.visible 0: 0 | 0.5: 1
+}</code></pre>
+
 <h2 id="when">Когда что брать</h2>
 <div class="table-wrap"><table>
   <tr><th></th><th>MotifSprite (вектор в игре)</th><th>«Выгрузить в Godot…» (запекание)</th></tr>
