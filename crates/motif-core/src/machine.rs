@@ -289,20 +289,49 @@ impl MachinePlayer {
         if m.states.is_empty() {
             return None;
         }
+        self.pass(m, doc, dt);
+        let taken = self.settle(m, doc);
+        if doc.has_sim() {
+            let keys = self.keys(m, doc);
+            self.simulate(doc, &keys, dt);
+        } else {
+            self.sim = None;
+        }
+        taken
+    }
+
+    /// The first part of [`advance`](Self::advance): plays the state's animation and the blend on
+    /// by `dt`, without transitions or the simulation. Returns the events passed, each with how
+    /// long after the start of the step it falls (they are also left in `events`).
+    pub fn pass(&mut self, m: &Machine, doc: &Document, dt: f64) -> Vec<(String, f64)> {
+        if m.states.is_empty() {
+            return Vec::new();
+        }
         self.state = self.state.min(m.states.len() - 1);
         self.values.resize(m.inputs.len(), 0.0);
         let from = if self.fresh { -1e-9 } else { self.time };
         self.fresh = false;
+        let start = self.time;
         self.time += dt;
-        self.events = doc
+        let passed: Vec<(String, f64)> = doc
             .animation(&m.states[self.state].anim)
-            .map_or_else(Vec::new, |a| a.events_between(from, self.time).into_iter().map(|e| e.name.clone()).collect());
+            .map_or_else(Vec::new, |a| a.events_passed(from, self.time).into_iter().map(|(at, e)| (e.name.clone(), (at - start).max(0.0))).collect());
+        self.events = passed.iter().map(|(name, _)| name.clone()).collect();
         if let Some((_, t)) = &mut self.prev {
             *t += dt;
         }
         self.blend_time += dt;
         if self.blend_time >= self.blend {
             self.prev = None;
+        }
+        passed
+    }
+
+    /// The second part of [`advance`](Self::advance): takes at most one transition and uses up
+    /// the triggers. Returns the transition taken.
+    pub fn settle(&mut self, m: &Machine, doc: &Document) -> Option<usize> {
+        if m.states.is_empty() {
+            return None;
         }
         let taken = self.ready(m, doc);
         if let Some(k) = taken {
@@ -319,16 +348,20 @@ impl MachinePlayer {
                 *v = 0.0;
             }
         }
+        taken
+    }
+
+    /// The last part of [`advance`](Self::advance): steps springs, ropes and soft bodies on by
+    /// `dt` towards `keys`, the pose the machine gives now ([`keys`](Self::keys)).
+    pub fn simulate(&mut self, doc: &Document, keys: &Document, dt: f64) {
         if doc.has_sim() {
-            let keys = self.keys(m, doc);
             match &mut self.sim {
-                Some(s) if s.fits(doc) => s.advance(&keys, dt),
-                sim => *sim = Some(crate::SimState::new(&keys)),
+                Some(s) if s.fits(doc) => s.advance(keys, dt),
+                sim => *sim = Some(crate::SimState::new(keys)),
             }
         } else {
             self.sim = None;
         }
-        taken
     }
 
     /// How far the blend into the current state has got, from 0 to 1 (1 when there is none).
@@ -351,7 +384,7 @@ impl MachinePlayer {
     }
 
     /// The keys of the current state, mixed with the previous one during a blend, before `rig`.
-    fn keys(&self, m: &Machine, doc: &Document) -> Document {
+    pub fn keys(&self, m: &Machine, doc: &Document) -> Document {
         let pose_of = |state: usize, t: f64| match m.states.get(state).and_then(|s| doc.animation(&s.anim)) {
             Some(a) => a.keys_at(doc, t),
             None => doc.clone(),

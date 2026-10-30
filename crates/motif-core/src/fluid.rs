@@ -4,7 +4,7 @@
 //! traced into a vector path), with the shape's own fill and stroke. Like the rest of the
 //! simulation it runs from the start of the animation in fixed steps, so export bakes it.
 
-use crate::particles::random;
+use crate::particles::{random, salt};
 use crate::soft::{Wall, inside, nearest_edge, smooth, solids};
 use crate::{Document, SIM_FPS};
 use kurbo::{BezPath, Point, Rect, Shape, Vec2};
@@ -176,7 +176,7 @@ impl Pool {
             self.owed -= 1.0;
             for c in 0..columns {
                 let off = (c as f64 + 0.5 - columns as f64 / 2.0) * self.unit;
-                let jitter = (random(((self.node as u64) << 40) ^ self.poured) - 0.5) * 0.2 * self.unit;
+                let jitter = (random(((self.node as u64) << 40) ^ self.poured ^ salt(pose.seed)) - 0.5) * 0.2 * self.unit;
                 self.p.push(((mouth + across * (off + jitter)).to_vec2() / self.unit).to_point());
                 self.v.push(down * rate + carried);
                 self.poured += 1;
