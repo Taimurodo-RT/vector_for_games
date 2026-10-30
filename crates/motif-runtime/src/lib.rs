@@ -5,14 +5,23 @@
 //! Time comes only from the game: [`Player::advance`] moves it by the `dt` it is given, and the
 //! player never reads a clock. A lone animation plays as a machine of one state, so it gets the
 //! same events and simulation.
+//!
+//! The machine moves in fixed steps of [`TICK`] (1/60 s, the frames Motif simulates and bakes
+//! by): transitions are taken and springs, ropes and soft bodies are stepped only at the end of a
+//! whole step, so the same game time gives the same play at 30, 60 or 144 frames a second, and
+//! the same `dt` sequence always gives the same state. Between steps the pose is shown as far as
+//! the time has got, so the picture moves on every frame. `advance(0)` changes nothing.
 
 use motif_core::kurbo::Point;
-use motif_core::{Document, Machine, MachinePlayer, State};
+use motif_core::{Document, Machine, MachinePlayer, SIM_FPS, State};
 use motif_render::CpuOptions;
 #[cfg(feature = "mesh")]
 use motif_render::mesh::{Cutter, Piece};
 use std::sync::Arc;
 use tiny_skia::Pixmap;
+
+/// The fixed step the machine and its simulation move by, in seconds.
+pub const TICK: f64 = 1.0 / SIM_FPS;
 
 #[derive(Debug)]
 pub struct Player {
@@ -21,7 +30,15 @@ pub struct Player {
     plain: Machine,
     /// The machine as it plays from the side faced: `Walk_up` instead of `Walk`.
     machine: Machine,
+    /// The machine as it was at the end of the last whole step.
     run: MachinePlayer,
+    /// Game time since the end of the last whole step, below [`TICK`].
+    rest: f64,
+    /// Game time at the end of the last whole step, from the start or the last jump.
+    base: f64,
+    /// The events told that the shown pose has played ahead of the last whole step, at their
+    /// game time: the whole step plays them again and they are not told twice.
+    told: Vec<(String, f64)>,
     /// The side of the scene's `directions` faced: down at first; none without `directions`.
     side: Option<usize>,
     /// The pose shown now: what the pointer is tested against.
@@ -67,9 +84,24 @@ impl Frame {
 #[derive(Debug, Default, PartialEq)]
 pub struct Step {
     /// Animation events passed, in order.
-    pub events: Vec<String>,
+    pub events: Vec<Event>,
     /// The state entered, when the machine moved.
     pub state: Option<String>,
+}
+
+/// An animation event passed in one [`Player::advance`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Event {
+    pub name: String,
+    /// Seconds after the start of that `advance` it falls at, from 0 to its `dt`.
+    pub time: f64,
+}
+
+impl Step {
+    /// The names of the events, in order.
+    pub fn names(&self) -> Vec<&str> {
+        self.events.iter().map(|e| e.name.as_str()).collect()
+    }
 }
 
 impl Player {
@@ -105,7 +137,7 @@ impl Player {
         let side = doc.directions.as_ref().map(|_| 0);
         let plain = machine.clone();
         let shown = Arc::new(doc.clone());
-        let mut p = Player { doc, plain, machine, run, side, shown, pose: 0 };
+        let mut p = Player { doc, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0 };
         p.turn(side);
         Ok(p)
     }
@@ -122,11 +154,20 @@ impl Player {
         }
     }
 
-    /// The artboard's width and height.
+    /// Seeds what is random in the scene (particles, poured fluid, rough lines) from the game:
+    /// two copies of one character with other seeds differ, a replay with the same seed repeats.
+    /// 0, as at the start, is the scene as Motif shows it.
+    pub fn set_seed(&mut self, seed: u64) {
+        self.doc.seed = seed;
+        self.repose();
+    }
+
+    /// The artboard's colour.
     pub fn background(&self) -> motif_core::Color {
         self.doc.artboard.background
     }
 
+    /// The artboard's width and height.
     pub fn size(&self) -> (f64, f64) {
         (self.doc.artboard.width, self.doc.artboard.height)
     }
@@ -186,9 +227,20 @@ impl Player {
         changed
     }
 
-    /// Poses the scene as it is now, seen from the side faced.
-    fn repose(&mut self) {
-        let mut shown = self.run.pose(&self.machine, &self.doc);
+    /// Poses the scene as it is now, seen from the side faced: the last whole step played on by
+    /// the time since. Returns the events of that part, at their game time.
+    fn repose(&mut self) -> Vec<(String, f64)> {
+        let (mut shown, passed) = if self.rest > 0.0 {
+            let mut ahead = self.run.clone();
+            let passed = ahead.pass(&self.machine, &self.doc, self.rest);
+            if self.doc.has_sim() {
+                let keys = ahead.keys(&self.machine, &self.doc);
+                ahead.simulate(&self.doc, &keys, self.rest);
+            }
+            (ahead.pose(&self.machine, &self.doc), passed)
+        } else {
+            (self.run.pose(&self.machine, &self.doc), Vec::new())
+        };
         if let (Some(d), Some(k)) = (&self.doc.directions, self.side) {
             shown.face(d.shot(k).0);
             shown.rig();
@@ -198,6 +250,7 @@ impl Player {
             self.shown = Arc::new(shown);
             self.pose += 1;
         }
+        passed.into_iter().map(|(name, t)| (name, self.base + t)).collect()
     }
 
     /// Changes whenever the pose shown changes.
@@ -217,19 +270,45 @@ impl Player {
 
     /// How far the state's animation has played, in seconds.
     pub fn time(&self) -> f64 {
-        self.run.time
+        self.run.time + self.rest
     }
 
-    /// Moves time on by `dt` seconds.
+    /// Moves time on by `dt` seconds (0 or less changes nothing): every whole [`TICK`] reached
+    /// takes the transitions due and steps the simulation. Returns every event passed, in order,
+    /// with its time within `dt`, and the state entered.
     pub fn advance(&mut self, dt: f64) -> Step {
-        if self.machine.states.is_empty() {
+        if self.machine.states.is_empty() || dt.is_nan() || dt <= 0.0 {
             return Step::default();
         }
-        let before = self.run.state;
-        let taken = self.run.advance(&self.machine, &self.doc, dt.max(0.0));
-        self.repose();
-        let state = (taken.is_some() || self.run.state != before).then(|| self.state());
-        Step { events: self.run.events.clone(), state }
+        let start = self.base + self.rest;
+        let before = self.state();
+        let mut passed = Vec::new();
+        self.rest += dt;
+        while self.rest >= TICK - 1e-9 {
+            let at = self.base;
+            passed.extend(self.run.pass(&self.machine, &self.doc, TICK).into_iter().map(|(name, t)| (name, at + t)));
+            self.run.settle(&self.machine, &self.doc);
+            if self.doc.has_sim() {
+                let keys = self.run.keys(&self.machine, &self.doc);
+                self.run.simulate(&self.doc, &keys, TICK);
+            } else {
+                self.run.sim = None;
+            }
+            self.base += TICK;
+            self.rest = (self.rest - TICK).max(0.0);
+        }
+        let ahead = self.repose();
+        passed.extend(ahead.iter().cloned());
+        let mut told = std::mem::replace(&mut self.told, ahead);
+        let mut events = Vec::new();
+        for (name, t) in passed {
+            match told.iter().position(|e| e.0 == name && e.1 == t) {
+                Some(k) => _ = told.swap_remove(k),
+                None => events.push(Event { name, time: (t - start).clamp(0.0, dt) }),
+            }
+        }
+        let state = self.state();
+        Step { events, state: (state != before).then_some(state) }
     }
 
     /// The state now, or the animation playing.
@@ -271,12 +350,20 @@ impl Player {
             format!("у машины «{}» нет состояния «{state}»; состояния: {}", self.machine.name, all.join(", "))
         })?;
         self.run.jump(k);
-        self.repose();
+        self.restep();
         Ok(())
     }
 
     pub fn restart(&mut self) {
         self.run = MachinePlayer::new(&self.machine);
+        self.restep();
+    }
+
+    /// Steps start again from now, after a jump: the new state begins at once.
+    fn restep(&mut self) {
+        self.base += self.rest;
+        self.rest = 0.0;
+        self.told.clear();
         self.repose();
     }
 
@@ -327,9 +414,11 @@ machine Hero {
         assert_eq!((p.size(), p.state()), ((100.0, 80.0), "Idle".to_string()));
         assert_eq!(p.inputs(), ["jump", "speed"]);
         let step = p.advance(0.6);
-        assert_eq!(step, Step { events: vec!["blink".into()], state: None });
+        assert_eq!((step.names(), step.state.as_deref()), (vec!["blink"], None));
+        assert!((step.events[0].time - 0.5).abs() < 1e-9, "{:?}", step.events);
         p.fire("jump").unwrap();
-        assert_eq!(p.advance(0.01).state.as_deref(), Some("Jump"));
+        // A trigger is seen at the end of the step under way.
+        assert_eq!(p.advance(TICK).state.as_deref(), Some("Jump"));
         for _ in 0..60 {
             p.advance(0.01);
         }
@@ -355,7 +444,7 @@ machine Hero {
             let words: Vec<&str> = line.split_whitespace().collect();
             let num = |i: usize| words[i].parse::<f64>().unwrap();
             let events = match words[0] {
-                "advance" => p.advance(num(1)).events,
+                "advance" => p.advance(num(1)).events.into_iter().map(|e| e.name).collect(),
                 "side" => {
                     p.set_side(words[1]).unwrap();
                     Vec::new()
@@ -459,5 +548,124 @@ machine Hero {
         let before = b.pose();
         b.advance(0.2);
         assert_ne!(b.pose(), before);
+    }
+
+    /// A spring scene whose machine sends events and switches states: what a game hears and
+    /// shows after the same time must not depend on how it was cut into frames.
+    const SPRUNG: &str = r#"
+artboard "Пружина" 100x80
+ellipse ball at 50 40 size 20 20 fill #5ee0a0 spring 3 0.2
+ellipse sparks at 50 40 size 4 4 fill #ffd23f emit 30 life 0.5 speed 60 spread 90
+anim Idle 0.4s loop {
+  ball.x 0: 30 | 0.2: 70 | 0.4: 30
+  event step 0 0.2
+}
+anim Hit 0.3s {
+  ball.y 0: 40 | 0.15: 20 | 0.3: 40
+  event hit 0.1
+}
+machine M {
+  input hurt trigger
+  state Idle
+  state Hit
+  any -> Hit when hurt
+  Hit -> Idle at end
+}
+"#;
+
+    /// Plays `seconds` in frames of `dt`, firing `hurt` once at 0.5 s. Returns the events with
+    /// their game time, the state and the ball's place at the end.
+    fn play(dt: f64, seconds: f64) -> (Vec<(String, f64)>, String, f64, f64) {
+        let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let (mut now, mut events, mut hurt) = (0.0, Vec::new(), false);
+        while now < seconds - 1e-9 {
+            if !hurt && now >= 0.5 - 1e-9 {
+                p.fire("hurt").unwrap();
+                hurt = true;
+            }
+            let step = p.advance(dt);
+            events.extend(step.events.into_iter().map(|e| (e.name, now + e.time)));
+            now += dt;
+        }
+        let ball = p.frame().doc.nodes.iter().find(|n| n.id == "ball").map(|n| (n.x, n.y)).unwrap();
+        (events, p.state(), ball.0, ball.1)
+    }
+
+    #[test]
+    fn the_same_time_plays_the_same_at_any_frame_rate() {
+        let (e60, s60, x60, y60) = play(1.0 / 60.0, 2.0);
+        let (e144, s144, x144, y144) = play(1.0 / 144.0, 2.0);
+        let (e30, s30, x30, y30) = play(1.0 / 30.0, 2.0);
+        let names = |e: &[(String, f64)]| e.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&e60), names(&e144));
+        assert_eq!(names(&e60), names(&e30));
+        assert!(names(&e60).contains(&"hit".to_string()), "{e60:?}");
+        for (a, b) in e60.iter().zip(&e144) {
+            assert!((a.1 - b.1).abs() < 1e-6, "{} at {} and {}", a.0, a.1, b.1);
+        }
+        assert_eq!((s60.as_str(), s144.as_str(), s30.as_str()), ("Idle", "Idle", "Idle"));
+        // The spring is stepped by whole ticks, the same at every rate.
+        assert!((x60 - x144).abs() < 1e-6 && (y60 - y144).abs() < 1e-6, "{x60},{y60} / {x144},{y144}");
+        assert!((x60 - x30).abs() < 1e-6 && (y60 - y30).abs() < 1e-6, "{x60},{y60} / {x30},{y30}");
+    }
+
+    #[test]
+    fn the_same_steps_give_the_same_state_and_events_come_in_order() {
+        let steps = [0.013, 0.021, 0.0, 0.004, 0.05, 0.017, 0.033, 0.002, 0.1, 0.016];
+        let run = || {
+            let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+            let mut log = Vec::new();
+            for (k, dt) in steps.iter().cycle().take(80).enumerate() {
+                if k == 30 {
+                    p.fire("hurt").unwrap();
+                }
+                let step = p.advance(*dt);
+                assert!(step.events.windows(2).all(|w| w[0].time <= w[1].time), "{:?}", step.events);
+                assert!(step.events.iter().all(|e| (0.0..=*dt).contains(&e.time)), "{:?} in {dt}", step.events);
+                log.push((step, p.time(), p.frame().doc.clone()));
+            }
+            log
+        };
+        assert!(run() == run(), "two runs of one dt sequence differ");
+        // A long frame passes several events of a looping animation at once, all of them.
+        let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+        let step = p.advance(1.0);
+        assert_eq!(step.names(), ["step"; 6]);
+        let times: Vec<f64> = step.events.iter().map(|e| (e.time * 1000.0).round() / 1000.0).collect();
+        assert_eq!(times, [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]);
+    }
+
+    #[test]
+    fn advance_zero_changes_nothing() {
+        let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+        p.advance(0.37);
+        p.fire("hurt").unwrap();
+        let (pose, time, frame) = (p.pose(), p.time(), p.frame().doc.clone());
+        for dt in [0.0, -1.0, f64::NAN] {
+            assert_eq!(p.advance(dt), Step::default());
+        }
+        assert_eq!((p.pose(), p.time(), p.state()), (pose, time, "Idle".to_string()));
+        assert!(*p.frame().doc == *frame);
+        // The trigger is still waiting for real time to pass.
+        assert_eq!(p.advance(TICK).state.as_deref(), Some("Hit"));
+    }
+
+    #[test]
+    fn the_games_seed_changes_what_is_random_and_repeats() {
+        let sparks = |seed: u64| {
+            let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+            p.set_seed(seed);
+            p.advance(0.5);
+            p.frame().doc.clone()
+        };
+        assert!(sparks(7) == sparks(7));
+        assert!(sparks(7) != sparks(8));
+        assert!(
+            sparks(0) == {
+                let mut p = Player::load(SPRUNG, None, "", "", "").unwrap();
+                p.advance(0.5);
+                p.frame().doc.clone()
+            }
+        );
     }
 }

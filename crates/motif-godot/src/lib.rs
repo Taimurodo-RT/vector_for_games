@@ -592,8 +592,8 @@ impl MotifSprite {
     fn step(&mut self, dt: f64) {
         let Some(player) = &mut self.player else { return };
         let step = player.advance(dt);
-        for name in &step.events {
-            self.base_mut().emit_signal("event", &[name.to_variant()]);
+        for e in &step.events {
+            self.base_mut().emit_signal("event", &[e.name.to_variant()]);
         }
         if let Some(state) = step.state {
             self.base_mut().emit_signal("state_changed", &[state.to_variant()]);
