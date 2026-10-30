@@ -10,9 +10,15 @@ rust-version.workspace = true
 default = []
 # The frame as triangles for a GPU that paints them itself (MotifSprite in Godot).
 mesh = ["motif-render/mesh"]
+# The frame as a `vello::Scene`, for a game that draws many poses in one pass (Forge). The Vello
+# and wgpu versions are the workspace's: one version for Motif and Forge, raised together.
+vello = ["motif-render/gpu"]
 
 [dependencies]
 motif-core.workspace = true
 motif-script.workspace = true
 motif-render.workspace = true
 tiny-skia.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true

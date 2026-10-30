@@ -12,7 +12,7 @@ pub mod mesh;
 
 pub use cpu::{CpuOptions, render_cpu, render_cpu_with, render_region};
 #[cfg(feature = "gpu")]
-pub use gpu::{build_scene, vello};
+pub use gpu::{build_scene, draw_pose, vello};
 
 use motif_core::kurbo::{Affine, BezPath, Shape};
 use motif_core::{Blend, Cap, Color, Document, Gradient, Join, Shadow};

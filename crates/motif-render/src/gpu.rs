@@ -35,6 +35,26 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine, backdrop: Op
     scene.pop_layer();
 }
 
+/// Appends one pose for a game: the shapes clipped to the artboard, over its background when
+/// `background` is set. `view` maps artboard space to target pixels, so many poses can share one
+/// scene. Blurred layers are kept while they are drawn again within the next few hundred poses.
+pub fn draw_pose(scene: &mut Scene, doc: &Document, view: Affine, background: bool) {
+    let bounds = Rect::new(0.0, 0.0, doc.artboard.width, doc.artboard.height);
+    if background {
+        scene.fill(Fill::NonZero, view, color(doc.artboard.background), None, &bounds);
+    }
+    scene.push_clip_layer(Fill::NonZero, view, &bounds);
+    CACHE.with_borrow_mut(|c| c.frame += 1);
+    draw_ops(scene, &display_ops(doc), view);
+    CACHE.with_borrow_mut(|c| {
+        let frame = c.frame;
+        if c.layers.len() > 64 {
+            c.layers.retain(|_, (_, seen)| frame - *seen < 256);
+        }
+    });
+    scene.pop_layer();
+}
+
 fn draw_ops(scene: &mut Scene, ops: &[Op], view: Affine) {
     for op in ops {
         let item = match op {

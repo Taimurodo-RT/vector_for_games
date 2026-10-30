@@ -75,6 +75,19 @@ impl Frame {
         cutter.pieces(&self.doc, scale)
     }
 
+    /// Appends the pose to a Vello scene: `transform` maps artboard units to the target's pixels,
+    /// so a game draws all its characters into one scene and renders it in one pass. A flipped
+    /// side is turned over inside the artboard. With `background`, the artboard's colour first.
+    #[cfg(feature = "vello")]
+    pub fn scene(&self, scene: &mut motif_render::vello::Scene, transform: motif_core::kurbo::Affine, background: bool) {
+        let turn = if self.flipped {
+            motif_core::kurbo::Affine::new([-1.0, 0.0, 0.0, 1.0, self.doc.artboard.width, 0.0])
+        } else {
+            motif_core::kurbo::Affine::IDENTITY
+        };
+        motif_render::draw_pose(scene, &self.doc, transform * turn, background);
+    }
+
     pub fn flipped(&self) -> bool {
         self.flipped
     }
@@ -813,5 +826,93 @@ anim Swing 1s {
         q.advance(1.0);
         let (a, b) = (q.frame().socket("muzzle").unwrap(), Frame { doc: q.frame().doc, flipped: true }.socket("muzzle").unwrap());
         assert!(near(a.x, 90.0) && near(b.x, 110.0) && near(a.y, b.y), "{a:?} / {b:?}");
+    }
+}
+
+/// The frame drawn by Vello on a video card matches the frame drawn on the CPU. Needs an adapter
+/// (a software one such as lavapipe will do): without one the check says so and passes, unless
+/// `MOTIF_NEED_GPU` is set.
+#[cfg(all(test, feature = "vello"))]
+mod vello_tests {
+    use super::*;
+    use motif_core::kurbo::Affine;
+    use motif_render::vello::{self, AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, wgpu};
+
+    fn gpu_render(frame: &Frame, scale: f64, width: u32, height: u32) -> Option<Vec<u8>> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+        let mut renderer = Renderer::new(&device, RendererOptions { antialiasing_support: AaSupport::area_only(), ..RendererOptions::default() }).ok()?;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut scene = vello::Scene::new();
+        frame.scene(&mut scene, Affine::scale(scale), true);
+        let params = RenderParams { base_color: vello::peniko::Color::from_rgba8(0, 0, 0, 255), width, height, antialiasing_method: AaConfig::Area };
+        renderer.render_to_texture(&device, &queue, &scene, &view, &params).ok()?;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (width * height * 4) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(width * 4), rows_per_image: Some(height) },
+            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        );
+        queue.submit([encoder.finish()]);
+        buffer.map_async(wgpu::MapMode::Read, .., |_| {});
+        device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+        let data = buffer.slice(..).get_mapped_range().ok()?.to_vec();
+        Some(data)
+    }
+
+    #[test]
+    fn a_frame_on_the_video_card_is_the_frame_on_the_cpu() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/directions.msc")).unwrap();
+        let mut p = Player::load(&src, None, "", "", "").unwrap();
+        p.set("speed", 1.0).unwrap();
+        p.advance(0.3);
+        for side in ["right", "left"] {
+            p.set_side(side).unwrap();
+            let frame = p.frame();
+            let (w, h) = p.size();
+            // 256 pixels wide: rows copied off the card are whole multiples of 256 bytes.
+            let scale = 256.0 / w;
+            let cpu = frame.render(scale, true).unwrap();
+            let (width, height) = (256, ((h * scale) as u32).min(cpu.height()));
+            let Some(gpu) = gpu_render(&frame, scale, width, height) else {
+                // CI sets MOTIF_NEED_GPU where it installs a software card: there a skip is a failure.
+                assert!(std::env::var_os("MOTIF_NEED_GPU").is_none(), "нет видеокарты, а MOTIF_NEED_GPU требует её");
+                eprintln!("нет видеокарты (даже программной): сравнение пропущено");
+                return;
+            };
+            let mut off = 0usize;
+            for y in 0..height as usize {
+                for x in 0..width as usize {
+                    let c = cpu.pixels()[y * cpu.width() as usize + x].demultiply();
+                    let g = &gpu[(y * width as usize + x) * 4..][..3];
+                    let d = (c.red() as i32 - g[0] as i32).abs().max((c.green() as i32 - g[1] as i32).abs()).max((c.blue() as i32 - g[2] as i32).abs());
+                    off += (d > 24) as usize;
+                }
+            }
+            // Only the soft edges may differ: Vello and tiny-skia smooth them each their own way.
+            let share = off as f64 / (width * height) as f64;
+            eprintln!("{side}: {:.3}% of pixels differ", share * 100.0);
+            assert!(share < 0.01, "{side}: {:.2}% of pixels differ", share * 100.0);
+        }
     }
 }
