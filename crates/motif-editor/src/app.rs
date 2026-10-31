@@ -267,6 +267,8 @@ pub struct App {
     sim: std::cell::RefCell<(u64, motif_core::SimCache)>,
     /// The live link with a game (Forge), when it is on.
     pub(crate) link: crate::link_ui::Link,
+    /// Scenes hung on attachment points while editing; never saved.
+    pub(crate) tryon: Vec<crate::game_ui::TryOn>,
 }
 
 impl App {
@@ -401,6 +403,7 @@ impl App {
             frame_ms: 16.0,
             sim: Default::default(),
             link: Default::default(),
+            tryon: Vec::new(),
             layers: Default::default(),
         };
         app.set_file(&src_file, 0);
@@ -2570,7 +2573,8 @@ impl App {
         let doc = self.display_doc();
         let ghosts = self.onion_doc();
         let backdrop = crate::importer::backdrop_view(&self.scene, &self.backdrop_img);
-        let stage = crate::canvas::Stage { doc: ghosts.as_ref().unwrap_or(&doc), backdrop, others: &others };
+        let worn: Vec<(&Document, motif_core::kurbo::Affine)> = self.tryon.iter().filter_map(|t| Some((&t.doc, t.placed(&doc)?))).collect();
+        let stage = crate::canvas::Stage { doc: ghosts.as_ref().unwrap_or(&doc), backdrop, others: &others, worn: &worn };
         self.canvas.paint(ui, frame, rect, view, stage);
         if self.pixel.on {
             self.paint_pixel_preview(ui, rect, view, &doc);
