@@ -644,6 +644,7 @@ impl App {
         // A name no event of this animation uses yet, for a new one.
         let fresh = || (1..).map(|i| format!("event{i}")).find(|n| !anim.events.iter().any(|e| &e.name == n)).unwrap_or_default();
         let mut write: Option<(String, String, Vec<f64>)> = None;
+        let mut write_data: Option<(String, Vec<(String, motif_core::EventValue)>)> = None;
         let times_of = |name: &str| anim.events.iter().filter(|e| e.name == name).map(|e| e.time).collect::<Vec<f64>>();
         if animate {
             let plus = Rect::from_center_size(pos2(names.right() - 18.0, names.center().y), vec2(20.0, 18.0));
@@ -705,8 +706,11 @@ impl App {
             }
             if resp.secondary_clicked() {
                 self.event_name = e.name.clone();
+                self.event_data = e.data.iter().map(|(k, v)| (k.clone(), value_text(v), Some(v.clone()))).collect();
             }
-            let resp = resp.on_hover_text(format!("«{}» на {} с. Тяните, чтобы сдвинуть; правый клик — имя и удаление", e.name, fmt_num(e.time)));
+            let data = e.data.iter().map(|(k, v)| format!("{k}={}", value_text(v))).collect::<Vec<_>>().join(", ");
+            let with = if data.is_empty() { String::new() } else { format!(" ({data})") };
+            let resp = resp.on_hover_text(format!("«{}»{with} на {} с. Тяните, чтобы сдвинуть; правый клик — имя, данные и удаление", e.name, fmt_num(e.time)));
             // The menu holds a text field: clicks inside must not close it.
             egui::Popup::context_menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                 ui.set_min_width(200.0);
@@ -717,6 +721,34 @@ impl App {
                     write = Some((e.name.clone(), self.event_name.trim().to_string(), times_of(&e.name)));
                     ui.close();
                 }
+                ui.separator();
+                ui.label(egui::RichText::new("Данные для игры").size(12.0).color(MUTED));
+                let mut gone = None;
+                for (k, (key, text, _)) in self.event_data.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(key).desired_width(72.0).hint_text("имя"));
+                        ui.label("=");
+                        ui.add(egui::TextEdit::singleline(text).desired_width(84.0).hint_text("2, true, left"));
+                        if ui.small_button("×").on_hover_text("Убрать поле").clicked() {
+                            gone = Some(k);
+                        }
+                    });
+                }
+                if let Some(k) = gone {
+                    self.event_data.remove(k);
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("+ Поле").on_hover_text("Например damage = 2: игра получит его вместе с событием").clicked()
+                    {
+                        self.event_data.push((String::new(), String::new(), None));
+                    }
+                    let typed: Vec<(String, motif_core::EventValue)> =
+                        self.event_data.iter().map(|(k, t, was)| (k.trim().to_string(), typed_value(t, was.as_ref()))).collect();
+                    if typed != e.data && ui.button("Сохранить данные").clicked() {
+                        write_data = Some((e.name.clone(), typed));
+                        ui.close();
+                    }
+                });
                 ui.separator();
                 if ui.button("Удалить это время").clicked() {
                     write = Some((e.name.clone(), e.name.clone(), times_of(&e.name).into_iter().filter(|v| (v - e.time).abs() > 1e-6).collect()));
@@ -736,6 +768,17 @@ impl App {
                     self.apply(&format!("event{}", self.undo.len()), Some(out));
                 }
                 None => self.status = format!("Имя «{new_name}» не подходит: одно слово без пробелов, и не занятое другим событием"),
+            }
+        }
+        if let Some((name, data)) = write_data
+            && self.can_edit()
+        {
+            match motif_script::write_event_data(&self.src, &self.scene, &anim.name, &name, &data) {
+                Some(out) => {
+                    self.apply(&format!("event-data{}", self.undo.len()), Some(out));
+                    self.status = format!("Данные события «{name}»: полей {}", data.len());
+                }
+                None => self.status = "Данные не записаны: имя поля — одно слово (не id), имена не повторяются, текст в одну строку".into(),
             }
         }
     }
@@ -1635,5 +1678,27 @@ fn paint_curve(p: &egui::Painter, track: &motif_core::Track, scale: Scale, vs: V
     }
     if pts.len() > 1 {
         p.add(Shape::line(pts, stroke));
+    }
+}
+
+/// An event value as it is shown and edited.
+fn value_text(v: &motif_core::EventValue) -> String {
+    match v {
+        motif_core::EventValue::Number(n) => fmt_num(*n),
+        motif_core::EventValue::Bool(b) => b.to_string(),
+        motif_core::EventValue::Text(t) => t.clone(),
+    }
+}
+
+/// The value typed into a data field: unchanged, the value it was read as (so the text `12`
+/// stays text); otherwise a number, `true`/`false`, or text.
+fn typed_value(text: &str, was: Option<&motif_core::EventValue>) -> motif_core::EventValue {
+    if let Some(v) = was.filter(|v| value_text(v) == text) {
+        return v.clone();
+    }
+    let t = text.trim();
+    match t {
+        "true" | "false" => motif_core::EventValue::Bool(t == "true"),
+        _ => t.parse::<f64>().ok().filter(|n| n.is_finite()).map_or_else(|| motif_core::EventValue::Text(t.to_string()), motif_core::EventValue::Number),
     }
 }

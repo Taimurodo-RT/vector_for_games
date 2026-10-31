@@ -1639,6 +1639,46 @@ fn event_data_is_read_typed_and_kept_when_the_event_is_written_again() {
 }
 
 #[test]
+fn event_data_is_written_from_the_timeline_and_reads_back_the_same() {
+    use motif_core::EventValue::{Bool, Number, Text};
+    let src = "artboard \"a\" 100x80\nrect r size 10\nanim Run 1s {\n  r.x 0: 0 | 1: 10\n  event hit 0.3 0.7 damage=2 id=h1t5\n}\n";
+    let s = scene(src);
+    let data = |pairs: &[(&str, motif_core::EventValue)]| pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect::<Vec<_>>();
+    // Every kind of value, text that must be quoted among them; the times and the id stay.
+    let want = data(&[
+        ("damage", Number(3.5)),
+        ("crit", Bool(false)),
+        ("side", Text("left".into())),
+        ("say", Text("ой, \"больно\"".into())),
+        ("word", Text("true".into())),
+        ("n", Text("12".into())),
+    ]);
+    let out = write_event_data(src, &s, "Run", "hit", &want).unwrap();
+    assert!(out.contains("  event hit 0.3 0.7 damage=3.5 crit=false side=left say=\"ой, \\\"больно\\\"\" word=\"true\" n=\"12\" id=h1t5\n"), "{out}");
+    let back = scene(&out);
+    let hit = back.doc.animation("Run").unwrap();
+    assert_eq!(hit.events.iter().map(|e| e.time).collect::<Vec<_>>(), [0.3, 0.7]);
+    assert!(hit.events.iter().all(|e| e.data == want));
+    assert_eq!(back.doc.ids.get(motif_core::IdKind::Event, "", "hit"), Some("h1t5"));
+    // Taken away again: the line is as it was before any data.
+    let bare = write_event_data(&out, &back, "Run", "hit", &[]).unwrap();
+    assert!(bare.contains("  event hit 0.3 0.7 id=h1t5\n"), "{bare}");
+    // Keys that are not one: two words, a repeat, `id`, empty, a digit first.
+    for bad in [
+        data(&[("two words", Number(1.0))]),
+        data(&[("a", Number(1.0)), ("a", Number(2.0))]),
+        data(&[("id", Text("x".into()))]),
+        data(&[("", Number(1.0))]),
+        data(&[("1a", Number(1.0))]),
+    ] {
+        assert!(write_event_data(src, &s, "Run", "hit", &bad).is_none(), "{bad:?}");
+    }
+    // Text on two lines would not read back.
+    assert!(write_event_data(src, &s, "Run", "hit", &data(&[("say", Text("a\nb".into()))])).is_none());
+    assert!(write_event_data(src, &s, "Run", "miss", &want).is_none());
+}
+
+#[test]
 fn animations_are_renamed_copied_reversed_and_deleted() {
     let src = "rect a\nanim Open 1s {\n  a.x  0: 0 ease-in | 0.6: 80 cubic 0.3 0 0.6 1.2 | 1: 100\n  a.y  0: 0 hold | 0.5: 40\n  event click 0.2\n}\n\nanim Idle 1s loop {\n  a.r  0: 0 | 1: 5\n}\nmachine M {\n  state Shut anim Open\n  state Idle\n}\n";
     let s = scene(src);

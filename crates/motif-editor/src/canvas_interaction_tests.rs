@@ -329,3 +329,60 @@ fn the_game_panel_lists_what_the_game_binds_to_and_leads_to_it() {
     assert_eq!(app.anim.as_deref(), Some("Wave"));
     assert_eq!(app.panels.settings.workspace, Workspace::Animate);
 }
+
+fn timeline_frame(app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
+    let ctx = app.ctx.clone();
+    ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 400.0))), events, ..Default::default() }, |ui| {
+        app.timeline(ui);
+    })
+}
+fn timeline_text(app: &mut App, text: &str) -> Pos2 {
+    timeline_frame(app, vec![]).drop_without_applying_deltas();
+    let out = timeline_frame(app, vec![]);
+    let pos = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    });
+    out.drop_without_applying_deltas();
+    pos.unwrap_or_else(|| panic!("missing {text}"))
+}
+fn timeline_click(app: &mut App, p: Pos2, which: egui::PointerButton) {
+    for pressed in [true, false] {
+        timeline_frame(app, vec![egui::Event::PointerMoved(p), button(p, pressed, which)]).drop_without_applying_deltas();
+    }
+}
+
+#[test]
+fn event_data_is_written_from_the_flag_menu() {
+    let mut app = fixture(include_str!("../../../examples/machine.msc"));
+    app.set_workspace(Workspace::Animate);
+    app.select_anim("Jump".into());
+    let line = |app: &App| app.src.lines().find(|l| l.trim_start().starts_with("event push")).unwrap().trim().to_string();
+    assert_eq!(line(&app), "event push 0.1 force=1.5 id=fg3h");
+    // The menu shows the data there is; a field is added to it.
+    let flag = timeline_text(&mut app, "push");
+    timeline_click(&mut app, flag, egui::PointerButton::Secondary);
+    let _ = timeline_text(&mut app, "force");
+    let add = timeline_text(&mut app, "+ Поле");
+    timeline_click(&mut app, add, egui::PointerButton::Primary);
+    for (hint, typed) in [("имя", "power"), ("2, true, left", "3")] {
+        let field = timeline_text(&mut app, hint);
+        timeline_click(&mut app, field, egui::PointerButton::Primary);
+        timeline_frame(&mut app, vec![egui::Event::Text(typed.into())]).drop_without_applying_deltas();
+    }
+    let save = timeline_text(&mut app, "Сохранить данные");
+    timeline_click(&mut app, save, egui::PointerButton::Primary);
+    assert_eq!(line(&app), "event push 0.1 force=1.5 power=3 id=fg3h");
+    let push = app.scene.doc.animation("Jump").unwrap().events.iter().find(|e| e.name == "push").unwrap().clone();
+    use motif_core::EventValue::Number;
+    assert_eq!(push.data, [("force".to_string(), Number(1.5)), ("power".to_string(), Number(3.0))]);
+    // Opened again, a field is taken away.
+    // A menu opens under a pointer that rests on the flag first, as a hand does.
+    timeline_frame(&mut app, vec![egui::Event::PointerMoved(flag)]).drop_without_applying_deltas();
+    timeline_click(&mut app, flag, egui::PointerButton::Secondary);
+    let remove = timeline_text(&mut app, "×");
+    timeline_click(&mut app, remove, egui::PointerButton::Primary);
+    let save = timeline_text(&mut app, "Сохранить данные");
+    timeline_click(&mut app, save, egui::PointerButton::Primary);
+    assert_eq!(line(&app), "event push 0.1 power=3 id=fg3h");
+}
