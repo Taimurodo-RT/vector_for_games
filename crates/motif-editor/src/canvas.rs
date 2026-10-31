@@ -67,7 +67,7 @@ impl Canvas {
 
     /// Paints the stage into `rect` and returns nothing; overlays are drawn by the caller afterwards.
     pub fn paint(&mut self, ui: &mut egui::Ui, frame: Option<&eframe::Frame>, rect: Rect, view: View, stage: Stage) {
-        let Stage { doc, backdrop, others } = stage;
+        let Stage { doc, backdrop, others, .. } = stage;
         if self.gpu.is_none()
             && self.gpu_failed.is_none()
             && let Some(rs) = frame.and_then(eframe::Frame::wgpu_render_state)
@@ -130,6 +130,8 @@ pub struct Stage<'a> {
     pub doc: &'a Document,
     pub backdrop: Option<BackdropView<'a>>,
     pub others: &'a [crate::boards_ui::OtherBoard],
+    /// Scenes tried on attachment points, each where it hangs in the board's space.
+    pub worn: &'a [(&'a Document, Affine)],
 }
 
 pub fn artboard_rect(canvas: Rect, view: View, doc: &Document) -> Rect {
@@ -137,7 +139,7 @@ pub fn artboard_rect(canvas: Rect, view: View, doc: &Document) -> Rect {
 }
 
 fn paint_gpu(gpu: &mut Gpu, rs: &egui_wgpu::RenderState, ui: &mut egui::Ui, rect: Rect, view: View, stage: &Stage) -> Result<(), String> {
-    let Stage { doc, backdrop, others } = *stage;
+    let Stage { doc, backdrop, others, worn } = *stage;
     let ppp = ui.ctx().pixels_per_point();
     let size = [((rect.width() * ppp).round() as u32).max(1), ((rect.height() * ppp).round() as u32).max(1)];
     let needs_new = gpu.texture.as_ref().is_none_or(|t| t.3 != size);
@@ -171,6 +173,9 @@ fn paint_gpu(gpu: &mut Gpu, rs: &egui_wgpu::RenderState, ui: &mut egui::Ui, rect
         motif_render::build_scene(&mut scene, &o.doc, to_px * Affine::translate(Vec2::new(o.offset.x, o.offset.y)), None);
     }
     motif_render::build_scene(&mut scene, doc, to_px, backdrop);
+    for (worn, at) in worn {
+        motif_render::draw_pose(&mut scene, worn, to_px * *at, false);
+    }
     let params = RenderParams {
         base_color: vello::peniko::Color::from_rgba8(STAGE.r(), STAGE.g(), STAGE.b(), 255),
         width: size[0],
