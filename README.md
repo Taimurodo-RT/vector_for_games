@@ -399,7 +399,7 @@ Motif, а кадр рисуется под размер узла на экран
   `advance(0.1)`, `hot_reload()` (сцену сохранили в Motif — играет дальше с того же состояния); сигналы `event(name)`, `event_data(name, data)` и `state_changed(state)`.
 * Данные событий: `event hit 0.3 damage=2 crit=true side=left` — числа, true/false, слова и строки в кавычках
   приходят в игру вместе с событием (`Event::get("damage")`, сигнал `event_data`, поле `data` в договоре) —
-  [docs/script.html#event-data](docs/script.html#event-data).
+  [docs/script.html#event-data](docs/script.html#event-data). На таймлайне — правый клик по флажку → «Данные для игры».
 * Стороны (`directions`): `facing = dir` показывает ближайшую сторону, состояние играет `Walk_up` вместо `Walk`, шаг
   продолжается с того же места и поворот не шлёт событий; левые стороны с `mirror` отражаются при рисовании, сам узел
   не переворачивается. Ещё `side = "up_right"`, `get_sides()`, `is_flipped()` и сигнал `side_changed(side)`.
