@@ -234,6 +234,8 @@ pub struct App {
     pub(crate) event_drag: Option<(String, f64, f64)>,
     /// The name typed in an event flag's menu.
     pub(crate) event_name: String,
+    /// The data of the event whose menu is open, as edited: key, value as text, value as read.
+    pub(crate) event_data: Vec<(String, String, Option<motif_core::EventValue>)>,
     /// The name typed in the animation menu.
     pub(crate) anim_name: String,
     /// The timeline shows value curves instead of key lanes.
@@ -375,6 +377,7 @@ impl App {
             key_marquee: None,
             event_drag: None,
             event_name: String::new(),
+            event_data: Vec::new(),
             anim_name: String::new(),
             curves: false,
             curve_focus: None,
