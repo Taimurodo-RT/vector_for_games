@@ -16,6 +16,7 @@ motif-pixel = { path = "crates/motif-pixel" }
 motif-web = { path = "crates/motif-web" }
 motif-html = { path = "crates/motif-html" }
 motif-runtime = { path = "crates/motif-runtime" }
+motif-link = { path = "crates/motif-link" }
 kurbo = "0.13.1"
 tiny-skia = "0.12"
 png = "0.18"

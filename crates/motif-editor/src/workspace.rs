@@ -213,11 +213,14 @@ pub(crate) struct Settings {
     pub version: u32,
     pub workspace: Workspace,
     pub layouts: [Layout; 3],
+    /// The live link with a game is on at start, on this port.
+    pub link: bool,
+    pub link_port: u16,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { version: 1, workspace: Workspace::Drawing, layouts: Workspace::ALL.map(Layout::for_workspace) }
+        Self { version: 1, workspace: Workspace::Drawing, layouts: Workspace::ALL.map(Layout::for_workspace), link: false, link_port: motif_link::DEFAULT_PORT }
     }
 }
 

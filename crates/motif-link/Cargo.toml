@@ -1,0 +1,13 @@
+[package]
+name = "motif-link"
+description = "Живая связь Motif и игры (Forge): короткие JSON-сообщения по WebSocket на 127.0.0.1"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+motif-script.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+tungstenite.workspace = true

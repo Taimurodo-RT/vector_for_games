@@ -1577,6 +1577,7 @@ dependencies = [
  "flate2",
  "motif-core",
  "motif-html",
+ "motif-link",
  "motif-pixel",
  "motif-render",
  "motif-script",
@@ -1607,6 +1608,16 @@ dependencies = [
  "motif-core",
  "motif-render",
  "motif-script",
+]
+
+[[package]]
+name = "motif-link"
+version = "0.1.0"
+dependencies = [
+ "motif-script",
+ "serde",
+ "serde_json",
+ "tungstenite",
 ]
 
 [[package]]

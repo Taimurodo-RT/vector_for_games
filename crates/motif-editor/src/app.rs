@@ -134,7 +134,7 @@ pub struct App {
     pub(crate) web: crate::web_ui::WebState,
     pub(crate) path: Option<PathBuf>,
     pub(crate) src: String,
-    saved_src: String,
+    pub(crate) saved_src: String,
     recovery: crate::storage::Recovery,
     recovery_records: Vec<crate::storage::Record>,
     show_recovery: bool,
@@ -263,10 +263,13 @@ pub struct App {
     pub(crate) layers: crate::layers::Layers,
     /// Soft-body frames already simulated, for the script and animation they were simulated for.
     sim: std::cell::RefCell<(u64, motif_core::SimCache)>,
+    /// The live link with a game (Forge), when it is on.
+    pub(crate) link: crate::link_ui::Link,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>) -> Self {
+    /// `link`: the port a game asked Motif to listen on when it started it.
+    pub fn new(cc: &eframe::CreationContext<'_>, path: Option<PathBuf>, link: Option<u16>) -> Self {
         let mut app =
             Self::initialize(cc.egui_ctx.clone(), path, crate::pixabridge::Bridge::load(), crate::storage::Recovery::new(crate::storage::recovery_dir()));
         let path = crate::storage::recovery_dir().with_file_name("workspaces.json");
@@ -275,6 +278,9 @@ impl App {
         app.panels.settings = settings;
         app.workspace_store = Some(store);
         app.set_workspace(space);
+        if let Some(port) = link.or(app.panels.settings.link.then_some(app.panels.settings.link_port)) {
+            app.start_link(port);
+        }
         if let Some(warning) = warning {
             app.status = warning;
         }
@@ -391,6 +397,7 @@ impl App {
             pointer_doc: None,
             frame_ms: 16.0,
             sim: Default::default(),
+            link: Default::default(),
             layers: Default::default(),
         };
         app.set_file(&src_file, 0);
@@ -880,7 +887,7 @@ impl App {
         self.reparse();
     }
 
-    fn dirty(&self) -> bool {
+    pub(crate) fn dirty(&self) -> bool {
         self.file_text() != self.saved_src
     }
 
@@ -1177,6 +1184,13 @@ impl App {
 
     fn open(&mut self) {
         let Some(p) = rfd::FileDialog::new().add_filter("Сцена Motif", &["msc"]).pick_file() else { return };
+        if let Err(e) = self.open_path(p) {
+            self.status = e;
+        }
+    }
+
+    /// Opens the scene at `p` in place of the one open; the error says why it did not.
+    pub(crate) fn open_path(&mut self, p: PathBuf) -> Result<(), String> {
         match std::fs::read_to_string(&p) {
             Ok(s) => {
                 self.pose_preview.clear();
@@ -1192,12 +1206,13 @@ impl App {
                 self.view = None;
                 self.anim = None;
                 self.reparse();
+                Ok(())
             }
-            Err(e) => self.status = format!("Не удалось открыть {}: {e}", p.display()),
+            Err(e) => Err(format!("Не удалось открыть {}: {e}", p.display())),
         }
     }
 
-    fn save(&mut self, save_as: bool) {
+    pub(crate) fn save(&mut self, save_as: bool) {
         let path = match (&self.path, save_as) {
             (Some(p), false) => p.clone(),
             _ => match rfd::FileDialog::new().add_filter("Сцена Motif", &["msc"]).set_file_name("scene.msc").save_file() {
@@ -1219,6 +1234,7 @@ impl App {
         }
         let text = self.file_text();
         let expected = (self.path.as_ref() == Some(&path)).then_some(self.saved_src.as_str());
+        let before = expected.map(str::to_string);
         match crate::storage::save_scene(&path, &text, expected) {
             Ok(()) => {
                 self.recovery.clear();
@@ -1226,6 +1242,7 @@ impl App {
                 self.disk_mtime = mtime(&path);
                 self.status = format!("Сохранено: {}", path.display());
                 self.path = Some(path.clone());
+                self.link_saved(&path, before.as_deref());
                 if let Some(link) = self.pixa.link(&path).cloned() {
                     let ctx = self.ctx.clone();
                     self.status = format!("Сохранено. {}", self.godot_to(&link.target, &ctx));
@@ -1634,6 +1651,7 @@ impl App {
                 if ui.add(egui::Button::new("Сохранить как…").shortcut_text("Ctrl+Shift+S")).clicked() {
                     self.save(true);
                 }
+                self.link_menu(ui);
                 ui.separator();
                 if ui.add(egui::Button::new("Импорт SVG…")).on_hover_text("Фигуры из SVG станут контурами в новой группе").clicked()
                 {
@@ -3755,6 +3773,7 @@ impl eframe::App for App {
         if let Some(status) = self.video.poll() {
             self.status = status;
         }
+        self.poll_link();
         if !ctx.input(|i| i.pointer.any_down()) {
             self.persist_workspace();
         }

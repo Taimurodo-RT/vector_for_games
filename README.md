@@ -337,6 +337,12 @@ cargo run --release -p motif-cli -- render  examples/ui-kit.msc --board Кноп
 правки: `MOTIF_BLESS=1 cargo test -p motif-script --test contracts`). Подробнее —
 [docs/export.html#contract](docs/export.html#contract).
 
+Живая связь с игрой: «Файл → Связь с игрой» (или `motif-editor --link`, когда Motif запускает сама игра) открывает
+WebSocket на `127.0.0.1:47615`. Игра просит открыть файл на нужном холсте, анимации или состоянии, ведёт машину
+своими значениями и рассказывает, какие имена у неё есть (Motif подсказывает недостающие входы и лишние события);
+Motif сообщает о сохранении с договором, о переименованиях по id и о выбранном объекте. Браузер подключиться не может.
+Крейт `motif-link`, сообщения — [docs/export.html#live-link](docs/export.html#live-link).
+
 ## Видео
 
 «Экспорт → Видео» (или `motif video`) сохраняет анимацию одним файлом, формат — по расширению: GIF и APNG (`.png`)
@@ -510,6 +516,7 @@ Motif сам управляет PixaTool 1.58: запускает его вне 
 | `motif-render` | Список отрисовки, CPU-рендер (tiny-skia), сцена Vello (`gpu`) |
 | `motif-pixel` | Палитры JASC, квантование, рендер кадров анимации, управление PixaTool |
 | `motif-runtime` | Проигрыватель сцены в игре без движка и окна: машина, входы, стороны, события, кадр (для Forge и Godot) |
+| `motif-link` | Живая связь редактора с игрой (Forge): сообщения, сервер и клиент WebSocket на 127.0.0.1 |
 | `motif-godot` | Аддон Godot 4: узел MotifSprite на `motif-runtime` |
 | `motif-web` | Выгрузка в SVG/HTML/CSS |
 | `motif-cli` | Команда `motif` |
