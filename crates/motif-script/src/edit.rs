@@ -1196,6 +1196,43 @@ pub fn write_event(src: &str, scene: &Scene, anim: &str, name: &str, new_name: &
     }
 }
 
+/// Gives event `name` of animation `anim` the data `data` (every time of it shares one line, so
+/// one data), in place of what it had; its times and hidden id stay. `None` when a key is not one
+/// word, repeats or is `id`, or a value would not read back the same.
+pub fn write_event_data(src: &str, scene: &Scene, anim: &str, name: &str, data: &[(String, motif_core::EventValue)]) -> Option<String> {
+    use motif_core::EventValue;
+    let e = scene.anims.get(anim)?.events.iter().find(|e| e.name == name)?;
+    let word = |k: &str| !k.is_empty() && k.chars().all(|c| c.is_alphanumeric() || c == '_') && !k.starts_with(|c: char| c.is_ascii_digit());
+    for (i, (k, _)) in data.iter().enumerate() {
+        if !word(k) || k == "id" || data[..i].iter().any(|(o, _)| o == k) {
+            return None;
+        }
+    }
+    let value = |v: &EventValue| match v {
+        EventValue::Number(n) => fmt_num(*n),
+        EventValue::Bool(b) => b.to_string(),
+        // A plain word goes as it is, the rest in quotes; `true`, `false` and numbers too, so
+        // they stay text.
+        EventValue::Text(t) if word(t) && t != "true" && t != "false" => t.clone(),
+        EventValue::Text(t) => format!("\"{}\"", t.replace('"', "\\\"")),
+    };
+    let times: Vec<String> = e.times.iter().map(|(t, _)| fmt_num(*t)).collect();
+    let mut line = format!("event {name} {}", times.join(" "));
+    for (k, v) in data {
+        line.push_str(&format!(" {k}={}", value(v)));
+    }
+    let line = crate::ids::keep(&src[e.span.start..e.span.end], line);
+    let out = splice(src, e.span, &line);
+    // Whatever the text holds, the scene must read back exactly this data. (A scene that needs
+    // its folder to read, for pictures or fonts, is not read here: the writing above is enough.)
+    if crate::parse(src).is_err() {
+        return Some(out);
+    }
+    let back = crate::parse(&out).ok()?;
+    let read = back.doc.animation(anim)?.events.iter().find(|e| e.name == name)?.data.clone();
+    (read == data).then_some(out)
+}
+
 /// Event data with an `id=…` among it taken out; quoted text is left as written.
 fn without_id(data: &str) -> String {
     let (mut out, mut quoted, mut word) = (String::new(), false, 0);
