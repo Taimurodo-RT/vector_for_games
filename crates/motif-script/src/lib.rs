@@ -323,10 +323,12 @@ pub struct AnimSite {
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventSite {
     pub name: String,
-    /// From `event` to the last time.
+    /// From `event` to the last word of the line.
     pub span: Span,
     /// Each time with the span of its number.
     pub times: Vec<(f64, Span)>,
+    /// The source of its `key=value` data, kept when the line is written again.
+    pub data: Option<Span>,
 }
 
 /// One `node.prop  t: v | …` line of an `anim` block.

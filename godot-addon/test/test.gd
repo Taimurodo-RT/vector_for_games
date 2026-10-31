@@ -17,6 +17,8 @@ func _initialize() -> void:
 	var events := []
 	var states := []
 	hero.event.connect(func(n): events.append(n))
+	var data := {}
+	hero.event_data.connect(func(n, d): data[n] = d)
 	hero.state_changed.connect(func(s): states.append(s))
 	root.add_child(hero)
 	check(hero.get_inputs() == PackedStringArray(["speed", "jump", "hurt"]), "входы машины: %s" % hero.get_inputs())
@@ -31,6 +33,7 @@ func _initialize() -> void:
 	await create_timer(0.8).timeout
 	check(states.slice(0, 2) == ["Run", "Jump"], "сигнал state_changed: %s" % [states])
 	check(events.has("step") and events.has("push"), "сигнал event: %s" % [events])
+	check(data.get("push") == {"force": 1.5} and data.get("step") == {}, "сигнал event_data: %s" % [data])
 	hero.jump_to("Hit")
 	check(hero.get_state() == "Hit", "jump_to")
 	hero.restart()

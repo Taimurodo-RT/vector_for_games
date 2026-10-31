@@ -336,8 +336,8 @@ impl MachinePlayer {
 
     /// The first part of [`advance`](Self::advance): plays the state's animation and the blend on
     /// by `dt`, without transitions or the simulation. Returns the events passed, each with how
-    /// long after the start of the step it falls (they are also left in `events`).
-    pub fn pass(&mut self, m: &Machine, doc: &Document, dt: f64) -> Vec<(String, f64)> {
+    /// long after the start of the step it falls (their names are also left in `events`).
+    pub fn pass(&mut self, m: &Machine, doc: &Document, dt: f64) -> Vec<(crate::AnimEvent, f64)> {
         if m.states.is_empty() {
             return Vec::new();
         }
@@ -347,10 +347,10 @@ impl MachinePlayer {
         self.fresh = false;
         let start = self.time;
         self.time += dt;
-        let passed: Vec<(String, f64)> = doc
+        let passed: Vec<(crate::AnimEvent, f64)> = doc
             .animation(&m.states[self.state].anim)
-            .map_or_else(Vec::new, |a| a.events_passed(from, self.time).into_iter().map(|(at, e)| (e.name.clone(), (at - start).max(0.0))).collect());
-        self.events = passed.iter().map(|(name, _)| name.clone()).collect();
+            .map_or_else(Vec::new, |a| a.events_passed(from, self.time).into_iter().map(|(at, e)| (e.clone(), (at - start).max(0.0))).collect());
+        self.events = passed.iter().map(|(e, _)| e.name.clone()).collect();
         if let Some((_, t)) = &mut self.prev {
             *t += dt;
         }
@@ -511,7 +511,7 @@ mod tests {
     #[test]
     fn events_fire_as_states_play() {
         let mut d = doc();
-        let ev = |name: &str, time| crate::AnimEvent { name: name.into(), time };
+        let ev = |name: &str, time| crate::AnimEvent { name: name.into(), time, ..Default::default() };
         d.animations[1].events = vec![ev("step", 0.0), ev("step", 0.5)];
         d.animations[2].events = vec![ev("land", 1.0)];
         let m = machine();

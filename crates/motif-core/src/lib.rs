@@ -45,7 +45,9 @@ pub use ids::{IdKind, Ids};
 pub use kurbo;
 pub use layout::{Stack, StackAlign, StackDir, anchor_text, anchor_word};
 pub use machine::{Cond, CondOp, Input, InputKind, Listener, Machine, MachinePlayer, PointerEvent, State, Transition};
-pub use model::{AnimEvent, Animation, Artboard, Document, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Track, Value, WeightStroke};
+pub use model::{
+    AnimEvent, Animation, Artboard, Document, EventValue, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Track, Value, WeightStroke,
+};
 pub use morph::Morph;
 pub use parameters::{CorrectiveKey, CorrectiveTrack, PoseCorrective, PoseDriver, PoseParameter};
 pub use particles::Emitter;

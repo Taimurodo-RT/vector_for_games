@@ -36,8 +36,9 @@ anim Jump 0.7s id=rdi9 {
   body.w         0: 116 | 0.1: 88 | 0.6: 96 | 0.7: 116
   shadow.w       0: 90 | 0.35: 40 | 0.7: 90
   shadow.opacity 0: 0.3 | 0.35: 0.1 | 0.7: 0.3
-  event push 0.1 id=fg3h
-  event land 0.7 id=wga2
+  // Данные события игра получает вместе с ним: сила толчка, поднять ли пыль.
+  event push 0.1 force=1.5 id=fg3h
+  event land 0.7 dust=true id=wga2
 }
 
 anim Hit 0.5s id=nugn {
