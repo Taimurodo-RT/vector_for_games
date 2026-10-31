@@ -291,3 +291,38 @@ fn game_marks_are_set_in_the_inspector_and_an_area_is_dashed_not_painted() {
     click(&mut app, area, egui::PointerButton::Primary);
     assert!(!line(&app).split_whitespace().any(|w| w == "area"), "{}", line(&app));
 }
+
+#[test]
+fn a_scene_tried_on_a_socket_is_held_by_its_own_point_and_follows_the_animation() {
+    let mut app = fixture(include_str!("../../../examples/bones.msc"));
+    let sword = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/sword.msc"));
+    app.try_on("hand", sword);
+    assert!(app.tryon.is_empty() && app.status.contains("hand"), "only an attachment point holds: {}", app.status);
+    app.try_on("grip", sword);
+    assert_eq!(app.tryon.len(), 1);
+    let worn = &app.tryon[0];
+    let held = worn.doc.world_transform(worn.doc.index_of("handle").unwrap()) * Point::ZERO;
+    app.set_workspace(Workspace::Animate);
+    app.select_anim("Wave".into());
+    let mut places = Vec::new();
+    for t in [0.0, 0.7] {
+        app.time = t;
+        let doc = app.display_doc();
+        let grip = doc.world_transform(doc.index_of("grip").unwrap()) * Point::ZERO;
+        let at = app.tryon[0].placed(&doc).unwrap();
+        // The sword's own handle lands on the hand's grip.
+        assert!((at * held - grip).hypot() < 1e-6, "{:?} vs {grip:?}", at * held);
+        places.push(at);
+    }
+    assert_ne!(places[0], places[1], "the sword goes with the arm");
+    // Hung again: one scene per point; never in the file.
+    app.try_on("grip", sword);
+    assert_eq!(app.tryon.len(), 1);
+    assert!(!app.src.contains("sword"));
+    // The point gone from the scene: nothing is drawn, nothing breaks.
+    let gone = app.display_doc();
+    let mut gone = gone.clone();
+    let i = gone.index_of("grip").unwrap();
+    gone.nodes[i].socket = false;
+    assert!(app.tryon[0].placed(&gone).is_none());
+}

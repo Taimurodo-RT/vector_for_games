@@ -1,0 +1,11 @@
+motif 1
+// Меч для примерки: в examples/bones.msc выберите «Хват», в «Для игры» нажмите «Примерить…» и откройте этот файл.
+// Его точка крепления handle — место, за которое его держат: она ляжет на «Хват» и пойдёт за рукой.
+artboard "Меч" 160x40
+
+let ink = #10131d
+
+rect blade "Клинок" at 92 20 size 104 10 r 3 fill #dfe7f2 stroke ink 3
+rect guard "Гарда" at 36 20 size 8 30 r 2 fill #ffd23f stroke ink 3
+rect hilt "Рукоять" at 22 20 size 24 8 r 3 fill #7a4b2a stroke ink 3
+group handle "Рукоять для руки" at 22 20 socket
