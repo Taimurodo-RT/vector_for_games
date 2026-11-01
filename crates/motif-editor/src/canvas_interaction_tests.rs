@@ -421,3 +421,76 @@ fn event_data_is_written_from_the_flag_menu() {
     timeline_click(&mut app, save, egui::PointerButton::Primary);
     assert_eq!(line(&app), "event push 0.1 power=3 id=fg3h");
 }
+
+fn morph_panel(app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
+    let ctx = app.ctx.clone();
+    let category = canvas_menu::InspectorCategory::Morph;
+    ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(340.0, 900.0))), events, ..Default::default() }, |ui| {
+        app.props_contents(ui, Some(&category));
+    })
+}
+fn morph_panel_text(app: &mut App, text: &str) -> (Pos2, Option<Pos2>) {
+    morph_panel(app, vec![]).drop_without_applying_deltas();
+    let out = morph_panel(app, vec![]);
+    let find = |want: &str| {
+        out.shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.job.text == want => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        })
+    };
+    let pos = find(text).unwrap_or_else(|| panic!("missing {text}"));
+    // A «×» on the same row, if there is one.
+    let cross = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.job.text == "×" && (t.pos.y + t.galley.size().y * 0.5 - pos.y).abs() < 10.0 => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    });
+    out.drop_without_applying_deltas();
+    (pos, cross)
+}
+fn morph_panel_click(app: &mut App, p: Pos2) {
+    for pressed in [true, false] {
+        morph_panel(app, vec![egui::Event::PointerMoved(p), button(p, pressed, egui::PointerButton::Primary)]).drop_without_applying_deltas();
+    }
+}
+
+#[test]
+fn morph_marks_are_placed_with_two_clicks_and_taken_off_in_the_panel() {
+    let src = "path mouth at 200 150 d \"M -40 0 C -20 -4 20 -4 40 0 C 20 4 -20 4 -40 0 Z\" forms \"M 30 -10 C 15 14 -15 14 -30 -10 C -15 -22 15 -22 30 -10 Z\" fill #9d3b5a\n";
+    let mut app = fixture(src);
+    app.select_only(Some("mouth".into()));
+    let (on, _) = morph_panel_text(&mut app, "Ставить на холсте");
+    morph_panel_click(&mut app, on);
+    assert!(app.marking.is_some());
+    let at = |app: &mut App, x: f64, y: f64| {
+        frame(app, vec![]).drop_without_applying_deltas();
+        let doc = app.display_doc();
+        app.view.unwrap().to_screen(app.canvas_bounds, doc.world_transform(doc.index_of("mouth").unwrap()) * Point::new(x, y))
+    };
+    // The left corner of the shut mouth, then the left corner of the open one.
+    let p = at(&mut app, -40.0, 0.0);
+    click(&mut app, p, egui::PointerButton::Primary);
+    assert!(app.marking.as_ref().unwrap().pending.is_some(), "{}", app.status);
+    assert_eq!(app.scene.doc.node("mouth").unwrap().morph_links.len(), 0, "half a mark is not written");
+    let p = at(&mut app, -30.0, -10.0);
+    click(&mut app, p, egui::PointerButton::Primary);
+    assert!(app.src.contains("match \"0>1 0:0=0:0.534\""), "{}", app.src);
+    // Right corner to right corner: the open mouth starts there.
+    let p = at(&mut app, 40.0, 0.0);
+    click(&mut app, p, egui::PointerButton::Primary);
+    let p = at(&mut app, 30.0, -10.0);
+    click(&mut app, p, egui::PointerButton::Primary);
+    assert!(app.src.contains("match \"0>1 0:0=0:0.534 0:0.5=0:0\""), "{}", app.src);
+    assert_eq!(app.scene.doc.node("mouth").unwrap().morph_links.len(), 2);
+    // A click away from both outlines places nothing, and the shape stays selected.
+    let p = at(&mut app, 0.0, 60.0);
+    click(&mut app, p, egui::PointerButton::Primary);
+    assert!(app.marking.as_ref().unwrap().pending.is_none() && app.selected.as_deref() == Some("mouth"));
+    // The panel lists them; × takes one off.
+    let (_, cross) = morph_panel_text(&mut app, "1. кусок 0 · 0 → кусок 0 · 0.534");
+    morph_panel_click(&mut app, cross.expect("× next to the first mark"));
+    assert!(app.src.contains("match \"0>1 0:0.5=0:0\""), "{}", app.src);
+    // Done: the canvas selects again.
+    let (done, _) = morph_panel_text(&mut app, "Готово");
+    morph_panel_click(&mut app, done);
+    assert!(app.marking.is_none());
+}

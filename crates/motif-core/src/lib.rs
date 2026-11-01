@@ -48,7 +48,7 @@ pub use machine::{Cond, CondOp, Input, InputKind, Listener, Machine, MachinePlay
 pub use model::{
     AnimEvent, Animation, Artboard, Document, EventValue, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Track, Value, WeightStroke,
 };
-pub use morph::{MatchEnd, Morph, MorphLink, blend_linked, check_links, piece_count};
+pub use morph::{MatchEnd, Morph, MorphLink, blend_linked, check_links, nearest_place, piece_count, place_point};
 pub use parameters::{CorrectiveKey, CorrectiveTrack, PoseCorrective, PoseDriver, PoseParameter};
 pub use particles::Emitter;
 pub use roll::Roll;
