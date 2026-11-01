@@ -47,19 +47,24 @@ fn every_morphing_example_matches_its_sample_file() {
 #[test]
 fn the_file_gives_the_engine_what_its_contract_asks_for() {
     let src = "artboard \"Рот\" 200x100\n\
-        path mouth at 100 50 d \"M -40 0 L 40 0 L 0 20 Z\" forms \"M -30 -10 L 30 -10 L 0 30 Z M -5 0 L 5 0 L 0 8 Z\" match \"0>1 0:0=0:0 0:0.5=0:0.5 *=1\" fill #9d3b5a80 evenodd\n\
+        path mouth at 100 30 d \"M -40 0 L 40 0 L 0 20 Z\" forms \"M -30 -10 L 30 -10 L 0 30 Z M -5 0 L 5 0 L 0 8 Z\" match \"0>1 0:0=0:0 0:0.5=0:0.5 *=1\" fill #9d3b5a80 evenodd\n\
         star s hidden fill #ff0000\n\
         ellipse ball size 40 40 fill #00ff00 stroke #000 2 morph s\n\
+        ellipse glow at 20 20 size 40 20 gradient radial #ffffff #ffffff00 morph s\n\
+        path bar at 50 50 d \"M -20 -10 L 20 -10 L 20 10 L -20 10 Z\" rot 90 gradient linear 0 #000 #fff #f00 forms \"M -20 -10 L 20 -10 L 20 10 L -20 10 Z\"\n\
         anim Talk 1s loop id=t4lk {\n  mouth.contour 0: 0 | 0.5: 1 | 1: 0\n}\n";
     let boards = motif_script::parse_boards(src, None).unwrap();
     let (json, warnings) = motif_script::reyvec_morph_json(boards.iter().map(|s| &s.doc));
     // The format and its version come first.
-    assert!(json.starts_with("{\n  \"format\": \"reyvec-morph\",\n  \"version\": 1,\n  \"y\": \"up\","), "{json}");
+    assert!(json.starts_with("{\n  \"format\": \"reyvec-morph\",\n  \"version\": 1,\n  \"y\": \"up\",\n  \"units\": \"px\","), "{json}");
     let file: motif_script::MorphFile = serde_json::from_str(&json).unwrap();
     assert_eq!(file, motif_script::reyvec_morph(boards.iter().map(|s| &s.doc)).0, "reads back as written");
     let mouth = &file.shapes[0];
     assert_eq!((mouth.board.as_str(), mouth.id.as_str(), mouth.fill_rule.as_str()), ("Рот", "mouth", "evenodd"));
-    assert_eq!((mouth.color.as_str(), mouth.alpha), ("#9d3b5a", 0.502));
+    assert_eq!((mouth.color.as_deref(), mouth.alpha, &mouth.gradient), (Some("#9d3b5a"), Some(0.502), &None));
+    // Where it stands on the 200×100 board, y up from the bottom-left corner: 30 from the top
+    // is 70 from the bottom.
+    assert_eq!(mouth.transform, [1.0, 0.0, 0.0, 1.0, 100.0, 70.0]);
     // y points up: the tip drawn below (y 20) is above in the file.
     assert_eq!(mouth.contours, ["M -40 0 L 40 0 L 0 -20 Z", "M -30 10 L 30 10 L 0 -30 Z M -5 0 L 5 0 L 0 -8 Z"]);
     assert_eq!(mouth.marks.len(), 3);
@@ -69,10 +74,24 @@ fn the_file_gives_the_engine_what_its_contract_asks_for() {
     let talk = &mouth.animations[0];
     assert_eq!((talk.animation.as_str(), talk.id.as_deref(), talk.looping, talk.morph.len()), ("Talk", Some("t4lk"), true, 61));
     assert_eq!((talk.morph[0], talk.morph[30], talk.morph[15], talk.morph[60]), (0.0, 1.0, 0.5, 0.0));
+    // A gradient goes in place of the colour, in the contours' coordinates (y up).
+    let glow = file.shapes.iter().find(|s| s.id == "glow").unwrap();
+    let g = glow.gradient.as_ref().unwrap();
+    assert_eq!((glow.color.as_ref(), glow.alpha), (None, None));
+    assert_eq!((g.kind.as_str(), g.center, g.radius, g.focus, g.start), ("radial", Some([0.0, 0.0]), Some(20.0), Some([0.0, 0.0]), None));
+    assert_eq!((g.stops.len(), g.stops[1].at, g.stops[1].color.as_str(), g.stops[1].alpha), (2, 1.0, "#ffffff", 0.0));
+    let bar = file.shapes.iter().find(|s| s.id == "bar").unwrap();
+    let g = bar.gradient.as_ref().unwrap();
+    assert_eq!((g.kind.as_str(), g.start, g.end, g.stops[1].at), ("linear", Some([-20.0, 0.0]), Some([20.0, 0.0]), 0.5));
+    // Turned by 90° on the board (y down) is turned by −90° with y up.
+    assert_eq!(bar.transform, [0.0, -1.0, 1.0, 0.0, 50.0, 50.0]);
     // What the engine would not show is said, not written.
     assert_eq!(file.shapes[1].id, "ball");
     assert!(file.shapes[1].animations.is_empty());
     assert!(warnings.iter().any(|w| w.contains("«ball»") && w.contains("обводка")), "{warnings:?}");
     assert!(warnings.iter().any(|w| w.contains("«ball»") && w.contains("другой цвет")), "{warnings:?}");
     assert!(!warnings.iter().any(|w| w.contains("«mouth»")), "{warnings:?}");
+    // A gradient follows the shape in Motif but stays put in the engine.
+    assert!(warnings.iter().any(|w| w.contains("«glow»") && w.contains("градиент")), "{warnings:?}");
+    assert!(!warnings.iter().any(|w| w.contains("«bar»")), "{warnings:?}");
 }

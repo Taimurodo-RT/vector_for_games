@@ -293,7 +293,8 @@ motif.exe — командная строка: motif.exe check|render|frames|vid
 (см. motif.exe --help). motif.exe contract сцена.msc -o сцена.contract.json пишет договор
 сцены для игры (Forge): анимации, машины, входы, параметры, события, стороны — docs\export.html#contract. Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
 motif.exe morph сцена.msc -o сцена.reyvec.json пишет перетекающие фигуры для движка
-ReyVec (контуры, заливка, метки match, число morph по кадрам); то же — кнопка
+ReyVec (контуры в пикселях, заливка или градиент, место на холсте, метки match,
+число morph по кадрам); то же — кнопка
 «Перетекающие фигуры в JSON…» в окне «Экспорт» (docs\export.html#reyvec-morph).
 Живая связь с игрой: «Файл → Связь с игрой» или motif-editor.exe --link (так Motif запускает сама игра).
 Игра открывает в Motif нужное состояние, ведёт машину своими значениями и узнаёт о сохранениях и

@@ -4,9 +4,9 @@
 //! (`match`), and the morph number of each animation, frame by frame.
 //!
 //! What the engine cannot show comes back as warnings, not in the file: strokes (only fills
-//! morph there), colours that change between contours (the engine keeps one colour), gradients.
+//! morph there), colours that change between contours (the engine keeps one colour).
 
-use motif_core::kurbo::{Affine, BezPath};
+use motif_core::kurbo::{Affine, BezPath, Point, Shape};
 use motif_core::{Document, IdKind, MatchEnd, Prop, Value};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +25,8 @@ pub struct MorphFile {
     pub version: u32,
     /// Which way y points in the contours: `up`, as in the engine.
     pub y: String,
+    /// What the coordinates count: `px`, Motif's pixels (the engine takes 100 for one unit).
+    pub units: String,
     /// Morph numbers per second in each animation.
     pub fps: f64,
     pub shapes: Vec<MorphShape>,
@@ -39,10 +41,18 @@ pub struct MorphShape {
     pub id: String,
     /// `nonzero` or `evenodd`, the same for every contour.
     pub fill_rule: String,
-    /// sRGB `#rrggbb`.
-    pub color: String,
-    /// 0 transparent .. 1 solid.
-    pub alpha: f64,
+    /// sRGB `#rrggbb`; missing when the shape is painted with a gradient.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// 0 transparent .. 1 solid; missing together with `color`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<f64>,
+    /// The gradient in place of `color` and `alpha`, in the contours' coordinates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<MorphGradient>,
+    /// Where the shape stands on its board, as SVG `matrix(a b c d e f)`: from the contours'
+    /// coordinates to the board's, y up, 0 0 at the board's bottom-left corner.
+    pub transform: [f64; 6],
     /// The key contours in order, at least two, as SVG `d` in the shape's own units around its
     /// origin, y up. Contour 0 is the shape as drawn.
     pub contours: Vec<String>,
@@ -54,6 +64,35 @@ pub struct MorphShape {
     pub marks: Vec<Mark>,
     /// Every animation that moves this shape's morph number.
     pub animations: Vec<MorphTrack>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MorphGradient {
+    /// `linear` (with `start` and `end`) or `radial` (with `center`, `radius` and `focus`).
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub center: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<[f64; 2]>,
+    pub stops: Vec<Stop>,
+    /// `pad`: past the ends the end colours go on.
+    pub spread: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stop {
+    /// 0 at the start (centre) .. 1 at the end (rim).
+    pub at: f64,
+    pub color: String,
+    pub alpha: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -96,7 +135,8 @@ pub struct MorphTrack {
 /// The morphing shapes of these boards for ReyVec, and what the engine will show differently.
 pub fn reyvec_morph<'a>(boards: impl IntoIterator<Item = &'a Document>) -> (MorphFile, Vec<String>) {
     let (shapes, warnings) = gather(boards, true);
-    let file = MorphFile { format: REYVEC_MORPH_FORMAT.into(), version: REYVEC_MORPH_VERSION, y: "up".into(), fps: REYVEC_MORPH_FPS, shapes };
+    let file =
+        MorphFile { format: REYVEC_MORPH_FORMAT.into(), version: REYVEC_MORPH_VERSION, y: "up".into(), units: "px".into(), fps: REYVEC_MORPH_FPS, shapes };
     (file, warnings)
 }
 
@@ -122,12 +162,18 @@ fn gather<'a>(boards: impl IntoIterator<Item = &'a Document>, frames: bool) -> (
                 warnings.push(format!("{name}: это линии без площади, а движок перетекает только заливки — пропущена"));
                 continue;
             }
+            let gradient = n.gradient.as_ref().filter(|g| g.colors.len() >= 2);
             let Some(fill) = n.fill.or_else(|| n.gradient.as_ref().and_then(|g| g.colors.first().copied())) else {
                 warnings.push(format!("{name}: нет заливки, а движок перетекает только заливки — пропущена"));
                 continue;
             };
-            if n.gradient.is_some() {
-                warnings.push(format!("{name}: градиент движку пока не передаётся — взят его первый цвет {}", hex(fill)));
+            if gradient.is_some() {
+                let first = keys[0].bounding_box();
+                let near = 0.05 * first.width().max(first.height()) + 0.5;
+                let moves = |r: motif_core::kurbo::Rect| [r.x0 - first.x0, r.y0 - first.y0, r.x1 - first.x1, r.y1 - first.y1].iter().any(|d| d.abs() > near);
+                if keys.iter().any(|k| moves(k.bounding_box())) {
+                    warnings.push(format!("{name}: градиент в движке стоит по первому контуру, а в Motif растягивается за фигурой"));
+                }
             }
             if n.stroke.is_some() && n.stroke_width > 0.0 {
                 warnings.push(format!("{name}: обводка в движке не перетекает и не будет видна — нарисуйте её отдельной заливкой-кольцом"));
@@ -137,7 +183,12 @@ fn gather<'a>(boards: impl IntoIterator<Item = &'a Document>, frames: bool) -> (
                     warnings.push(format!("{name}: у фигуры и morph, и forms — движку уходят цели morph"));
                 }
                 for t in m.targets.iter().filter_map(|id| doc.node(id)) {
-                    if t.fill.is_some_and(|c| c != fill) {
+                    let other = match (gradient, &t.gradient) {
+                        (Some(g), Some(h)) => g != h,
+                        (Some(_), None) => false,
+                        (None, _) => t.fill.is_some_and(|c| c != fill),
+                    };
+                    if other {
                         warnings.push(format!(
                             "{name}: у цели «{}» другой цвет — движок цвет не смешивает, останется {}; цвет можно вести оттенком",
                             t.id,
@@ -181,8 +232,10 @@ fn gather<'a>(boards: impl IntoIterator<Item = &'a Document>, frames: bool) -> (
                 board: doc.artboard.name.clone(),
                 id: n.id.clone(),
                 fill_rule: if n.even_odd { "evenodd" } else { "nonzero" }.into(),
-                color: format!("#{:02x}{:02x}{:02x}", fill.r, fill.g, fill.b),
-                alpha: round(fill.a as f64 / 255.0),
+                color: gradient.is_none().then(|| hex(fill)),
+                alpha: gradient.is_none().then(|| round(fill.a as f64 / 255.0)),
+                gradient: gradient.map(|g| morph_gradient(g, &keys[0])),
+                transform: placed(doc, i),
                 contours,
                 morph: round(rest),
                 marks: n.morph_links.iter().map(|l| Mark { step: l.key, from: place(l.from), to: place(l.to) }).collect(),
@@ -229,6 +282,30 @@ fn compact_numbers(pretty: &str) -> String {
     out
 }
 
+/// From the contours (y up) to the board (y up, from its bottom-left corner): the board's own
+/// transform seen with y turned over, then lifted by the board's height.
+fn placed(doc: &Document, i: usize) -> [f64; 6] {
+    let up = Affine::FLIP_Y;
+    let m = Affine::translate((0.0, doc.artboard.height)) * up * doc.world_transform(i) * up;
+    m.as_coeffs().map(round)
+}
+
+/// Motif's gradient across the first contour's bounds, the way the preview lays it out on the
+/// shape as drawn, with its colours evenly spaced.
+fn morph_gradient(g: &motif_core::Gradient, first: &BezPath) -> MorphGradient {
+    let (a, b) = g.line(first.bounding_box());
+    let pt = |p: Point| [round(p.x), round(-p.y)];
+    let last = (g.colors.len() - 1).max(1) as f64;
+    let stops = g.colors.iter().enumerate().map(|(i, c)| Stop { at: round(i as f64 / last), color: hex(*c), alpha: round(c.a as f64 / 255.0) }).collect();
+    let mut out = MorphGradient { kind: "linear".into(), start: None, end: None, center: None, radius: None, focus: None, stops, spread: "pad".into() };
+    if g.radial {
+        (out.kind, out.center, out.radius, out.focus) = ("radial".into(), Some(pt(a)), Some(round(a.distance(b))), Some(pt(a)));
+    } else {
+        (out.start, out.end) = (Some(pt(a)), Some(pt(b)));
+    }
+    out
+}
+
 fn hex(c: motif_core::Color) -> String {
     format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
 }
@@ -240,7 +317,7 @@ fn round(v: f64) -> f64 {
 
 /// The path with every coordinate to four decimals, so the file stays readable and stable.
 fn rounded(path: &BezPath) -> BezPath {
-    use motif_core::kurbo::{PathEl, Point};
+    use motif_core::kurbo::PathEl;
     let p = |q: Point| Point::new(round(q.x), round(q.y));
     BezPath::from_vec(
         path.elements()

@@ -185,6 +185,7 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
   "format": "reyvec-morph",
   "version": 1,
   "y": "up",
+  "units": "px",
   "fps": 60.0,
   "shapes": [
     {
@@ -193,6 +194,7 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
       "fill_rule": "nonzero",
       "color": "#9d3b5a",
       "alpha": 1.0,
+      "transform": [1.0, 0.0, 0.0, 1.0, 150.0, 42.0],
       "contours": ["M -40 0 C …", "M 30 10 C …"],
       "morph": 0.0,
       "marks": [{ "step": 0, "from": { "piece": 0, "at": 0.0 }, "to": { "piece": 0, "at": 0.534 } }, …],
@@ -202,11 +204,13 @@ motif.exe render  ui-kit.msc --board Кнопки -o кнопки.png</code></pr
 }</code></pre>
 <ul>
   <li><b><code>format</code> и <code>version</code></b> идут первыми: движок по ним узнаёт файл. Версия растёт, когда поле меняет смысл.</li>
-  <li><b><code>contours</code></b> — ключевые контуры по порядку строками SVG <code>d</code>: сама фигура, затем цели <code>morph</code> или формы <code>forms</code>. Координаты в единицах фигуры вокруг её начала, <b>y вверх</b>, как в движке (<code>"y": "up"</code>).</li>
+  <li><b><code>contours</code></b> — ключевые контуры по порядку строками SVG <code>d</code>: сама фигура, затем цели <code>morph</code> или формы <code>forms</code>. Координаты в единицах фигуры вокруг её начала, <b>y вверх</b>, как в движке (<code>"y": "up"</code>), в пикселях Motif (<code>"units": "px"</code>; движок считает 100 пикселей одной единицей сцены).</li>
   <li><b><code>fill_rule</code></b> — <code>nonzero</code> или <code>evenodd</code>; <b><code>color</code></b> — sRGB <code>#rrggbb</code>, <b><code>alpha</code></b> от 0 до 1. Они одни на все контуры.</li>
+  <li><b><code>gradient</code></b> пишется вместо <code>color</code> и <code>alpha</code>, когда фигура залита градиентом: <code>"kind": "linear"</code> с <code>start</code> и <code>end</code> или <code>"radial"</code> с <code>center</code>, <code>radius</code> и <code>focus</code>, плюс <code>stops</code> (место от 0 до 1, цвет, прозрачность) и <code>"spread": "pad"</code>. Точки — в координатах контуров, по рамке первого контура, как Motif кладёт градиент на нарисованную фигуру.</li>
+  <li><b><code>transform</code></b> — где фигура стоит на своём холсте, как SVG <code>matrix(a b c d e f)</code>: из координат контуров в координаты холста, y вверх, 0 0 в левом нижнем углу холста. Положение берётся без анимации; где фигура окажется в игре, решает игра.</li>
   <li><b><code>marks</code></b> — <a href="animation.html#morph-match">метки <code>match</code></a>: шаг между контурами и с каждой стороны кусок и место (доля длины). Без <code>from</code> кусок вырастает из точки, без <code>to</code> стягивается в точку.</li>
   <li><b><code>morph</code></b> у фигуры — число, когда анимация не идёт; у анимации — число <code>morph</code> на каждый кадр, 60 в секунду, от 0 до конца включительно, со всеми кривыми хода уже внутри.</li>
-  <li><b>Чего движок не покажет</b>, в файл не идёт, а выводится предупреждением (в консоль, в строку состояния и в окно <a href="#game-panel">«Для игры»</a>): обводка (перетекают только заливки), другой цвет у цели (движок цвет не смешивает), градиент (пока берётся его первый цвет), фигура из одних линий без площади.</li>
+  <li><b>Чего движок не покажет</b>, в файл не идёт, а выводится предупреждением (в консоль, в строку состояния и в окно <a href="#game-panel">«Для игры»</a>): обводка (перетекают только заливки), другой цвет или градиент у цели (движок цвет не смешивает), градиент у фигуры, рамка которой заметно меняется (в Motif градиент тянется за фигурой, в движке стоит по первому контуру), фигура из одних линий без площади.</li>
 </ul>
 <p>Рядом с примерами, где есть перетекание, лежит образец <code>ИМЯ.reyvec.json</code>, и тест сверяет с ним файл. После намеренной правки образцы переписывает <code>MOTIF_BLESS=1 cargo test -p motif-script --test reyvec</code>. В Rust то же даёт <code>motif_script::reyvec_morph</code>.</p>
 
