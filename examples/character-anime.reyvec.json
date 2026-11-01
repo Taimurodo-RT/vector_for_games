@@ -2,6 +2,7 @@
   "format": "reyvec-morph",
   "version": 1,
   "y": "up",
+  "units": "px",
   "fps": 60.0,
   "shapes": [
     {
@@ -10,6 +11,7 @@
       "fill_rule": "nonzero",
       "color": "#9d4f68",
       "alpha": 1.0,
+      "transform": [1.0, 0.0, 0.0, 1.0, 320.0, 320.0],
       "contours": [
         "M -16 0 C -6 -5 6 -5 16 0 C 7 -7 -7 -7 -16 0 Z",
         "M -17 5 C -9 12 9 12 17 5 C 21 -26 -21 -26 -17 5 Z",
