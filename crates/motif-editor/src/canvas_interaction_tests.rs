@@ -292,6 +292,44 @@ fn game_marks_are_set_in_the_inspector_and_an_area_is_dashed_not_painted() {
     assert!(!line(&app).split_whitespace().any(|w| w == "area"), "{}", line(&app));
 }
 
+fn window_frame(app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
+    let ctx = app.ctx.clone();
+    ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 850.0))), events, ..Default::default() }, |_| {
+        app.game_window(&ctx);
+    })
+}
+fn window_text(app: &mut App, starts: &str) -> Pos2 {
+    window_frame(app, vec![]).drop_without_applying_deltas();
+    let out = window_frame(app, vec![]);
+    let pos = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.job.text.starts_with(starts) => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    });
+    out.drop_without_applying_deltas();
+    pos.unwrap_or_else(|| panic!("missing {starts}"))
+}
+
+#[test]
+fn the_game_panel_lists_what_the_game_binds_to_and_leads_to_it() {
+    let mut app = fixture(include_str!("../../../examples/bones.msc"));
+    app.show_game = true;
+    let _ = window_text(&mut app, "Кости · 480×360");
+    let _ = window_text(&mut app, "Wave · 2 с · повтор · id c9h4");
+    // A point of the board selects it.
+    let grip = window_text(&mut app, "grip (Хват)");
+    for pressed in [true, false] {
+        window_frame(&mut app, vec![egui::Event::PointerMoved(grip), button(grip, pressed, egui::PointerButton::Primary)]).drop_without_applying_deltas();
+    }
+    assert_eq!(app.selected.as_deref(), Some("grip"));
+    // An animation opens in Animate.
+    let wave = window_text(&mut app, "Wave · 2 с");
+    for pressed in [true, false] {
+        window_frame(&mut app, vec![egui::Event::PointerMoved(wave), button(wave, pressed, egui::PointerButton::Primary)]).drop_without_applying_deltas();
+    }
+    assert_eq!(app.anim.as_deref(), Some("Wave"));
+    assert_eq!(app.panels.settings.workspace, Workspace::Animate);
+}
+
 #[test]
 fn a_scene_tried_on_a_socket_is_held_by_its_own_point_and_follows_the_animation() {
     let mut app = fixture(include_str!("../../../examples/bones.msc"));

@@ -244,6 +244,8 @@ pub struct App {
     pub(crate) curve_focus: Option<(String, Prop)>,
     pub(crate) curve_drag: Option<crate::timeline::CurveDrag>,
     show_export: bool,
+    /// The «Для игры» window: what the game binds to.
+    pub(crate) show_game: bool,
     /// A file action waiting for an answer about unsaved changes.
     pending_file: Option<FileAction>,
     show_help: bool,
@@ -385,6 +387,7 @@ impl App {
             curve_focus: None,
             curve_drag: None,
             show_export: false,
+            show_game: false,
             show_help: false,
             show_syntax: false,
             space_used_for_pan: false,
@@ -1687,6 +1690,13 @@ impl App {
         }
         if theme::button(&mut rui, "Экспорт", ButtonKind::Primary).clicked() {
             self.show_export = !self.show_export;
+        }
+        let game_kind = if self.show_game { ButtonKind::On } else { ButtonKind::Normal };
+        if theme::button(&mut rui, "Для игры", game_kind)
+            .on_hover_text("Всё, к чему привязывается игра: анимации, события с данными, входы и состояния, точки и области — и что может сломаться")
+            .clicked()
+        {
+            self.show_game = !self.show_game;
         }
         let px_kind = if self.pixel.on { ButtonKind::On } else { ButtonKind::Normal };
         if theme::button(&mut rui, "Пиксели", px_kind)
@@ -3816,6 +3826,7 @@ impl eframe::App for App {
         self.workspace_panels(ui);
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas_ui(ui, Some(frame)));
         self.export_window(&ctx);
+        self.game_window(&ctx);
         self.web_window(&ctx);
         self.help_window(&ctx);
         self.unsaved_window(&ctx);
