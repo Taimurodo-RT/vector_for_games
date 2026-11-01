@@ -464,6 +464,36 @@ pub fn blend_linked(a: &BezPath, b: &BezPath, t: f64, links: &[MorphLink]) -> Be
     out
 }
 
+/// The place on `path` nearest to `p`: which piece, how far along it as a share of its length,
+/// the point itself and how far it is from `p`.
+pub fn nearest_place(path: &BezPath, p: Point) -> Option<(MatchEnd, Point, f64)> {
+    let mut best: Option<(MatchEnd, Point, f64)> = None;
+    for r in pieces(path) {
+        let (at, total) = r.along();
+        let n = r.pts.len();
+        let segs = if r.closed { n } else { n - 1 };
+        for (k, start) in at.iter().enumerate().take(segs) {
+            let (a, b) = (r.pts[k], r.pts[(k + 1) % n]);
+            let d = b - a;
+            let len2 = d.hypot2();
+            let t = if len2 > 1e-12 { ((p - a).dot(d) / len2).clamp(0.0, 1.0) } else { 0.0 };
+            let q = a + d * t;
+            let dist = (q - p).hypot();
+            if best.as_ref().is_none_or(|b| dist < b.2) {
+                let share = if total > 1e-9 { ((start + d.hypot() * t) / total).clamp(0.0, 1.0) } else { 0.0 };
+                best = Some((MatchEnd { piece: r.index, at: Some(share) }, q, dist));
+            }
+        }
+    }
+    best
+}
+
+/// Where a mark's end lies on `path`: its place, or the middle of its piece without one.
+pub fn place_point(path: &BezPath, end: MatchEnd) -> Option<Point> {
+    let r = pieces(path).into_iter().find(|r| r.index == end.piece)?;
+    Some(r.point_at(end.at.unwrap_or(0.5), &r.along()))
+}
+
 /// What is wrong with the marks `links` on a shape with these key contours, each problem with
 /// the number of the mark it is about.
 pub fn check_links(keys: &[BezPath], links: &[MorphLink]) -> Vec<(usize, String)> {
@@ -802,6 +832,18 @@ mod tests {
         let w = half.bounding_box().width();
         assert!(w < 15.0, "{w}");
         assert!(blend(&dots, &dots, 0.5).bounding_box().width() > 100.0);
+    }
+
+    #[test]
+    fn a_place_found_by_pointing_leads_back_to_the_same_point() {
+        let two = svg("M 0 0 L 100 0 L 100 100 L 0 100 Z M 200 0 L 300 0 L 300 100 Z");
+        let (end, at, dist) = nearest_place(&two, Point::new(103.0, 50.0)).unwrap();
+        assert_eq!((end.piece, at, dist), (0, Point::new(100.0, 50.0), 3.0));
+        assert!((end.at.unwrap() - 0.375).abs() < 1e-9, "{end:?}");
+        assert_eq!(place_point(&two, end), Some(Point::new(100.0, 50.0)));
+        let (end, ..) = nearest_place(&two, Point::new(250.0, -4.0)).unwrap();
+        assert_eq!(end.piece, 1);
+        assert_eq!(place_point(&two, MatchEnd { piece: 2, at: None }), None);
     }
 
     #[test]
