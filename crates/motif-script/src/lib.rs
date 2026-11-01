@@ -38,6 +38,7 @@ pub mod forms;
 pub mod ids;
 mod lexer;
 mod machine;
+pub mod marks;
 mod parser;
 mod svg;
 mod symbol;

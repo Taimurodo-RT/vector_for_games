@@ -1205,6 +1205,34 @@ fn morphs_parse_key_and_edit() {
 }
 
 #[test]
+fn morph_marks_parse_and_steer_the_blend() {
+    // A mouth opens from its corners. The open mouth is drawn from its right corner, so without
+    // marks the left corner would slide over to the right; the marks keep each corner its own.
+    let src = "path mouth d \"M -40 0 C -20 -4 20 -4 40 0 C 20 4 -20 4 -40 0 Z\" forms \"M 30 -10 C 15 10 -15 10 -30 -10 C -15 -30 15 -30 30 -10 Z\" match \"0>1 0:0=0:0.5 0:0.5=0:0\"\nanim Talk 1s {\n  mouth.contour 0: 0 | 1: 1\n}\n";
+    let s = scene(src);
+    let links = &s.doc.node("mouth").unwrap().morph_links;
+    assert_eq!(links.len(), 2);
+    assert_eq!(crate::marks::format(links), vec!["0>1 0:0=0:0.5 0:0.5=0:0".to_string()]);
+    let mut half = s.doc.animation("Talk").unwrap().pose_with(&s.doc, 0.5, &mut motif_core::SimCache::default());
+    half.rig();
+    let path = half.node("mouth").unwrap().base_path().unwrap();
+    let corner = motif_core::kurbo::Point::new(-35.0, -5.0);
+    let near = path.elements().iter().filter_map(|el| el.end_point()).map(|p| (p - corner).hypot()).fold(f64::INFINITY, f64::min);
+    assert!(near < 1e-6, "the left corner is half way between the two: {near}");
+    // Morph targets take marks too; mistakes point at the string that has them.
+    scene("star s hidden\nellipse b morph s match \"0>1 0:0=0:0\"\n");
+    let errs = parse(
+        "ellipse a match \"0>1 0=0\"\nstar s hidden\nellipse b morph s match \"1>2 0=0\"\nellipse c morph s match \"0>1 3=0\"\nellipse d morph s match \"0>1 0:0=0:0 0:0.6=0:0.3 0:0.3=0:0.6 0:0.9=0:0.9\"\nellipse e morph s match \"0>2 0=0\"\n",
+    )
+    .unwrap_err();
+    let says: Vec<String> = errs.iter().map(|e| e.to_string()).collect();
+    assert_eq!(errs.len(), 5, "{says:?}");
+    for want in ["нужны morph или forms", "не к чему", "нет куска 3", "разном порядке", "соседними"] {
+        assert!(says.iter().any(|e| e.contains(want)), "{want}: {says:?}");
+    }
+}
+
+#[test]
 fn bodies_parse_key_and_edit() {
     let src = "rect cube size 80 80 extrude 80 yaw 30 pitch 20\nellipse cone extrude 120 0\nanim A 1s {\n  cube.depth 0: 80 | 1: 20\n}\n";
     let s = scene(src);

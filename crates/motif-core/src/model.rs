@@ -523,6 +523,9 @@ pub struct Node {
     pub fan: Option<crate::Field>,
     /// Flows into the shapes of other objects (`morph star heart`) as `morph` goes 0 → 1 → 2.
     pub morph: Option<crate::Morph>,
+    /// The artist's marks between neighbouring key contours of `morph` or `forms`
+    /// (`match "0>1 0:0=0:0"`): which piece becomes which and which places meet.
+    pub morph_links: Vec<crate::MorphLink>,
     /// Pushed into depth as a 3D body (`extrude 60`), turned by `yaw` and `pitch`.
     pub body: Option<crate::Body>,
     /// A piece of interface (`ui`): exported on its own, in each state, for the game's UI.
@@ -733,6 +736,7 @@ impl Node {
             pull: None,
             fan: None,
             morph: None,
+            morph_links: Vec::new(),
             body: None,
             ui: false,
             ui_role: crate::UiRole::Auto,

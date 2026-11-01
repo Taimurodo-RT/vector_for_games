@@ -90,6 +90,7 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("blur elevation shadow-x shadow-y shadow-blur glow inset-x inset-y inset-blur noise", "и эффекты тоже"),
             ("ellipse blob … morph star heart", "перетекает в контуры целей"),
             ("blob.morph 0: 0 | 1: 1 | 2: 2", "0 — сама, 1 — первая цель, 2 — вторая"),
+            ("match \"0>1 0:0=0:0.5 2=1\"", "метки морфинга: место (доля длины) или кусок → какой; 3:0.5=* — растёт из точки"),
             ("override { coin2.y = 12 }", "правки поверх формул и циклов"),
         ],
     ),

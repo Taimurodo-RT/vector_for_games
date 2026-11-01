@@ -21,7 +21,16 @@ impl Document {
             let amount = forms.amount.clamp(0.0, forms.shapes.len() as f64);
             let (a, b, t) = forms.mix.unwrap_or((amount.floor() as usize, amount.ceil() as usize, amount.fract()));
             let get = |i: usize| if i == 0 { &base } else { forms.shapes.get(i - 1).unwrap_or(&base) };
-            forms.path = Some(blend_forms(get(a), get(b), t));
+            // The artist's marks hold between neighbours, whichever way the step goes.
+            let links = |k: usize| node.morph_links.iter().filter(|l| l.key == k).copied().collect::<Vec<_>>();
+            let (forward, back) = (if b == a + 1 { links(a) } else { Vec::new() }, if a == b + 1 { links(b) } else { Vec::new() });
+            forms.path = Some(if !forward.is_empty() && t > 0.0 && t < 1.0 {
+                crate::morph::blend_linked(get(a), get(b), t, &forward)
+            } else if !back.is_empty() && t > 0.0 && t < 1.0 {
+                crate::morph::blend_linked(get(b), get(a), 1.0 - t, &back)
+            } else {
+                blend_forms(get(a), get(b), t)
+            });
         }
     }
 }
