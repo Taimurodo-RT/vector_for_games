@@ -74,6 +74,10 @@ pub(crate) fn warnings(docs: &[Document], profile: Option<&Profile>) -> Vec<(Str
                 }
             }
         }
+        // Morphing shapes the ReyVec engine would show otherwise (strokes, colours, lines).
+        for w in motif_script::reyvec_morph_warnings([doc]) {
+            say(format!("Для ReyVec: {w}"));
+        }
     }
     // What the game told about itself, against the file.
     if let Some(p) = profile {
@@ -249,5 +253,13 @@ mod tests {
         // A clean scene: nothing to say.
         let clean = "artboard \"a\" 100x80\nrect r size 10\nanim Idle 1s id=a1 {\n  r.x 0: 0 | 1: 10\n  event step 0.5 id=e1\n}\n";
         assert!(warnings(&[doc(clean)], None).is_empty());
+    }
+
+    #[test]
+    fn the_panel_says_what_reyvec_would_show_otherwise() {
+        let src = "artboard \"a\" 100x80\nstar s hidden fill #ff0000\nellipse ball size 40 40 fill #00ff00 stroke #000 2 morph s\nellipse fine size 40 40 fill #ff0000 morph s\n";
+        let w: Vec<String> = warnings(&[doc(src)], None).into_iter().map(|(_, w)| w).collect();
+        assert!(w.iter().any(|w| w.starts_with("Для ReyVec: «ball»") && w.contains("обводка")), "{w:?}");
+        assert!(!w.iter().any(|w| w.contains("«fine»")), "{w:?}");
     }
 }

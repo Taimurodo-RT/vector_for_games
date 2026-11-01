@@ -17,6 +17,7 @@ motif — скрипты сцен Motif без окна редактора
   motif import-html <фрагмент.html> [--css стиль.css] [--browser chrome|firefox] [-o сцена.msc]
   motif inspect <сцена.msc> [--board ИМЯ] [--anim ИМЯ --time СЕК] [--node ID] [-o отчёт.json]
   motif contract <сцена.msc> [-o договор.json] [--board ИМЯ]
+  motif morph   <сцена.msc> [-o фигуры.json] [--board ИМЯ]
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [параметры рендера]
@@ -64,6 +65,9 @@ godot запекает все анимации в один атлас ИМЯ.png
 С --pixelize (или --preset) кадры перед упаковкой в атлас проходят через PixaTool.
 contract пишет договор сцены для игры (Forge) в JSON: холсты и размеры, анимации (длина, повтор, события
 со временем), машины с состояниями, входами и связями с мышью, параметры позы (min, max, по умолчанию), стороны.
+morph пишет перетекающие фигуры (morph и forms) для движка ReyVec в JSON формата reyvec-morph: ключевые
+контуры строками SVG d (y вверх), правило заливки, цвет, метки match и число morph каждой анимации
+по кадрам (60 в секунду). Чего движок не покажет (обводка, смена цвета, градиент), выводится предупреждениями.
 palette сохраняет цвета сцены в формате JASC .pal для PixaTool.
 runtime кладёт сцену в проект Godot для узла MotifSprite, который играет её вектором без запекания: аддон
 Motif в addons/motif (из --addon, переменной MOTIF_GODOT_ADDON или папки godot-addon рядом с Motif), .msc и
@@ -206,6 +210,20 @@ fn run() -> Result<(), String> {
         return export_web(&a, &src, scenes);
     }
     let boards = pick_boards(scenes.into_iter().map(|s| s.doc).collect(), a.board.as_deref())?;
+    if a.cmd == "morph" {
+        let (json, warnings) = motif_script::reyvec_morph_json(&boards);
+        for w in &warnings {
+            eprintln!("внимание: {w}");
+        }
+        return match &a.out {
+            Some(path) if path.extension().is_some_and(|e| e == "msc") => Err("morph: фигуры пишутся в .json, а не поверх сцены".into()),
+            Some(path) => std::fs::write(path, json).map_err(|e| format!("{}: {e}", path.display())),
+            None => {
+                print!("{json}");
+                Ok(())
+            }
+        };
+    }
     if a.cmd == "contract" {
         let json = motif_script::contract_json(&boards);
         return match &a.out {
