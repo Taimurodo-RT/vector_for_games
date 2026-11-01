@@ -23,8 +23,15 @@ path cross_shape d "M -26 -26 L 26 26 M -26 26 L 26 -26" stroke #f4f1ea 8 cap ro
 rect plate at 370 270 size 110 90 r 24 fill #283049 stroke ink 5
 path menu "Меню" at 370 270 d "M -30 -22 L 30 -22 M -30 0 L 30 0 M -30 22 L 30 22" stroke #f4f1ea 8 cap round morph cross_shape
 
+// Рот открывается от уголков. Открытый рот нарисован с правого уголка, поэтому сами точки
+// повели бы левый уголок вправо. Метки match держат каждый уголок своим: место — доля длины
+// куска от его начала (0 — начало, 0.5 — половина пути), «0>1» — шаг от формы 0 к форме 1.
+// Нижняя губа открытого рта длиннее верхней, поэтому его левый уголок — на 0.534 длины.
+path mouth "Рот" at 150 318 d "M -40 0 C -20 -4 20 -4 40 0 C 20 4 -20 4 -40 0 Z" forms "M 30 -10 C 15 14 -15 14 -30 -10 C -15 -22 15 -22 30 -10 Z" match "0>1 0:0=0:0.534 0:0.5=0:0" fill #9d3b5a
+
 anim Flow 4s loop id=zwsn {
   blob.morph 0: 0 ease-in-out | 1: 1 ease-in-out | 1.6: 1 ease-in-out | 2.6: 2 ease-in-out | 3.2: 2 ease-in-out | 4: 0
   play.morph 0: 0 | 0.8: 0 ease-out-back | 1.3: 1 | 2.8: 1 ease-out-back | 3.3: 0
   menu.morph 0: 0 | 1.2: 0 ease-in-out | 1.7: 1 | 3: 1 ease-in-out | 3.5: 0
+  mouth.contour 0: 0 ease-in-out | 0.6: 1 ease-in-out | 1.2: 0 ease-in-out | 1.8: 1 ease-in-out | 2.4: 0
 }

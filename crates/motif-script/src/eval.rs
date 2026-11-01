@@ -34,6 +34,8 @@ pub struct Evaluator<'a> {
     /// Objects named by `tie` (any object) and ropes named by `hang` and `links` (`true`).
     rope_refs: Vec<(usize, String, Span, bool)>,
     morph_refs: Vec<(usize, String, Span)>,
+    /// Shapes with `match`: each mark with the span of its group, checked against the key contours.
+    match_refs: Vec<(usize, Vec<Span>)>,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
@@ -53,6 +55,7 @@ impl<'a> Evaluator<'a> {
             role_refs: Vec::new(),
             rope_refs: Vec::new(),
             morph_refs: Vec::new(),
+            match_refs: Vec::new(),
             scene: Scene {
                 doc: Document::new(Artboard::default()),
                 sources: HashMap::new(),
@@ -279,6 +282,12 @@ impl<'a> Evaluator<'a> {
                 .collect();
             if !missing.is_empty() {
                 errors.push((span, format!("для ui {} внутри не хватает: {}", role.keyword(), missing.join(", "))));
+            }
+        }
+        for (i, spans) in std::mem::take(&mut self.match_refs) {
+            let keys = doc.key_contours(i);
+            for (k, msg) in motif_core::check_links(&keys, &doc.nodes[i].morph_links) {
+                errors.push((spans[k], msg));
             }
         }
         for (span, msg) in errors {
@@ -874,6 +883,7 @@ impl<'a> Evaluator<'a> {
         let mut hang: Option<(String, f64, Span)> = None;
         let mut links: Option<(String, Span)> = None;
         let mut morph: Option<Vec<(String, Span)>> = None;
+        let mut marks: Option<(Vec<motif_core::MorphLink>, Vec<Span>, Span)> = None;
         let mut fluid: Option<motif_core::Fluid> = None;
         let mut flow: Option<(f64, Span)> = None;
         let mut roll: Option<(motif_core::Roll, Span)> = None;
@@ -884,7 +894,7 @@ impl<'a> Evaluator<'a> {
                 self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
-                "forms" | "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
+                "forms" | "match" | "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
@@ -1331,6 +1341,23 @@ impl<'a> Evaluator<'a> {
                         warps.push((prop,v)); record(&mut self.scene,prop,&p.values[0],None);
                     } else { bad(self); }
                 },
+                "match" => {
+                    let (mut links, mut spans) = (Vec::new(), Vec::new());
+                    for v in &p.values {
+                        let ValueKind::Path(text) = &v.kind else {
+                            self.err(v.span, "метки пишутся в кавычках: match \"0>1 0:0=0:0\"");
+                            continue;
+                        };
+                        match crate::marks::parse(text) {
+                            Ok(got) => {
+                                spans.extend(std::iter::repeat_n(v.span, got.len()));
+                                links.extend(got);
+                            }
+                            Err(e) => self.err(v.span, e),
+                        }
+                    }
+                    marks = Some((links, spans, p.key_span));
+                }
                 "morph" if n.kind.is_container() => self.err(p.key_span, "«morph» бывает у фигур: перетекает контур"),
                 "morph" => {
                     let ids: Vec<_> = p.values.iter().filter_map(|v| if let ValueKind::Path(t) = &v.kind { Some((t.clone(), v.span)) } else { None }).collect();
@@ -1813,6 +1840,14 @@ impl<'a> Evaluator<'a> {
         {
             m.targets = ids.iter().map(|(t, _)| format!("{}{t}", self.prefix)).collect();
             self.morph_refs.extend(ids.into_iter().map(|(t, span)| (index, format!("{}{t}", self.prefix), span)));
+        }
+        if let Some((links, spans, key_span)) = marks {
+            if node.morph.is_none() && node.forms.is_none() {
+                self.err(key_span, "match — метки перетекания: нужны morph или forms у этой фигуры");
+            } else {
+                node.morph_links = links;
+                self.match_refs.push((index, spans));
+            }
         }
         if let Some(span) = part_span {
             self.part_refs.push((index, span));

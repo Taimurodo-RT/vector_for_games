@@ -290,6 +290,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
     Some(match key {
         "at" | "deform" => (2, 2),
         "forms" => (1, 256),
+        "match" => (1, 64),
         "contour" | "visible" => (1, 1),
         k if matches!(motif_core::Prop::from_path_name(k), Some(motif_core::Prop::WarpX(_) | motif_core::Prop::WarpY(_))) => (1, 1),
         "size" | "scale" | "stroke" | "skew" => (1, 2),
@@ -759,7 +760,7 @@ impl<'a> Parser<'a> {
                 return Err(self.err(key_span, format!("неизвестное свойство «{key}»")));
             };
             let mut values = Vec::new();
-            if key == "forms" {
+            if key == "forms" || key == "match" {
                 while values.len() < max && matches!(self.peek(), Some(Tok::Str(_))) {
                     if let Some(Token { tok: Tok::Str(s), span }) = self.next() {
                         values.push(ValueAst { kind: ValueKind::Path(s), span });
