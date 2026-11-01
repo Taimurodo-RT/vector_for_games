@@ -28,6 +28,7 @@ mod content;
 pub mod contract;
 pub use content::quoted_content;
 pub use contract::{Contract, contract, contract_json};
+pub use reyvec::{MorphFile, reyvec_morph, reyvec_morph_json, reyvec_morph_warnings};
 pub mod correctives;
 mod edit;
 mod eval;
@@ -40,6 +41,7 @@ mod lexer;
 mod machine;
 pub mod marks;
 mod parser;
+pub mod reyvec;
 mod svg;
 mod symbol;
 

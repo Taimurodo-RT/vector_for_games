@@ -1599,6 +1599,33 @@ impl App {
         };
     }
 
+    /// The morphing shapes of the boards being exported, for the ReyVec engine.
+    fn export_reyvec_morph(&mut self) {
+        let boards = match self.export_boards() {
+            Ok(boards) => boards,
+            Err(e) => {
+                self.status = format!("Фигуры не сохранены: {e}");
+                return;
+            }
+        };
+        let (file, warnings) = motif_script::reyvec_morph(boards.iter().map(|b| &b.1));
+        let count = file.shapes.len();
+        if count == 0 {
+            self.status = match warnings.first() {
+                Some(w) => format!("Перетекающих фигур для ReyVec нет: {w}"),
+                None => "Перетекающих фигур нет: нужна фигура с morph или forms".into(),
+            };
+            return;
+        }
+        let name = format!("{}.reyvec.json", self.file_stem());
+        let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).set_file_name(&name).save_file() else { return };
+        self.status = match std::fs::write(&path, file.to_json()) {
+            Ok(()) if warnings.is_empty() => format!("Перетекающих фигур: {count}, сохранено {}", path.display()),
+            Ok(()) => format!("Перетекающих фигур: {count}, сохранено {}. Внимание: {}", path.display(), warnings.join("; ")),
+            Err(e) => format!("Не удалось сохранить фигуры: {e}"),
+        };
+    }
+
     fn load_palette(&mut self) {
         let Some(path) = rfd::FileDialog::new().add_filter("Палитра JASC", &["pal"]).pick_file() else { return };
         match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| parse_jasc(&t)) {
@@ -3107,6 +3134,16 @@ impl App {
                     }
                 });
                 ui.label(RichText::new("Кадры называются ИМЯ_0000.png: PixaTool берёт их пакетом.").size(12.0).color(FAINT));
+                ui.add_space(6.0);
+                theme::rule(ui);
+                ui.add_space(4.0);
+                theme::caption(ui, "Движок ReyVec");
+                if theme::button(ui, "Перетекающие фигуры в JSON…", ButtonKind::Normal)
+                    .on_hover_text("Фигуры с morph и forms: ключевые контуры, заливка, метки match и число morph по кадрам (формат reyvec-morph)")
+                    .clicked()
+                {
+                    self.export_reyvec_morph();
+                }
                 ui.add_space(6.0);
                 theme::rule(ui);
                 ui.add_space(4.0);

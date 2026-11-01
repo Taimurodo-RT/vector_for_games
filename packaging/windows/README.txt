@@ -289,9 +289,12 @@ H, колесо мыши. Подробнее — docs\runtime.html.
 Проверить путь до game.exe на своём ПК за десять минут — список шагов
 в docs\runtime.html#delivery (сборка проходит его сама перед выпуском).
 
-motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime|contract
+motif.exe — командная строка: motif.exe check|render|frames|video|palette|pixel|kit|screen|godot|runtime|contract|morph
 (см. motif.exe --help). motif.exe contract сцена.msc -o сцена.contract.json пишет договор
 сцены для игры (Forge): анимации, машины, входы, параметры, события, стороны — docs\export.html#contract. Пример: motif.exe pixel сцена.msc --anim Idle --preset X.preset -o out
+motif.exe morph сцена.msc -o сцена.reyvec.json пишет перетекающие фигуры для движка
+ReyVec (контуры, заливка, метки match, число morph по кадрам); то же — кнопка
+«Перетекающие фигуры в JSON…» в окне «Экспорт» (docs\export.html#reyvec-morph).
 Живая связь с игрой: «Файл → Связь с игрой» или motif-editor.exe --link (так Motif запускает сама игра).
 Игра открывает в Motif нужное состояние, ведёт машину своими значениями и узнаёт о сохранениях и
 переименованиях — docs\export.html#live-link.
