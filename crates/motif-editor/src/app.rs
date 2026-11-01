@@ -201,6 +201,8 @@ pub struct App {
     pub(crate) listen_draft: (String, motif_core::PointerEvent, String),
     /// The weight brush of skinned shapes.
     pub(crate) brush_w: crate::weights_ui::WeightBrush,
+    /// Morph marks being placed on the canvas («Метки перетекания»).
+    pub(crate) marking: Option<crate::marks_ui::Marking>,
     pub(crate) graph: crate::machine_ui::Graph,
     /// Undo steps: the edited board and the whole file before the change.
     pub(crate) undo: Vec<(usize, String)>,
@@ -372,6 +374,7 @@ impl App {
             pen_dragging: false,
             point_edit: None,
             brush_w: Default::default(),
+            marking: None,
             onion: false,
             motion_path: true,
             motion: Default::default(),
@@ -2331,6 +2334,7 @@ impl App {
         }
         if show(Cat::Morph) {
             self.morph_section(ui, &node, &mut changes, &mut diamonds, &mut styles);
+            self.marks_section(ui, &node);
         }
         if game && show(Cat::Brush) {
             self.brush_section(ui, &node, half, &mut changes, &mut diamonds, &mut styles);
@@ -2668,7 +2672,9 @@ impl App {
                 } else if self.tool == Tool::Pen {
                     self.pen_input(ui, &resp, rect, view);
                     true
-                } else if self.brush_w.on.is_some() && self.weight_paint_input(ui, &resp, rect, view, &doc) {
+                } else if (self.brush_w.on.is_some() && self.weight_paint_input(ui, &resp, rect, view, &doc))
+                    || (self.marking.is_some() && self.marks_input(ui, &resp, rect, view, &doc))
+                {
                     true
                 } else if self.point_edit.is_some() {
                     self.point_edit_input(ui, &resp, rect, view, &doc)
@@ -3507,7 +3513,13 @@ impl App {
             }
         }
         if plain(Key::Escape) {
-            if self.deformer.grab.is_some() {
+            if let Some(m) = self.marking.as_mut() {
+                if m.pending.is_some() {
+                    m.pending = None;
+                } else {
+                    self.marking = None;
+                }
+            } else if self.deformer.grab.is_some() {
                 self.deformer.grab = None;
                 self.live.clear();
             } else if self.deformer.target.is_some() {
