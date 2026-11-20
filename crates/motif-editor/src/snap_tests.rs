@@ -1,0 +1,133 @@
+//! Snapping of points placed on the canvas, driven through the real pointer events.
+
+use super::editing_tests::fixture;
+use super::*;
+
+const SCENE: &str = "artboard \"a\" 400x300\nrect box at 100 100 size 60 40 fill #888888\nrect other at 300 200 size 40 40 fill #888888\n";
+
+fn frame(app: &mut App, mut events: Vec<egui::Event>, modifiers: Modifiers) {
+    let ctx = app.ctx.clone();
+    events.insert(0, egui::Event::ModifiersChanged(modifiers));
+    ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 850.0))), events, ..Default::default() }, |ui| {
+        app.canvas_ui(ui, None);
+    })
+    .drop_without_applying_deltas();
+}
+
+fn screen(app: &mut App, x: f64, y: f64) -> Pos2 {
+    frame(app, vec![], Modifiers::NONE);
+    app.view.unwrap().to_screen(app.canvas_bounds, Point::new(x, y))
+}
+
+fn button(p: Pos2, pressed: bool, modifiers: Modifiers) -> egui::Event {
+    egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers }
+}
+
+fn drag(app: &mut App, from: Pos2, to: Pos2, modifiers: Modifiers) {
+    frame(app, vec![egui::Event::PointerMoved(from), button(from, true, modifiers)], modifiers);
+    frame(app, vec![egui::Event::PointerMoved(from.lerp(to, 0.5))], modifiers);
+    frame(app, vec![egui::Event::PointerMoved(to)], modifiers);
+    frame(app, vec![button(to, false, modifiers)], modifiers);
+}
+
+fn click(app: &mut App, p: Pos2, modifiers: Modifiers) {
+    frame(app, vec![egui::Event::PointerMoved(p), button(p, true, modifiers)], modifiers);
+    frame(app, vec![button(p, false, modifiers)], modifiers);
+}
+
+/// Bounds of the object in artboard space.
+fn bounds(app: &App, id: &str) -> motif_core::kurbo::Rect {
+    let doc = &app.scene.doc;
+    crate::selection::world_bounds(doc, doc.index_of(id).unwrap()).unwrap()
+}
+
+fn new_id(app: &App, before: &[String]) -> String {
+    app.scene.doc.nodes.iter().map(|n| n.id.clone()).find(|id| !before.contains(id)).expect("a new object")
+}
+
+fn ids(app: &App) -> Vec<String> {
+    app.scene.doc.nodes.iter().map(|n| n.id.clone()).collect()
+}
+
+#[test]
+fn a_new_shape_lands_edge_to_edge_on_its_neighbour_and_ctrl_places_it_freely() {
+    for free in [false, true] {
+        let mut app = fixture(SCENE);
+        app.snap = crate::snap::Snap::default();
+        app.tool = Tool::Create(ShapeKind::Rect);
+        let before = ids(&app);
+        // The drag starts 2 screen points off the right top corner of `box` (130, 80) and ends
+        // 2 points short of the level of its bottom edge.
+        let from = screen(&mut app, 130.0, 80.0) + vec2(2.0, 2.0);
+        let to = screen(&mut app, 190.0, 120.0) + vec2(0.0, -2.0);
+        let modifiers = if free { Modifiers::COMMAND } else { Modifiers::NONE };
+        drag(&mut app, from, to, modifiers);
+        let b = bounds(&app, &new_id(&app, &before));
+        if free {
+            assert!((b.x0 - 130.0).abs() > 0.05 && (b.y0 - 80.0).abs() > 0.05, "Ctrl must leave the corner under the pointer: {b:?}");
+        } else {
+            assert_eq!((b.x0, b.y0, b.x1, b.y1), (130.0, 80.0, 190.0, 120.0));
+        }
+        assert_eq!(app.undo.len(), 1, "one shape is one undo step");
+        assert!(app.guides.is_empty() && app.snap_mark.is_none(), "guides go away with the drag");
+    }
+}
+
+#[test]
+fn a_new_square_grows_from_the_corner_where_the_drag_started() {
+    let mut app = fixture(SCENE);
+    app.snap = crate::snap::Snap::default();
+    app.tool = Tool::Create(ShapeKind::Rect);
+    let before = ids(&app);
+    let from = screen(&mut app, 130.0, 80.0);
+    let to = screen(&mut app, 180.0, 60.0);
+    drag(&mut app, from, to, Modifiers::SHIFT);
+    let b = bounds(&app, &new_id(&app, &before));
+    assert_eq!((b.x0, b.y0, b.x1, b.y1), (130.0, 30.0, 180.0, 80.0));
+}
+
+#[test]
+fn pen_points_sit_exactly_on_anchors_and_shift_keeps_an_axis() {
+    let mut app = fixture(SCENE);
+    app.snap = crate::snap::Snap::default();
+    app.tool = Tool::Pen;
+    let before = ids(&app);
+    // Near the corner of `box` (130, 120), near the corner of `other` (280, 180), then with
+    // Shift roughly below it: straight down.
+    let a = screen(&mut app, 130.0, 120.0) + vec2(3.0, -2.0);
+    let b = screen(&mut app, 280.0, 180.0) + vec2(-2.0, 3.0);
+    let c = screen(&mut app, 287.0, 260.0);
+    click(&mut app, a, Modifiers::NONE);
+    click(&mut app, b, Modifiers::NONE);
+    click(&mut app, c, Modifiers::SHIFT);
+    app.finish_pen(false);
+    let id = new_id(&app, &before);
+    let doc = &app.scene.doc;
+    let i = doc.index_of(&id).unwrap();
+    let world = doc.world_transform(i) * doc.nodes[i].path().unwrap();
+    let pts: Vec<Point> = world.elements().iter().filter_map(|el| el.end_point()).collect();
+    assert_eq!(pts[0], Point::new(130.0, 120.0));
+    assert_eq!(pts[1], Point::new(280.0, 180.0));
+    assert_eq!(pts[2].x, 280.0, "Shift keeps the third point right under the second");
+    assert!((pts[2].y - 260.0).abs() < 0.11);
+    // The script holds short numbers, not the noise of a subtraction.
+    let line = app.src.lines().find(|l| l.starts_with(&format!("path {id}"))).unwrap();
+    assert!(line.split_whitespace().all(|w| w.len() < 12), "{line}");
+}
+
+#[test]
+fn a_size_handle_reaches_the_edge_of_a_neighbour_exactly() {
+    let mut app = fixture(SCENE);
+    app.snap = crate::snap::Snap::default();
+    app.select_only(Some("other".into()));
+    // The left top corner of `other` (280, 180) is pulled to 2 points off the level of the
+    // bottom of `box` (y = 120); the size is symmetric about the centre (300, 200).
+    let from = screen(&mut app, 280.0, 180.0);
+    let to = screen(&mut app, 247.0, 120.0) + vec2(0.0, 2.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    let b = bounds(&app, "other");
+    assert_eq!((b.y0, b.y1), (120.0, 280.0));
+    assert_eq!(app.undo.len(), 1);
+    app.undo();
+    assert_eq!(app.src, SCENE);
+}

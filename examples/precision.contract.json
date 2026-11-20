@@ -1,0 +1,16 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Точность",
+      "width": 640.0,
+      "height": 400.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": []
+    }
+  ]
+}

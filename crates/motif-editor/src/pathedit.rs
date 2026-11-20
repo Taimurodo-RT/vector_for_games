@@ -190,9 +190,20 @@ const HANDLE_HIT: f32 = 6.0;
 impl App {
     /// Pen: click for a corner, click and drag for a smooth point, click the first point to close,
     /// Enter or double-click to finish an open line, Esc to cancel.
-    pub(crate) fn pen_input(&mut self, ui: &egui::Ui, resp: &egui::Response, rect: Rect, view: View) {
+    pub(crate) fn pen_input(&mut self, ui: &egui::Ui, resp: &egui::Response, rect: Rect, view: View, doc: &Document) {
         let pointer = resp.hover_pos();
         let to_doc = |p: Pos2| view.to_doc(rect, p);
+        let (shift, free) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+        let targets = self.pen_targets(doc);
+        let snap = self.snap;
+        // Where a point clicked at `p` goes: with Shift along an axis or a diagonal from the
+        // previous point, otherwise onto anchors, edges and the step (Ctrl: exactly under the pointer).
+        let place = |app: &App, p: Pos2| -> crate::guides::PointSnap {
+            match app.pen.last() {
+                Some(last) if shift => crate::guides::PointSnap { at: round_pt(along_45(last.p, to_doc(p))), ..Default::default() },
+                _ => snap.point(&targets, to_doc(p), view.zoom, free),
+            }
+        };
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
@@ -204,14 +215,16 @@ impl App {
                 self.finish_pen(true);
                 return;
             }
-            self.pen.push(PenPoint { p: to_doc(origin), handle: Vec2::ZERO });
+            let at = place(self, origin).at;
+            self.pen.push(PenPoint { p: at, handle: Vec2::ZERO });
             self.pen_dragging = true;
         }
         if resp.dragged()
             && self.pen_dragging
             && let (Some(p), Some(last)) = (resp.interact_pointer_pos(), self.pen.last_mut())
         {
-            last.handle = to_doc(p) - last.p;
+            // Shift keeps the handle on an axis or a diagonal.
+            last.handle = if shift { along_45(last.p, to_doc(p)) } else { to_doc(p) } - last.p;
         }
         if resp.drag_stopped() {
             self.pen_dragging = false;
@@ -228,7 +241,8 @@ impl App {
                 self.finish_pen(true);
                 return;
             }
-            self.pen.push(PenPoint { p: to_doc(p), handle: Vec2::ZERO });
+            let at = place(self, p).at;
+            self.pen.push(PenPoint { p: at, handle: Vec2::ZERO });
         }
 
         // Preview: the outline so far and a rubber band to the pointer.
@@ -236,9 +250,18 @@ impl App {
         let mut line: Vec<PenPoint> = self.pen.clone();
         if let Some(p) = pointer
             && !self.pen_dragging
-            && !self.pen.is_empty()
         {
-            line.push(PenPoint { p: to_doc(p), handle: Vec2::ZERO });
+            // The next point where it would land, with what it sticks to.
+            let s = place(self, p);
+            if !near_first(self, p) {
+                crate::guides::paint_guides(&painter, rect, view, &s.guides);
+                if let Some(m) = s.mark {
+                    crate::guides::paint_mark(&painter, rect, view, m);
+                }
+            }
+            if !self.pen.is_empty() {
+                line.push(PenPoint { p: s.at, handle: Vec2::ZERO });
+            }
         }
         if line.len() >= 2 {
             paint_outline(&painter, &pen_outline(&line, false), |p| view.to_screen(rect, p), Stroke::new(1.5, SEL));
@@ -263,11 +286,25 @@ impl App {
             );
         }
         let hint = if self.pen.is_empty() {
-            "Клик — угол, протяжка — плавная точка"
+            "Клик — угол, протяжка — плавная точка · Ctrl — без привязки"
         } else {
-            "Первая точка — замкнуть · Enter — закончить · Esc — отмена"
+            "Первая точка — замкнуть · Enter — закончить · Esc — отмена · Shift — по оси или под 45°"
         };
         painter.text(rect.center_bottom() - vec2(0.0, 30.0), egui::Align2::CENTER_BOTTOM, hint, theme::ui_font(12.0), theme::MUTED);
+    }
+
+    /// Anchors, edges and centres a pen point can stick to; collected again when the scene or
+    /// the time changes.
+    fn pen_targets(&mut self, doc: &Document) -> std::rc::Rc<crate::guides::Targets> {
+        let key = (self.scene_rev, self.time.to_bits());
+        match &self.pen_targets {
+            Some((k, t)) if *k == key => t.clone(),
+            _ => {
+                let t = std::rc::Rc::new(crate::guides::Targets::collect_points(doc, &[]));
+                self.pen_targets = Some((key, t.clone()));
+                t
+            }
+        }
     }
 
     /// Turns the pen points into a new path node (needs two points or more).
@@ -280,8 +317,9 @@ impl App {
         if !self.can_edit() {
             return;
         }
+        // `add_path` keeps the points to a hundredth: where the snapping put them.
         let path = pen_outline(&points, closed).to_bez();
-        let (out, id) = add_path(&self.src, &self.scene, &round_path(&path));
+        let (out, id) = add_path(&self.src, &self.scene, &path);
         if self.apply("create", Some(out)) {
             self.selected = Some(id.clone());
             self.tool = Tool::Select;
@@ -680,27 +718,21 @@ fn paint_outline(painter: &egui::Painter, o: &Outline, to_screen: impl Fn(Point)
     }
 }
 
+/// `to` moved onto the nearest axis or diagonal through `from`.
+fn along_45(from: Point, to: Point) -> Point {
+    let v = to - from;
+    let step = std::f64::consts::FRAC_PI_4;
+    let a = (v.atan2() / step).round() * step;
+    let dir = Vec2::new(a.cos(), a.sin());
+    from + dir * v.dot(dir)
+}
+
 fn round_pt(p: Point) -> Point {
     Point::new((p.x * 10.0).round() / 10.0, (p.y * 10.0).round() / 10.0)
 }
 
 fn round_vec(v: Vec2) -> Vec2 {
     Vec2::new((v.x * 10.0).round() / 10.0, (v.y * 10.0).round() / 10.0)
-}
-
-/// Rounds every coordinate to 0.1 so the script stays readable.
-fn round_path(path: &BezPath) -> BezPath {
-    let mut out = BezPath::new();
-    for el in path.elements() {
-        out.push(match *el {
-            PathEl::MoveTo(p) => PathEl::MoveTo(round_pt(p)),
-            PathEl::LineTo(p) => PathEl::LineTo(round_pt(p)),
-            PathEl::QuadTo(a, p) => PathEl::QuadTo(round_pt(a), round_pt(p)),
-            PathEl::CurveTo(a, b, p) => PathEl::CurveTo(round_pt(a), round_pt(b), round_pt(p)),
-            PathEl::ClosePath => PathEl::ClosePath,
-        });
-    }
-    out
 }
 
 #[cfg(test)]

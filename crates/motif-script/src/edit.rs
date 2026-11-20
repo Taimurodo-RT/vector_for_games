@@ -416,7 +416,19 @@ pub fn add_path(src: &str, scene: &Scene, outline: &BezPath) -> (String, String)
     let id = free_id(scene, "path");
     let c = outline.bounding_box().center();
     let c = Point::new(c.x.round(), c.y.round());
-    let local = Affine::translate(-c.to_vec2()) * outline.clone();
+    // To a hundredth: the outline keeps the places its points were put at, and the text stays free
+    // of the noise a subtraction leaves in the last digits.
+    let cents = |p: Point| Point::new((p.x * 100.0).round() / 100.0, (p.y * 100.0).round() / 100.0);
+    let mut local = Affine::translate(-c.to_vec2()) * outline.clone();
+    for el in local.elements_mut() {
+        *el = match *el {
+            PathEl::MoveTo(p) => PathEl::MoveTo(cents(p)),
+            PathEl::LineTo(p) => PathEl::LineTo(cents(p)),
+            PathEl::QuadTo(a, p) => PathEl::QuadTo(cents(a), cents(p)),
+            PathEl::CurveTo(a, b, p) => PathEl::CurveTo(cents(a), cents(b), cents(p)),
+            PathEl::ClosePath => PathEl::ClosePath,
+        };
+    }
     let closed = outline.elements().last() == Some(&PathEl::ClosePath);
     let paint = if closed { "fill #4fd38c" } else { "fill none stroke #1b1d24 3" };
     let line = format!("path {id} at {} {} d \"{}\" {paint}\n", fmt_num(c.x), fmt_num(c.y), path_to_d(&local));
