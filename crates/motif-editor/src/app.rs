@@ -175,6 +175,10 @@ pub struct App {
     /// The pivot mark takes the mouse (Y): off by default, because the mark sits where an
     /// object is grabbed to move it.
     pub(crate) pivot_mode: bool,
+    /// How far «Наружу» and «Внутрь» set a new outline off, in units.
+    pub(crate) offset_by: f64,
+    /// The offset outline keeps its corners sharp.
+    pub(crate) offset_sharp: bool,
     /// What a drag says at the pointer: the shift, the size or the angle.
     pub(crate) drag_label: Option<String>,
     /// The anchor or centre the point being placed stuck to.
@@ -376,6 +380,8 @@ impl App {
             pivot_drag: None,
             pivot_hover: false,
             pivot_mode: false,
+            offset_by: 4.0,
+            offset_sharp: false,
             drag_label: None,
             drag_targets: Default::default(),
             pen_targets: None,
@@ -2158,6 +2164,7 @@ impl App {
         }
         let mut pick_font = false;
         let mut outline_text = false;
+        let mut outline_command = None;
         if node.kind == ShapeKind::Text {
             let font = self.scene.prop_spans.get(&(id.clone(), "font".to_string())).map(|s| {
                 let t = self.src[s.start..s.end].trim_start_matches("font").trim();
@@ -2220,8 +2227,16 @@ impl App {
                 }
             });
         }
-        if node.kind == ShapeKind::Path && show(Cat::Contour) {
-            fold(ui, "Контур", |ui| self.point_controls(ui, &node));
+        if !node.kind.is_container() && node.kind != ShapeKind::Bone && show(Cat::Contour) {
+            fold(ui, "Контур", |ui| {
+                if node.kind == ShapeKind::Path {
+                    self.point_controls(ui, &node);
+                }
+                // While points are edited the section is theirs.
+                if self.point_edit.is_none() {
+                    outline_command = self.outline_buttons(ui, &node);
+                }
+            });
         }
         if show(Cat::Mask) {
             self.mask_ui(ui, &node);
@@ -2406,6 +2421,9 @@ impl App {
         if outline_text {
             self.select_only(Some(id.clone()));
             self.boolean(motif_script::BoolOp::Union);
+        }
+        if let Some(command) = outline_command {
+            self.outline_command(&id, command);
         }
         if kit.add_states {
             self.add_ui_states();
@@ -3184,6 +3202,7 @@ impl App {
                     ("Shift+клик, рамка", "В правке точек: несколько точек; Ctrl+A — все, стрелки двигают, Delete удаляет"),
                     ("Рамка точек", "Тёмные ручки растягивают и поворачивают выделенные точки; Alt — от середины, Shift — пропорции и 15°"),
                     ("Точка и ручка", "Точка прилипает к точкам, краям и направляющим (Ctrl — свободно, Shift — по оси); ручка: Alt — отдельно, Shift — 15°"),
+                    ("Контур", "Раздел свойств «Контур»: фигуру в контур, обводку в контур, смещение наружу и внутрь"),
                     ("Tab", "Переключить Рисование / Анимацию без изменения сцены"),
                     ("Ctrl+Shift+Space", "Фокус на холсте / вернуть панели"),
                     ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),
@@ -4278,6 +4297,9 @@ mod canvas_interaction_tests;
 #[cfg(test)]
 #[path = "frame_tests.rs"]
 mod frame_tests;
+#[cfg(test)]
+#[path = "outline_tests.rs"]
+mod outline_tests;
 #[cfg(test)]
 #[path = "point_tests.rs"]
 mod point_tests;

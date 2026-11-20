@@ -40,6 +40,7 @@ pub mod ids;
 mod lexer;
 mod machine;
 pub mod marks;
+mod outline;
 mod parser;
 pub mod reyvec;
 mod svg;
@@ -67,6 +68,7 @@ pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
 };
 use motif_core::{Color, Document, Prop};
+pub use outline::{offset_path, shape_to_path, stroke_to_path};
 pub use palette::{add_swatch, free_swatch_name, set_ref, set_swatch};
 /// Native node property names and their value arity, useful to avoid ambiguous generated IDs.
 pub use parser::prop_arity;

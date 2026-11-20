@@ -2095,3 +2095,219 @@ fn batch_delete_removes_mutually_dependent_nodes_and_direction_references_togeth
     assert!(after.doc.directions.unwrap().turn.is_empty());
     assert!(after.doc.animations[0].tracks.is_empty());
 }
+
+#[test]
+fn a_shape_becomes_a_path_and_keeps_everything_else() {
+    use motif_core::kurbo::Shape;
+    let src = "artboard \"M\" 300x200\nrect box \"Кнопка\" at 100 80 size 60 40 r 8 rot 15 fill #ff0000 stroke #000000 2\nstar mark at 200 80 size 50 points 6 inner 0.4 fill #ffd23f\ngroup g at 10 10 {\n  ellipse dot at 20 20 size 30 20 fill #00ff00\n}\npolygon hex at 50 150 size 40 fill #0000ff\nanim A 1s {\n  box.x 0: 100 | 1: 140\n  hex.w 0: 40 | 1: 60\n}\n";
+    let s = scene(src);
+    let out = crate::shape_to_path(src, &s, "box").unwrap();
+    let line = out.lines().nth(1).unwrap();
+    assert!(line.starts_with("path box \"Кнопка\" at 100 80 d \"M "), "{line}");
+    assert!(line.ends_with("\" rot 15 fill #ff0000 stroke #000000 2"), "{line}");
+    assert!(out.contains("box.x 0: 100 | 1: 140"), "the keys of the object stay");
+    let after = scene(&out);
+    let n = after.doc.node("box").unwrap();
+    assert_eq!((n.kind, n.rotation, n.stroke_width), (ShapeKind::Path, 15.0, 2.0));
+    let (was, now) = (s.doc.node("box").unwrap().path().unwrap(), n.path().unwrap());
+    assert!((was.area() - now.area()).abs() < 0.5, "the rounded corners stay: {} and {}", was.area(), now.area());
+    assert_eq!(now.bounding_box(), motif_core::kurbo::Rect::new(-30.0, -20.0, 30.0, 20.0));
+    // The outline is written to a hundredth.
+    let d = line.split('"').nth(3).unwrap();
+    assert!(d.split(' ').all(|t| t.split('.').nth(1).is_none_or(|frac| frac.len() <= 2)), "{d}");
+
+    // A star and a shape inside a group; the indentation and the other lines stay.
+    let out = crate::shape_to_path(src, &s, "mark").unwrap();
+    assert!(out.lines().nth(2).unwrap().starts_with("path mark at 200 80 d \"M 0 -25 L "), "{out}");
+    assert!(!out.lines().nth(2).unwrap().contains("points") && !out.lines().nth(2).unwrap().contains("inner"), "{out}");
+    let out = crate::shape_to_path(src, &s, "dot").unwrap();
+    assert!(out.lines().nth(4).unwrap().starts_with("  path dot at 20 20 d \"M "), "{out}");
+    assert_eq!(scene(&out).doc.node("dot").unwrap().path().unwrap().bounding_box().width(), 30.0);
+    assert_eq!(out.lines().count(), src.lines().count());
+
+    // What cannot be done says why.
+    assert!(crate::shape_to_path(src, &s, "hex").unwrap_err().contains("анимированы"));
+    assert!(crate::shape_to_path(src, &s, "g").is_err());
+    let again = scene(&out);
+    assert!(crate::shape_to_path(&out, &again, "dot").unwrap_err().contains("уже контур"));
+}
+
+#[test]
+fn a_stroke_becomes_a_filled_outline() {
+    use motif_core::kurbo::Shape;
+    // A dashed line without a fill becomes the outline itself: four dashes with flat ends.
+    let src = "artboard \"M\" 300x200\npath line at 50 50 d \"M -20 0 L 20 0\" fill none stroke #0000ff 6 cap butt dash 8 4\nrect box at 150 100 size 60 40 rot 30 fill #ff0000 stroke #000000 4 join round\n";
+    let s = scene(src);
+    let (out, id, note) = crate::stroke_to_path(src, &s, "line").unwrap();
+    assert_eq!((id.as_str(), note), ("line", None));
+    let line = out.lines().nth(1).unwrap();
+    assert!(line.starts_with("path line at 50 50 d \"M ") && line.ends_with(" fill #0000ff evenodd"), "{line}");
+    assert!(!line.contains("stroke") && !line.contains("dash") && !line.contains("cap") && !line.contains("none"), "{line}");
+    let n = scene(&out).doc.node("line").unwrap().clone();
+    let p = n.path().unwrap();
+    assert_eq!(p.elements().iter().filter(|el| matches!(el, motif_core::kurbo::PathEl::MoveTo(_))).count(), 4, "{line}");
+    assert_eq!(p.bounding_box(), motif_core::kurbo::Rect::new(-20.0, -3.0, 20.0, 3.0));
+    assert!((p.area().abs() - 28.0 * 6.0).abs() < 0.01, "{}", p.area());
+    assert!(n.stroke.is_none() && n.fill.is_some());
+
+    // A filled shape keeps its fill; the outline is a new path right above it, in the same place.
+    let (out, id, note) = crate::stroke_to_path(src, &s, "box").unwrap();
+    assert_eq!((id.as_str(), note), ("box_stroke", None));
+    assert_eq!(out.lines().nth(2).unwrap(), "rect box at 150 100 size 60 40 rot 30 fill #ff0000");
+    let line = out.lines().nth(3).unwrap();
+    assert!(line.starts_with("path box_stroke at 150 100 rot 30 d \"M ") && line.ends_with(" fill #000000 evenodd"), "{line}");
+    let after = scene(&out);
+    let ring = after.doc.node("box_stroke").unwrap();
+    assert_eq!(ring.path().unwrap().bounding_box(), motif_core::kurbo::Rect::new(-32.0, -22.0, 32.0, 22.0));
+    assert!(ring.even_odd && after.doc.index_of("box_stroke") > after.doc.index_of("box"));
+    // A ring: the middle of the rect is not covered.
+    assert_eq!(ring.path().unwrap().winding(motif_core::kurbo::Point::ZERO) % 2, 0);
+
+    assert!(crate::stroke_to_path(&out, &after, "box").unwrap_err().contains("нет обводки"));
+    let moving = format!("{src}anim A 1s {{\n  box.stroke_w 0: 4 | 1: 8\n}}\n");
+    assert!(crate::stroke_to_path(&moving, &scene(&moving), "box").unwrap_err().contains("анимирована"));
+    let moving = format!("{src}anim A 1s {{\n  box.x 0: 150 | 1: 180\n}}\n");
+    assert!(crate::stroke_to_path(&moving, &scene(&moving), "box").unwrap().2.unwrap().contains("сгруппируйте"));
+}
+
+#[test]
+fn an_outline_is_set_off_outwards_and_inwards() {
+    use motif_core::kurbo::{Point, Rect, Shape};
+    let src = "artboard \"M\" 300x200\nrect box at 150 100 size 60 40 rot 30 fill #ff0000 stroke #000000 2\npath ring at 60 60 d \"M -40 -40 L 40 -40 L 40 40 L -40 40 Z M -10 -10 L 10 -10 L 10 10 L -10 10 Z\" evenodd fill #00ff00\npath line at 50 150 d \"M -20 0 L 20 0\" fill none stroke #0000ff 2\n";
+    let s = scene(src);
+    // Outwards with sharp corners: the same rect, 5 wider on every side, right under the source.
+    let (out, id, _) = crate::offset_path(src, &s, "box", 5.0, true).unwrap();
+    assert_eq!(id, "box_offset");
+    let line = out.lines().nth(1).unwrap();
+    assert!(line.starts_with("path box_offset at 150 100 rot 30 d \"M ") && line.ends_with(" fill #ff0000 stroke #000000 2 evenodd"), "{line}");
+    assert_eq!(out.lines().nth(2).unwrap(), src.lines().nth(1).unwrap(), "the source stays as it was");
+    let after = scene(&out);
+    let p = after.doc.node("box_offset").unwrap().path().unwrap();
+    assert_eq!(p.bounding_box(), Rect::new(-35.0, -25.0, 35.0, 25.0));
+    assert!((p.area().abs() - 70.0 * 50.0).abs() < 0.01, "{}", p.area());
+    // Round corners take the corners of that rect away.
+    let (out, _, _) = crate::offset_path(src, &s, "box", 5.0, false).unwrap();
+    let p = scene(&out).doc.node("box_offset").unwrap().path().unwrap();
+    assert_eq!(p.bounding_box(), Rect::new(-35.0, -25.0, 35.0, 25.0));
+    let round = 70.0 * 50.0 - (4.0 - std::f64::consts::PI) * 25.0;
+    assert!((p.area().abs() - round).abs() < 0.5, "{} and {round}", p.area());
+    // Inwards: 5 narrower on every side, right above the source.
+    let (out, id, _) = crate::offset_path(src, &s, "box", -5.0, false).unwrap();
+    let after = scene(&out);
+    assert_eq!(after.doc.node(&id).unwrap().path().unwrap().bounding_box(), Rect::new(-25.0, -15.0, 25.0, 15.0));
+    assert!(after.doc.index_of(&id) > after.doc.index_of("box"));
+    assert!(crate::offset_path(src, &s, "box", -20.0, false).unwrap_err().contains("ничего не осталось"));
+    assert!(crate::offset_path(src, &s, "box", 0.0, false).is_err());
+
+    // A hole grows when the outline goes inwards and shrinks when it goes outwards.
+    let (out, id, _) = crate::offset_path(src, &s, "ring", -5.0, true).unwrap();
+    let p = scene(&out).doc.node(&id).unwrap().path().unwrap();
+    assert_eq!(p.bounding_box(), Rect::new(-35.0, -35.0, 35.0, 35.0));
+    let covered = p.elements().iter().fold((Vec::new(), motif_core::kurbo::BezPath::new()), |(mut done, mut part), el| {
+        if matches!(el, motif_core::kurbo::PathEl::MoveTo(_)) && !part.elements().is_empty() {
+            done.push(std::mem::take(&mut part));
+        }
+        part.push(*el);
+        (done, part)
+    });
+    let areas: Vec<f64> = covered.0.iter().chain(std::iter::once(&covered.1)).map(|c| c.area().abs().round()).collect();
+    assert!(areas == [4900.0, 900.0] || areas == [900.0, 4900.0], "the outer square 70 and the hole 30: {areas:?}");
+    assert_eq!(p.winding(Point::ZERO) % 2, 0, "the hole stays a hole");
+    assert_ne!(p.winding(Point::new(25.0, 0.0)) % 2, 0);
+    assert_eq!(p.winding(Point::new(13.0, 0.0)) % 2, 0, "and is 5 wider");
+    let (out, id, _) = crate::offset_path(src, &s, "ring", 5.0, true).unwrap();
+    let p = scene(&out).doc.node(&id).unwrap().path().unwrap();
+    assert_ne!(p.winding(Point::new(7.0, 0.0)) % 2, 0, "the hole is 5 narrower");
+    assert_eq!(p.winding(Point::new(3.0, 0.0)) % 2, 0);
+
+    // An open line has no inside: outwards it gives the band around it.
+    let (out, id, _) = crate::offset_path(src, &s, "line", 4.0, false).unwrap();
+    let n = scene(&out).doc.node(&id).unwrap().clone();
+    assert_eq!(n.path().unwrap().bounding_box(), Rect::new(-24.0, -4.0, 24.0, 4.0));
+    assert!(crate::offset_path(src, &s, "line", -4.0, false).unwrap_err().contains("незамкнутой"));
+}
+
+#[test]
+fn outline_commands_leave_living_objects_alone() {
+    let src = "artboard \"a\" 300x200\nparameter turn \"Поворот\" range -1 1 default 0 value 0\nbone arm at 40 40 len 60\nrect sleeve at 70 40 size 60 20 fill #ff0000 stroke #000000 2 skin arm\nstar spike at 20 180 size 30 30 fill #000000\nellipse blob at 150 100 size 60 60 fill none stroke #000000 3 morph spike\nrect bar at 150 150 size 100 20 fill #00ff00 stroke #000000 2\nellipse ball at 240 60 size 80 80 fill #cccccc\nellipse eye at 240 60 size 10 10 fill #000000 stroke #ffffff 2 on ball lat 10 lon 20\ngroup menu at 60 150 stack column gap 4 {\n  rect item size 80 20 fill #333333 stroke #ffffff 1\n  rect back size 80 20 fill #222222 fit\n}\nrect bob at 250 150 size 30 30 fill #0000ff stroke #000000 2 spring 3 0.3\ndriver turn {\n  bar.w -1: 60 | 1: 140\n}\n";
+    let s = parse(src).unwrap();
+    // Bones bend the sleeve and the stroke follows them: one frozen outline cannot.
+    let e = crate::stroke_to_path(src, &s, "sleeve").unwrap_err();
+    assert!(e.contains("кости"), "{e}");
+    assert!(crate::offset_path(src, &s, "sleeve", 4.0, false).unwrap_err().contains("кости"));
+    // Skinning reads the outline itself, so the shape may become a path.
+    assert!(crate::shape_to_path(src, &s, "sleeve").is_ok());
+    let e = crate::stroke_to_path(src, &s, "blob").unwrap_err();
+    assert!(e.contains("морфинг"), "{e}");
+    // A parameter drives the width: a path has no width.
+    let e = crate::shape_to_path(src, &s, "bar").unwrap_err();
+    assert!(e.contains("параметром «turn»"), "{e}");
+    let e = crate::stroke_to_path(src, &s, "bar").unwrap_err();
+    assert!(e.contains("параметром «turn»"), "{e}");
+    // The radius of a ball is its size; an object on a ball is placed by the ball.
+    let e = crate::shape_to_path(src, &s, "ball").unwrap_err();
+    assert!(e.contains("шар"), "{e}");
+    let e = crate::stroke_to_path(src, &s, "eye").unwrap_err();
+    assert!(e.contains("на шаре"), "{e}");
+    // A new object in a layout would push its neighbours; a stretched part needs its size.
+    let e = crate::stroke_to_path(src, &s, "item").unwrap_err();
+    assert!(e.contains("раскладка"), "{e}");
+    assert!(crate::offset_path(src, &s, "item", 2.0, false).unwrap_err().contains("раскладка"));
+    let e = crate::shape_to_path(src, &s, "back").unwrap_err();
+    assert!(e.contains("тянется по размеру"), "{e}");
+    // A spring moves the shape and not the new outline: the command works and says so.
+    let (_, id, note) = crate::stroke_to_path(src, &s, "bob").unwrap();
+    assert_eq!(id, "bob_stroke");
+    assert!(note.unwrap().contains("пружиной"));
+    let (_, _, note) = crate::offset_path(src, &s, "bob", 3.0, false).unwrap();
+    assert!(note.unwrap().contains("пружиной"));
+}
+
+#[test]
+fn a_dust_of_dashes_is_not_turned_into_an_outline() {
+    let src = "artboard \"a\" 100x100\nrect a at 50 50 size 100 100 fill none stroke #000000 5 dash 0.01 0.01\n";
+    let s = parse(src).unwrap();
+    let e = crate::stroke_to_path(src, &s, "a").unwrap_err();
+    assert!(e.contains("слишком мелкий"), "{e}");
+}
+
+#[test]
+fn outline_commands_survive_odd_input() {
+    let lines = [
+        "rect a at 10 10 size 0 0 fill none stroke #000000 2",
+        "rect a at 10 10 size 0 40 fill #ff0000 stroke #000000 2",
+        "ellipse a at 10 10 size 0.001 0.001 fill #ff0000 stroke #000000 0.001",
+        "path a at 10 10 d \"M 0 0\" fill none stroke #000000 4",
+        "path a at 10 10 d \"M 0 0 L 0 0\" fill none stroke #000000 4 cap round",
+        "path a at 10 10 d \"M 0 0 L 0 0 Z\" fill #ff0000 stroke #000000 4",
+        "path a at 10 10 d \"M -40 -20 L 40 20 L 40 -20 L -40 20 Z\" fill #ff0000 stroke #000000 6 join miter",
+        "path a at 10 10 d \"M 0 0 L 50 0 L 0 0 L 50 0\" fill none stroke #000000 6",
+        "path a at 10 10 d \"M 0 0 C 100 0 -50 0 50 0\" fill none stroke #000000 6 dash 3 2",
+        "rect a at 10 10 size 1000000 1000000 fill #ff0000 stroke #000000 100000",
+        "rect a at 10 10 size 100 100 fill none stroke #000000 5 dash 0.001 0.001",
+        "rect a at 10 10 size 100 100 fill none stroke #000000 5 dash 0 0",
+        "star a at 10 10 size 100 100 points 24 inner 0.05 fill #ff0000 stroke #000000 30 join miter",
+        "text a content \"Жук\" at 10 10 font-size 40 fill #ff0000 stroke #000000 2",
+    ];
+    for line in lines {
+        let src = format!("artboard \"a\" 100x100\n{line}\n");
+        let s = parse(&src).unwrap_or_else(|e| panic!("{e:?}\n{line}"));
+        let check = |out: &str| {
+            parse(out).unwrap_or_else(|e| panic!("{e:?}\n{line}\n{out}"));
+            assert!(!out.contains("NaN") && !out.contains("inf"), "{line}\n{out}");
+        };
+        if let Ok(out) = crate::shape_to_path(&src, &s, "a") {
+            check(&out);
+        }
+        if let Ok((out, _, _)) = crate::stroke_to_path(&src, &s, "a") {
+            check(&out);
+        }
+        for by in [3.0, -3.0, 0.01, 1e7, -1e7, f64::NAN, f64::INFINITY] {
+            for sharp in [false, true] {
+                if let Ok((out, _, _)) = crate::offset_path(&src, &s, "a", by, sharp) {
+                    check(&out);
+                }
+            }
+        }
+    }
+}
