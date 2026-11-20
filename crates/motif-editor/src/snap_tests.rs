@@ -3,9 +3,9 @@
 use super::editing_tests::fixture;
 use super::*;
 
-const SCENE: &str = "artboard \"a\" 400x300\nrect box at 100 100 size 60 40 fill #888888\nrect other at 300 200 size 40 40 fill #888888\n";
+pub(super) const SCENE: &str = "artboard \"a\" 400x300\nrect box at 100 100 size 60 40 fill #888888\nrect other at 300 200 size 40 40 fill #888888\n";
 
-fn frame(app: &mut App, mut events: Vec<egui::Event>, modifiers: Modifiers) {
+pub(super) fn frame(app: &mut App, mut events: Vec<egui::Event>, modifiers: Modifiers) {
     let ctx = app.ctx.clone();
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
     ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 850.0))), events, ..Default::default() }, |ui| {
@@ -14,38 +14,38 @@ fn frame(app: &mut App, mut events: Vec<egui::Event>, modifiers: Modifiers) {
     .drop_without_applying_deltas();
 }
 
-fn screen(app: &mut App, x: f64, y: f64) -> Pos2 {
+pub(super) fn screen(app: &mut App, x: f64, y: f64) -> Pos2 {
     frame(app, vec![], Modifiers::NONE);
     app.view.unwrap().to_screen(app.canvas_bounds, Point::new(x, y))
 }
 
-fn button(p: Pos2, pressed: bool, modifiers: Modifiers) -> egui::Event {
+pub(super) fn button(p: Pos2, pressed: bool, modifiers: Modifiers) -> egui::Event {
     egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers }
 }
 
-fn drag(app: &mut App, from: Pos2, to: Pos2, modifiers: Modifiers) {
+pub(super) fn drag(app: &mut App, from: Pos2, to: Pos2, modifiers: Modifiers) {
     frame(app, vec![egui::Event::PointerMoved(from), button(from, true, modifiers)], modifiers);
     frame(app, vec![egui::Event::PointerMoved(from.lerp(to, 0.5))], modifiers);
     frame(app, vec![egui::Event::PointerMoved(to)], modifiers);
     frame(app, vec![button(to, false, modifiers)], modifiers);
 }
 
-fn click(app: &mut App, p: Pos2, modifiers: Modifiers) {
+pub(super) fn click(app: &mut App, p: Pos2, modifiers: Modifiers) {
     frame(app, vec![egui::Event::PointerMoved(p), button(p, true, modifiers)], modifiers);
     frame(app, vec![button(p, false, modifiers)], modifiers);
 }
 
 /// Bounds of the object in artboard space.
-fn bounds(app: &App, id: &str) -> motif_core::kurbo::Rect {
+pub(super) fn bounds(app: &App, id: &str) -> motif_core::kurbo::Rect {
     let doc = &app.scene.doc;
     crate::selection::world_bounds(doc, doc.index_of(id).unwrap()).unwrap()
 }
 
-fn new_id(app: &App, before: &[String]) -> String {
+pub(super) fn new_id(app: &App, before: &[String]) -> String {
     app.scene.doc.nodes.iter().map(|n| n.id.clone()).find(|id| !before.contains(id)).expect("a new object")
 }
 
-fn ids(app: &App) -> Vec<String> {
+pub(super) fn ids(app: &App) -> Vec<String> {
     app.scene.doc.nodes.iter().map(|n| n.id.clone()).collect()
 }
 
@@ -113,23 +113,6 @@ fn pen_points_sit_exactly_on_anchors_and_shift_keeps_an_axis() {
     // The script holds short numbers, not the noise of a subtraction.
     let line = app.src.lines().find(|l| l.starts_with(&format!("path {id}"))).unwrap();
     assert!(line.split_whitespace().all(|w| w.len() < 12), "{line}");
-}
-
-#[test]
-fn a_size_handle_reaches_the_edge_of_a_neighbour_exactly() {
-    let mut app = fixture(SCENE);
-    app.snap = crate::snap::Snap::default();
-    app.select_only(Some("other".into()));
-    // The left top corner of `other` (280, 180) is pulled to 2 points off the level of the
-    // bottom of `box` (y = 120); the size is symmetric about the centre (300, 200).
-    let from = screen(&mut app, 280.0, 180.0);
-    let to = screen(&mut app, 247.0, 120.0) + vec2(0.0, 2.0);
-    drag(&mut app, from, to, Modifiers::NONE);
-    let b = bounds(&app, "other");
-    assert_eq!((b.y0, b.y1), (120.0, 280.0));
-    assert_eq!(app.undo.len(), 1);
-    app.undo();
-    assert_eq!(app.src, SCENE);
 }
 
 #[test]
