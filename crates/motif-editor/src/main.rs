@@ -36,6 +36,7 @@ mod pathedit;
 mod physics_ui;
 mod pivot_ui;
 mod pixabridge;
+mod point_frame;
 mod preview;
 mod psd;
 mod rope_ui;

@@ -20,6 +20,38 @@ pub enum Align {
     SpreadY,
 }
 
+/// The buttons that line things up and, from three of them, spread them evenly.
+pub(crate) fn align_buttons(ui: &mut egui::Ui, count: usize, spread_tips: [&str; 2]) -> Option<Align> {
+    let mut pick = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (icon, how, tip) in [
+            (Icon::AlignLeft, Align::Left, "По левому краю"),
+            (Icon::AlignCenterX, Align::CenterX, "По центру по горизонтали"),
+            (Icon::AlignRight, Align::Right, "По правому краю"),
+            (Icon::AlignTop, Align::Top, "По верху"),
+            (Icon::AlignCenterY, Align::CenterY, "По центру по вертикали"),
+            (Icon::AlignBottom, Align::Bottom, "По низу"),
+        ] {
+            if theme::icon_button(ui, icon, tip).clicked() {
+                pick = Some(how);
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.add_enabled_ui(count >= 3, |ui| {
+            if theme::icon_button(ui, Icon::SpreadX, spread_tips[0]).clicked() {
+                pick = Some(Align::SpreadX);
+            }
+            if theme::icon_button(ui, Icon::SpreadY, spread_tips[1]).clicked() {
+                pick = Some(Align::SpreadY);
+            }
+        });
+    });
+    pick
+}
+
 /// Bounding box of a node (and its children) in artboard space.
 pub fn world_bounds(doc: &Document, i: usize) -> Option<KRect> {
     crate::app::node_bounds(doc, i).map(|b| doc.world_transform(i).transform_rect_bbox(b))
@@ -275,34 +307,8 @@ impl App {
         });
         let mut pick = None;
         crate::app::fold(ui, "Выравнивание", |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                for (icon, how, tip) in [
-                    (Icon::AlignLeft, Align::Left, "По левому краю"),
-                    (Icon::AlignCenterX, Align::CenterX, "По центру по горизонтали"),
-                    (Icon::AlignRight, Align::Right, "По правому краю"),
-                    (Icon::AlignTop, Align::Top, "По верху"),
-                    (Icon::AlignCenterY, Align::CenterY, "По центру по вертикали"),
-                    (Icon::AlignBottom, Align::Bottom, "По низу"),
-                ] {
-                    if theme::icon_button(ui, icon, tip).clicked() {
-                        pick = Some(how);
-                    }
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let enough = ids.len() >= 3;
-                ui.add_enabled_ui(enough, |ui| {
-                    if theme::icon_button(ui, Icon::SpreadX, "Равные промежутки по горизонтали (от 3 объектов)").clicked()
-                    {
-                        pick = Some(Align::SpreadX);
-                    }
-                    if theme::icon_button(ui, Icon::SpreadY, "Равные промежутки по вертикали (от 3 объектов)").clicked() {
-                        pick = Some(Align::SpreadY);
-                    }
-                });
-            });
+            let tips = ["Равные промежутки по горизонтали (от 3 объектов)", "Равные промежутки по вертикали (от 3 объектов)"];
+            pick = align_buttons(ui, ids.len(), tips);
         });
         let mut bool_op = None;
         let mut group = false;

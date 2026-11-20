@@ -152,9 +152,14 @@ impl Outline {
 /// What the pointer holds while editing points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PointGrab {
-    Anchor { index: Anchor, from: Point },
+    Anchor {
+        index: Anchor,
+        from: Point,
+    },
     In(Anchor),
     Out(Anchor),
+    /// A handle of the frame around several selected points.
+    Frame(crate::point_frame::FramePull),
 }
 
 /// Point editing of one path node.
@@ -402,7 +407,7 @@ impl App {
             return;
         }
         self.point_edit = Some(PointEdit::new(id));
-        self.status = "Клик по линии — новая точка · Shift+клик и рамка — несколько точек · двойной клик — угол/плавная · Delete — удалить".into();
+        self.status = "Клик по линии — новая точка · Shift+клик и рамка — несколько точек, у них свои ручки размера и поворота · двойной клик — угол/плавная · Delete — удалить".into();
     }
 
     /// Point editing on the canvas. Returns false when editing ended and the click should be
@@ -435,6 +440,14 @@ impl App {
         let screen = |p: Point| view.to_screen(rect, world * doc.map_lattice_point(i, p));
         let local = |s: Pos2| doc.unmap_lattice_point(i, world.inverse() * view.to_doc(rect, s));
         let alt = ui.input(|i| i.modifiers.alt);
+        // Several selected points have a frame that stretches and turns them together.
+        let picked: Vec<Anchor> = self.point_edit.as_ref().map(|e| e.anchors()).unwrap_or_default();
+        let pulling = self.point_edit.as_ref().and_then(|e| match e.grab {
+            Some((PointGrab::Frame(pull), _)) => Some(pull),
+            _ => None,
+        });
+        let frame = crate::point_frame::bounds(&outline, &picked).map(|b| (b, crate::point_frame::handles(b, screen)));
+        let frame_hit = |s: Pos2| frame.as_ref().and_then(|(_, h)| h.hit(s));
 
         let hit = |s: Pos2| -> Option<PointGrab> {
             // Handles of the selected anchor and its neighbours come first: they sit on top.
@@ -465,27 +478,33 @@ impl App {
         if let Some(p) = resp.hover_pos()
             && resp.hovered()
         {
-            let cursor = match hit(p) {
-                Some(_) => egui::CursorIcon::Grab,
-                None => egui::CursorIcon::Crosshair,
-            };
-            ui.ctx().set_cursor_icon(cursor);
+            let turning = pulling.map(|pull| pull.handle == crate::transform_frame::Handle::Rotate);
+            let over = if pulling.is_some() || hit(p).is_some() { None } else { frame_hit(p) };
+            match (turning, over) {
+                (Some(true), _) | (None, Some(crate::transform_frame::Handle::Rotate)) => crate::transform_frame::paint_rotate_cursor(ui.ctx(), p),
+                (None, Some(crate::transform_frame::Handle::Size(hx, hy))) => {
+                    ui.ctx().set_cursor_icon(frame.as_ref().map_or(egui::CursorIcon::Default, |(_, h)| h.cursor(hx, hy)));
+                }
+                _ => ui.ctx().set_cursor_icon(if hit(p).is_some() { egui::CursorIcon::Grab } else { egui::CursorIcon::Crosshair }),
+            }
         }
 
         let mut changed: Option<Compound> = None;
+        let mut label: Option<String> = None;
         let press = ui.input(|i| i.pointer.press_origin());
         if resp.drag_started()
             && let Some(origin) = press
         {
-            let grab = match hit(origin) {
-                Some(g) => Some(g),
-                None => near_segment(&outline, origin, screen).map(|(part, seg, t)| {
+            let on_frame =
+                || frame.as_ref().and_then(|(b, h)| Some(PointGrab::Frame(crate::point_frame::FramePull::new(h.hit(origin)?, *b, local(origin), world))));
+            let grab = hit(origin).or_else(on_frame).or_else(|| {
+                near_segment(&outline, origin, screen).map(|(part, seg, t)| {
                     let mut o = outline.clone();
                     let k = o.split(part, seg, t);
                     changed = Some(o);
                     PointGrab::Anchor { index: k, from: local(origin) }
-                }),
-            };
+                })
+            });
             let inserted = changed.is_some();
             let base = changed.clone().unwrap_or_else(|| outline.clone());
             if let Some(e) = self.point_edit.as_mut() {
@@ -494,6 +513,7 @@ impl App {
                     // a selected one takes the whole selection with it.
                     Some(PointGrab::Anchor { index, .. }) if inserted || (!shift && !e.holds(index)) => e.select_only(Some(index)),
                     Some(PointGrab::Anchor { index, .. } | PointGrab::In(index) | PointGrab::Out(index)) => e.activate(index),
+                    Some(PointGrab::Frame(_)) => {}
                     // From an empty place: a frame over the anchors.
                     None => e.marquee = Some((origin, origin, shift)),
                 }
@@ -515,6 +535,12 @@ impl App {
             let at = local(p);
             let mut o = base.clone();
             match grab {
+                PointGrab::Frame(pull) => {
+                    // Shift keeps the proportions or turns by 15°, Alt stretches around the middle.
+                    let (map, note) = pull.map(at, world, shift, alt);
+                    crate::point_frame::apply(&mut o, &picked, map);
+                    label = Some(note);
+                }
                 PointGrab::Anchor { from, .. } => {
                     // Every selected anchor goes the same way, with its handles.
                     let d = round_vec(at - from);
@@ -586,6 +612,8 @@ impl App {
                     }
                 }
                 Some(_) => {}
+                // A click on a handle of the frame changes nothing.
+                None if frame_hit(p).is_some() => {}
                 None => match near_segment(&outline, p, screen) {
                     Some((part, seg, t)) => {
                         let mut o = outline.clone();
@@ -612,6 +640,13 @@ impl App {
         let painter = ui.painter_at(rect);
         let sel = self.point_edit.as_ref().and_then(|e| e.selected);
         let picked = self.point_edit.as_ref().map(|e| e.anchors()).unwrap_or_default();
+        // The frame is hidden while it is pulled: the points themselves show the result.
+        if pulling.is_none()
+            && self.point_edit.as_ref().is_some_and(|e| e.marquee.is_none())
+            && let Some(b) = crate::point_frame::bounds(&shown, &picked)
+        {
+            crate::point_frame::paint(&painter, &crate::point_frame::handles(b, screen), SEL);
+        }
         for (part, entry) in shown.parts.iter().enumerate() {
             paint_outline(&painter, &entry.outline, screen, Stroke::new(1.5, SEL));
             for (vertex, v) in entry.outline.verts.iter().enumerate() {
@@ -635,6 +670,12 @@ impl App {
         }
         if let Some((a, b, _)) = self.point_edit.as_ref().and_then(|e| e.marquee) {
             painter.rect(Rect::from_two_pos(a, b), 0.0, SEL.gamma_multiply(0.08), Stroke::new(1.0, SEL), StrokeKind::Middle);
+        }
+        if let Some(text) = label {
+            if let Some(p) = resp.interact_pointer_pos() {
+                crate::measure::paint_pointer_label(&painter, p, &text);
+            }
+            self.status = format!("{text} · Shift — пропорции и шаг 15° · Alt — от середины");
         }
         let badge = "ТОЧКИ · Enter — готово";
         let g = painter.layout_no_wrap(badge.into(), theme::semibold(11.0), Color32::WHITE);
@@ -772,7 +813,13 @@ impl App {
         let mut numeric = false;
         let count = self.point_edit.as_ref().map_or(0, |e| e.anchors().len());
         if count > 1 {
-            ui.label(format!("Выделено точек: {count}. Числа ниже — у главной (в рамке)"));
+            ui.label(format!("Выделено точек: {count}"));
+            let tips = ["Равные шаги по горизонтали (от 3 точек)", "Равные шаги по вертикали (от 3 точек)"];
+            if let Some(how) = crate::selection::align_buttons(ui, count, tips) {
+                self.align_points(how);
+                return;
+            }
+            ui.label(egui::RichText::new("Числа ниже — у главной точки (обведена).").size(11.5).color(crate::theme::FAINT));
         }
         if selected.is_some() {
             ui.label(format!("Узел {} · локальные координаты", at.vertex + 1));
@@ -868,7 +915,7 @@ impl App {
         }
     }
 
-    fn write_outline(&mut self, o: &Compound) {
+    pub(crate) fn write_outline(&mut self, o: &Compound) {
         let Some(id) = self.point_edit.as_ref().map(|e| e.node.clone()) else { return };
         if !self.can_edit() {
             return;

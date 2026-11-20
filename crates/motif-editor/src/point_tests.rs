@@ -1,9 +1,10 @@
 //! Several points of an outline selected and edited together, driven through the real events.
 
 use super::editing_tests::fixture;
-use super::snap_tests::{click, drag, screen};
+use super::snap_tests::{click, drag, frame, screen};
 use super::*;
 use crate::compound::{Anchor, Compound};
+use crate::selection::Align;
 
 const OUTER: &str = "M -50 0 C -50 -28 -28 -50 0 -50 C 28 -50 50 -28 50 0 C 50 28 28 50 0 50 C -28 50 -50 28 -50 0 Z";
 const RING: &str = "artboard \"a\" 400x300\npath ring at 200 150 d \"M -50 0 C -50 -28 -28 -50 0 -50 C 28 -50 50 -28 50 0 C 50 28 28 50 0 50 C -28 50 -50 28 -50 0 Z M -30 -8 L -6 -8 L -6 16 L -30 16 Z M 8 -20 L 30 -20 L 30 4 L 8 4 Z\" evenodd fill #4fd38c\nrect other at 60 60 size 40 40 fill #888888\n";
@@ -205,4 +206,165 @@ fn points_moved_together_in_an_animation_write_one_contour_key_and_keep_the_draw
     assert_eq!(shape.parts[2].outline.verts[3].p, Point::new(8.0, 4.0), "the drawing itself stays:\n{}", app.src);
     assert!(app.src.contains("ring.contour"), "the move is a key of the clip:\n{}", app.src);
     assert_eq!(app.undo.len(), 1);
+}
+
+const HOLE: [(f64, f64); 4] = [(8.0, -20.0), (30.0, -20.0), (30.0, 4.0), (8.0, 4.0)];
+
+/// Point editing of the ring with all four points of the right hole selected.
+fn hole_selected(src: &str) -> App {
+    let mut app = editing(src);
+    for (k, (x, y)) in HOLE.into_iter().enumerate() {
+        let p = at(&mut app, x, y);
+        click(&mut app, p, if k == 0 { Modifiers::NONE } else { Modifiers::SHIFT });
+    }
+    assert_eq!(picked(&app), vec![a(2, 0), a(2, 1), a(2, 2), a(2, 3)]);
+    app
+}
+
+/// Where a handle of the frame around the selected points is on the screen: the numbers are
+/// the sides it pulls, `None` is the handle that turns.
+fn handle(app: &mut App, which: Option<(i8, i8)>) -> Pos2 {
+    frame(app, vec![], Modifiers::NONE);
+    let doc = &app.scene.doc;
+    let i = doc.index_of("ring").unwrap();
+    let world = doc.world_transform(i);
+    let shape = Compound::from_bez(&doc.nodes[i].editable_path()).unwrap();
+    let b = crate::point_frame::bounds(&shape, &app.point_edit.as_ref().unwrap().anchors()).expect("the points have a frame");
+    let (view, rect) = (app.view.unwrap(), app.canvas_bounds);
+    let h = crate::point_frame::handles(b, |p| view.to_screen(rect, world * p));
+    match which {
+        None => h.rotate,
+        Some((0, -1)) => h.sides[0].unwrap(),
+        Some((1, 0)) => h.sides[1].unwrap(),
+        Some((0, 1)) => h.sides[2].unwrap(),
+        Some((-1, 0)) => h.sides[3].unwrap(),
+        Some((-1, -1)) => h.corners[0],
+        Some((1, -1)) => h.corners[1],
+        Some((1, 1)) => h.corners[2],
+        Some(_) => h.corners[3],
+    }
+}
+
+/// Pulls a handle of the frame as far as the way from one point of the ring's space to another.
+fn pull(app: &mut App, which: Option<(i8, i8)>, from: (f64, f64), to: (f64, f64), modifiers: Modifiers) {
+    let grip = handle(app, which);
+    let step = at(app, to.0, to.1) - at(app, from.0, from.1);
+    drag(app, grip, grip + step, modifiers);
+}
+
+#[test]
+fn a_side_of_the_frame_stretches_the_points_and_keeps_the_opposite_side() {
+    let mut app = hole_selected(RING);
+    pull(&mut app, Some((1, 0)), (30.0, 0.0), (41.0, 0.0), Modifiers::NONE);
+    assert_eq!(points(&app, 2), vec![(8.0, -20.0), (41.0, -20.0), (41.0, 4.0), (8.0, 4.0)]);
+    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (-6.0, -8.0), (-6.0, 16.0), (-30.0, 16.0)]);
+    assert!(app.src.contains(&format!("d \"{OUTER} M -30 -8 L -6 -8 L -6 16 L -30 16 Z M ")), "the other parts are written as they were:\n{}", app.src);
+    assert_eq!(picked(&app).len(), 4, "the points stay selected");
+    assert_eq!(app.undo.len(), 1);
+    app.undo();
+    assert_eq!(app.src, RING);
+
+    // Alt: around the middle (x = 19), both sides go apart.
+    let mut app = hole_selected(RING);
+    pull(&mut app, Some((1, 0)), (30.0, 0.0), (41.0, 0.0), Modifiers::ALT);
+    assert_eq!(points(&app, 2), vec![(-3.0, -20.0), (41.0, -20.0), (41.0, 4.0), (-3.0, 4.0)]);
+
+    // Shift on a corner: the larger of the two stretches for both sides.
+    let mut app = hole_selected(RING);
+    pull(&mut app, Some((1, 1)), (30.0, 4.0), (41.0, 7.0), Modifiers::SHIFT);
+    assert_eq!(points(&app, 2), vec![(8.0, -20.0), (41.0, -20.0), (41.0, 16.0), (8.0, 16.0)]);
+}
+
+#[test]
+fn the_frame_turns_the_points_around_its_middle() {
+    // From the handle above the middle (19, -8) to the right of it: a quarter turn with Shift.
+    let mut app = hole_selected(RING);
+    let from = handle(&mut app, None);
+    let to = at(&mut app, 60.0, -9.5);
+    drag(&mut app, from, to, Modifiers::SHIFT);
+    assert_eq!(points(&app, 2), vec![(31.0, -19.0), (31.0, 3.0), (7.0, 3.0), (7.0, -19.0)]);
+    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (-6.0, -8.0), (-6.0, 16.0), (-30.0, 16.0)]);
+    assert_eq!(app.undo.len(), 1);
+}
+
+#[test]
+fn curve_handles_are_stretched_with_their_points() {
+    let mut app = editing(RING);
+    key(&mut app, Key::A, Modifiers::COMMAND);
+    // The right bottom corner towards the middle of the ring, to a half, with Alt and Shift.
+    pull(&mut app, Some((1, 1)), (50.0, 50.0), (25.0, 25.0), Modifiers::ALT | Modifiers::SHIFT);
+    let half = "M -25 0 C -25 -14 -14 -25 0 -25 C 14 -25 25 -14 25 0 C 25 14 14 25 0 25 C -14 25 -25 14 -25 0 Z M -15 -4 L -3 -4 L -3 8 L -15 8 Z M 4 -10 L 15 -10 L 15 2 L 4 2 Z";
+    assert!(app.src.contains(half), "{}", app.src);
+}
+
+#[test]
+fn the_frame_follows_a_turned_and_scaled_outline() {
+    // The frame lies along the outline's own axes: its "right" side is at the bottom of the screen here.
+    let src = RING.replace("at 200 150", "at 200 150 rot 90 scale 2");
+    let mut app = hole_selected(&src);
+    let fixed = at(&mut app, 8.0, 4.0);
+    pull(&mut app, Some((1, 0)), (30.0, 0.0), (41.0, 0.0), Modifiers::NONE);
+    assert_eq!(points(&app, 2), vec![(8.0, -20.0), (41.0, -20.0), (41.0, 4.0), (8.0, 4.0)]);
+    assert_eq!(at(&mut app, 8.0, 4.0), fixed);
+    // A quarter turn as the eye sees it stays a quarter turn of the points.
+    let from = handle(&mut app, None);
+    let centre = at(&mut app, 24.5, -8.0);
+    let to = centre + (from - centre).rot90();
+    drag(&mut app, from, to, Modifiers::SHIFT);
+    assert_eq!(points(&app, 2), vec![(12.5, 8.5), (12.5, -24.5), (36.5, -24.5), (36.5, 8.5)]);
+}
+
+#[test]
+fn a_click_on_a_handle_of_the_frame_changes_nothing() {
+    let mut app = hole_selected(RING);
+    for which in [Some((1, 0)), Some((-1, -1)), None] {
+        let p = handle(&mut app, which);
+        click(&mut app, p, Modifiers::NONE);
+        assert_eq!(app.src, RING);
+        assert_eq!(picked(&app).len(), 4, "editing goes on with the same points");
+    }
+    assert_eq!(app.undo.len(), 0);
+    // One point has no frame.
+    let p = at(&mut app, 8.0, 4.0);
+    click(&mut app, p, Modifiers::NONE);
+    let shape = Compound::from_bez(&app.scene.doc.node("ring").unwrap().editable_path()).unwrap();
+    assert!(crate::point_frame::bounds(&shape, &app.point_edit.as_ref().unwrap().anchors()).is_none());
+}
+
+#[test]
+fn points_are_lined_up_and_spread_as_the_eye_sees_them() {
+    let mut app = editing(RING);
+    let from = at(&mut app, -18.0, 30.0);
+    let to = at(&mut app, 19.0, -14.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    app.align_points(Align::Left);
+    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (-6.0, -8.0), (-6.0, 16.0), (-30.0, 16.0)]);
+    assert_eq!(points(&app, 2), vec![(8.0, -20.0), (30.0, -20.0), (30.0, 4.0), (-6.0, 4.0)]);
+    assert!(app.src.contains(&format!("d \"{OUTER} M -30 -8 L -6 -8 L -6 16 L -30 16 Z M ")));
+    assert_eq!(app.undo.len(), 1);
+    let before = app.src.clone();
+    app.align_points(Align::Left);
+    assert_eq!((app.src.as_str(), app.undo.len()), (before.as_str(), 1), "nothing to do the second time");
+    app.undo();
+    assert_eq!(app.src, RING);
+
+    // Turned a quarter: the left of the screen is the bottom of the outline's own space.
+    let mut app = editing(&RING.replace("at 200 150", "at 200 150 rot 90"));
+    let from = at(&mut app, -18.0, 30.0);
+    let to = at(&mut app, 19.0, -14.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_eq!(picked(&app), vec![a(1, 1), a(1, 2), a(2, 3)]);
+    app.align_points(Align::Left);
+    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (-6.0, 16.0), (-6.0, 16.0), (-30.0, 16.0)]);
+    assert_eq!(points(&app, 2)[3], (8.0, 16.0));
+
+    // Three points at equal steps between the outer two.
+    let mut app = editing(RING);
+    for (k, (x, y)) in [(-30.0, -8.0), (-6.0, -8.0), (30.0, -20.0)].into_iter().enumerate() {
+        let p = at(&mut app, x, y);
+        click(&mut app, p, if k == 0 { Modifiers::NONE } else { Modifiers::SHIFT });
+    }
+    app.align_points(Align::SpreadX);
+    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (0.0, -8.0), (-6.0, 16.0), (-30.0, 16.0)]);
+    assert_eq!(points(&app, 2), vec![(8.0, -20.0), (30.0, -20.0), (30.0, 4.0), (8.0, 4.0)]);
 }
