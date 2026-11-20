@@ -3,7 +3,7 @@
 use crate::edit::{free_id, node_spans, path_to_d, remove_spans, whole_lines};
 use crate::{Scene, fmt_num};
 use motif_core::ShapeKind;
-use motif_core::kurbo::{Affine, BezPath, PathEl, Point, Shape};
+use motif_core::kurbo::{Affine, BezPath, Point, Shape};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoolOp {
@@ -20,6 +20,16 @@ pub enum BoolOp {
 impl BoolOp {
     pub const ALL: [BoolOp; 4] = [BoolOp::Union, BoolOp::Subtract, BoolOp::Intersect, BoolOp::Exclude];
 
+    /// The same operation as a live one of a `combine` group.
+    pub fn live(self) -> motif_core::CombineOp {
+        match self {
+            BoolOp::Union => motif_core::CombineOp::Union,
+            BoolOp::Subtract => motif_core::CombineOp::Subtract,
+            BoolOp::Intersect => motif_core::CombineOp::Intersect,
+            BoolOp::Exclude => motif_core::CombineOp::Exclude,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             BoolOp::Union => "Объединить",
@@ -34,48 +44,7 @@ impl BoolOp {
 const STYLE_KEYS: [&str; 14] =
     ["fill", "stroke", "gradient", "stroke-gradient", "opacity", "dash", "cap", "join", "shadow", "inset", "glow", "noise", "blend", "hidden"];
 
-/// Closes every subpath, so open lines take part as the area they enclose.
-pub(crate) fn closed(path: &BezPath) -> BezPath {
-    let mut out = BezPath::new();
-    let mut open = false;
-    for el in path.elements() {
-        match el {
-            PathEl::MoveTo(_) if open => {
-                out.close_path();
-                out.push(*el);
-            }
-            PathEl::MoveTo(_) => {
-                out.push(*el);
-                open = true;
-            }
-            PathEl::ClosePath => {
-                out.close_path();
-                open = false;
-            }
-            _ => out.push(*el),
-        }
-    }
-    if open {
-        out.close_path();
-    }
-    out
-}
-
-fn combine(a: &BezPath, b: &BezPath, op: linesweeper::BinaryOp) -> Result<BezPath, String> {
-    combine_by(a, b, op, linesweeper::FillRule::NonZero)
-}
-
-/// The outline of `a op b`, with the insides of both read by `rule`.
-pub(crate) fn combine_by(a: &BezPath, b: &BezPath, op: linesweeper::BinaryOp, rule: linesweeper::FillRule) -> Result<BezPath, String> {
-    // The sweep gives up on some degenerate outlines by panicking: that is an answer, not a crash.
-    let swept = std::panic::catch_unwind(|| linesweeper::binary_op(a, b, rule, op));
-    let contours = swept.map_err(|_| "контуры слишком вырождены для расчёта".to_string())?.map_err(|e| e.to_string())?;
-    let mut out = BezPath::new();
-    for c in contours.contours() {
-        out.extend(c.path.iter());
-    }
-    Ok(out)
-}
+pub(crate) use motif_core::closed;
 
 /// Returns the script with the shapes `ids` replaced by one `path` holding the result of `op`, and
 /// the new path's id. The path takes the place and style of the bottom shape (the first in paint
@@ -100,18 +69,14 @@ pub fn boolean(src: &str, scene: &Scene, ids: &[String], op: BoolOp) -> Result<(
         }
     }
     let world = |i: usize| doc.nodes[i].path().map(|p| closed(&(doc.world_transform(i) * p)));
-    let mut result = world(nodes[0]).ok_or("у фигуры нет контура")?;
+    let mut shapes = vec![world(nodes[0]).ok_or("у фигуры нет контура")?];
     if single_text {
         // Overlapping letters (outlines with overlaps in the font) merge into one clean outline.
-        result = combine(&result, &BezPath::new(), linesweeper::BinaryOp::Union)?;
+        shapes.push(BezPath::new());
     }
-    let rest: Vec<BezPath> = nodes[1..].iter().filter_map(|&i| world(i)).collect();
-    result = match op {
-        BoolOp::Union => rest.iter().try_fold(result, |acc, p| combine(&acc, p, linesweeper::BinaryOp::Union))?,
-        BoolOp::Intersect => rest.iter().try_fold(result, |acc, p| combine(&acc, p, linesweeper::BinaryOp::Intersection))?,
-        BoolOp::Exclude => rest.iter().try_fold(result, |acc, p| combine(&acc, p, linesweeper::BinaryOp::Xor))?,
-        BoolOp::Subtract => rest.iter().try_fold(result, |acc, p| combine(&acc, p, linesweeper::BinaryOp::Difference))?,
-    };
+    shapes.extend(nodes[1..].iter().filter_map(|&i| world(i)));
+    // The same sweep a live operation of a group runs each time its shapes change.
+    let result = motif_core::combine_shapes(&shapes, op.live())?;
     if result.elements().is_empty() {
         return Err("в результате ничего не осталось: фигуры не пересекаются".into());
     }

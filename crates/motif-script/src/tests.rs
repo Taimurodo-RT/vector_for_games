@@ -2311,3 +2311,52 @@ fn outline_commands_survive_odd_input() {
         }
     }
 }
+
+#[test]
+fn a_group_combines_its_shapes_live() {
+    let src = "artboard \"a\" 200x200\ngroup icon at 100 100 combine subtract {\n  rect base size 80 80 fill #ff0000\n  ellipse hole at 40 0 size 40 40 fill #000000\n}\nanim Slide 1s {\n  hole.x 0: 40 | 1: 200\n}\n";
+    let s = parse(src).unwrap();
+    let (icon, base, hole) = (s.doc.index_of("icon").unwrap(), s.doc.index_of("base").unwrap(), s.doc.index_of("hole").unwrap());
+    assert_eq!(s.doc.nodes[icon].combine, Some(motif_core::CombineOp::Subtract));
+    // The sources stay what they were written as.
+    assert_eq!(s.doc.nodes[base].kind, ShapeKind::Rect);
+    assert_eq!(s.doc.nodes[hole].kind, ShapeKind::Ellipse);
+    let area = |doc: &motif_core::Document| motif_core::kurbo::Shape::area(&doc.nodes[base].path().unwrap()).abs();
+    let mut still = s.doc.clone();
+    still.rig();
+    assert!(still.is_drawn(base) && !still.is_drawn(hole));
+    let half = std::f64::consts::PI * 400.0 / 2.0;
+    assert!((area(&still) - (6400.0 - half)).abs() < 2.0, "{}", area(&still));
+    // The clip moves the hole away, and the result follows.
+    let end = s.doc.animations[0].pose(&s.doc, 1.0);
+    assert!((area(&end) - 6400.0).abs() < 1e-6, "{}", area(&end));
+    assert_eq!(s.doc.combine_moved_by(icon), Some("hole"));
+
+    // The operation is changed and taken off like any other property of the line.
+    let other = set_style(src, &s, "icon", "combine", Some("combine intersect")).unwrap();
+    assert!(other.contains("group icon at 100 100 combine intersect {"), "{other}");
+    assert_eq!(parse(&other).unwrap().doc.nodes[icon].combine, Some(motif_core::CombineOp::Intersect));
+    let off = set_style(src, &s, "icon", "combine", None).unwrap();
+    assert!(off.contains("group icon at 100 100 {"), "{off}");
+    assert_eq!(parse(&off).unwrap().doc.nodes[icon].combine, None);
+    // A file with a live operation needs the format that has it; without one it does not.
+    assert_eq!(crate::format::needed(src), 3);
+    assert_eq!(crate::format::needed(&off), 1);
+}
+
+#[test]
+fn a_wrong_combine_says_what_to_change() {
+    let board = "artboard \"a\" 200x200\n";
+    let first = |src: &str| parse(&format!("{board}{src}")).unwrap_err()[0].message.clone();
+    assert!(first("rect r size 10 10 combine union\n").contains("только у group"));
+    assert!(first("group g combine glue {\n  rect r size 10 10\n}\n").contains("union, subtract"));
+    assert!(first("group g combine {\n  rect r size 10 10\n}\n").contains("combine"));
+    assert!(first("group g combine union clip {\n  rect r size 10 10\n  rect q size 5 5\n}\n").contains("clip"));
+    let soft = first("group g combine union {\n  rect r size 10 10\n  ellipse jelly size 20 20 soft 0.2\n}\n");
+    assert!(soft.contains("«jelly»") && soft.contains("мягкое тело"), "{soft}");
+    // Bones, morphs and nested groups are welcome.
+    let ok = format!(
+        "{board}bone arm at 0 0 len 40\nstar spike at 10 10 size 20 20 hidden\ngroup g combine exclude {{\n  rect r size 40 10 skin arm\n  ellipse e size 20 20 morph spike\n  group inner at 5 5 combine union {{\n    rect a size 4 4\n    rect b at 2 2 size 4 4\n  }}\n}}\n"
+    );
+    parse(&ok).unwrap();
+}

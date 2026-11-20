@@ -419,6 +419,12 @@ pub struct Node {
     pub gradient: Option<Gradient>,
     /// Group only: the first child is a mask that clips the other children and is not drawn.
     pub clip: bool,
+    /// Group only: a live boolean operation. The shapes of the group make one outline, which
+    /// the first of them draws with its own paint (`combine subtract`).
+    pub combine: Option<crate::CombineOp>,
+    /// Set by `combine_all`: the outline of this shape went into a live operation of its group,
+    /// so the shape is not drawn on its own.
+    pub absorbed: bool,
     /// Fill with the even-odd rule, so overlapping parts of the outline become holes (SVG `fill-rule`).
     pub even_odd: bool,
     /// Degrees.
@@ -457,6 +463,9 @@ pub struct Node {
     pub skin: Option<Skin>,
     /// The outline bent by `skin` or by a soft-body simulation; `path` returns it when present.
     pub deformed: Option<BezPath>,
+    /// The outline a live operation of the group makes of this shape and the ones above it:
+    /// set on the first shape of a `combine` group, `path` returns it when present.
+    pub combined: Option<BezPath>,
     pub lattice: Option<crate::Lattice>,
     pub forms: Option<crate::Forms>,
     pub(crate) lattice_path: Option<BezPath>,
@@ -702,6 +711,9 @@ impl Node {
             ik: None,
             skin: None,
             deformed: None,
+            combined: None,
+            combine: None,
+            absorbed: false,
             lattice: None,
             forms: None,
             lattice_path: None,
@@ -951,7 +963,16 @@ impl Node {
     }
 
     /// Geometry in local space before the cages of parent groups bend it.
-    fn unbent_path(&self) -> Option<BezPath> {
+    pub(crate) fn unbent_path(&self) -> Option<BezPath> {
+        match &self.combined {
+            Some(c) => Some(c.clone()),
+            None => self.own_path(),
+        }
+    }
+
+    /// The shape's own outline, bent by its bones, whatever a live operation of its group makes
+    /// of it: what an editor shows and changes when the shape itself is picked.
+    pub fn own_path(&self) -> Option<BezPath> {
         match &self.deformed {
             Some(d) => Some(d.clone()),
             None => self.base_path(),
@@ -1090,9 +1111,10 @@ impl Document {
         node.visible && node.parent.is_none_or(|p| self.is_visible(p))
     }
 
-    /// Whether node `index` is painted: visible and not an `area`, which only the game reads.
+    /// Whether node `index` is painted: visible, not an `area`, which only the game reads, and
+    /// not a shape whose outline a live operation of its group has taken in.
     pub fn is_drawn(&self, index: usize) -> bool {
-        !self.nodes[index].area && self.is_visible(index)
+        !self.nodes[index].area && !self.nodes[index].absorbed && self.is_visible(index)
     }
 
     /// Depth in the hierarchy, 0 for top-level nodes.
@@ -1127,10 +1149,13 @@ impl Document {
     }
 
     /// Whether an artboard-space point is on node `i` or on a visible shape inside it, whatever
-    /// lies on top: what a pointer listener of a state machine reacts to.
+    /// lies on top: what a pointer listener of a state machine reacts to. A shape taken in by a
+    /// live operation is not there to point at: the result is, so a cut hole lets the pointer by.
     pub fn hits_tree(&self, i: usize, point: Point) -> bool {
-        (0..self.nodes.len())
-            .any(|k| (k == i || self.is_inside(k, i)) && self.nodes[k].kind != ShapeKind::Bone && self.is_visible(k) && self.shape_hit(k, point))
+        (0..self.nodes.len()).any(|k| {
+            let node = &self.nodes[k];
+            (k == i || self.is_inside(k, i)) && node.kind != ShapeKind::Bone && !node.absorbed && self.is_visible(k) && self.shape_hit(k, point)
+        })
     }
 
     /// The artboard-space box around node `i` and everything inside it.

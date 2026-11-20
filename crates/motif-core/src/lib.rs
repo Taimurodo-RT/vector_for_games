@@ -3,6 +3,7 @@
 mod body;
 mod brush;
 mod color;
+mod combine;
 mod directions;
 mod forms;
 mod lattice;
@@ -37,6 +38,7 @@ mod world;
 pub use body::{Body, Face, silhouette};
 pub use brush::{Brush, Grain, Hatch, hard as brush_hard};
 pub use color::Color;
+pub use combine::{CombineOp, Inside, closed, combine_misses, combine_shapes, combine_two};
 pub use directions::Directions;
 pub use ease::{Dir, Ease, Family};
 pub use field::Field;

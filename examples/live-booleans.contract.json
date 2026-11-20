@@ -1,0 +1,87 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Живые операции",
+      "width": 640.0,
+      "height": 400.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 3.0,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "combines": [
+        {
+          "group": "moon",
+          "op": "subtract",
+          "shapes": [
+            "disc",
+            "shade"
+          ],
+          "moved_by": "shade"
+        },
+        {
+          "group": "cloud",
+          "op": "union",
+          "shapes": [
+            "puff_a",
+            "puff_b",
+            "puff_c",
+            "base"
+          ],
+          "moved_by": "puff_b"
+        },
+        {
+          "group": "leaf",
+          "op": "intersect",
+          "shapes": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "group": "rings",
+          "op": "exclude",
+          "shapes": [
+            "outer",
+            "middle",
+            "inner"
+          ]
+        },
+        {
+          "group": "lock",
+          "op": "subtract",
+          "shapes": [
+            "plate",
+            "eye",
+            "slot"
+          ]
+        },
+        {
+          "group": "keyhole",
+          "op": "union",
+          "shapes": [
+            "eye",
+            "slot"
+          ]
+        },
+        {
+          "group": "gear",
+          "op": "subtract",
+          "shapes": [
+            "teeth",
+            "hub"
+          ]
+        }
+      ]
+    }
+  ]
+}

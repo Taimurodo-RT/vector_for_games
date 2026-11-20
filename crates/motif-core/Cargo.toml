@@ -12,5 +12,6 @@ serde = ["dep:serde", "kurbo/serde"]
 
 [dependencies]
 kurbo.workspace = true
+linesweeper = "0.5"
 serde = { version = "1", features = ["derive"], optional = true }
 ttf-parser = "0.25"

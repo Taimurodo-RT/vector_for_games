@@ -58,6 +58,7 @@ const PROPS: &[&str] = &[
     "d",
     "gradient",
     "clip",
+    "combine",
     "skew",
     "pivot",
     "dash",

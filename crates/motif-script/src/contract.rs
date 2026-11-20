@@ -35,6 +35,25 @@ pub struct Board {
     /// `directions`: the sides the game can face, from facing the viewer round clockwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sides: Option<Sides>,
+    /// Live boolean operations (`group … combine subtract`), so that a game knows what the
+    /// scene costs. The field is left out of a scene without them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub combines: Vec<Combine>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Combine {
+    /// The group that holds the operation.
+    pub group: String,
+    /// `union`, `subtract`, `intersect` or `exclude`.
+    pub op: String,
+    /// The shapes it is made of, bottom first: the first one draws the result.
+    pub shapes: Vec<String>,
+    /// A shape whose outline or place in the group changes while the scene plays: the outline
+    /// of the operation is computed anew on every frame it moves. Without one it is computed once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_by: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -202,7 +221,27 @@ fn board(doc: &Document) -> Board {
         sockets: doc.nodes.iter().filter(|n| n.socket).map(|n| n.id.clone()).collect(),
         areas: doc.nodes.iter().filter(|n| n.area).map(|n| n.id.clone()).collect(),
         sides: doc.directions.as_ref().map(|d| Sides { names: d.names().iter().map(|s| s.to_string()).collect(), mirror: d.mirror }),
+        combines: doc
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| {
+                Some(Combine {
+                    group: n.id.clone(),
+                    op: n.combine?.keyword().into(),
+                    shapes: combine_shapes(doc, i),
+                    moved_by: doc.combine_moved_by(i).map(str::to_string),
+                })
+            })
+            .collect(),
     }
+}
+
+/// The shapes of the operation of group `g` as written: every shape in it, whether an inner
+/// operation takes it in first or not.
+fn combine_shapes(doc: &Document, g: usize) -> Vec<String> {
+    let shape = |n: &motif_core::Node| !n.kind.is_container() && n.kind != motif_core::ShapeKind::Bone && !n.area;
+    doc.nodes.iter().enumerate().skip(g + 1).take_while(|(i, _)| doc.is_inside(*i, g)).filter(|(_, n)| shape(n)).map(|(_, n)| n.id.clone()).collect()
 }
 
 fn data(pairs: &[(String, EventValue)]) -> serde_json::Map<String, serde_json::Value> {

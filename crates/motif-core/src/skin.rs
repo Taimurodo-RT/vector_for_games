@@ -26,6 +26,7 @@ impl Document {
         self.solve_ik();
         self.skin_all();
         self.hang_ropes();
+        self.combine_all();
         self.deform_lattices();
     }
 

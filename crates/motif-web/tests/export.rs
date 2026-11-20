@@ -377,3 +377,26 @@ fn russian_names_stay_and_ids_are_transliterated() {
     assert_eq!(motif_web::slug("ёлка №1"), "yolka-N1");
     assert_eq!(motif_web::slug("★"), "u2605");
 }
+
+#[test]
+fn a_live_operation_is_exported_as_the_outline_it_draws() {
+    let src = "artboard \"test\" 64x64\ngroup badge at 32 32 rot 10 combine subtract {\nrect plate size 44 36 r 6 fill #f07020 stroke #1b2a41 2\nellipse hole at 8 0 size 20 20 fill #2080cc\ngroup key at -10 0 combine union {\nrect a size 6 16 fill #00ff00\nellipse b at 0 -6 size 10 10 fill #00ff00\n}\n}\nrect zone at 32 32 size 60 60 fill #ff0000 area\nanim Slide 1s {\nhole.x 0: 8 | 1: -8\nbadge.y 0: 32 | 1: 30\n}\n";
+    let s = scene(src);
+    compare_scene(&s);
+    let svg = motif_web::render(&s, &Config::default(), None).unwrap();
+    // Only the shape that bears the result is on the page: not the cutters, not the game's area.
+    assert!(svg.text.contains("test-node-plate") && svg.text.contains("test-node-badge"), "{}", svg.text);
+    for gone in ["hole", "test-node-a\"", "test-node-b\"", "zone", "#2080cc", "#00ff00", "#ff0000"] {
+        assert!(!svg.text.contains(gone), "{gone} is in the page: {}", svg.text);
+    }
+    // A cutter that slides redraws the outline: a CSS transform cannot play that.
+    let p = motif_web::build(&[s], &Config::default(), None).unwrap();
+    let m: serde_json::Value = serde_json::from_str(&p.files["graphics.json"]).unwrap();
+    assert_eq!(m["assets"][0]["anim"][0]["css"], false);
+    assert!(p.warnings.iter().any(|w| w.contains("Slide")), "{:?}", p.warnings);
+    // The whole group moving is an ordinary transform.
+    let moved = scene(&src.replace("hole.x 0: 8 | 1: -8\n", ""));
+    let p = motif_web::build(&[moved], &Config::default(), None).unwrap();
+    let m: serde_json::Value = serde_json::from_str(&p.files["graphics.json"]).unwrap();
+    assert_eq!(m["assets"][0]["anim"][0]["css"], true);
+}

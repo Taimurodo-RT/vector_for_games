@@ -5,15 +5,29 @@
 //! older Motif keeps opening it. Old files that must always open live in `tests/old-formats/`.
 //!
 //! - 2: `guide x 120` — guide lines of the editor.
+//! - 3: `group … combine subtract` — live boolean operations.
 
 /// The newest format this Motif reads.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// The lowest format version that reads `src`: the first one that has everything it uses.
 pub fn needed(src: &str) -> u32 {
     // A statement starts its line; `guide` came with version 2.
     let guide = src.lines().any(|l| l.split_whitespace().next() == Some("guide"));
-    if guide { 2 } else { 1 }
+    // A property of a group, somewhere on its line after the id; `combine` came with version 3.
+    let combine = src.lines().any(|l| {
+        // Names are quoted and comments end the line: neither is a property.
+        let code: String = l.split("//").next().unwrap_or("").split('"').step_by(2).collect::<Vec<_>>().join(" ");
+        let mut words = code.split_whitespace();
+        words.next() == Some("group") && words.skip(1).any(|w| w == "combine")
+    });
+    if combine {
+        3
+    } else if guide {
+        2
+    } else {
+        1
+    }
 }
 
 /// The version `src` says on its first line, if it says one (`motif 1`).
@@ -65,5 +79,11 @@ mod tests {
         let with = "motif 1\nartboard \"a\" 10x10\nguide x 5\n";
         assert_eq!(stamp(with), "motif 2\nartboard \"a\" 10x10\nguide x 5\n");
         assert_eq!(stamp("motif 2\nartboard \"a\" 10x10\n"), "motif 1\nartboard \"a\" 10x10\n");
+        // Live boolean operations came with version 3.
+        let live = "artboard \"a\" 10x10\ngroup g combine subtract {\n  rect a size 4 4\n  rect b size 2 2\n}\n";
+        assert_eq!(needed(live), 3);
+        assert_eq!(needed(&format!("{live}guide x 5\n")), 3);
+        // A group called `combine`, a name and a comment with the word are not the property.
+        assert_eq!(needed("artboard \"a\" 10x10\ngroup combine \"we combine it\" { // combine\n}\n"), 1);
     }
 }

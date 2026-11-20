@@ -573,6 +573,7 @@ fn alike(doc: &Document, a: usize, b: usize) -> Option<Vec<(usize, usize)>> {
         n.name = None;
         n.parent = None;
         n.deformed = None;
+        n.combined = None;
         if n.kind == ShapeKind::Text {
             n.text = None;
             n.geometry = Default::default();

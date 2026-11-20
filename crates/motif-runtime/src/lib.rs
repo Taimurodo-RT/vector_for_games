@@ -811,6 +811,80 @@ machine Hero {
         assert_ne!(b.pose(), before);
     }
 
+    /// A badge whose hole is cut live: still in Idle, the cutter slides in Slide.
+    const CUT: &str = r#"motif 3
+artboard "Вырез" 100x80
+group badge at 50 40 combine subtract {
+  rect plate size 60 40 fill #5ee0a0 stroke #1b1d24 2
+  ellipse hole at 0 0 size 20 20 fill #ff5a36
+}
+anim Idle 1s loop {
+  badge.x 0: 50 | 1: 50
+}
+anim Slide 1s {
+  hole.x 0: 0 | 1: 16
+}
+machine M {
+  input go trigger
+  input over false
+  state Idle
+  state Slide
+  any -> Slide when go
+  listen badge hover -> over
+}
+"#;
+
+    #[test]
+    fn a_live_operation_plays_in_the_game_as_it_is_drawn() {
+        let mut p = Player::load(CUT, None, "", "", "").unwrap();
+        let outline = |p: &Player| {
+            let doc = p.frame().doc;
+            let plate = doc.nodes.iter().find(|n| n.id == "plate").unwrap();
+            let hole = doc.nodes.iter().find(|n| n.id == "hole").unwrap();
+            assert!(hole.absorbed && !plate.absorbed, "the cutter is not painted, the plate bears the result");
+            plate.path().unwrap().to_svg()
+        };
+        // Nothing moves in Idle: the result is worked out once and the picture is not drawn again.
+        let (first, still) = (p.pose(), outline(&p));
+        let counted = motif_core::combine_misses();
+        for _ in 0..30 {
+            p.advance(1.0 / 60.0);
+        }
+        assert_eq!((p.pose(), outline(&p)), (first, still.clone()));
+        assert_eq!(motif_core::combine_misses(), counted, "still sources are not combined again");
+        // The pointer passes through the hole and lands on what is left of the plate.
+        for (at, over) in [((50.0, 40.0), 0.0), ((25.0, 40.0), 1.0), ((95.0, 40.0), 0.0)] {
+            p.pointer(Some(Point::new(at.0, at.1)), false);
+            p.advance(TICK);
+            assert_eq!(p.get("over"), Some(over), "at {at:?}");
+        }
+        // The frame the game draws has the hole cut through: nothing is painted there, not even
+        // the cutter's own colour.
+        let px = p.render(1.0, false).unwrap();
+        let at = |x: usize, y: usize| px.pixels()[y * px.width() as usize + x];
+        assert_eq!((at(50, 40).alpha(), at(30, 40).alpha()), (0, 255));
+        // The cutter slides: the outline follows it, and the same time gives the same outline
+        // however it is cut into frames.
+        p.fire("go").unwrap();
+        let mut q = Player::load(CUT, None, "", "", "").unwrap();
+        q.fire("go").unwrap();
+        for _ in 0..30 {
+            p.advance(1.0 / 60.0);
+        }
+        for _ in 0..72 {
+            q.advance(1.0 / 144.0);
+        }
+        assert_eq!(p.state(), "Slide");
+        assert_ne!(p.pose(), first);
+        assert_ne!(outline(&p), still);
+        assert_eq!(outline(&p), outline(&q));
+        // A saved game comes back to the same picture.
+        let saved = p.save_state();
+        let mut r = Player::load(CUT, None, "", "", "").unwrap();
+        r.load_state(&saved).unwrap();
+        assert_eq!(outline(&r), outline(&p));
+    }
+
     /// A spring scene whose machine sends events and switches states: what a game hears and
     /// shows after the same time must not depend on how it was cut into frames.
     const SPRUNG: &str = r#"

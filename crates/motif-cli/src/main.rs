@@ -1,5 +1,8 @@
 //! `motif` — work with scene scripts without opening the editor.
 
+// The node of `motif inspect` is one long `json!`: it runs past the default limit.
+#![recursion_limit = "256"]
+
 use motif_core::Document;
 use motif_pixel::{FrameExport, boards_palette, render_frames, to_jasc};
 use motif_render::{CpuOptions, render_cpu};

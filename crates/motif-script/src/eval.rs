@@ -134,6 +134,7 @@ impl<'a> Evaluator<'a> {
             }
         }
         self.check_rig();
+        self.check_combines();
         for s in stmts {
             if let Stmt::Directions { count, turn, mirror, span } = s {
                 self.directions(count, turn, *mirror, *span);
@@ -317,6 +318,40 @@ impl<'a> Evaluator<'a> {
         }
         let turn = turn.iter().map(|(id, _)| id.clone()).collect();
         self.scene.doc.directions = Some(motif_core::Directions { count, turn, mirror });
+    }
+
+    /// A live operation takes the outlines of its shapes as bones, morphs and keys leave them.
+    /// An outline that a simulation computes, and a mask, cannot take part.
+    fn check_combines(&mut self) {
+        let doc = &self.scene.doc;
+        let mut errors = Vec::new();
+        for (g, group) in doc.nodes.iter().enumerate().filter(|(_, n)| n.combine.is_some()) {
+            let at =
+                |id: &str| self.scene.prop_spans.get(&(id.to_string(), "combine".to_string())).copied().or_else(|| self.scene.sites.get(id).map(|s| s.id_span));
+            let Some(span) = at(&group.id) else { continue };
+            if group.clip {
+                errors.push((span, "у группы и combine, и clip: первый объект был бы и маской, и нижней фигурой операции. Оставьте что-то одно".to_string()));
+            }
+            for (_, n) in doc.nodes.iter().enumerate().skip(g + 1).take_while(|(i, _)| doc.is_inside(*i, g)) {
+                let what = if n.soft.is_some() {
+                    "мягкое тело"
+                } else if n.rope.is_some() {
+                    "верёвка или ткань"
+                } else if n.fluid.is_some() {
+                    "жидкость"
+                } else if n.emit.is_some() {
+                    "источник частиц"
+                } else if n.body.is_some() {
+                    "3D-тело"
+                } else {
+                    continue;
+                };
+                errors.push((span, format!("в операции combine не может быть «{}»: это {what}, его форму считает не контур. Вынесите объект из группы", n.id)));
+            }
+        }
+        for (span, msg) in errors {
+            self.err(span, msg);
+        }
     }
 
     /// IK targets and skin bones must exist; a target must not hang from the chain it moves.
@@ -912,7 +947,7 @@ impl<'a> Evaluator<'a> {
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
-                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" => Vec::new(),
+                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" | "combine" => Vec::new(),
                 // `dial turn 300`: the way is a word, the arc a number (or `{arc}`).
                 "dial" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(_)) { None } else { self.value(v) }).collect(),
                 // `cross` is a keyword of the hatching.
@@ -1605,6 +1640,20 @@ impl<'a> Evaluator<'a> {
                         continue;
                     }
                     node.clip = true;
+                }
+                "combine" => {
+                    if n.kind != ShapeKind::Group {
+                        self.err(p.key_span, "операция combine бывает только у group: фигуры группы складываются в один контур");
+                        continue;
+                    }
+                    let op = match &p.values[0].kind {
+                        ValueKind::Ref(w) => motif_core::CombineOp::from_keyword(w),
+                        _ => None,
+                    };
+                    match op {
+                        Some(op) => node.combine = Some(op),
+                        None => self.err(p.key_span, "combine — как сложить фигуры группы: union, subtract (нижняя минус верхние), intersect или exclude — combine subtract"),
+                    }
                 }
                 "gradient" | "stroke-gradient" => {
                     let radial = match &p.values[0].kind {
