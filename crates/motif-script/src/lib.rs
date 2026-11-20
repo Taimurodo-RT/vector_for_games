@@ -24,6 +24,7 @@
 mod boards;
 mod bone;
 mod boolean;
+mod combine_edit;
 mod content;
 pub mod contract;
 pub use content::quoted_content;
@@ -56,6 +57,7 @@ pub use bone::{add_bone, add_ik_target, add_weight_stroke, attach_to_bone, clear
 pub mod character;
 mod character_controls;
 pub use boolean::{BoolOp, boolean};
+pub use combine_edit::{combine_nodes, flatten_combine, set_combine};
 pub use edit::{
     KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_guide, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_anim,
     delete_key, delete_keys, delete_node, directions_text, duplicate_anim, fmt_value, gradient_text, group_nodes, guide_text, move_key, move_node, paste_keys,

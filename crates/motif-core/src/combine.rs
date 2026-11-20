@@ -223,6 +223,23 @@ impl Document {
             .collect()
     }
 
+    /// Every shape written inside a `combine` group, however deep, in paint order, whatever
+    /// the pose makes of them: what an editor lists and outlines as the parts of the operation.
+    pub fn combine_members(&self, group: usize) -> Vec<usize> {
+        (group + 1..self.nodes.len())
+            .take_while(|&i| self.is_inside(i, group))
+            .filter(|&i| {
+                let n = &self.nodes[i];
+                !n.kind.is_container() && n.kind != ShapeKind::Bone && !n.area
+            })
+            .collect()
+    }
+
+    /// The shape that draws the result of the operation of `group`: the first visible one.
+    pub fn combine_bearer(&self, group: usize) -> Option<usize> {
+        self.combine_members(group).into_iter().find(|&i| self.is_visible(i))
+    }
+
     /// The group whose live operation takes node `i` in, if any: the nearest one above it.
     pub fn combined_in(&self, i: usize) -> Option<usize> {
         let mut cur = self.nodes.get(i)?.parent;

@@ -82,3 +82,23 @@ fn hidden_and_empty_cases_draw_what_is_left() {
     let off = live("at 120 90 hidden", "union");
     exact_picture(HEAD, &off, "a hidden operation");
 }
+
+#[test]
+fn an_operation_taken_apart_looks_as_it_did() {
+    use motif_core::CombineOp;
+    use motif_script::{combine_nodes, flatten_combine};
+    let ids: Vec<String> = ["base", "hole", "spike"].map(String::from).to_vec();
+    for place in ["at 120 90", "at 120 90 rot 30 scale 0.9 1.1", "at 110 95 skew 15 scale -1 1 opacity 0.6"] {
+        for (word, op) in [("union", CombineOp::Union), ("subtract", CombineOp::Subtract), ("intersect", CombineOp::Intersect), ("exclude", CombineOp::Exclude)]
+        {
+            // Put together by the command, the shapes look as an operation written by hand.
+            let (loose, by_hand) = (plain(place), live(place, word));
+            let (made, _) = combine_nodes(&loose, &parse(&loose).unwrap(), &ids, op, None).unwrap_or_else(|e| panic!("{e}\n{loose}"));
+            exact_picture(&made, &by_hand, &format!("made {word} {place}"));
+            // Taken apart, the outline looks as the operation did.
+            let (flat, _) = flatten_combine(&by_hand, &parse(&by_hand).unwrap(), "icon", None).unwrap_or_else(|e| panic!("{e}\n{by_hand}"));
+            assert!(!flat.contains("combine"), "{flat}");
+            exact_picture(&flat, &by_hand, &format!("flat {word} {place}"));
+        }
+    }
+}

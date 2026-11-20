@@ -2345,6 +2345,89 @@ fn a_group_combines_its_shapes_live() {
 }
 
 #[test]
+fn selected_shapes_become_a_live_operation_and_back() {
+    use crate::{combine_nodes, flatten_combine, set_combine};
+    use motif_core::CombineOp;
+    let src = "motif 1\nartboard \"a\" 200x200\nrect base \"Плита\" at 100 100 size 80 80 fill #ff0000 stroke #111111 2\nellipse hole at 140 100 size 40 40 fill #000000\nrect far at 20 20 size 10 10\n";
+    let s = parse(src).unwrap();
+    let ids = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    let (live, group) = combine_nodes(src, &s, &ids(&["hole", "base"]), CombineOp::Subtract, None).unwrap();
+    assert!(live.contains(&format!("group {group} at 110 100 combine subtract {{")), "{live}");
+    let made = parse(&live).unwrap();
+    let (g, base, hole) = (made.doc.index_of(&group).unwrap(), made.doc.index_of("base").unwrap(), made.doc.index_of("hole").unwrap());
+    assert_eq!(made.doc.nodes[g].combine, Some(CombineOp::Subtract));
+    assert_eq!((made.doc.nodes[base].parent, made.doc.nodes[hole].parent), (Some(g), Some(g)));
+    // Nothing moved, the bottom shape draws the result.
+    let mut posed = made.doc.clone();
+    posed.rig();
+    assert_eq!(posed.world_transform(base) * motif_core::kurbo::Point::ZERO, motif_core::kurbo::Point::new(100.0, 100.0));
+    assert_eq!((posed.combine_bearer(g), posed.is_drawn(hole)), (Some(base), false));
+    let area = |doc: &motif_core::Document, i: usize| motif_core::kurbo::Shape::area(&doc.nodes[i].path().unwrap()).abs();
+    let cut = 6400.0 - std::f64::consts::PI * 400.0 / 2.0;
+    assert!((area(&posed, base) - cut).abs() < 2.0);
+
+    // Too little to combine, and what an operation cannot hold, is said in words.
+    assert!(combine_nodes(src, &s, &ids(&["base"]), CombineOp::Union, None).unwrap_err().contains("две фигуры"));
+    let soft = src.replace("fill #000000", "fill #000000 soft 0.2");
+    let e = combine_nodes(&soft, &parse(&soft).unwrap(), &ids(&["hole", "base"]), CombineOp::Union, None).unwrap_err();
+    assert!(e.contains("мягкое тело"), "{e}");
+    // A shape of an operation and a shape outside it do not combine across the group.
+    let e = combine_nodes(&live, &made, &ids(&["hole", "far"]), CombineOp::Union, None).unwrap_err();
+    assert!(e.contains("уже часть операции"), "{e}");
+    // Two shapes of one operation make an inner one.
+    let three = live.replace("  ellipse hole", "  rect bar at 0 30 size 60 10\n  ellipse hole");
+    let (nested, inner) = combine_nodes(&three, &parse(&three).unwrap(), &ids(&["hole", "bar"]), CombineOp::Union, None).unwrap();
+    let n = parse(&nested).unwrap();
+    assert_eq!(n.doc.combined_in(n.doc.index_of(&inner).unwrap()), n.doc.index_of(&group));
+
+    // Another operation, then none at all.
+    let other = set_combine(&live, &made, &group, Some(CombineOp::Intersect)).unwrap();
+    assert!(other.contains("combine intersect {") && !other.contains("subtract"), "{other}");
+    let off = set_combine(&live, &made, &group, None).unwrap();
+    assert!(!off.contains("combine") && parse(&off).unwrap().doc.nodes[g].combine.is_none(), "{off}");
+    assert!(set_combine(&live, &made, "base", Some(CombineOp::Union)).is_none(), "only a group has an operation");
+
+    // Taken apart: one outline with the group's id and place and the bottom shape's paint.
+    let turned = live.replace("combine subtract {", "rot 30 opacity 0.5 combine subtract {");
+    let (flat, id) = flatten_combine(&turned, &parse(&turned).unwrap(), &group, None).unwrap();
+    assert_eq!(id, group);
+    let f = parse(&flat).unwrap();
+    assert_eq!(f.doc.nodes.len(), 2, "{flat}");
+    let path = f.doc.node(&group).unwrap();
+    assert_eq!((path.kind, path.rotation, path.opacity, path.even_odd), (ShapeKind::Path, 30.0, 0.5, true));
+    assert_eq!((path.fill.map(|c| c.to_hex()), path.stroke.map(|c| c.to_hex()), path.stroke_width), (Some("#ff0000".into()), Some("#111111".into()), 2.0));
+    assert!((motif_core::kurbo::Shape::area(&path.path().unwrap()).abs() - cut).abs() < 2.0);
+    assert!(!flat.contains("combine") && !flat.contains("hole") && flat.contains(&format!("path {group} at 110 100 rot 30 opacity 0.5 d \"")), "{flat}");
+    assert_eq!(crate::format::needed(&flat), 1);
+}
+
+#[test]
+fn taking_an_operation_apart_refuses_what_it_would_lose() {
+    use crate::flatten_combine;
+    let src = "artboard \"a\" 200x200\ngroup icon \"Знак\" at 100 100 combine subtract {\n  rect base size 80 80 fill #ff0000 opacity 0.5\n  ellipse hole at 40 0 size 40 40\n}\ngroup plain at 10 10 {\n  rect a size 5 5\n  rect b size 5 5\n}\n";
+    let flat = |src: &str, id: &str| flatten_combine(src, &parse(src).unwrap_or_else(|e| panic!("{e:?}")), id, None);
+    // The shape's own see-through look goes to the outline; the group's keys go on playing.
+    let keyed = format!("{src}anim Turn 1s {{\n  icon.rot 0: 0 | 1: 90\n}}\n");
+    let (out, _) = flat(&keyed, "icon").unwrap();
+    assert!(out.contains("path icon \"Знак\" at 100 100 d \"") && out.contains("opacity 0.5 evenodd") && out.contains("icon.rot 0: 0 | 1: 90"), "{out}");
+    assert!(flat(src, "plain").unwrap_err().contains("нет операции"));
+    let moving = format!("{src}anim Slide 1s {{\n  hole.x 0: 40 | 1: 0\n}}\n");
+    assert!(flat(&moving, "icon").unwrap_err().contains("«hole» двигается"));
+    let painted = format!("{src}anim Blink 1s {{\n  base.fill 0: #ff0000 | 1: #00ff00\n}}\n");
+    assert!(flat(&painted, "icon").unwrap_err().contains("ключи в клипе «Blink»"));
+    let heard =
+        format!("{src}anim Idle 1s {{\n  icon.x 0: 100 | 1: 100\n}}\nmachine M {{\n  input over false\n  state Idle\n  listen hole hover -> over\n}}\n");
+    let e = flat(&heard, "icon").unwrap_err();
+    assert!(e.contains("hole"), "{e}");
+    // Nothing left of the shapes: nothing to leave.
+    let gone = src.replace("ellipse hole at 40 0 size 40 40", "rect hole size 90 90");
+    assert!(flat(&gone, "icon").unwrap_err().contains("ничего не осталось"));
+    // Both see-through: the outline is as faint as both together.
+    let both = src.replace("at 100 100 combine", "at 100 100 opacity 0.5 combine");
+    assert!(flat(&both, "icon").unwrap().0.contains("at 100 100 opacity 0.25 d \""));
+}
+
+#[test]
 fn a_wrong_combine_says_what_to_change() {
     let board = "artboard \"a\" 200x200\n";
     let first = |src: &str| parse(&format!("{board}{src}")).unwrap_err()[0].message.clone();

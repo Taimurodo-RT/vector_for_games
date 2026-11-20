@@ -103,27 +103,7 @@ impl App {
             if n.area
                 && let Some(path) = n.path()
             {
-                let mut line: Vec<egui::Pos2> = Vec::new();
-                let mut lines = Vec::new();
-                motif_core::kurbo::flatten((w * path).elements().iter().copied(), 0.5 / view.zoom.max(0.01) as f64, |el| match el {
-                    PathEl::MoveTo(p) => {
-                        if line.len() > 1 {
-                            lines.push(std::mem::take(&mut line));
-                        }
-                        line = vec![screen(p)];
-                    }
-                    PathEl::LineTo(p) => line.push(screen(p)),
-                    PathEl::ClosePath => {
-                        if let Some(&first) = line.first() {
-                            line.push(first);
-                        }
-                    }
-                    _ => {}
-                });
-                lines.push(line);
-                for l in lines.iter().filter(|l| l.len() > 1) {
-                    painter.extend(egui::Shape::dashed_line(l, stroke, 5.0, 4.0));
-                }
+                dashed_path(painter, rect, view, &(w * path), stroke);
             }
             if n.socket {
                 let at = screen(w * Point::ZERO);
@@ -169,5 +149,31 @@ impl TryOn {
     pub(crate) fn placed(&self, doc: &Document) -> Option<Affine> {
         let i = doc.index_of(&self.socket).filter(|i| doc.nodes[*i].socket && doc.is_visible(*i))?;
         Some(doc.world_transform(i) * self.grip.inverse())
+    }
+}
+
+/// An outline given in artboard space, drawn dashed over the canvas.
+pub(crate) fn dashed_path(painter: &egui::Painter, rect: Rect, view: View, path: &motif_core::kurbo::BezPath, stroke: Stroke) {
+    let screen = |q: Point| view.to_screen(rect, q);
+    let mut line: Vec<egui::Pos2> = Vec::new();
+    let mut lines = Vec::new();
+    motif_core::kurbo::flatten(path.elements().iter().copied(), 0.5 / view.zoom.max(0.01) as f64, |el| match el {
+        PathEl::MoveTo(p) => {
+            if line.len() > 1 {
+                lines.push(std::mem::take(&mut line));
+            }
+            line = vec![screen(p)];
+        }
+        PathEl::LineTo(p) => line.push(screen(p)),
+        PathEl::ClosePath => {
+            if let Some(&first) = line.first() {
+                line.push(first);
+            }
+        }
+        _ => {}
+    });
+    lines.push(line);
+    for l in lines.iter().filter(|l| l.len() > 1) {
+        painter.extend(egui::Shape::dashed_line(l, stroke, 5.0, 4.0));
     }
 }
