@@ -20,6 +20,8 @@ pub struct Targets {
     ys: Vec<(f64, f64, f64)>,
     /// Anchors of outlines and centres of objects: a point being placed sticks to them whole.
     points: Vec<Point>,
+    /// The boxes the lines came from, the artboard among them: distances are measured to these.
+    rects: Vec<kurbo::Rect>,
 }
 
 /// Where a point being placed or dragged ends up.
@@ -114,7 +116,16 @@ impl Targets {
         self.points.clear();
     }
 
+    pub fn add_point(&mut self, p: Point) {
+        self.points.push(p);
+    }
+
+    pub fn rects(&self) -> &[kurbo::Rect] {
+        &self.rects
+    }
+
     fn add(&mut self, b: kurbo::Rect) {
+        self.rects.push(b);
         for x in [b.x0, b.center().x, b.x1] {
             self.xs.push((x, b.y0, b.y1));
         }

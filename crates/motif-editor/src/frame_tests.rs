@@ -182,3 +182,124 @@ fn several_objects_resized_in_animation_get_keys_and_the_drawing_stays() {
     }
     assert_eq!(app.undo.len(), 1, "one step for the whole pull");
 }
+
+/// The corners of a 2w × 2h box around the object's own origin, on the artboard.
+fn corners(app: &App, id: &str, w: f64, h: f64) -> [Point; 4] {
+    [(-w, -h), (w, -h), (w, h), (-w, h)].map(|(x, y)| world(app, id, x, y))
+}
+
+fn double_click(app: &mut App, p: Pos2) {
+    for _ in 0..2 {
+        super::snap_tests::frame(app, vec![egui::Event::PointerMoved(p), super::snap_tests::button(p, true, Modifiers::NONE)], Modifiers::NONE);
+        super::snap_tests::frame(app, vec![super::snap_tests::button(p, false, Modifiers::NONE)], Modifiers::NONE);
+    }
+}
+
+#[test]
+fn the_pivot_moves_to_a_corner_of_the_frame_and_the_object_stays() {
+    let src = "artboard \"a\" 400x300\nrect r at 200 150 size 100 40 rot 30 fill #888888\n";
+    let mut app = started(src, &["r"]);
+    app.pivot_mode = true;
+    let before = corners(&app, "r", 50.0, 20.0);
+    // From the mark in the middle to 3 points off the right bottom corner: it sticks to the corner.
+    let from = screen(&mut app, 200.0, 150.0);
+    let to = screen(&mut app, before[2].x, before[2].y) + vec2(2.0, -2.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert!(app.src.contains("pivot 50 20"), "{}", app.src);
+    for (was, now) in before.into_iter().zip(corners(&app, "r", 50.0, 20.0)) {
+        assert!(was.distance(now) < 0.02, "the object moved: {was:?} -> {now:?}\n{}", app.src);
+    }
+    assert_eq!(app.undo.len(), 1, "the pivot and the position are one step");
+
+    // The object now turns around that corner: the corner stays, the rest goes around it.
+    let n = app.scene.doc.node("r").unwrap().clone();
+    app.edit("r", Prop::Rotation, Value::Num(n.rotation + 90.0));
+    let turned = corners(&app, "r", 50.0, 20.0);
+    assert!(turned[2].distance(before[2]) < 0.02 && turned[0].distance(before[0]) > 50.0);
+    app.undo();
+
+    // A double click on the mark puts it back; the object stays again.
+    let mark = screen(&mut app, before[2].x, before[2].y);
+    double_click(&mut app, mark);
+    assert!(!app.src.contains("pivot"), "{}", app.src);
+    for (was, now) in before.into_iter().zip(corners(&app, "r", 50.0, 20.0)) {
+        assert!(was.distance(now) < 0.02, "the object moved: {was:?} -> {now:?}\n{}", app.src);
+    }
+    app.undo();
+    app.undo();
+    assert_eq!(app.src, src);
+}
+
+#[test]
+fn the_pivot_is_right_in_a_turned_mirrored_group_with_a_negative_scale() {
+    let src = "artboard \"a\" 400x300\ngroup g at 200 150 rot 15 scale -1 1 {\n  rect a at 20 0 size 40 20 rot 10 scale 1 -2 fill #888888\n}\n";
+    let mut app = started(src, &["a"]);
+    app.pivot_mode = true;
+    let before = corners(&app, "a", 20.0, 10.0);
+    let centre = world(&app, "a", 0.0, 0.0);
+    let from = screen(&mut app, centre.x, centre.y);
+    let to = screen(&mut app, before[0].x, before[0].y);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert!(app.src.contains("pivot -20 -10"), "{}", app.src);
+    for (was, now) in before.into_iter().zip(corners(&app, "a", 20.0, 10.0)) {
+        assert!(was.distance(now) < 0.03, "the object moved: {was:?} -> {now:?}\n{}", app.src);
+    }
+}
+
+#[test]
+fn the_pivot_is_part_of_the_drawing_and_is_not_moved_while_a_clip_is_keyed() {
+    let src = format!("{SCENE}anim Grow 1s {{\n  box.opacity 0: 1 | 1: 1\n}}\n");
+    let mut app = started(&src, &["box"]);
+    app.pivot_mode = true;
+    app.select_anim("Grow".into());
+    app.set_workspace(crate::workspace::Workspace::Animate);
+    screen(&mut app, 0.0, 0.0);
+    let from = screen(&mut app, 100.0, 100.0);
+    let to = screen(&mut app, 130.0, 120.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_eq!(app.src, src);
+    assert!(app.status.contains("Опорная точка"), "{}", app.status);
+}
+
+#[test]
+fn a_frame_pull_keeps_the_far_side_of_an_object_with_a_moved_pivot() {
+    let src = "artboard \"a\" 400x300\nrect r at 200 150 size 100 40 rot 30 pivot 50 20 fill #888888\n";
+    let mut app = started(src, &["r"]);
+    let far = world(&app, "r", -50.0, 0.0);
+    let (held, pulled) = (world(&app, "r", 50.0, 0.0), world(&app, "r", 90.0, 0.0));
+    let from = screen(&mut app, held.x, held.y);
+    let to = screen(&mut app, pulled.x, pulled.y);
+    drag(&mut app, from, to, Modifiers::COMMAND);
+    let n = app.scene.doc.node("r").unwrap();
+    assert!((n.width - 140.0).abs() < 0.2, "{}", app.src);
+    let now = world(&app, "r", -n.width / 2.0, 0.0);
+    assert!(now.distance(far) < 0.02, "the far side moved: {far:?} -> {now:?}\n{}", app.src);
+}
+
+#[test]
+fn a_drag_tells_its_shift_at_the_pointer_and_forgets_it_on_release() {
+    use super::snap_tests::{button, frame};
+    let mut app = started(SCENE, &["box"]);
+    // Off the centre: the pivot mark is in the middle.
+    let from = screen(&mut app, 85.0, 90.0);
+    let to = screen(&mut app, 105.0, 96.0);
+    let free = Modifiers::COMMAND;
+    frame(&mut app, vec![egui::Event::PointerMoved(from), button(from, true, free)], free);
+    frame(&mut app, vec![egui::Event::PointerMoved(from.lerp(to, 0.5))], free);
+    frame(&mut app, vec![egui::Event::PointerMoved(to)], free);
+    assert_eq!(app.drag_label.as_deref(), Some("Δ 20 · 6"));
+    frame(&mut app, vec![button(to, false, free)], free);
+    assert_eq!(app.drag_label, None);
+    assert_box(&app, "box", (90.0, 86.0, 150.0, 126.0));
+}
+
+#[test]
+fn a_selected_object_is_moved_by_its_middle_until_the_pivot_mode_is_on() {
+    // The mark sits in the middle, where the object is grabbed: without the mode it does not take the mouse.
+    let mut app = started(SCENE, &["box"]);
+    let from = screen(&mut app, 100.0, 100.0);
+    let to = screen(&mut app, 120.0, 106.0);
+    drag(&mut app, from, to, Modifiers::COMMAND);
+    assert_box(&app, "box", (90.0, 86.0, 150.0, 126.0));
+    assert!(!app.src.contains("pivot"), "{}", app.src);
+}

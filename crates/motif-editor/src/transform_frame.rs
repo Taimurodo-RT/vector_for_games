@@ -85,6 +85,11 @@ fn linear(a: Affine) -> Affine {
 }
 
 impl Frame {
+    /// A point of the frame on the artboard: a corner, the middle of a side or the centre.
+    pub(crate) fn point(&self, hx: i8, hy: i8) -> Point {
+        self.to_world * grip(self.bounds, hx, hy)
+    }
+
     pub(crate) fn handles(&self, rect: Rect, view: View) -> Handles {
         let at = |(hx, hy): (i8, i8)| view.to_screen(rect, self.to_world * grip(self.bounds, hx, hy));
         let corners = CORNERS.map(at);
