@@ -65,7 +65,7 @@ pub(super) struct FloatingInspector {
 }
 
 impl App {
-    pub(super) fn pointer_hits_selection(&self, doc: &Document, at: Point) -> bool {
+    pub(crate) fn pointer_hits_selection(&self, doc: &Document, at: Point) -> bool {
         doc.hit_test(at).is_some_and(|hit| self.selection().iter().filter_map(|id| doc.index_of(id)).any(|root| hit == root || doc.is_inside(hit, root)))
     }
 
