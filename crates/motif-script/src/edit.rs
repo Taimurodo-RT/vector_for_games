@@ -626,7 +626,7 @@ fn keys_line(keys: &[KeyText]) -> String {
 }
 
 /// Applies non-overlapping replacements at once.
-fn splice_all(src: &str, mut edits: Vec<(Span, String)>) -> String {
+pub(crate) fn splice_all(src: &str, mut edits: Vec<(Span, String)>) -> String {
     edits.sort_by_key(|(s, _)| std::cmp::Reverse(s.start));
     let mut out = src.to_string();
     for (span, text) in edits {

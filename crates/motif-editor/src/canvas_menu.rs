@@ -161,7 +161,7 @@ impl App {
         if matches!(n.kind, ShapeKind::Rect | ShapeKind::Star | ShapeKind::Polygon) {
             categories.push(Shape);
         }
-        if n.kind == ShapeKind::Path {
+        if !n.kind.is_container() && n.kind != ShapeKind::Bone {
             categories.push(Contour);
         }
         if !n.kind.is_container() {

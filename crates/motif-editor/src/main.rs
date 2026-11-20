@@ -29,6 +29,7 @@ mod measure;
 mod morph_ui;
 mod motion_ui;
 mod orbit_ui;
+mod outline_ui;
 mod paint;
 mod palette_ui;
 mod parameter_ui;

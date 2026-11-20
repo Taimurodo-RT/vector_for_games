@@ -35,7 +35,7 @@ const STYLE_KEYS: [&str; 14] =
     ["fill", "stroke", "gradient", "stroke-gradient", "opacity", "dash", "cap", "join", "shadow", "inset", "glow", "noise", "blend", "hidden"];
 
 /// Closes every subpath, so open lines take part as the area they enclose.
-fn closed(path: &BezPath) -> BezPath {
+pub(crate) fn closed(path: &BezPath) -> BezPath {
     let mut out = BezPath::new();
     let mut open = false;
     for el in path.elements() {
@@ -62,7 +62,14 @@ fn closed(path: &BezPath) -> BezPath {
 }
 
 fn combine(a: &BezPath, b: &BezPath, op: linesweeper::BinaryOp) -> Result<BezPath, String> {
-    let contours = linesweeper::binary_op(a, b, linesweeper::FillRule::NonZero, op).map_err(|e| e.to_string())?;
+    combine_by(a, b, op, linesweeper::FillRule::NonZero)
+}
+
+/// The outline of `a op b`, with the insides of both read by `rule`.
+pub(crate) fn combine_by(a: &BezPath, b: &BezPath, op: linesweeper::BinaryOp, rule: linesweeper::FillRule) -> Result<BezPath, String> {
+    // The sweep gives up on some degenerate outlines by panicking: that is an answer, not a crash.
+    let swept = std::panic::catch_unwind(|| linesweeper::binary_op(a, b, rule, op));
+    let contours = swept.map_err(|_| "контуры слишком вырождены для расчёта".to_string())?.map_err(|e| e.to_string())?;
     let mut out = BezPath::new();
     for c in contours.contours() {
         out.extend(c.path.iter());
