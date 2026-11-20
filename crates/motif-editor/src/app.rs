@@ -1,8 +1,8 @@
 use crate::canvas::{Canvas, View, artboard_rect};
 pub use crate::canvas_drag::{DragOp, MoveItem};
-pub(crate) use crate::canvas_drag::{Handle, handle_points};
 use crate::pathedit::{PenPoint, PointEdit};
 use crate::theme::{self, ACCENT, ACCENT_INK, BG, ButtonKind, DANGER, FAINT, FG, GOOD, Icon, KeyState, LINE, MUTED, PANEL, SEL};
+pub(crate) use crate::transform_frame::Handle;
 use egui::{Align2, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, pos2, vec2};
 use motif_core::kurbo::{Point, Shape};
 use motif_core::{Color, Document, Prop, Purpose, ShapeKind, Value};
@@ -971,6 +971,11 @@ impl App {
             Some(slot) => slot.2 = value,
             None => self.live.push((node.to_string(), prop, value)),
         }
+    }
+
+    /// A drag step that came back to where the drag started: nothing to write for it.
+    pub(crate) fn drop_preview(&mut self, node: &str, prop: Prop) {
+        self.live.retain(|(n, p, _)| !(n == node && *p == prop));
     }
 
     /// Writes the values of a finished drag to the script as one undo step.
@@ -2628,24 +2633,16 @@ impl App {
         } else {
             None
         };
-        let handles = self.selected.as_ref().filter(|_| self.also.is_empty()).and_then(|s| doc.index_of(s)).and_then(|i| handle_points(rect, view, &doc, i));
-        let hit_handle = |p: Pos2| -> Option<Handle> {
-            let h = handles.as_ref()?;
-            if h.rotate.distance(p) < 8.0 {
-                return Some(Handle::Rotate);
-            }
-            if h.resizable {
-                for c in h.corners {
-                    if c.distance(p) < 7.0 {
-                        return Some(Handle::Corner);
-                    }
-                }
-            }
-            None
-        };
+        let handles = self.transform_frame(&doc).map(|f| f.handles(rect, view));
+        let hit_handle = |p: Pos2| -> Option<Handle> { handles.as_ref()?.hit(p) };
 
         let (space, middle, alt, shift) = ui.input(|i| (i.key_down(Key::Space), i.pointer.middle_down(), i.modifiers.alt, i.modifiers.shift));
-        let pan_gesture = space || middle || (alt && self.point_edit.is_none()) || self.tool == Tool::Hand;
+        // Alt pans the canvas, except on a handle of the frame: there it means "around the middle".
+        let pressed_at = ui.input(|i| i.pointer.press_origin()).or(pointer);
+        let alt_on_handle = self.tool == Tool::Select
+            && (matches!(self.drag, Some(DragOp::Transform(_) | DragOp::Rotate { .. }))
+                || (self.drag.is_none() && pressed_at.is_some_and(|p| hit_handle(p).is_some())));
+        let pan_gesture = space || middle || (alt && self.point_edit.is_none() && !alt_on_handle) || self.tool == Tool::Hand;
         // A running machine that listens to the pointer takes it: the canvas is a live preview.
         let live = !pan_gesture && self.drag.is_none() && (self.check.is_some() || self.running().is_some_and(|(m, _)| !m.listeners.is_empty()));
         if live {
@@ -2701,7 +2698,7 @@ impl App {
             } else {
                 match hit_handle(p) {
                     Some(Handle::Rotate) => egui::CursorIcon::None,
-                    Some(Handle::Corner) => egui::CursorIcon::ResizeNwSe,
+                    Some(Handle::Size(hx, hy)) => handles.as_ref().map_or(egui::CursorIcon::Default, |h| h.cursor(hx, hy)),
                     None if path_hit.as_ref().is_some_and(|h| h.key) => egui::CursorIcon::Grab,
                     None if path_hit.is_some() => egui::CursorIcon::PointingHand,
                     None if self.hovered.is_some() => egui::CursorIcon::Move,
@@ -2718,12 +2715,13 @@ impl App {
             && let Some(p) = press
             && let dp = view.to_doc(rect, p)
         {
-            let grabbed = if pan_gesture || matches!(self.tool, Tool::Create(_)) { None } else { hit_handle(p) };
+            let grabbed =
+                if pan_gesture || matches!(self.tool, Tool::Create(_)) { None } else { hit_handle(p).and_then(|h| Some((self.transform_frame(&doc)?, h))) };
             let free = ui.input(|i| i.modifiers.command);
             self.drag = self.begin_drag(&doc, rect, view, p, dp, grabbed, pan_gesture, space, shift, free);
         }
         // Rotation has no system cursor: draw a circular arrow at the pointer instead.
-        let rotating = matches!(self.drag, Some(DragOp::Rotate { .. }));
+        let rotating = matches!(&self.drag, Some(DragOp::Rotate { .. })) || matches!(&self.drag, Some(DragOp::Transform(pull)) if !pull.sizing());
         if let Some(p) = pointer
             && (rotating || (self.drag.is_none() && !pan_gesture && self.tool == Tool::Select && hit_handle(p) == Some(Handle::Rotate)))
         {
@@ -2736,9 +2734,10 @@ impl App {
         if resp.dragged()
             && let Some(dp) = doc_pt
         {
-            // Alt (once the drag is on) or Ctrl: past the guides and the anchors.
-            let free = ui.input(|i| i.modifiers.alt || i.modifiers.command);
-            self.update_drag(&doc, view, dp, resp.drag_delta(), shift, free);
+            // Ctrl: past the guides and the anchors. Alt (once the drag is on) too, except on a
+            // size handle, where it stretches around the middle.
+            let ctrl = ui.input(|i| i.modifiers.command);
+            self.update_drag(&doc, view, dp, resp.drag_delta(), shift, alt, ctrl);
         }
         if resp.drag_stopped() {
             self.end_drag(&doc, view, shift);
@@ -2784,28 +2783,29 @@ impl App {
         }
         if let Some(s) = &self.selected
             && let Some(i) = doc.index_of(s)
+            && self.point_edit.is_none()
         {
-            if self.point_edit.is_none() {
-                outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
-                slice_guides(&painter, rect, view, &doc, i);
-            }
-            if let Some(h) = &handles
-                && self.point_edit.is_none()
-                && self.also.is_empty()
-            {
-                let top_mid = h.corners[0].lerp(h.corners[1], 0.5);
-                painter.line_segment([top_mid, h.rotate], Stroke::new(1.0, SEL));
-                painter.circle(h.rotate, 4.0, Color32::WHITE, Stroke::new(1.0, SEL));
-                if h.resizable {
-                    for c in h.corners {
-                        painter.rect(Rect::from_center_size(c, vec2(7.0, 7.0)), 1.0, Color32::WHITE, Stroke::new(1.0, SEL), StrokeKind::Middle);
-                    }
-                }
-            }
+            outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            slice_guides(&painter, rect, view, &doc, i);
         }
         for a in &self.also {
             if let Some(i) = doc.index_of(a) {
                 outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            }
+        }
+        if let Some(h) = &handles {
+            if !self.also.is_empty() {
+                // Several objects: the frame around all of them.
+                painter.add(egui::Shape::closed_line(h.corners.to_vec(), Stroke::new(1.0, SEL.gamma_multiply(0.8))));
+            }
+            let top_mid = h.corners[0].lerp(h.corners[1], 0.5);
+            painter.line_segment([top_mid, h.rotate], Stroke::new(1.0, SEL));
+            painter.circle(h.rotate, 4.0, Color32::WHITE, Stroke::new(1.0, SEL));
+            for s in h.sides.iter().flatten() {
+                painter.rect(Rect::from_center_size(*s, vec2(6.0, 6.0)), 3.0, Color32::WHITE, Stroke::new(1.0, SEL), StrokeKind::Middle);
+            }
+            for c in h.corners {
+                painter.rect(Rect::from_center_size(c, vec2(7.0, 7.0)), 1.0, Color32::WHITE, Stroke::new(1.0, SEL), StrokeKind::Middle);
             }
         }
         if let Some(DragOp::Marquee { from, to, .. }) = &self.drag {
@@ -3162,6 +3162,7 @@ impl App {
                     ("F, Shift+F", "Вписать холст; все холсты"),
                     ("G", "Сетка"),
                     ("Ctrl при перетаскивании", "Без привязки: мимо направляющих, узлов и шага"),
+                    ("Ручки рамки", "Размер от противоположной стороны; Alt — от середины, Shift — пропорции"),
                     ("Shift с пером", "Точка по оси или под 45° от предыдущей"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
                     ("Ctrl+N", "Новое: пустая сцена, UI-набор или шаблон экрана игры"),
@@ -4221,6 +4222,9 @@ mod preview_ui;
 #[cfg(test)]
 #[path = "canvas_interaction_tests.rs"]
 mod canvas_interaction_tests;
+#[cfg(test)]
+#[path = "frame_tests.rs"]
+mod frame_tests;
 #[cfg(test)]
 #[path = "snap_tests.rs"]
 mod snap_tests;

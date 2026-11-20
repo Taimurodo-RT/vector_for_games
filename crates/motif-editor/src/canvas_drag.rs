@@ -3,7 +3,8 @@
 
 use crate::app::{App, Tool};
 use crate::canvas::View;
-use egui::{Pos2, Rect, vec2};
+use crate::transform_frame::{Frame, Handle, Pull};
+use egui::{Pos2, Rect};
 use motif_core::kurbo::{Affine, Point};
 use motif_core::{Document, Prop, ShapeKind, Value};
 use motif_script::add_node;
@@ -24,12 +25,8 @@ pub enum DragOp {
         to: Point,
         add: bool,
     },
-    Resize {
-        node: String,
-        /// Artboard space to the node's local space, fixed at drag start.
-        to_local: Affine,
-        start: (f64, f64),
-    },
+    /// A handle of the transform frame: resizes the selection or turns several objects.
+    Transform(Pull),
     Rotate {
         node: String,
         center: Point,
@@ -60,35 +57,6 @@ pub struct MoveItem {
     pub(crate) to_parent: Affine,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Handle {
-    Corner,
-    Rotate,
-}
-
-pub(crate) struct Handles {
-    pub(crate) corners: [Pos2; 4],
-    pub(crate) rotate: Pos2,
-    pub(crate) resizable: bool,
-}
-
-pub(crate) fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) -> Option<Handles> {
-    let node = &doc.nodes[i];
-    // Bones have their own handles: the joint and the tip.
-    if node.kind == ShapeKind::Bone {
-        return None;
-    }
-    let bounds = crate::app::node_bounds(doc, i)?;
-    let t = doc.world_transform(i);
-    let corners = [(bounds.x0, bounds.y0), (bounds.x1, bounds.y0), (bounds.x1, bounds.y1), (bounds.x0, bounds.y1)]
-        .map(|(x, y)| view.to_screen(rect, t * Point::new(x, y)));
-    let top_mid = corners[0].lerp(corners[1], 0.5);
-    let center = corners[0].lerp(corners[2], 0.5);
-    let up = (top_mid - center).normalized();
-    let up = if up.is_finite() { up } else { vec2(0.0, -1.0) };
-    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) })
-}
-
 impl App {
     /// Where a point being placed at `p` goes ([`crate::snap::Snap::point`]), with the guides and
     /// the mark it shows on the canvas. Also tells whether it stuck to anything.
@@ -109,7 +77,7 @@ impl App {
         view: View,
         p: Pos2,
         dp: Point,
-        grabbed: Option<Handle>,
+        grabbed: Option<(Frame, Handle)>,
         pan_gesture: bool,
         space: bool,
         shift: bool,
@@ -127,21 +95,16 @@ impl App {
                 from = self.place_point(dp, view.zoom, free).0;
             }
             Some(DragOp::Create { kind, from, to: from })
-        } else if let Some(h) = grabbed
-            && let Some(id) = self.selected.clone()
-            && let Some(i) = doc.index_of(&id)
-        {
-            let n = &doc.nodes[i];
-            match h {
-                Handle::Corner => {
-                    self.drag_targets = self.snap_targets(doc, &[i], true);
-                    Some(DragOp::Resize { node: id, to_local: doc.world_transform(i).inverse(), start: (n.width, n.height) })
-                }
-                Handle::Rotate => {
+        } else if let Some((frame, handle)) = grabbed {
+            match (handle, frame.items.as_slice()) {
+                // One object turns around its own pivot.
+                (Handle::Rotate, &[i]) => {
+                    let n = &doc.nodes[i];
                     let center = doc.world_transform(i) * (Point::ZERO + n.pivot);
                     let a = (dp - center).atan2().to_degrees();
-                    Some(DragOp::Rotate { node: id, center, start_angle: a, start_rot: n.rotation })
+                    Some(DragOp::Rotate { node: n.id.clone(), center, start_angle: a, start_rot: n.rotation })
                 }
+                _ => Some(self.begin_pull(doc, frame, handle, dp)),
             }
         } else if !shift
             && !self.pointer_hits_selection(doc, dp)
@@ -189,16 +152,37 @@ impl App {
     }
 
     /// Follows the pointer with whatever is being dragged; changes are previewed and written on release.
-    pub(crate) fn update_drag(&mut self, doc: &Document, view: View, dp: Point, drag_delta: egui::Vec2, shift: bool, free: bool) {
+    ///
+    /// Ctrl switches the snapping off. Alt does the same for a move or a new shape; on a size handle
+    /// it stretches the frame around its middle instead.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn update_drag(&mut self, doc: &Document, view: View, dp: Point, drag_delta: egui::Vec2, shift: bool, alt: bool, ctrl: bool) {
         let snap = self.snap;
         // The corner of a new shape and a size handle are points being placed: they stick to
         // anchors, edges and centre lines.
-        let placing = match &self.drag {
-            Some(DragOp::Create { kind, .. }) => *kind != ShapeKind::Bone,
-            Some(DragOp::Resize { .. }) => true,
-            _ => false,
+        let (placing, aim, free) = match &self.drag {
+            Some(DragOp::Create { kind, .. }) => (*kind != ShapeKind::Bone, dp, alt || ctrl),
+            Some(DragOp::Transform(pull)) => (pull.sizing(), dp - pull.grab, ctrl),
+            _ => (false, dp, alt || ctrl),
         };
-        let (placed, placed_stuck) = if placing { self.place_point(dp, view.zoom, free) } else { (dp, false) };
+        let (placed, placed_stuck) = if placing { self.place_point(aim, view.zoom, free) } else { (dp, false) };
+        if let Some(DragOp::Transform(pull)) = &self.drag {
+            let mut stuck = placed_stuck;
+            if let Some(along_x) = pull.straight_axis() {
+                // A side handle moves along one axis: what the other one met does not count.
+                self.guides.retain(|g| g.vertical == along_x);
+                stuck = !self.guides.is_empty();
+            }
+            let (edits, note) = pull.edits(snap, placed, stuck, shift, alt);
+            for e in edits {
+                if e.changed {
+                    self.preview(&e.node, e.prop, Value::Num(e.value));
+                } else {
+                    self.drop_preview(&e.node, e.prop);
+                }
+            }
+            self.status = note;
+        }
         if let Some(DragOp::BoneTip { node, joint, parent_angle }) = &self.drag {
             let (node, joint, parent_angle) = (node.clone(), *joint, *parent_angle);
             self.drag_bone_tip(doc, &node, joint, parent_angle, dp, shift);
@@ -246,24 +230,6 @@ impl App {
                     }
                 }
             }
-            Some(DragOp::Resize { node, to_local, start }) => {
-                let local = *to_local * placed;
-                // A handle that stuck to something keeps the size that reaches it exactly.
-                let size = |v: f64| if placed_stuck { (v * 100.0).round() / 100.0 } else { snap.size(v) };
-                let (mut w, mut h) = (size(local.x.abs() * 2.0), size(local.y.abs() * 2.0));
-                if shift && start.0 > 0.0 && start.1 > 0.0 {
-                    let k = (w / start.0).max(h / start.1);
-                    (w, h) = (size(start.0 * k), size(start.1 * k));
-                }
-                let node = node.clone();
-                let cur = doc.node(&node).map(|n| (n.width, n.height));
-                if cur.is_some_and(|c| c.0 != w) {
-                    self.preview(&node, Prop::Width, Value::Num(w.max(1.0)));
-                }
-                if cur.is_some_and(|c| c.1 != h) {
-                    self.preview(&node, Prop::Height, Value::Num(h.max(1.0)));
-                }
-            }
             Some(DragOp::Rotate { node, center, start_angle, start_rot }) => {
                 let a = (dp - *center).atan2().to_degrees();
                 let mut rot = *start_rot + (a - *start_angle);
@@ -273,7 +239,7 @@ impl App {
                     self.preview(&node, Prop::Rotation, Value::Num(rot));
                 }
             }
-            Some(DragOp::BoneTip { .. }) | None => {}
+            Some(DragOp::Transform(_) | DragOp::BoneTip { .. }) | None => {}
         }
     }
 

@@ -131,12 +131,7 @@ impl App {
             return;
         }
         let doc = self.display_doc();
-        let handle = self
-            .selected
-            .as_deref()
-            .and_then(|id| doc.index_of(id))
-            .and_then(|i| handle_points(self.canvas_bounds, view, &doc, i))
-            .is_some_and(|h| h.rotate.distance(p) < 8.0 || (h.resizable && h.corners.iter().any(|c| c.distance(p) < 7.0)));
+        let handle = self.transform_frame(&doc).is_some_and(|f| f.handles(self.canvas_bounds, view).hit(p).is_some());
         if self.deformer.target.is_some()
             || handle
             || doc.hit_test(view.to_doc(self.canvas_bounds, p)).is_some()

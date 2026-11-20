@@ -12,6 +12,15 @@ pub fn fmt_value(v: Value) -> String {
     }
 }
 
+/// A value as the script writes it for `prop`. Scale gets four decimals: on a large object a
+/// hundredth of scale is several units at its far side, too coarse to place an edge exactly.
+pub fn fmt_prop(prop: Prop, v: Value) -> String {
+    match v {
+        Value::Num(n) if matches!(prop, Prop::ScaleX | Prop::ScaleY) => crate::fmt_num_with(n, 4),
+        _ => fmt_value(v),
+    }
+}
+
 pub(crate) fn splice(src: &str, span: Span, text: &str) -> String {
     let mut out = String::with_capacity(src.len() + text.len());
     out.push_str(&src[..span.start]);
@@ -46,11 +55,11 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
     if matches!(prop, Prop::WarpX(_) | Prop::WarpY(_)) && current.lattice.is_none() || prop == Prop::Contour && current.forms.is_none() {
         return None;
     }
-    let format = |v| match v {
+    let format = |p: Prop, v| match v {
         Value::Num(n) if precise => n.to_string(),
-        _ => fmt_value(v),
+        _ => fmt_prop(p, v),
     };
-    let text = format(value);
+    let text = format(prop, value);
     let key = (node.to_string(), prop);
 
     if let Some(s) = scene.sources.get(&key) {
@@ -62,7 +71,7 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
         }
         let repl = match s.paired {
             Some(other) => {
-                let other_text = format(current.get(other));
+                let other_text = format(other, current.get(other));
                 if matches!(prop, Prop::Width | Prop::ScaleX | Prop::SkewX) { format!("{text} {other_text}") } else { format!("{other_text} {text}") }
             }
             None => text,
@@ -98,7 +107,7 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
         });
     }
 
-    let num = |p: Prop| fmt_value(current.get(p));
+    let num = |p: Prop| fmt_prop(p, current.get(p));
     let pick = |p: Prop| if p == prop { text.clone() } else { num(p) };
     let stroke_color = current.stroke.unwrap_or(Color::BLACK).to_hex();
     let stroke_width = if current.stroke_width > 0.0 { current.stroke_width } else { 2.0 };
@@ -219,13 +228,13 @@ pub fn set_key(src: &str, scene: &Scene, anim: &str, node: &str, prop: Prop, tim
     let site = scene.anims.get(anim)?;
     let base = scene.doc.animated_value(node, prop)?;
     let time = key_time(time);
-    let key = format!("{}: {}", fmt_num(time), fmt_value(value));
+    let key = format!("{}: {}", fmt_num(time), fmt_prop(prop, value));
     let Some(track) = find_track(scene, anim, node, prop) else {
-        let keys = if time < SAME_TIME { key } else { format!("0: {} | {key}", fmt_value(base)) };
+        let keys = if time < SAME_TIME { key } else { format!("0: {} | {key}", fmt_prop(prop, base)) };
         return Some(insert_before_close(src, site.close, &format!("  {node}.{}  {keys}\n", prop.path_name())));
     };
     if let Some(k) = track.keys.iter().find(|k| (k.time - time).abs() < SAME_TIME) {
-        return Some(splice(src, k.value, &fmt_value(value)));
+        return Some(splice(src, k.value, &fmt_prop(prop, value)));
     }
     Some(match track.keys.iter().find(|k| k.time > time) {
         Some(next) => splice(src, Span::new(next.span.start, next.span.start), &format!("{key} | ")),
