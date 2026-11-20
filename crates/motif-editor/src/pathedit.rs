@@ -160,10 +160,68 @@ pub enum PointGrab {
 /// Point editing of one path node.
 pub struct PointEdit {
     pub node: String,
+    /// The active anchor: its handles are shown and the panel edits it.
     pub selected: Option<Anchor>,
+    /// The other selected anchors, in any part of the outline.
+    pub also: Vec<Anchor>,
     pub grab: Option<(PointGrab, Compound)>,
     /// The outline while a point is being dragged; written to the script on release.
     pub live: Option<Compound>,
+    /// A selection frame being pulled over the anchors (screen points); with Shift it adds.
+    pub marquee: Option<(Pos2, Pos2, bool)>,
+}
+
+impl PointEdit {
+    pub fn new(node: String) -> Self {
+        PointEdit { node, selected: None, also: Vec::new(), grab: None, live: None, marquee: None }
+    }
+
+    /// Selected anchors, the active one first.
+    pub fn anchors(&self) -> Vec<Anchor> {
+        self.selected.iter().chain(self.also.iter()).copied().collect()
+    }
+
+    pub fn holds(&self, a: Anchor) -> bool {
+        self.selected == Some(a) || self.also.contains(&a)
+    }
+
+    pub fn select_only(&mut self, a: Option<Anchor>) {
+        self.selected = a;
+        self.also.clear();
+    }
+
+    /// Makes a selected anchor the active one, or adds it as the active one.
+    pub fn activate(&mut self, a: Anchor) {
+        self.also.retain(|x| *x != a);
+        if let Some(old) = self.selected.replace(a)
+            && old != a
+        {
+            self.also.insert(0, old);
+        }
+    }
+
+    /// Shift-click: adds an anchor to the selection or takes it out.
+    pub fn toggle(&mut self, a: Anchor) {
+        if self.selected == Some(a) {
+            self.selected = if self.also.is_empty() { None } else { Some(self.also.remove(0)) };
+        } else if let Some(k) = self.also.iter().position(|x| *x == a) {
+            self.also.remove(k);
+        } else {
+            self.activate(a);
+        }
+    }
+
+    /// Selects `picked` (the first becomes active); `add` keeps what was selected.
+    pub fn select_many(&mut self, picked: &[Anchor], add: bool) {
+        if !add {
+            self.select_only(None);
+        }
+        for &a in picked.iter().rev() {
+            if !self.holds(a) {
+                self.activate(a);
+            }
+        }
+    }
 }
 
 /// An anchor placed by the pen in artboard space, with its outgoing handle offset.
@@ -343,8 +401,8 @@ impl App {
             self.status = format!("«{id}» создан циклом: его контур правится в скрипте");
             return;
         }
-        self.point_edit = Some(PointEdit { node: id, selected: None, grab: None, live: None });
-        self.status = "Клик по линии — новая точка · двойной клик — угол/плавная · Alt — ручки отдельно · Delete — удалить".into();
+        self.point_edit = Some(PointEdit::new(id));
+        self.status = "Клик по линии — новая точка · Shift+клик и рамка — несколько точек · двойной клик — угол/плавная · Delete — удалить".into();
     }
 
     /// Point editing on the canvas. Returns false when editing ended and the click should be
@@ -365,6 +423,15 @@ impl App {
             return true;
         }
         let sel = sel.filter(|&a| outline.contains(a));
+        if let Some(e) = self.point_edit.as_mut() {
+            // The outline may have changed under the selection (undo, a clip, the script).
+            e.also.retain(|a| outline.contains(*a));
+            if sel.is_none() && e.selected.is_some() {
+                e.selected = if e.also.is_empty() { None } else { Some(e.also.remove(0)) };
+            }
+        }
+        let sel = self.point_edit.as_ref().and_then(|e| e.selected);
+        let shift = ui.input(|i| i.modifiers.shift);
         let screen = |p: Point| view.to_screen(rect, world * doc.map_lattice_point(i, p));
         let local = |s: Pos2| doc.unmap_lattice_point(i, world.inverse() * view.to_doc(rect, s));
         let alt = ui.input(|i| i.modifiers.alt);
@@ -419,10 +486,16 @@ impl App {
                     PointGrab::Anchor { index: k, from: local(origin) }
                 }),
             };
+            let inserted = changed.is_some();
             let base = changed.clone().unwrap_or_else(|| outline.clone());
             if let Some(e) = self.point_edit.as_mut() {
-                if let Some(PointGrab::Anchor { index, .. } | PointGrab::In(index) | PointGrab::Out(index)) = grab {
-                    e.selected = Some(index);
+                match grab {
+                    // A point just put on the line, or one outside the selection, is taken alone;
+                    // a selected one takes the whole selection with it.
+                    Some(PointGrab::Anchor { index, .. }) if inserted || (!shift && !e.holds(index)) => e.select_only(Some(index)),
+                    Some(PointGrab::Anchor { index, .. } | PointGrab::In(index) | PointGrab::Out(index)) => e.activate(index),
+                    // From an empty place: a frame over the anchors.
+                    None => e.marquee = Some((origin, origin, shift)),
                 }
                 e.live = grab.map(|_| base.clone());
                 e.grab = grab.map(|g| (g, base));
@@ -431,12 +504,26 @@ impl App {
         }
         if resp.dragged()
             && let Some(p) = resp.interact_pointer_pos()
+            && let Some(m) = self.point_edit.as_mut().and_then(|e| e.marquee.as_mut())
+        {
+            m.1 = p;
+        }
+        if resp.dragged()
+            && let Some(p) = resp.interact_pointer_pos()
             && let Some((grab, base)) = self.point_edit.as_ref().and_then(|e| e.grab.clone())
         {
             let at = local(p);
             let mut o = base.clone();
             match grab {
-                PointGrab::Anchor { index, from } => o.parts[index.part].outline.verts[index.vertex].translate(round_vec(at - from)),
+                PointGrab::Anchor { from, .. } => {
+                    // Every selected anchor goes the same way, with its handles.
+                    let d = round_vec(at - from);
+                    for a in self.point_edit.as_ref().map(|e| e.anchors()).unwrap_or_default() {
+                        if o.contains(a) {
+                            o.parts[a.part].outline.verts[a.vertex].translate(d);
+                        }
+                    }
+                }
                 PointGrab::In(k) | PointGrab::Out(k) => {
                     let v = &mut o.parts[k.part].outline.verts[k.vertex];
                     let at = round_pt(at);
@@ -461,6 +548,22 @@ impl App {
         {
             e.grab = None;
             changed = e.live.take();
+            if let Some((a, b, add)) = e.marquee.take() {
+                let area = Rect::from_two_pos(a, b);
+                let inside: Vec<Anchor> = outline
+                    .parts
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(part, entry)| entry.outline.verts.iter().enumerate().map(move |(vertex, v)| (Anchor { part, vertex }, v.p)))
+                    .filter(|(_, p)| area.contains(screen(*p)))
+                    .map(|(a, _)| a)
+                    .collect();
+                e.select_many(&inside, add);
+                self.status = match e.anchors().len() {
+                    0 => "В рамку не попало ни одной точки".into(),
+                    n => format!("Выделено точек: {n}. Тяните любую из них или двигайте стрелками"),
+                };
+            }
         }
         if resp.double_clicked()
             && let Some(p) = resp.interact_pointer_pos()
@@ -475,7 +578,11 @@ impl App {
             match hit(p) {
                 Some(PointGrab::Anchor { index, .. }) => {
                     if let Some(e) = self.point_edit.as_mut() {
-                        e.selected = Some(index);
+                        if shift {
+                            e.toggle(index);
+                        } else {
+                            e.select_only(Some(index));
+                        }
                     }
                 }
                 Some(_) => {}
@@ -485,7 +592,7 @@ impl App {
                         let k = o.split(part, seg, t);
                         changed = Some(o);
                         if let Some(e) = self.point_edit.as_mut() {
-                            e.selected = Some(k);
+                            e.select_only(Some(k));
                         }
                     }
                     // A click away from the outline ends editing and selects as usual.
@@ -504,6 +611,7 @@ impl App {
         // Overlay: the outline, handles and anchors.
         let painter = ui.painter_at(rect);
         let sel = self.point_edit.as_ref().and_then(|e| e.selected);
+        let picked = self.point_edit.as_ref().map(|e| e.anchors()).unwrap_or_default();
         for (part, entry) in shown.parts.iter().enumerate() {
             paint_outline(&painter, &entry.outline, screen, Stroke::new(1.5, SEL));
             for (vertex, v) in entry.outline.verts.iter().enumerate() {
@@ -516,9 +624,17 @@ impl App {
                         painter.circle(cs, 3.5, Color32::WHITE, Stroke::new(1.0, SEL));
                     }
                 }
-                let on = sel == Some(Anchor { part, vertex });
+                let at = Anchor { part, vertex };
+                let on = picked.contains(&at);
                 painter.rect(Rect::from_center_size(s, vec2(7.0, 7.0)), 1.0, if on { SEL } else { Color32::WHITE }, Stroke::new(1.0, SEL), StrokeKind::Middle);
+                if sel == Some(at) && picked.len() > 1 {
+                    // The active one among several: the panel shows its numbers.
+                    painter.rect_stroke(Rect::from_center_size(s, vec2(12.0, 12.0)), 2.0, Stroke::new(1.0, SEL), StrokeKind::Middle);
+                }
             }
+        }
+        if let Some((a, b, _)) = self.point_edit.as_ref().and_then(|e| e.marquee) {
+            painter.rect(Rect::from_two_pos(a, b), 0.0, SEL.gamma_multiply(0.08), Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
         let badge = "ТОЧКИ · Enter — готово";
         let g = painter.layout_no_wrap(badge.into(), theme::semibold(11.0), Color32::WHITE);
@@ -528,25 +644,91 @@ impl App {
         true
     }
 
-    /// Deletes the selected anchor; an outline keeps at least two.
+    /// Deletes the selected anchors. A part keeps at least two points; a part whose points are
+    /// all selected goes whole, as long as another part stays.
     pub(crate) fn delete_point(&mut self) -> bool {
         let Some(edit) = &self.point_edit else { return false };
-        let Some(k) = edit.selected else { return true };
         let doc = self.display_doc();
         let Some(node) = doc.node(&edit.node) else { return true };
         let Some(mut o) = Compound::from_bez(&node.editable_path()) else { return true };
-        if !o.contains(k) {
+        let picked: Vec<Anchor> = edit.anchors().into_iter().filter(|&a| o.contains(a)).collect();
+        if picked.is_empty() {
             return true;
         }
-        if o.parts[k.part].outline.verts.len() <= 2 {
-            self.status = "В контуре должно остаться хотя бы две точки".into();
+        let mut whole: Vec<usize> = Vec::new();
+        for part in 0..o.parts.len() {
+            let mut gone: Vec<usize> = picked.iter().filter(|a| a.part == part).map(|a| a.vertex).collect();
+            gone.sort_unstable();
+            gone.dedup();
+            let verts = &mut o.parts[part].outline.verts;
+            if gone.len() == verts.len() && gone.len() > 2 {
+                whole.push(part);
+            } else if verts.len() - gone.len() < 2 {
+                self.status = "В части контура должно остаться хотя бы две точки. Выделите все её точки, чтобы удалить часть целиком".into();
+                return true;
+            } else {
+                for v in gone.into_iter().rev() {
+                    verts.remove(v);
+                }
+            }
+        }
+        if whole.len() == o.parts.len() {
+            self.status = "Нельзя удалить все точки контура: удалите сам объект (Enter, затем Delete)".into();
             return true;
         }
-        o.parts[k.part].outline.verts.remove(k.vertex);
+        for part in whole.into_iter().rev() {
+            o.parts.remove(part);
+        }
         if let Some(e) = self.point_edit.as_mut() {
-            e.selected = None;
+            e.select_only(None);
         }
         self.write_outline(&o);
+        if picked.len() > 1 {
+            self.status = format!("Удалено точек: {}", picked.len());
+        }
+        true
+    }
+
+    /// Ctrl+A while editing points: every anchor of the outline.
+    pub(crate) fn select_all_points(&mut self) -> bool {
+        let Some(edit) = &self.point_edit else { return false };
+        let doc = self.display_doc();
+        let Some(o) = doc.node(&edit.node).and_then(|n| Compound::from_bez(&n.editable_path())) else { return true };
+        let all: Vec<Anchor> = o.parts.iter().enumerate().flat_map(|(part, p)| (0..p.outline.verts.len()).map(move |vertex| Anchor { part, vertex })).collect();
+        if let Some(e) = self.point_edit.as_mut() {
+            let active = e.selected;
+            e.select_many(&all, false);
+            if let Some(a) = active.filter(|a| all.contains(a)) {
+                e.activate(a);
+            }
+        }
+        self.status = format!("Выделено точек: {}", all.len());
+        true
+    }
+
+    /// Arrow keys while editing points: the selected anchors go `d` artboard units. Returns false
+    /// when no points are being edited.
+    pub(crate) fn nudge_points(&mut self, d: Vec2) -> bool {
+        let Some(edit) = &self.point_edit else { return false };
+        let doc = self.display_doc();
+        let Some(i) = doc.index_of(&edit.node) else { return true };
+        let Some(mut o) = Compound::from_bez(&doc.nodes[i].editable_path()) else { return true };
+        let picked: Vec<Anchor> = edit.anchors().into_iter().filter(|&a| o.contains(a)).collect();
+        let world = doc.world_transform(i);
+        if picked.is_empty() || world.determinant().abs() < 1e-12 {
+            return true;
+        }
+        // The step is in artboard units, as the eye sees it; the points live in the outline's own space.
+        let c = world.inverse().as_coeffs();
+        let own = round_vec(Vec2::new(c[0] * d.x + c[2] * d.y, c[1] * d.x + c[3] * d.y));
+        for a in picked {
+            o.parts[a.part].outline.verts[a.vertex].translate(own);
+        }
+        let id = edit.node.clone();
+        if self.can_edit() {
+            let out = self.outline_edit_source(&id, &o.to_bez());
+            self.apply(&format!("{id}.d.nudge"), out);
+        }
         true
     }
 
@@ -581,13 +763,17 @@ impl App {
                 {
                     at = Anchor { part, vertex: 0 };
                     if let Some(e) = &mut self.point_edit {
-                        e.selected = Some(at);
+                        e.select_only(Some(at));
                     }
                 }
             }
         });
         let mut discrete = false;
         let mut numeric = false;
+        let count = self.point_edit.as_ref().map_or(0, |e| e.anchors().len());
+        if count > 1 {
+            ui.label(format!("Выделено точек: {count}. Числа ниже — у главной (в рамке)"));
+        }
         if selected.is_some() {
             ui.label(format!("Узел {} · локальные координаты", at.vertex + 1));
             let v = &mut shape.parts[at.part].outline.verts[at.vertex];
@@ -610,7 +796,7 @@ impl App {
                     self.status = "Для разрыва открытой части выберите внутренний узел".into();
                 }
                 if let Some(e) = &mut self.point_edit {
-                    e.selected = None;
+                    e.select_only(None);
                 }
             }
             if shape.endpoint(at) {
@@ -626,7 +812,7 @@ impl App {
                         if ui.button(format!("Часть {}, {}", b.part + 1, if b.vertex == 0 { "начало" } else { "конец" })).clicked() {
                             if let Some(joined) = shape.join(at, b) {
                                 if let Some(e) = &mut self.point_edit {
-                                    e.selected = Some(joined);
+                                    e.select_only(Some(joined));
                                 }
                                 discrete = true;
                             }
@@ -654,14 +840,14 @@ impl App {
                 shape.reverse(at.part);
                 discrete = true;
                 if let Some(e) = &mut self.point_edit {
-                    e.selected = None;
+                    e.select_only(None);
                 }
             }
             if ui.add_enabled(shape.parts.len() > 1, egui::Button::new("Удалить часть")).clicked() {
                 shape.parts.remove(at.part);
                 discrete = true;
                 if let Some(e) = &mut self.point_edit {
-                    e.selected = None;
+                    e.select_only(None);
                 }
             }
         }
