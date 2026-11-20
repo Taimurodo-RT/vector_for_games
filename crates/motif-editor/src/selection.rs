@@ -63,6 +63,17 @@ impl App {
         self.selected.iter().chain(self.also.iter()).cloned().collect()
     }
 
+    /// Where the selected objects are in `doc`, the primary one first. A big selection is found
+    /// in one pass over the document, not by a search for every object.
+    pub(crate) fn selected_in(&self, doc: &Document) -> Vec<usize> {
+        let ids = self.selected.iter().chain(self.also.iter());
+        if self.also.len() < 8 {
+            return ids.filter_map(|id| doc.index_of(id)).collect();
+        }
+        let at: std::collections::HashMap<&str, usize> = doc.nodes.iter().enumerate().rev().map(|(i, n)| (n.id.as_str(), i)).collect();
+        ids.filter_map(|id| at.get(id.as_str()).copied()).collect()
+    }
+
     pub(crate) fn is_selected(&self, id: &str) -> bool {
         self.selected.as_deref() == Some(id) || self.also.iter().any(|a| a == id)
     }

@@ -14,6 +14,9 @@ enum Var {
 
 pub struct Evaluator<'a> {
     src: &'a str,
+    /// Where the lines of the script end, so the line of a node is found without reading the
+    /// script from its start for every node.
+    line_ends: Vec<usize>,
     /// Folder that font files named in the script are relative to.
     base: Option<std::path::PathBuf>,
     vars: HashMap<String, Var>,
@@ -44,6 +47,7 @@ impl<'a> Evaluator<'a> {
     pub fn new(src: &'a str, base: Option<&std::path::Path>) -> Self {
         Evaluator {
             src,
+            line_ends: src.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i).collect(),
             base: base.map(|b| b.to_path_buf()),
             vars: HashMap::new(),
             symbols: HashMap::new(),
@@ -895,7 +899,8 @@ impl<'a> Evaluator<'a> {
     fn node(&mut self, n: &NodeAst, parent: Option<usize>, generated: bool) -> Option<usize> {
         let id = self.template(&n.id, n.id_span)?;
         let id = format!("{}{id}", self.prefix);
-        if self.scene.doc.index_of(&id).is_some() {
+        // Every object written so far has its place recorded under its id.
+        if self.scene.sites.contains_key(&id) {
             self.err(n.id_span, format!("id «{id}» уже занят"));
             return None;
         }
@@ -1945,7 +1950,7 @@ impl<'a> Evaluator<'a> {
             NodeSite {
                 insert_at: n.insert_at,
                 generated,
-                line: crate::line_of(self.src, n.id_span.start),
+                line: self.line_ends.partition_point(|&end| end < n.id_span.start) + 1,
                 span: n.span,
                 id_span: n.id_span,
                 name_span: n.name_span,

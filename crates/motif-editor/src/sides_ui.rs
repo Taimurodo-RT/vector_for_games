@@ -34,12 +34,9 @@ impl App {
         let doc = &self.scene.doc;
         let current = doc.directions.clone();
         // Objects a turn shows: balls with something on them, and 3D bodies.
-        let turnable: Vec<(String, String)> = doc
-            .nodes
-            .iter()
-            .filter(|n| n.body.is_some() || doc.nodes.iter().any(|o| o.on.as_deref() == Some(n.id.as_str())))
-            .map(|n| (n.id.clone(), n.display_name().to_string()))
-            .collect();
+        let balls: std::collections::HashSet<&str> = doc.nodes.iter().filter_map(|o| o.on.as_deref()).collect();
+        let turnable: Vec<(String, String)> =
+            doc.nodes.iter().filter(|n| n.body.is_some() || balls.contains(n.id.as_str())).map(|n| (n.id.clone(), n.display_name().to_string())).collect();
         let mut next: Option<Option<Directions>> = None;
         let mut pick = None;
         fold(ui, "Стороны", |ui| {
