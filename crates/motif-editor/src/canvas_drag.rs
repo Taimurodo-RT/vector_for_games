@@ -181,6 +181,7 @@ impl App {
                     self.drop_preview(&e.node, e.prop);
                 }
             }
+            self.drag_label = Some(note.clone());
             self.status = note;
         }
         if let Some(DragOp::BoneTip { node, joint, parent_angle }) = &self.drag {
@@ -206,6 +207,7 @@ impl App {
                     let (d, s, g) = targets.snap(*b, delta, view.zoom);
                     (delta, stuck, self.guides) = (d, s, g);
                 }
+                self.drag_label = Some(format!("Δ {} · {}", motif_script::fmt_num(delta.x), motif_script::fmt_num(delta.y)));
                 let fine = |v: f64| (v * 10.0).round() / 10.0;
                 // What stuck to a guide keeps its exact place, to a hundredth.
                 let exact = |v: f64| (v * 100.0).round() / 100.0;
@@ -234,6 +236,7 @@ impl App {
                 let a = (dp - *center).atan2().to_degrees();
                 let mut rot = *start_rot + (a - *start_angle);
                 rot = if shift { (rot / 15.0).round() * 15.0 } else { snap.rot(rot) };
+                self.drag_label = Some(format!("Угол {}°", motif_script::fmt_num(rot)));
                 let node = node.clone();
                 if doc.node(&node).is_some_and(|n| n.rotation != rot) {
                     self.preview(&node, Prop::Rotation, Value::Num(rot));
@@ -247,6 +250,7 @@ impl App {
     pub(crate) fn end_drag(&mut self, doc: &Document, view: View, shift: bool) {
         self.guides.clear();
         self.snap_mark = None;
+        self.drag_label = None;
         self.drag_targets = Default::default();
         self.commit_live();
         match self.drag.take() {

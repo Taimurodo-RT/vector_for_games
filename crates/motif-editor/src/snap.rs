@@ -27,6 +27,8 @@ pub struct Snap {
     /// Lines between the pixels of the export (at its scale), when zoomed in far enough to see them.
     pub pixels: bool,
     pub rulers: bool,
+    /// While dragging: distances to the neighbours, and the size, shift or angle at the pointer.
+    pub labels: bool,
 }
 
 impl Default for Snap {
@@ -43,6 +45,7 @@ impl Default for Snap {
             grid_size: 16.0,
             pixels: false,
             rulers: true,
+            labels: true,
         }
     }
 }
@@ -137,6 +140,8 @@ impl App {
             });
             ui.label(RichText::new("Ctrl — поставить точно под курсор, без привязки.").size(11.5).color(FAINT));
             ui.checkbox(&mut self.snap.rulers, "Линейки");
+            ui.checkbox(&mut self.snap.labels, "Подписи расстояний")
+                .on_hover_text("Пока объект тянут: расстояния до соседей и краёв холста, у курсора — сдвиг, размер или угол");
             ui.checkbox(&mut self.snap.user_guides, "Свои направляющие")
                 .on_hover_text("Потяните из линейки на холст. Обратно на линейку — убрать. Точные числа и замок — в панели справа, когда ничего не выделено");
             ui.horizontal(|ui| {

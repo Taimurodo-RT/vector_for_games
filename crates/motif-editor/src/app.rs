@@ -158,7 +158,7 @@ pub struct App {
     pub(crate) undo: Vec<(usize, String)>,
     redo: Vec<(usize, String)>,
     pub(crate) boards: crate::boards_ui::Boards,
-    last_checkpoint: (String, Instant),
+    pub(crate) last_checkpoint: (String, Instant),
     pub(crate) tool: Tool,
     pub(crate) drag: Option<DragOp>,
     /// Values changed by the drag in progress: shown on the canvas, written to the script on release.
@@ -168,6 +168,15 @@ pub struct App {
     pub(crate) guides: Vec<crate::guides::Guide>,
     /// The guide line following the pointer.
     pub(crate) guide_drag: Option<crate::user_guides::GuideDrag>,
+    /// The pivot of the selected object while its mark is dragged on the canvas.
+    pub(crate) pivot_drag: Option<crate::pivot_ui::PivotDrag>,
+    /// The pointer is on the pivot mark.
+    pub(crate) pivot_hover: bool,
+    /// The pivot mark takes the mouse (Y): off by default, because the mark sits where an
+    /// object is grabbed to move it.
+    pub(crate) pivot_mode: bool,
+    /// What a drag says at the pointer: the shift, the size or the angle.
+    pub(crate) drag_label: Option<String>,
     /// The anchor or centre the point being placed stuck to.
     pub(crate) snap_mark: Option<Point>,
     /// What the corner of a new shape or a size handle can stick to, collected when the drag starts.
@@ -364,6 +373,10 @@ impl App {
             guides: Vec::new(),
             snap_mark: None,
             guide_drag: None,
+            pivot_drag: None,
+            pivot_hover: false,
+            pivot_mode: false,
+            drag_label: None,
             drag_targets: Default::default(),
             pen_targets: None,
             scene_rev: 0,
@@ -2137,6 +2150,9 @@ impl App {
                     field(self, ui, "Накл. Y °", Prop::SkewY, 0.5, -89.0..=89.0, 1.0, 1);
                 });
                 crate::style_ui::pivot_row(ui, &node, &mut styles);
+                ui.checkbox(&mut self.pivot_mode, "Двигать ось на холсте (Y)").on_hover_text(
+                    "Кружок с крестиком на холсте — ось: вокруг неё объект поворачивается и масштабируется. Пока галочка стоит, ось тянут мышью, объект остаётся на месте; двойной клик возвращает её в центр",
+                );
             });
         }
         let mut pick_font = false;
@@ -2633,7 +2649,8 @@ impl App {
         } else {
             None
         };
-        let handles = self.transform_frame(&doc).map(|f| f.handles(rect, view));
+        let frame = self.transform_frame(&doc);
+        let handles = frame.as_ref().map(|f| f.handles(rect, view));
         let hit_handle = |p: Pos2| -> Option<Handle> { handles.as_ref()?.hit(p) };
 
         let (space, middle, alt, shift) = ui.input(|i| (i.key_down(Key::Space), i.pointer.middle_down(), i.modifiers.alt, i.modifiers.shift));
@@ -2655,10 +2672,14 @@ impl App {
         // The rulers and the guide lines pulled out of them.
         let on_handle = pointer.is_some_and(|p| hit_handle(p).is_some());
         let guiding = !pan_gesture && !live && !board_ui && self.eyedrop.is_none() && self.guide_input(ui, &resp, rect, view, &doc, on_handle);
+        // The pivot mark of the selected object.
+        let pivoting =
+            !pan_gesture && !live && !board_ui && !guiding && self.eyedrop.is_none() && self.pivot_input(ui, &resp, rect, view, &doc, frame.as_ref());
         // The pen and point editing take the pointer themselves.
-        let deforming = !pan_gesture && !live && !guiding && self.deformer_input(ui, &resp, rect, view, &doc);
+        let deforming = !pan_gesture && !live && !guiding && !pivoting && self.deformer_input(ui, &resp, rect, view, &doc);
         let special = deforming
             || guiding
+            || pivoting
             || live
             || board_ui
             || (!pan_gesture
@@ -2818,7 +2839,24 @@ impl App {
             let r = Rect::from_two_pos(view.to_screen(rect, *from), view.to_screen(rect, *to));
             painter.rect_stroke(r, 0.0, Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
+        self.paint_pivot(&painter, rect, view, &doc, frame.as_ref());
         self.paint_user_guides(&painter, rect, view);
+        if self.snap.labels {
+            // Distances from what is being moved or resized to its neighbours.
+            let around = match &self.drag {
+                Some(DragOp::Move { targets, .. }) => Some(targets),
+                Some(DragOp::Transform(pull)) if pull.sizing() => Some(&self.drag_targets),
+                _ => None,
+            };
+            let moving =
+                self.selection().iter().filter_map(|id| doc.index_of(id)).filter_map(|k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
+            if let (Some(around), Some(b)) = (around, moving) {
+                crate::measure::paint_gaps(&painter, rect, view, &crate::measure::gaps(around.rects(), b));
+            }
+            if let (Some(text), Some(p)) = (&self.drag_label, pointer) {
+                crate::measure::paint_pointer_label(&painter, p, text);
+            }
+        }
         crate::guides::paint_guides(&painter, rect, view, &self.guides);
         if let Some(m) = self.snap_mark {
             crate::guides::paint_mark(&painter, rect, view, m);
@@ -3163,6 +3201,7 @@ impl App {
                     ("G", "Сетка"),
                     ("Ctrl при перетаскивании", "Без привязки: мимо направляющих, узлов и шага"),
                     ("Ручки рамки", "Размер от противоположной стороны; Alt — от середины, Shift — пропорции"),
+                    ("Y", "Двигать опорную точку (кружок с крестиком) на холсте; двойной клик по ней — в центр"),
                     ("Shift с пером", "Точка по оси или под 45° от предыдущей"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
                     ("Ctrl+N", "Новое: пустая сцена, UI-набор или шаблон экрана игры"),
@@ -3335,6 +3374,14 @@ impl App {
         }
         if plain(Key::G) {
             self.snap.grid = !self.snap.grid;
+        }
+        if plain(Key::Y) {
+            self.pivot_mode = !self.pivot_mode;
+            self.status = if self.pivot_mode {
+                "Опорная точка: тяните кружок с крестиком, объект останется на месте. Y — выключить".into()
+            } else {
+                "Опорная точка закреплена: объект снова берётся за середину".into()
+            };
         }
         if plain(Key::F) || (i.modifiers.shift && i.key_pressed(Key::Num1)) {
             self.view = None;
