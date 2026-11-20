@@ -220,11 +220,24 @@ impl App {
                 ui.add_space(2.0);
             }
             // Topmost first, like in every layer list; a group's children under it.
-            for &i in &order {
+            // Only the rows in view are laid out and painted: a scene of thousands of layers
+            // costs what the screenful costs. The rest take their place as empty space.
+            let (top, left, width) = (ui.cursor().top(), ui.cursor().left(), ui.available_width());
+            rows.extend(order.iter().enumerate().map(|(k, &i)| (i, Rect::from_min_size(pos2(left, top + k as f32 * ROW_H), vec2(width, ROW_H)))));
+            let row_at = |y: f32| (((y - top) / ROW_H).max(0.0) as usize).min(order.len());
+            let (first, last) = (row_at(drop_area.top()), (row_at(drop_area.bottom()) + 1).min(order.len()));
+            let selection = self.selection();
+            let selected: HashSet<&str> = selection.iter().map(String::as_str).collect();
+            let mut parents = vec![false; doc.nodes.len()];
+            for p in doc.nodes.iter().filter_map(|n| n.parent) {
+                parents[p] = true;
+            }
+            ui.add_space(first as f32 * ROW_H);
+            for (k, &i) in order.iter().enumerate().take(last).skip(first) {
                 let n = &doc.nodes[i];
-                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
-                rows.push((i, r));
-                let sel = self.is_selected(&n.id);
+                let (r, resp) = ui.allocate_exact_size(vec2(width, ROW_H), Sense::click_and_drag());
+                rows[k].1 = r;
+                let sel = selected.contains(n.id.as_str());
                 if sel {
                     ui.painter().rect_filled(r, 0.0, theme::mix(SEL, PANEL, 0.18));
                 } else if resp.hovered() || self.hovered.as_deref() == Some(n.id.as_str()) {
@@ -234,7 +247,7 @@ impl App {
                 // Like on the canvas: what lies outside the isolated group is faint; the groups around it are its path.
                 let reach = self.scope(&doc).is_none_or(|g| i == g || doc.is_inside(i, g) || doc.is_inside(g, i));
                 let dim = if doc.is_visible(i) { 1.0 } else { 0.4 } * if reach { 1.0 } else { 0.45 };
-                let has_children = doc.nodes.iter().any(|c| c.parent == Some(i));
+                let has_children = parents[i];
                 let arrow = Rect::from_center_size(pos2(x - 19.0, r.center().y), vec2(14.0, ROW_H));
                 if n.kind == ShapeKind::Group && has_children {
                     let open = !self.layers.folded.contains(&n.id) || !self.layers.query.trim().is_empty() || self.layers.filter != Filter::All;
@@ -364,6 +377,7 @@ impl App {
                     }
                 });
             }
+            ui.add_space((order.len() - last) as f32 * ROW_H);
         });
 
         // Dragging a layer: a line where it lands, or a frame around the group it goes into.
@@ -539,7 +553,7 @@ fn drop_target(doc: &motif_core::Document, rows: &[(usize, Rect)], p: Pos2, fold
     let n = &doc.nodes[i];
     let f = ((p.y - r.top()) / r.height()).clamp(0.0, 1.0);
     let group = n.kind == ShapeKind::Group;
-    let open_with_children = group && !folded.contains(&n.id) && doc.nodes.iter().any(|c| c.parent == Some(i));
+    let open_with_children = group && !folded.contains(&n.id) && doc.children(i).next().is_some();
     let place = if f < 0.3 {
         Place::After
     } else if group && (f < 0.7 || open_with_children) {

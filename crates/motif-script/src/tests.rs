@@ -2477,3 +2477,24 @@ fn a_wrong_combine_says_what_to_change() {
     );
     parse(&ok).unwrap();
 }
+
+#[test]
+fn the_content_of_a_group_follows_it_without_gaps() {
+    // `Document::children` and the live operations read only the stretch right after a group.
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples"));
+    let mut seen = 0;
+    for path in std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "msc")) {
+        let src = std::fs::read_to_string(&path).unwrap();
+        let Ok(scene) = parse_in(&src, Some(dir)) else { continue };
+        let doc = &scene.doc;
+        for (i, node) in doc.nodes.iter().enumerate() {
+            if let Some(p) = node.parent {
+                assert!(p < i && (p + 1..i).all(|k| doc.is_inside(k, p)), "{}: {} lies apart from its group", path.display(), node.id);
+            }
+            let scanned: Vec<usize> = (0..doc.nodes.len()).filter(|&k| doc.nodes[k].parent == Some(i)).collect();
+            assert_eq!(doc.children(i).collect::<Vec<_>>(), scanned, "{}: {}", path.display(), node.id);
+        }
+        seen += 1;
+    }
+    assert!(seen > 30, "{seen} examples read");
+}

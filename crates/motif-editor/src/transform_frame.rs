@@ -367,12 +367,14 @@ impl App {
         if self.point_edit.is_some() {
             return None;
         }
-        let picked: Vec<usize> = self.selection().iter().filter_map(|id| doc.index_of(id)).filter(|&i| doc.nodes[i].kind != ShapeKind::Bone).collect();
+        let picked: Vec<usize> = self.selected_in(doc).into_iter().filter(|&i| doc.nodes[i].kind != ShapeKind::Bone).collect();
         if let ([i], true) = (picked.as_slice(), self.also.is_empty()) {
             return Some(Frame { to_world: doc.world_transform(*i), bounds: node_bounds(doc, *i)?, items: picked });
         }
         // An object inside a selected group moves with the group.
-        let inside = |i: usize| std::iter::successors(doc.nodes[i].parent, |&p| doc.nodes[p].parent).any(|p| picked.contains(&p));
+        let mut is_picked = vec![false; doc.nodes.len()];
+        picked.iter().for_each(|&i| is_picked[i] = true);
+        let inside = |i: usize| std::iter::successors(doc.nodes[i].parent, |&p| doc.nodes[p].parent).any(|p| is_picked[p]);
         let items: Vec<usize> = picked.iter().copied().filter(|&i| !inside(i) && !doc.is_locked(i)).collect();
         if items.len() < 2 {
             return None;

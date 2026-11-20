@@ -49,11 +49,20 @@ pub struct Canvas {
     gpu: Option<Gpu>,
     gpu_failed: Option<String>,
     cpu: Option<TextureHandle>,
+    /// Measurements of the editor's own work leave the picture out: in the window it is the GPU's.
+    #[cfg(test)]
+    pub(crate) no_raster: bool,
 }
 
 impl Canvas {
     pub fn new() -> Self {
-        Canvas { gpu: None, gpu_failed: None, cpu: None }
+        Canvas {
+            gpu: None,
+            gpu_failed: None,
+            cpu: None,
+            #[cfg(test)]
+            no_raster: false,
+        }
     }
 
     /// Short description of the active backend for the status bar.
@@ -68,6 +77,10 @@ impl Canvas {
     /// Paints the stage into `rect` and returns nothing; overlays are drawn by the caller afterwards.
     pub fn paint(&mut self, ui: &mut egui::Ui, frame: Option<&eframe::Frame>, rect: Rect, view: View, stage: Stage) {
         let Stage { doc, backdrop, others, .. } = stage;
+        #[cfg(test)]
+        if self.no_raster {
+            return;
+        }
         if self.gpu.is_none()
             && self.gpu_failed.is_none()
             && let Some(rs) = frame.and_then(eframe::Frame::wgpu_render_state)

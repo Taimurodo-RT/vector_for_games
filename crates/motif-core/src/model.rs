@@ -5,7 +5,8 @@ use kurbo::{Affine, BezPath, Ellipse, ParamCurveNearest, Point, RoundedRect, Sha
 #[derive(Clone, Debug, PartialEq)]
 pub struct Document {
     pub artboard: Artboard,
-    /// Nodes in paint order (parents always come before their children).
+    /// Nodes in paint order. A parent always comes before its children, and the whole content
+    /// of a group follows it without gaps: [`Document::children`] reads only that stretch.
     pub nodes: Vec<Node>,
     pub animations: Vec<Animation>,
     pub parameters: Vec<crate::PoseParameter>,
@@ -1122,6 +1123,12 @@ impl Document {
         self.nodes[index].parent.map_or(0, |p| self.depth(p) + 1)
     }
 
+    /// The direct children of node `i`, in paint order. Only the stretch right after the node
+    /// is read (see [`Document::nodes`]), so the cost is the size of the group, not of the scene.
+    pub fn children(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
+        (i + 1..self.nodes.len()).take_while(move |&k| self.is_inside(k, i)).filter(move |&k| self.nodes[k].parent == Some(i))
+    }
+
     /// Whether node `i` sits inside node `outer`, at any depth.
     pub fn is_inside(&self, i: usize, outer: usize) -> bool {
         let mut cur = self.nodes.get(i).and_then(|n| n.parent);
@@ -1509,6 +1516,28 @@ mod tests {
         assert_eq!(doc.hit_test_in(Point::new(105.0, 0.0), Some(0)), Some(1));
         assert_eq!(doc.hit_test_in(Point::new(112.0, 0.0), Some(0)), None);
         assert_eq!(doc.hit_test_in(Point::new(105.0, 0.0), None), Some(2));
+    }
+
+    #[test]
+    fn children_are_the_direct_ones_in_paint_order() {
+        // g { a, inner { deep }, b }, then an object after the group.
+        let mut doc = Document::new(Artboard::default());
+        for (id, kind, parent) in [
+            ("g", ShapeKind::Group, None),
+            ("a", ShapeKind::Rect, Some(0)),
+            ("inner", ShapeKind::Group, Some(0)),
+            ("deep", ShapeKind::Rect, Some(2)),
+            ("b", ShapeKind::Rect, Some(0)),
+            ("after", ShapeKind::Rect, None),
+        ] {
+            let mut n = Node::new(id, kind);
+            n.parent = parent;
+            doc.nodes.push(n);
+        }
+        let children = |i: usize| doc.children(i).collect::<Vec<_>>();
+        assert_eq!(children(0), [1, 2, 4]);
+        assert_eq!(children(2), [3]);
+        assert!(children(1).is_empty() && children(5).is_empty());
     }
 
     #[test]

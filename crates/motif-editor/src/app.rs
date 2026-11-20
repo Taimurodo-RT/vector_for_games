@@ -2818,6 +2818,9 @@ impl App {
         }
 
         // Overlays.
+        let picked = self.selected_in(&doc);
+        // The box around the whole selection, for the labels of distances and the rulers.
+        let picked_box = || picked.iter().filter_map(|&k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
         self.paint_bones(&painter, rect, view, &doc);
         self.paint_motion(&painter, rect, view, pointer.filter(|_| self.drag.is_none() && resp.hovered()));
         self.paint_fields(&painter, rect, view, &doc);
@@ -2829,17 +2832,16 @@ impl App {
         {
             outline(&painter, rect, view, &doc, i, Stroke::new(1.0, SEL.gamma_multiply(0.7)));
         }
-        if let Some(s) = &self.selected
-            && let Some(i) = doc.index_of(s)
+        // `picked` holds only what is in the document: the primary object leads it when it is there.
+        let primary = self.selected.as_ref().and_then(|s| picked.first().copied().filter(|&i| doc.nodes[i].id == *s));
+        if let Some(i) = primary
             && self.point_edit.is_none()
         {
             outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
             slice_guides(&painter, rect, view, &doc, i);
         }
-        for a in &self.also {
-            if let Some(i) = doc.index_of(a) {
-                outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
-            }
+        for &i in picked.iter().skip(usize::from(primary.is_some())) {
+            outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
         }
         if let Some(h) = &handles {
             if !self.also.is_empty() {
@@ -2875,9 +2877,9 @@ impl App {
                 Some(DragOp::Transform(pull)) if pull.sizing() => Some(&self.drag_targets),
                 _ => None,
             };
-            let moving =
-                self.selection().iter().filter_map(|id| doc.index_of(id)).filter_map(|k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
-            if let (Some(around), Some(b)) = (around, moving) {
+            if let Some(around) = around
+                && let Some(b) = picked_box()
+            {
                 crate::measure::paint_gaps(&painter, rect, view, &crate::measure::gaps(around.rects(), b));
             }
             if let (Some(text), Some(p)) = (&self.drag_label, pointer) {
@@ -2889,9 +2891,7 @@ impl App {
             crate::guides::paint_mark(&painter, rect, view, m);
         }
         let ruler = if self.snap.rulers {
-            let span =
-                self.selection().iter().filter_map(|id| doc.index_of(id)).filter_map(|k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
-            crate::guides::paint_rulers(&painter, rect, view, self.pointer_doc, span);
+            crate::guides::paint_rulers(&painter, rect, view, self.pointer_doc, picked_box());
             crate::guides::RULER
         } else {
             0.0
@@ -3527,8 +3527,7 @@ pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo:
                 return doc.nodes[drawn].path().map(|p| (inv * doc.world_transform(drawn)).transform_rect_bbox(p.bounding_box()));
             }
             // Other groups: the union of their direct children.
-            (0..doc.nodes.len())
-                .filter(|&k| doc.nodes[k].parent == Some(i))
+            doc.children(i)
                 .filter_map(|k| {
                     let child = &doc.nodes[k];
                     let path = if child.combined.is_some() { child.own_path() } else { child.path() };
@@ -4329,6 +4328,9 @@ mod canvas_menu;
 #[path = "preview_ui.rs"]
 mod preview_ui;
 
+#[cfg(test)]
+#[path = "big_scene_tests.rs"]
+mod big_scene_tests;
 #[cfg(test)]
 #[path = "canvas_interaction_tests.rs"]
 mod canvas_interaction_tests;
