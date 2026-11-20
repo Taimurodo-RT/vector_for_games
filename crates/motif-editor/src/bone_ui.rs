@@ -121,7 +121,7 @@ impl App {
                 origin: doc.world_transform(t) * Point::ZERO,
                 to_parent: doc.nodes[t].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse()),
             };
-            let targets = crate::guides::Targets::collect(doc, &[t]);
+            let targets = self.snap_targets(doc, &[t], false);
             return Some(DragOp::Move { from: dp, items: vec![item], start_box: None, targets });
         }
         let parent_angle = node.parent.map_or(0.0, |pi| angle(doc.world_transform(pi)));

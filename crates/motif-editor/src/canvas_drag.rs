@@ -123,7 +123,7 @@ impl App {
         } else if let Tool::Create(kind) = self.tool {
             let mut from = dp;
             if kind != ShapeKind::Bone {
-                self.drag_targets = crate::guides::Targets::collect_points(doc, &[]);
+                self.drag_targets = self.snap_targets(doc, &[], true);
                 from = self.place_point(dp, view.zoom, free).0;
             }
             Some(DragOp::Create { kind, from, to: from })
@@ -134,7 +134,7 @@ impl App {
             let n = &doc.nodes[i];
             match h {
                 Handle::Corner => {
-                    self.drag_targets = crate::guides::Targets::collect_points(doc, &[i]);
+                    self.drag_targets = self.snap_targets(doc, &[i], true);
                     Some(DragOp::Resize { node: id, to_local: doc.world_transform(i).inverse(), start: (n.width, n.height) })
                 }
                 Handle::Rotate => {
@@ -180,7 +180,7 @@ impl App {
                     }
                     let moving: Vec<usize> = items.iter().filter_map(|it| doc.index_of(&it.node)).collect();
                     let start_box = moving.iter().filter_map(|&k| crate::selection::world_bounds(doc, k)).reduce(|a, b| a.union(b));
-                    let targets = crate::guides::Targets::collect(doc, &moving);
+                    let targets = self.snap_targets(doc, &moving, false);
                     Some(DragOp::Move { from: dp, items, start_box, targets })
                 }
                 None => Some(DragOp::Marquee { from: dp, to: dp, add: shift }),

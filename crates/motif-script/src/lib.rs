@@ -56,11 +56,11 @@ pub mod character;
 mod character_controls;
 pub use boolean::{BoolOp, boolean};
 pub use edit::{
-    KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_anim, delete_key,
-    delete_keys, delete_node, directions_text, duplicate_anim, fmt_value, gradient_text, group_nodes, move_key, move_node, paste_keys, paste_nodes, path_to_d,
-    rename_anim, rename_node, restack, retime_keys, reverse_anim, set_anim_duration, set_anim_loop, set_backdrop, set_clip, set_directions, set_gradient,
-    set_key, set_key_ease, set_keys_ease, set_light, set_path, set_prop, set_purpose, set_stroke_gradient, set_style, set_world, ungroup, world_text,
-    write_event, write_event_data, write_tracks,
+    KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_guide, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_anim,
+    delete_key, delete_keys, delete_node, directions_text, duplicate_anim, fmt_value, gradient_text, group_nodes, guide_text, move_key, move_node, paste_keys,
+    paste_nodes, path_to_d, remove_guides, rename_anim, rename_node, restack, retime_keys, reverse_anim, set_anim_duration, set_anim_loop, set_backdrop,
+    set_clip, set_directions, set_gradient, set_guide, set_key, set_key_ease, set_keys_ease, set_light, set_path, set_prop, set_purpose, set_stroke_gradient,
+    set_style, set_world, ungroup, world_text, write_event, write_event_data, write_tracks,
 };
 pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
 pub use machine::{
@@ -168,6 +168,8 @@ pub struct Scene {
     pub prop_spans: HashMap<(String, String), Span>,
     /// The reference picture under the artboard, when the script has a `backdrop` line.
     pub backdrop: Option<Backdrop>,
+    /// The guide lines of the board (`guide x 120`), in the order written.
+    pub guides: Vec<GuideLine>,
     /// Every `symbol` block, in the order written.
     pub symbols: Vec<SymbolSite>,
     /// Every copy of a symbol (`use` line), by the id of its group.
@@ -257,6 +259,19 @@ pub struct ParamSite {
     pub span: Option<Span>,
     /// The written value is a plain literal of this copy only and can be rewritten in place.
     pub editable: bool,
+}
+
+/// A guide line of the editor: objects and points stick to it. Never drawn in renders or exports
+/// and never part of what a game plays.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GuideLine {
+    /// A vertical line at `x = at`; otherwise a horizontal one at `y = at`.
+    pub vertical: bool,
+    pub at: f64,
+    /// Stays in place: the editor does not let the pointer take it.
+    pub locked: bool,
+    /// The whole `guide …` line.
+    pub span: Span,
 }
 
 /// A reference picture drawn under the shapes in the editor only: never exported.

@@ -166,6 +166,8 @@ pub struct App {
     pub(crate) snap: crate::snap::Snap,
     /// Smart guides shown while moving.
     pub(crate) guides: Vec<crate::guides::Guide>,
+    /// The guide line following the pointer.
+    pub(crate) guide_drag: Option<crate::user_guides::GuideDrag>,
     /// The anchor or centre the point being placed stuck to.
     pub(crate) snap_mark: Option<Point>,
     /// What the corner of a new shape or a size handle can stick to, collected when the drag starts.
@@ -361,6 +363,7 @@ impl App {
             canvas: Canvas::new(),
             guides: Vec::new(),
             snap_mark: None,
+            guide_drag: None,
             drag_targets: Default::default(),
             pen_targets: None,
             scene_rev: 0,
@@ -1197,8 +1200,10 @@ impl App {
         };
         // A file is saved in the current format, its version on the first line. Not an undo step:
         // the drawing is the same.
-        if motif_script::format::declared(&self.src).is_none_or(|v| v < motif_script::format::VERSION) {
-            self.src = motif_script::format::stamp(&self.src);
+        // The lowest version that reads everything in the file, on all its boards.
+        let version = motif_script::format::needed(&self.file_text());
+        if motif_script::format::declared(&self.src) != Some(version) {
+            self.src = motif_script::format::stamp_as(&self.src, version);
             self.reparse();
         }
         // Everything a game binds to gets its hidden id, so a rename later does not break it.
@@ -2412,6 +2417,7 @@ impl App {
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG или PSD — подложкой.").size(12.0).color(FAINT));
         });
+        self.guides_section(ui);
         self.palette_section(ui);
         if self.tool_profile() == Purpose::Ui {
             self.symbols_library(ui);
@@ -2649,9 +2655,13 @@ impl App {
         }
         // The boards' names and size handle, and clicks on other boards.
         let board_ui = !pan_gesture && !live && self.eyedrop.is_none() && self.boards_input(ui, &resp, rect, view, &grid);
+        // The rulers and the guide lines pulled out of them.
+        let on_handle = pointer.is_some_and(|p| hit_handle(p).is_some());
+        let guiding = !pan_gesture && !live && !board_ui && self.eyedrop.is_none() && self.guide_input(ui, &resp, rect, view, &doc, on_handle);
         // The pen and point editing take the pointer themselves.
-        let deforming = !pan_gesture && !live && self.deformer_input(ui, &resp, rect, view, &doc);
+        let deforming = !pan_gesture && !live && !guiding && self.deformer_input(ui, &resp, rect, view, &doc);
         let special = deforming
+            || guiding
             || live
             || board_ui
             || (!pan_gesture
@@ -2808,6 +2818,7 @@ impl App {
             let r = Rect::from_two_pos(view.to_screen(rect, *from), view.to_screen(rect, *to));
             painter.rect_stroke(r, 0.0, Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
+        self.paint_user_guides(&painter, rect, view);
         crate::guides::paint_guides(&painter, rect, view, &self.guides);
         if let Some(m) = self.snap_mark {
             crate::guides::paint_mark(&painter, rect, view, m);

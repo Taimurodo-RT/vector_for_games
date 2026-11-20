@@ -36,7 +36,7 @@ fn every_old_format_file_opens_plays_and_saves_the_same() {
             }
         }
         let saved = motif_script::format::stamp(&src);
-        assert_eq!(motif_script::format::declared(&saved), Some(motif_script::format::VERSION));
+        assert_eq!(motif_script::format::declared(&saved), Some(motif_script::format::needed(&src)));
         let new = motif_script::parse_boards(&saved, Some(&fonts)).unwrap_or_else(|e| panic!("{} saved: {e:?}", path.display()));
         assert_eq!(new.len(), old.len(), "{}", path.display());
         for (a, b) in old.iter().zip(&new) {
@@ -49,7 +49,9 @@ fn every_old_format_file_opens_plays_and_saves_the_same() {
 fn the_version_line_is_checked() {
     let board = "artboard \"a\" 10x10\nrect r size 4\n";
     assert!(motif_script::parse(&format!("motif 1\n{board}")).is_ok());
-    let newer = motif_script::parse(&format!("motif 2\n{board}")).unwrap_err();
+    // The newest version this Motif reads opens; the one after it asks for an update.
+    assert!(motif_script::parse(&format!("motif {}\n{board}guide x 5\n", motif_script::format::VERSION)).is_ok());
+    let newer = motif_script::parse(&format!("motif {}\n{board}", motif_script::format::VERSION + 1)).unwrap_err();
     assert!(newer[0].message.contains("более новой версией"), "{}", newer[0].message);
     assert_eq!(newer[0].line, 1);
     assert!(motif_script::parse(&format!("motif 1.5\n{board}")).is_err());

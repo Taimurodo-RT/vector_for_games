@@ -70,6 +70,7 @@ impl<'a> Evaluator<'a> {
                 path_sources: HashMap::new(),
                 prop_spans: HashMap::new(),
                 backdrop: None,
+                guides: Vec::new(),
                 symbols: Vec::new(),
                 instances: HashMap::new(),
                 machines: HashMap::new(),
@@ -652,6 +653,19 @@ impl<'a> Evaluator<'a> {
                 Stmt::Directions { span, .. } => {
                     if parent.is_some() {
                         self.err(*span, "directions пишется на верхнем уровне сцены");
+                    }
+                }
+                Stmt::Guide { vertical, at, locked, span } => {
+                    if parent.is_some() {
+                        self.err(*span, "направляющая пишется на верхнем уровне сцены");
+                        continue;
+                    }
+                    match self.value(at) {
+                        Some(Value::Num(v)) if v.is_finite() => {
+                            self.scene.guides.push(crate::GuideLine { vertical: *vertical, at: v, locked: *locked, span: *span })
+                        }
+                        Some(_) => self.err(at.span, "место направляющей — число: guide x 120"),
+                        None => {}
                     }
                 }
                 Stmt::Backdrop { file, props, span } => {

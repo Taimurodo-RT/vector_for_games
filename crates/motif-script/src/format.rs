@@ -1,14 +1,19 @@
 //! The version of the scene format. A file says it on its first line, `motif 1`; a file without
-//! that line was written before versions and reads as version 1. When the format changes in a
-//! way an older Motif cannot read, [`VERSION`] grows and Motif rewrites files to it on save.
-//! Old files that must always open live in `tests/old-formats/`.
+//! that line was written before versions and reads as version 1. When the format gains something
+//! an older Motif cannot read, [`VERSION`] grows. A file is saved with the lowest version that
+//! reads it ([`needed`]): a scene that uses nothing new stays `motif 1`, so a game built with an
+//! older Motif keeps opening it. Old files that must always open live in `tests/old-formats/`.
+//!
+//! - 2: `guide x 120` — guide lines of the editor.
 
-/// The newest format this Motif reads and the one it writes.
-pub const VERSION: u32 = 1;
+/// The newest format this Motif reads.
+pub const VERSION: u32 = 2;
 
-/// The version line Motif writes first.
-pub fn line() -> String {
-    format!("motif {VERSION}")
+/// The lowest format version that reads `src`: the first one that has everything it uses.
+pub fn needed(src: &str) -> u32 {
+    // A statement starts its line; `guide` came with version 2.
+    let guide = src.lines().any(|l| l.split_whitespace().next() == Some("guide"));
+    if guide { 2 } else { 1 }
 }
 
 /// The version `src` says on its first line, if it says one (`motif 1`).
@@ -20,15 +25,21 @@ pub fn declared(src: &str) -> Option<u32> {
     words.next().is_none().then_some(v)
 }
 
-/// `src` as Motif saves it: the version line first, whatever version it was opened as.
+/// `src` as Motif saves it: the version it needs on the first line, whatever it said before.
 pub fn stamp(src: &str) -> String {
+    stamp_as(src, needed(src))
+}
+
+/// `src` with `version` on its first line. For a script that is one part of a file (the head and
+/// one board of several): the version is the one the whole file needs.
+pub fn stamp_as(src: &str, version: u32) -> String {
     let body = match declared(src) {
         Some(_) => src.split_once('\n').map_or("", |(_, rest)| rest),
         None => src,
     };
     // Keep the file's line endings.
     let eol = if src.contains("\r\n") { "\r\n" } else { "\n" };
-    format!("{}{eol}{body}", line())
+    format!("motif {version}{eol}{body}")
 }
 
 #[cfg(test)]
@@ -44,5 +55,15 @@ mod tests {
         assert_eq!(stamp("motif 1\nartboard \"a\" 10x10\n"), "motif 1\nartboard \"a\" 10x10\n");
         assert_eq!(stamp("// x\r\nlet a = 1\r\n"), "motif 1\r\n// x\r\nlet a = 1\r\n");
         assert_eq!(stamp(""), "motif 1\n");
+    }
+
+    #[test]
+    fn a_file_is_saved_with_the_lowest_version_that_reads_it() {
+        // Nothing new in it: an older Motif, and a game built with one, keeps reading the file.
+        assert_eq!(needed("artboard \"a\" 10x10\nrect guide at 0 0 size 4 4\n// guide x 5\n"), 1);
+        // Guide lines came with version 2, and going back needs them gone.
+        let with = "motif 1\nartboard \"a\" 10x10\nguide x 5\n";
+        assert_eq!(stamp(with), "motif 2\nartboard \"a\" 10x10\nguide x 5\n");
+        assert_eq!(stamp("motif 2\nartboard \"a\" 10x10\n"), "motif 1\nartboard \"a\" 10x10\n");
     }
 }
