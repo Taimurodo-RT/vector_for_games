@@ -47,6 +47,10 @@ fn animation(scene: &Scene, svg: &Svg) -> (Json, String, Vec<String>) {
             if !n.visible {
                 return false;
             }
+            // A shape of a live operation changes the outline drawn, not its own place on the page.
+            if scene.doc.index_of(&t.node).is_some_and(|i| scene.doc.combined_in(i).is_some()) {
+                return false;
+            }
             let rich = crate::effects::expanded(n);
             match t.prop {
                 Prop::Opacity => true,

@@ -1564,6 +1564,7 @@ name = "motif-core"
 version = "0.1.0"
 dependencies = [
  "kurbo",
+ "linesweeper",
  "serde",
  "ttf-parser",
 ]
@@ -1662,7 +1663,6 @@ dependencies = [
 name = "motif-script"
 version = "0.1.0"
 dependencies = [
- "linesweeper",
  "motif-core",
  "serde",
  "serde_json",

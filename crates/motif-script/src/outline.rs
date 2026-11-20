@@ -4,11 +4,11 @@
 //! All three write the outline in the object's own space, to a hundredth of a unit, so the
 //! object keeps its place, turn, scale and pivot, and the picture stays what it was.
 
-use crate::boolean::{closed, combine_by};
 use crate::edit::{path_to_d, splice_all, whole_lines};
 use crate::{Scene, Span};
 use motif_core::kurbo::{self, BezPath, ParamCurveArclen, PathEl, Point, Shape};
 use motif_core::{Cap, Join, Node, Prop, ShapeKind};
+use motif_core::{CombineOp, Inside, closed, combine_two};
 
 /// What makes a shape a `rect`, `ellipse`, `star` or `polygon`: gone once it is a path.
 const SHAPE_KEYS: [&str; 4] = ["size", "r", "points", "inner"];
@@ -203,7 +203,7 @@ fn stroke_style(width: f64, cap: Cap, join: Join, dash: &[f64]) -> kurbo::Stroke
 /// The flag tells whether the merge worked; without it the outline must be filled non-zero.
 fn stroke_area(path: &BezPath, style: &kurbo::Stroke) -> (BezPath, bool) {
     let raw = kurbo::stroke(path.iter(), style, &kurbo::StrokeOpts::default(), 0.01);
-    match combine_by(&raw, &BezPath::new(), linesweeper::BinaryOp::Union, linesweeper::FillRule::NonZero) {
+    match combine_two(&raw, &BezPath::new(), CombineOp::Union, Inside::NonZero) {
         Ok(clean) if !clean.elements().is_empty() => (clean, true),
         _ => (raw, false),
     }
@@ -360,21 +360,21 @@ pub fn offset_path(src: &str, scene: &Scene, id: &str, distance: f64, sharp: boo
     let band_style = stroke_style(distance.abs() * 2.0, Cap::Round, if sharp { Join::Miter } else { Join::Round }, &[]);
     let band = kurbo::stroke(path.iter(), &band_style, &kurbo::StrokeOpts::default(), 0.01);
     let has_area = path.elements().iter().any(|el| matches!(el, PathEl::ClosePath)) || node.fill.is_some() || node.gradient.is_some();
-    let rule = if node.even_odd { linesweeper::FillRule::EvenOdd } else { linesweeper::FillRule::NonZero };
-    let nonzero = linesweeper::FillRule::NonZero;
+    let rule = if node.even_odd { Inside::EvenOdd } else { Inside::NonZero };
+    let nonzero = Inside::NonZero;
     let fail = |e: String| format!("не удалось построить контур: {e}");
     let result = if !has_area {
         // An open line has no inside: its offset is the band around it.
         if distance < 0.0 {
             return Err("у незамкнутой линии нет внутренней стороны: задайте смещение наружу".into());
         }
-        combine_by(&band, &BezPath::new(), linesweeper::BinaryOp::Union, nonzero).map_err(fail)?
+        combine_two(&band, &BezPath::new(), CombineOp::Union, nonzero).map_err(fail)?
     } else {
         // The area of the shape by its own fill rule, then the band added to it or cut out of it.
-        let area = combine_by(&closed(&path), &BezPath::new(), linesweeper::BinaryOp::Union, rule).map_err(fail)?;
-        let band = combine_by(&band, &BezPath::new(), linesweeper::BinaryOp::Union, nonzero).map_err(fail)?;
-        let op = if distance > 0.0 { linesweeper::BinaryOp::Union } else { linesweeper::BinaryOp::Difference };
-        combine_by(&area, &band, op, nonzero).map_err(fail)?
+        let area = combine_two(&closed(&path), &BezPath::new(), CombineOp::Union, rule).map_err(fail)?;
+        let band = combine_two(&band, &BezPath::new(), CombineOp::Union, nonzero).map_err(fail)?;
+        let op = if distance > 0.0 { CombineOp::Union } else { CombineOp::Subtract };
+        combine_two(&area, &band, op, nonzero).map_err(fail)?
     };
     if result.elements().is_empty() || result.bounding_box().area() < 1e-6 {
         return Err("от фигуры ничего не осталось: смещение внутрь больше половины её толщины".into());

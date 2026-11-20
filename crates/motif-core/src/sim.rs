@@ -156,6 +156,7 @@ impl SimState {
         fluid::apply_pools(&self.pools, &mut out);
         particles::apply_sprays(&self.sprays, &mut out);
         soft::apply_bodies(&self.bodies, &mut out);
+        out.combine_all();
         out.deform_lattices();
         out
     }

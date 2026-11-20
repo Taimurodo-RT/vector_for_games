@@ -339,6 +339,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "value" => (1, 1),
         "radio" => (1, 1),
         "stack" | "anchor" => (1, 2),
+        "combine" => (1, 1),
         "gap" | "pad" => (1, 1),
         "slice" => (1, 4),
         "rough" => (1, 2),

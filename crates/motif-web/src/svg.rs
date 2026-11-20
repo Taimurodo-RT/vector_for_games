@@ -43,7 +43,7 @@ pub(crate) fn path(p: &BezPath) -> String {
 }
 
 fn geometry(n: &Node) -> (String, String) {
-    if n.deformed.is_none() && n.morph.is_none() {
+    if n.deformed.is_none() && n.combined.is_none() && n.morph.is_none() {
         match n.kind {
             ShapeKind::Rect if n.radii.is_none() => {
                 return (
@@ -137,7 +137,9 @@ impl Writer<'_> {
     }
     fn node(&mut self, index: usize) -> Result<String, String> {
         let n = &self.doc.nodes[index];
-        if !n.visible {
+        // An area is read by the game only, and a shape taken in by a live operation is already
+        // in the outline of the shape that draws the result.
+        if !n.visible || n.area || n.absorbed {
             return Ok(String::new());
         }
         let id = &self.ids[&n.id];
