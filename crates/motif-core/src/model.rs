@@ -1143,9 +1143,18 @@ impl Document {
     /// Topmost visible, unlocked shape under an artboard-space point. Bones come first: they are
     /// thin and drawn over the shapes they move.
     pub fn hit_test(&self, point: Point) -> Option<usize> {
+        self.hit_test_in(point, None)
+    }
+
+    /// [`Self::hit_test`] among the shapes inside node `scope` only: what a click reaches while an
+    /// editor works inside one group. `None` is the whole artboard.
+    pub fn hit_test_in(&self, point: Point, scope: Option<usize>) -> Option<usize> {
         let bones = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind == ShapeKind::Bone);
         let others = (0..self.nodes.len()).rev().filter(|&i| self.nodes[i].kind != ShapeKind::Bone);
-        bones.chain(others).find(|&i| self.is_visible(i) && !self.is_locked(i) && self.shape_hit(i, point))
+        bones
+            .chain(others)
+            .filter(|&i| scope.is_none_or(|s| self.is_inside(i, s)))
+            .find(|&i| self.is_visible(i) && !self.is_locked(i) && self.shape_hit(i, point))
     }
 
     /// Whether an artboard-space point is on node `i` or on a visible shape inside it, whatever
@@ -1496,6 +1505,10 @@ mod tests {
         assert_eq!(doc.hit_test(Point::new(105.0, 0.0)), Some(2));
         assert_eq!(doc.hit_test(Point::new(92.0, 0.0)), Some(1));
         assert_eq!(doc.hit_test(Point::new(0.0, 0.0)), None);
+        // Inside a group only its shapes are there: what covers them from outside lets the point by.
+        assert_eq!(doc.hit_test_in(Point::new(105.0, 0.0), Some(0)), Some(1));
+        assert_eq!(doc.hit_test_in(Point::new(112.0, 0.0), Some(0)), None);
+        assert_eq!(doc.hit_test_in(Point::new(105.0, 0.0), None), Some(2));
     }
 
     #[test]

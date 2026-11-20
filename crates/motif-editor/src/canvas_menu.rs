@@ -68,7 +68,8 @@ pub(super) struct FloatingInspector {
 
 impl App {
     pub(crate) fn pointer_hits_selection(&self, doc: &Document, at: Point) -> bool {
-        doc.hit_test(at).is_some_and(|hit| self.selection().iter().filter_map(|id| doc.index_of(id)).any(|root| hit == root || doc.is_inside(hit, root)))
+        self.pick_shape(doc, at)
+            .is_some_and(|hit| self.selection().iter().filter_map(|id| doc.index_of(id)).any(|root| hit == root || doc.is_inside(hit, root)))
     }
 
     pub(crate) fn toggle_playback(&mut self) {
@@ -244,7 +245,7 @@ impl App {
         if response.secondary_clicked()
             && let Some(p) = response.interact_pointer_pos()
         {
-            let hit = crate::bone_ui::pick_bone(doc, rect, view, p).or_else(|| doc.hit_test(view.to_doc(rect, p)));
+            let hit = self.pick(doc, rect, view, p);
             if let Some(i) = hit {
                 let id = doc.nodes[i].id.clone();
                 if !self.selection().iter().filter_map(|root| doc.index_of(root)).any(|root| root == i || doc.is_inside(i, root)) {
@@ -266,6 +267,24 @@ impl App {
                     self.open_object_inspector(id.clone(), category, doc, rect, view);
                     menu.close();
                 }
+            }
+            // Into the group of the object, and out of the one being worked in.
+            let around = doc.index_of(&id).and_then(|i| {
+                let own = (doc.nodes[i].kind == ShapeKind::Group).then_some(i);
+                own.or_else(|| crate::isolate::group_of(doc, i)).filter(|&g| Some(g) != self.scope(doc))
+            });
+            if around.is_some() || self.isolated.is_some() {
+                menu.separator();
+            }
+            if let Some(g) = around
+                && menu.button(format!("Войти в группу «{}»", doc.nodes[g].display_name())).clicked()
+            {
+                self.isolate(Some(doc.nodes[g].id.clone()));
+                menu.close();
+            }
+            if self.isolated.is_some() && menu.add(egui::Button::new("Выйти из группы").shortcut_text("Esc")).clicked() {
+                self.leave_group();
+                menu.close();
             }
             if self.anim.is_some() {
                 menu.separator();

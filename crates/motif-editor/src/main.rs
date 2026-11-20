@@ -19,6 +19,7 @@ mod game_ui;
 mod guides;
 mod highlight;
 mod importer;
+mod isolate;
 mod kit_ui;
 mod layers;
 mod layout_ui;

@@ -464,6 +464,7 @@ impl App {
         // `add_path` keeps the points to a hundredth: where the snapping put them.
         let path = pen_outline(&points, closed).to_bez();
         let (out, id) = add_path(&self.src, &self.scene, &path);
+        let out = self.put_in_scope(out, std::slice::from_ref(&id));
         if self.apply("create", Some(out)) {
             self.selected = Some(id.clone());
             self.tool = Tool::Select;
