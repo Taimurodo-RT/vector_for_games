@@ -20,15 +20,66 @@ pub struct Vertex {
     pub cout: Option<Point>,
 }
 
+/// How the two curve handles of a point stand. The outline keeps no mark of it: the kind is
+/// read from where the handles are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NodeKind {
+    /// No handles, one handle, or two that go their own ways.
+    Corner,
+    /// Two handles on one line through the point.
+    Smooth,
+    /// Two handles on one line and of one length.
+    Symmetric,
+}
+
+/// How far a handle may be off the line or off the length of the other one and still count as
+/// smooth or symmetric: handles pulled by the mouse are kept to a tenth of a unit.
+const KIND_SLACK: f64 = 0.15;
+
 impl Vertex {
     fn corner(p: Point) -> Self {
         Vertex { p, cin: None, cout: None }
     }
 
+    pub(crate) fn kind(&self) -> NodeKind {
+        let (Some(a), Some(b)) = (self.cin, self.cout) else { return NodeKind::Corner };
+        let (u, v) = (self.p - a, b - self.p);
+        let (lu, lv) = (u.hypot(), v.hypot());
+        if lu < 1e-9 || lv < 1e-9 || u.dot(v) <= 0.0 {
+            return NodeKind::Corner;
+        }
+        // How far the end of the shorter handle is off the line of the longer one.
+        if u.cross(v).abs() / lu.max(lv) > KIND_SLACK {
+            NodeKind::Corner
+        } else if (lu - lv).abs() <= KIND_SLACK {
+            NodeKind::Symmetric
+        } else {
+            NodeKind::Smooth
+        }
+    }
+
+    /// Puts the incoming or the outgoing handle at `to`. With `linked` the opposite handle turns
+    /// to stay on one line with it and keeps its length.
+    pub(crate) fn set_handle(&mut self, incoming: bool, to: Point, linked: bool) {
+        let p = self.p;
+        let (this, other) = if incoming { (&mut self.cin, &mut self.cout) } else { (&mut self.cout, &mut self.cin) };
+        *this = Some(to);
+        if linked && let Some(o) = other.as_mut() {
+            let len = o.distance(p);
+            let dir = p - to;
+            if dir.hypot() > 1e-9 {
+                *o = round_hundredth(p + dir.normalize() * len);
+            }
+        }
+    }
+
+    /// Moves the point with its handles. The sums are kept to a millionth, so the file gets
+    /// `0.3` and not `0.30000000000000004`, and coordinates written with more digits keep them.
     pub(crate) fn translate(&mut self, d: Vec2) {
-        self.p += d;
-        self.cin = self.cin.map(|c| c + d);
-        self.cout = self.cout.map(|c| c + d);
+        let clean = |p: Point| Point::new((p.x * 1e6).round() / 1e6, (p.y * 1e6).round() / 1e6);
+        self.p = clean(self.p + d);
+        self.cin = self.cin.map(|c| clean(c + d));
+        self.cout = self.cout.map(|c| clean(c + d));
     }
 }
 
@@ -124,28 +175,56 @@ impl Outline {
 
     /// Corner ↔ smooth: drops the handles, or adds ones along the neighbours' direction.
     fn toggle_smooth(&mut self, i: usize) {
+        let v = self.verts[i];
+        self.set_kind(i, if v.cin.is_some() || v.cout.is_some() { NodeKind::Corner } else { NodeKind::Smooth });
+    }
+
+    /// Makes point `i` a corner (its handles go), smooth (the handles stand on one line) or
+    /// symmetric (and get one length). Handles that are missing are added along the neighbours,
+    /// a third of the way to each.
+    pub(crate) fn set_kind(&mut self, i: usize, kind: NodeKind) {
         let n = self.verts.len();
         let v = self.verts[i];
-        if v.cin.is_some() || v.cout.is_some() {
+        if kind == NodeKind::Corner {
             self.verts[i].cin = None;
             self.verts[i].cout = None;
             return;
         }
         let prev = if i > 0 || self.closed { Some(self.verts[(i + n - 1) % n].p) } else { None };
         let next = if i + 1 < n || self.closed { Some(self.verts[(i + 1) % n].p) } else { None };
-        let dir = match (prev, next) {
-            (Some(a), Some(b)) => b - a,
-            (Some(a), None) => v.p - a,
-            (None, Some(b)) => b - v.p,
-            (None, None) => return,
+        let arm = |c: Option<Point>| c.map(|c| c - v.p).filter(|d| d.hypot() > 1e-9);
+        let (back, forth) = (arm(v.cin), arm(v.cout));
+        // The line of the handles: between the two that are there, along the only one, or
+        // along the neighbours.
+        let dir = match (back, forth) {
+            (Some(a), Some(b)) => {
+                let between = b.normalize() - a.normalize();
+                if between.hypot() > 1e-9 { between } else { b }
+            }
+            (Some(a), None) => -a,
+            (None, Some(b)) => b,
+            (None, None) => match (prev, next) {
+                (Some(a), Some(b)) => b - a,
+                (Some(a), None) => v.p - a,
+                (None, Some(b)) => b - v.p,
+                (None, None) => return,
+            },
         };
         if dir.hypot() < 1e-9 {
             return;
         }
         let u = dir.normalize();
-        let len = |q: Option<Point>| q.map_or(0.0, |q| q.distance(v.p) / 3.0);
-        self.verts[i].cin = prev.map(|_| v.p - u * len(prev).max(1.0));
-        self.verts[i].cout = next.map(|_| v.p + u * len(next).max(1.0));
+        let third = |q: Option<Point>| q.map(|q| (q.distance(v.p) / 3.0).max(1.0));
+        let mut len_back = back.map(|a| a.hypot()).or(third(prev));
+        let mut len_forth = forth.map(|a| a.hypot()).or(third(next));
+        if kind == NodeKind::Symmetric
+            && let (Some(a), Some(b)) = (len_back, len_forth)
+        {
+            (len_back, len_forth) = (Some((a + b) / 2.0), Some((a + b) / 2.0));
+        }
+        // To a hundredth, as every handle the editor places.
+        self.verts[i].cin = len_back.map(|l| round_hundredth(v.p - u * l));
+        self.verts[i].cout = len_forth.map(|l| round_hundredth(v.p + u * l));
     }
 }
 
@@ -174,11 +253,13 @@ pub struct PointEdit {
     pub live: Option<Compound>,
     /// A selection frame being pulled over the anchors (screen points); with Shift it adds.
     pub marquee: Option<(Pos2, Pos2, bool)>,
+    /// What a dragged point sticks to: other objects, guides and the points that stay.
+    pub targets: Option<std::rc::Rc<crate::guides::Targets>>,
 }
 
 impl PointEdit {
     pub fn new(node: String) -> Self {
-        PointEdit { node, selected: None, also: Vec::new(), grab: None, live: None, marquee: None }
+        PointEdit { node, selected: None, also: Vec::new(), grab: None, live: None, marquee: None, targets: None }
     }
 
     /// Selected anchors, the active one first.
@@ -439,7 +520,10 @@ impl App {
         let shift = ui.input(|i| i.modifiers.shift);
         let screen = |p: Point| view.to_screen(rect, world * doc.map_lattice_point(i, p));
         let local = |s: Pos2| doc.unmap_lattice_point(i, world.inverse() * view.to_doc(rect, s));
-        let alt = ui.input(|i| i.modifiers.alt);
+        let (alt, free) = ui.input(|i| (i.modifiers.alt, i.modifiers.command));
+        // The outline's own space and the artboard.
+        let to_art = |p: Point| world * doc.map_lattice_point(i, p);
+        let to_own = |p: Point| doc.unmap_lattice_point(i, world.inverse() * p);
         // Several selected points have a frame that stretches and turns them together.
         let picked: Vec<Anchor> = self.point_edit.as_ref().map(|e| e.anchors()).unwrap_or_default();
         let pulling = self.point_edit.as_ref().and_then(|e| match e.grab {
@@ -521,6 +605,22 @@ impl App {
                 e.grab = grab.map(|g| (g, base));
                 changed = None; // insertion + drag commits on release as one undo step
             }
+            if let Some(PointGrab::Anchor { .. }) = grab
+                && let Some((held, base)) = self.point_edit.as_ref().and_then(|e| Some((e.anchors(), e.grab.as_ref()?.1.clone())))
+            {
+                // A dragged point sticks to other objects, the guides and the points that stay.
+                let mut targets = self.snap_targets(doc, &[i], true);
+                for (part, entry) in base.parts.iter().enumerate() {
+                    for (vertex, v) in entry.outline.verts.iter().enumerate() {
+                        if !held.contains(&Anchor { part, vertex }) {
+                            targets.add_point(to_art(v.p));
+                        }
+                    }
+                }
+                if let Some(e) = self.point_edit.as_mut() {
+                    e.targets = Some(std::rc::Rc::new(targets));
+                }
+            }
         }
         if resp.dragged()
             && let Some(p) = resp.interact_pointer_pos()
@@ -541,9 +641,38 @@ impl App {
                     crate::point_frame::apply(&mut o, &picked, map);
                     label = Some(note);
                 }
-                PointGrab::Anchor { from, .. } => {
+                PointGrab::Anchor { index, from } => {
+                    let was = base.parts[index.part].outline.verts[index.vertex].p;
+                    let aim = was + (at - from);
+                    let d = if shift {
+                        // Along an axis or a diagonal of the artboard from where the point was.
+                        self.guides.clear();
+                        self.snap_mark = None;
+                        round_hundredth(to_own(along_45(to_art(was), to_art(aim)))) - was
+                    } else {
+                        // Onto an anchor, an edge, a centre or a guide; Ctrl leaves it under the pointer.
+                        let targets = self.point_edit.as_ref().and_then(|e| e.targets.clone());
+                        let s = match &targets {
+                            Some(t) => self.snap.stick(t, to_art(aim), view.zoom, free),
+                            None => crate::guides::PointSnap { at: to_art(aim), ..Default::default() },
+                        };
+                        let stuck = s.stuck[0] || s.stuck[1];
+                        let d = if stuck {
+                            // What stuck is kept to a hundredth. In an outline that is not turned
+                            // the free axis moves by tenths, as a plain drag does.
+                            let c = world.as_coeffs();
+                            let straight = c[1].abs() < 1e-9 && c[2].abs() < 1e-9;
+                            let exact = round_hundredth(to_own(s.at)) - was;
+                            let plain = round_vec(exact);
+                            Vec2::new(if s.stuck[0] || !straight { exact.x } else { plain.x }, if s.stuck[1] || !straight { exact.y } else { plain.y })
+                        } else {
+                            round_vec(at - from)
+                        };
+                        self.guides = s.guides;
+                        self.snap_mark = s.mark;
+                        d
+                    };
                     // Every selected anchor goes the same way, with its handles.
-                    let d = round_vec(at - from);
                     for a in self.point_edit.as_ref().map(|e| e.anchors()).unwrap_or_default() {
                         if o.contains(a) {
                             o.parts[a.part].outline.verts[a.vertex].translate(d);
@@ -552,17 +681,19 @@ impl App {
                 }
                 PointGrab::In(k) | PointGrab::Out(k) => {
                     let v = &mut o.parts[k.part].outline.verts[k.vertex];
-                    let at = round_pt(at);
-                    let (this, other) = if matches!(grab, PointGrab::In(_)) { (&mut v.cin, &mut v.cout) } else { (&mut v.cout, &mut v.cin) };
-                    *this = Some(at);
-                    // Without Alt the opposite handle mirrors the direction and keeps its length.
-                    if !alt && let Some(o) = other.as_mut() {
-                        let len = o.distance(v.p);
-                        let dir = v.p - at;
-                        if dir.hypot() > 1e-9 {
-                            *o = round_pt(v.p + dir.normalize() * len);
-                        }
-                    }
+                    let at = if shift {
+                        // Shift: the handle turns by steps of 15°, as seen on the artboard.
+                        let (centre, to) = (to_art(v.p), to_art(at));
+                        let step = 15f64.to_radians();
+                        let angle = ((to - centre).atan2() / step).round() * step;
+                        round_hundredth(to_own(centre + Vec2::from_angle(angle) * (to - centre).hypot()))
+                    } else {
+                        round_pt(at)
+                    };
+                    // The opposite handle of a smooth point turns with this one and keeps its
+                    // length. Handles of a corner go their own ways, and Alt lets any handle go.
+                    let linked = !alt && v.kind() != NodeKind::Corner;
+                    v.set_handle(matches!(grab, PointGrab::In(_)), at, linked);
                 }
             }
             if let Some(e) = self.point_edit.as_mut() {
@@ -573,6 +704,9 @@ impl App {
             && let Some(e) = self.point_edit.as_mut()
         {
             e.grab = None;
+            e.targets = None;
+            self.guides.clear();
+            self.snap_mark = None;
             changed = e.live.take();
             if let Some((a, b, add)) = e.marquee.take() {
                 let area = Rect::from_two_pos(a, b);
@@ -730,6 +864,19 @@ impl App {
         true
     }
 
+    /// The kind buttons of the panel: every selected point becomes a corner, smooth or symmetric.
+    pub(crate) fn set_points_kind(&mut self, kind: NodeKind) {
+        let Some(edit) = &self.point_edit else { return };
+        let doc = self.display_doc();
+        let Some(mut o) = doc.node(&edit.node).and_then(|n| Compound::from_bez(&n.editable_path())) else { return };
+        for a in edit.anchors() {
+            if o.contains(a) {
+                o.parts[a.part].outline.set_kind(a.vertex, kind);
+            }
+        }
+        self.write_outline(&o);
+    }
+
     /// Ctrl+A while editing points: every anchor of the outline.
     pub(crate) fn select_all_points(&mut self) -> bool {
         let Some(edit) = &self.point_edit else { return false };
@@ -833,9 +980,54 @@ impl App {
             if numeric {
                 v.translate(Point::new(x, y) - v.p);
             }
-            if ui.button("Угол / плавный узел").clicked() {
-                shape.parts[at.part].outline.toggle_smooth(at.vertex);
-                discrete = true;
+            // The curve handles of the point, from the point itself: by offset or by length and angle.
+            let was = *v;
+            let linked = was.kind() != NodeKind::Corner;
+            for (incoming, name, handle) in [(true, "Ручка назад", was.cin), (false, "Ручка вперёд", was.cout)] {
+                let Some(d) = handle.map(|c| c - was.p) else { continue };
+                let (mut dx, mut dy, mut len, mut angle) = (d.x, d.y, d.hypot(), d.atan2().to_degrees());
+                let (mut by_offset, mut by_angle) = (false, false);
+                ui.label(egui::RichText::new(name).size(11.5).color(crate::theme::FAINT));
+                ui.push_id(("handle", incoming), |ui| {
+                    ui.horizontal(|ui| {
+                        by_offset |= ui.add(egui::DragValue::new(&mut dx).prefix("ΔX ").speed(0.1).max_decimals(2)).changed();
+                        by_offset |= ui.add(egui::DragValue::new(&mut dy).prefix("ΔY ").speed(0.1).max_decimals(2)).changed();
+                    });
+                    ui.horizontal(|ui| {
+                        by_angle |= ui.add(egui::DragValue::new(&mut len).prefix("Длина ").speed(0.1).range(0.0..=1e6).max_decimals(2)).changed();
+                        by_angle |= ui.add(egui::DragValue::new(&mut angle).prefix("Угол ").suffix("°").speed(0.5).max_decimals(2)).changed();
+                    });
+                });
+                let to = if by_offset {
+                    Vec2::new(dx, dy)
+                } else if by_angle {
+                    Vec2::from_angle(angle.to_radians()) * len
+                } else {
+                    continue;
+                };
+                if to.x.is_finite() && to.y.is_finite() {
+                    // The other handle of a smooth point stays on one line with this one.
+                    v.set_handle(incoming, round_hundredth(was.p + to), linked);
+                    numeric = true;
+                }
+            }
+            let kind = was.kind();
+            let mut pick = None;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for (k, name, tip) in [
+                    (NodeKind::Corner, "Угол", "Убрать ручки: линии сходятся углом. Углом считается и точка, ручки которой смотрят в разные стороны"),
+                    (NodeKind::Smooth, "Плавный", "Поставить ручки на одну прямую; длины остаются разными"),
+                    (NodeKind::Symmetric, "Симметричный", "Поставить ручки на одну прямую и сделать одной длины"),
+                ] {
+                    if ui.selectable_label(kind == k, name).on_hover_text(tip).clicked() {
+                        pick = Some(k);
+                    }
+                }
+            });
+            if let Some(kind) = pick {
+                self.set_points_kind(kind);
+                return;
             }
             if ui.button("Разорвать в узле").clicked() {
                 discrete = shape.break_at(at);
@@ -964,6 +1156,10 @@ fn round_pt(p: Point) -> Point {
     Point::new((p.x * 10.0).round() / 10.0, (p.y * 10.0).round() / 10.0)
 }
 
+fn round_hundredth(p: Point) -> Point {
+    Point::new((p.x * 100.0).round() / 100.0, (p.y * 100.0).round() / 100.0)
+}
+
 fn round_vec(v: Vec2) -> Vec2 {
     Vec2::new((v.x * 10.0).round() / 10.0, (v.y * 10.0).round() / 10.0)
 }
@@ -980,6 +1176,63 @@ mod tests {
         p.line_to((0.0, 10.0));
         p.close_path();
         p
+    }
+
+    #[test]
+    fn the_kind_of_a_point_is_read_from_its_handles() {
+        let v = |cin: Option<(f64, f64)>, cout: Option<(f64, f64)>| Vertex {
+            p: Point::new(10.0, 10.0),
+            cin: cin.map(|(x, y)| Point::new(x, y)),
+            cout: cout.map(|(x, y)| Point::new(x, y)),
+        };
+        assert_eq!(v(None, None).kind(), NodeKind::Corner);
+        assert_eq!(v(Some((0.0, 10.0)), None).kind(), NodeKind::Corner);
+        assert_eq!(v(Some((0.0, 10.0)), Some((20.0, 10.0))).kind(), NodeKind::Symmetric);
+        assert_eq!(v(Some((0.0, 10.0)), Some((15.0, 10.0))).kind(), NodeKind::Smooth);
+        // A handle kept to a tenth of a unit is still on the line; a degree off it is not.
+        assert_eq!(v(Some((0.0, 10.0)), Some((15.0, 10.1))).kind(), NodeKind::Smooth);
+        assert_eq!(v(Some((0.0, 10.0)), Some((30.0, 10.5))).kind(), NodeKind::Corner);
+        // Both handles to one side: a cusp.
+        assert_eq!(v(Some((0.0, 10.0)), Some((0.0, 10.0))).kind(), NodeKind::Corner);
+        assert_eq!(v(Some((0.0, 10.0)), Some((10.0, 0.0))).kind(), NodeKind::Corner);
+    }
+
+    #[test]
+    fn a_point_is_made_a_corner_smooth_or_symmetric() {
+        let mut o = Outline::from_bez(&square()).unwrap();
+        let p = o.verts[1].p;
+        // No handles: they are added along the neighbours, a third of the way to each.
+        o.set_kind(1, NodeKind::Smooth);
+        let (a, b) = (o.verts[1].cin.unwrap(), o.verts[1].cout.unwrap());
+        assert!(((p - a).cross(b - p)).abs() < 0.5 && (p - a).dot(b - p) > 0.0);
+        assert_ne!(o.verts[1].kind(), NodeKind::Corner);
+        // A cusp: the handles are put on the line between them and keep their lengths.
+        o.verts[1].cin = Some(p + Vec2::new(-30.0, 0.0));
+        o.verts[1].cout = Some(p + Vec2::new(0.0, 10.0));
+        assert_eq!(o.verts[1].kind(), NodeKind::Corner);
+        o.set_kind(1, NodeKind::Smooth);
+        let v = o.verts[1];
+        assert_eq!(v.kind(), NodeKind::Smooth);
+        assert!((v.cin.unwrap().distance(p) - 30.0).abs() < 0.01 && (v.cout.unwrap().distance(p) - 10.0).abs() < 0.01);
+        o.set_kind(1, NodeKind::Symmetric);
+        let v = o.verts[1];
+        assert_eq!(v.kind(), NodeKind::Symmetric);
+        assert!((v.cin.unwrap().distance(p) - 20.0).abs() < 0.01 && (v.cout.unwrap().distance(p) - 20.0).abs() < 0.01);
+        // One handle: the other is added on its line.
+        o.verts[1].cout = None;
+        o.set_kind(1, NodeKind::Smooth);
+        assert_ne!(o.verts[1].kind(), NodeKind::Corner);
+        o.set_kind(1, NodeKind::Corner);
+        assert_eq!((o.verts[1].cin, o.verts[1].cout), (None, None));
+    }
+
+    #[test]
+    fn a_linked_handle_turns_the_opposite_one_and_keeps_its_length() {
+        let mut v = Vertex { p: Point::new(0.0, 0.0), cin: Some(Point::new(-10.0, 0.0)), cout: Some(Point::new(4.0, 0.0)) };
+        v.set_handle(false, Point::new(0.0, 8.0), true);
+        assert_eq!((v.cin, v.cout), (Some(Point::new(0.0, -10.0)), Some(Point::new(0.0, 8.0))));
+        v.set_handle(true, Point::new(-3.0, 0.0), false);
+        assert_eq!((v.cin, v.cout), (Some(Point::new(-3.0, 0.0)), Some(Point::new(0.0, 8.0))));
     }
 
     #[test]

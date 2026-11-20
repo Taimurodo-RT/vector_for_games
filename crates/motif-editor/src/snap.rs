@@ -67,6 +67,23 @@ impl Snap {
         to_step(v, self.rotation, self.free)
     }
 
+    /// What a point at `p` sticks to: an anchor, an edge or a centre line of `targets`, when the
+    /// guides are on. Nothing is rounded here; `stuck` tells which axes found a place. `off`
+    /// (Ctrl held) leaves the point where it is.
+    pub fn stick(&self, targets: &crate::guides::Targets, p: Point, zoom: f32, off: bool) -> crate::guides::PointSnap {
+        if off || !self.guides {
+            return crate::guides::PointSnap { at: p, ..Default::default() };
+        }
+        let mut s = targets.snap_point(p, zoom);
+        if s.mark.is_some() && !self.nodes {
+            // Anchors are switched off: the edges and centre lines still count.
+            let mut lines = targets.clone();
+            lines.clear_points();
+            s = lines.snap_point(p, zoom);
+        }
+        s
+    }
+
     /// Where a point placed at `p` goes: onto an anchor, an edge or a centre line of `targets`
     /// when the guides are on, and by the position step on the axes that stuck to nothing. `off`
     /// (Ctrl held) places it freely, to a tenth of a unit.
@@ -75,13 +92,7 @@ impl Snap {
         if off {
             return crate::guides::PointSnap { at: Point::new(fine(p.x), fine(p.y)), ..Default::default() };
         }
-        let mut s = if self.guides { targets.snap_point(p, zoom) } else { crate::guides::PointSnap { at: p, ..Default::default() } };
-        if s.mark.is_some() && !self.nodes {
-            // Anchors are switched off: the edges and centre lines still count.
-            let mut lines = targets.clone();
-            lines.clear_points();
-            s = lines.snap_point(p, zoom);
-        }
+        let mut s = self.stick(targets, p, zoom, false);
         // What stuck keeps its exact place (to a hundredth, as the script writes it).
         let exact = |v: f64| (v * 100.0).round() / 100.0;
         s.at = Point::new(if s.stuck[0] { exact(s.at.x) } else { self.pos(s.at.x) }, if s.stuck[1] { exact(s.at.y) } else { self.pos(s.at.y) });

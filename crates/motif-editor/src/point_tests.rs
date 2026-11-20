@@ -4,6 +4,7 @@ use super::editing_tests::fixture;
 use super::snap_tests::{click, drag, frame, screen};
 use super::*;
 use crate::compound::{Anchor, Compound};
+use crate::pathedit::{NodeKind, Vertex};
 use crate::selection::Align;
 
 const OUTER: &str = "M -50 0 C -50 -28 -28 -50 0 -50 C 28 -50 50 -28 50 0 C 50 28 28 50 0 50 C -28 50 -50 28 -50 0 Z";
@@ -102,10 +103,10 @@ fn shift_adds_and_removes_points_and_a_plain_click_takes_one() {
 
     // A point outside the selection is taken alone, and a drag moves only it.
     let from = at(&mut app, -6.0, 16.0);
-    let to = at(&mut app, -2.0, 20.0);
+    let to = at(&mut app, -12.0, 22.0);
     drag(&mut app, from, to, Modifiers::NONE);
     assert_eq!(picked(&app), vec![a(1, 2)]);
-    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (-6.0, -8.0), (-2.0, 20.0), (-30.0, 16.0)]);
+    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (-6.0, -8.0), (-12.0, 22.0), (-30.0, 16.0)]);
     assert_eq!(points(&app, 2), vec![(8.0, -20.0), (30.0, -20.0), (30.0, 4.0), (8.0, 4.0)]);
     click(&mut app, first, Modifiers::NONE);
     assert_eq!(picked(&app), vec![a(1, 0)]);
@@ -367,4 +368,145 @@ fn points_are_lined_up_and_spread_as_the_eye_sees_them() {
     app.align_points(Align::SpreadX);
     assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (0.0, -8.0), (-6.0, 16.0), (-30.0, 16.0)]);
     assert_eq!(points(&app, 2), vec![(8.0, -20.0), (30.0, -20.0), (30.0, 4.0), (8.0, 4.0)]);
+}
+
+fn vertex(app: &App, part: usize, vertex: usize) -> Vertex {
+    Compound::from_bez(&app.scene.doc.node("ring").unwrap().editable_path()).unwrap().parts[part].outline.verts[vertex]
+}
+
+#[test]
+fn a_dragged_point_sticks_to_the_points_that_stay_and_to_a_guide() {
+    // To 2 screen points off a point of the other hole: it lands on it exactly.
+    let mut app = editing(RING);
+    let from = at(&mut app, 8.0, 4.0);
+    let to = at(&mut app, -6.0, 16.0) + vec2(2.0, -2.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_eq!(points(&app, 2)[3], (-6.0, 16.0));
+    assert!(app.guides.is_empty() && app.snap_mark.is_none(), "the marks go away with the drag");
+    assert_eq!(app.undo.len(), 1);
+
+    // Ctrl: exactly under the pointer.
+    let mut app = editing(RING);
+    drag(&mut app, from, to, Modifiers::COMMAND);
+    let p = points(&app, 2)[3];
+    assert!((p.0 + 6.0).abs() > 0.2 && (p.1 - 16.0).abs() > 0.2, "{p:?}");
+
+    // A guide of the board at x = 180 is x = -20 in the ring's own space; the other axis is free.
+    let mut app = editing(&RING.replace("400x300\n", "400x300\nguide x 180\n"));
+    let from = at(&mut app, -30.0, 16.0);
+    let to = at(&mut app, -20.0, 25.33) + vec2(2.0, 0.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_eq!(points(&app, 1)[3], (-20.0, 25.3));
+
+    // Several points: the one under the pointer sticks, the others keep their places around it.
+    let mut app = hole_selected(RING);
+    let from = at(&mut app, 8.0, 4.0);
+    let to = at(&mut app, -6.0, 16.0) + vec2(-2.0, 1.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_eq!(points(&app, 2), vec![(-6.0, -8.0), (16.0, -8.0), (16.0, 16.0), (-6.0, 16.0)]);
+}
+
+#[test]
+fn shift_keeps_a_dragged_point_on_an_axis_of_the_artboard() {
+    let mut app = editing(RING);
+    let from = at(&mut app, 8.0, 4.0);
+    let to = at(&mut app, 18.0, 7.0);
+    drag(&mut app, from, to, Modifiers::SHIFT);
+    assert_eq!(points(&app, 2)[3], (18.0, 4.0));
+
+    // In a turned outline the axis is still the one of the artboard.
+    let mut app = editing(&RING.replace("at 200 150", "at 200 150 rot 30"));
+    let world = |app: &App| {
+        let doc = &app.scene.doc;
+        doc.world_transform(doc.index_of("ring").unwrap()) * Point::new(points(app, 2)[3].0, points(app, 2)[3].1)
+    };
+    let before = world(&app);
+    let from = at(&mut app, 8.0, 4.0);
+    drag(&mut app, from, from + vec2(40.0, 9.0), Modifiers::SHIFT);
+    let after = world(&app);
+    assert!((after.y - before.y).abs() < 0.011 && after.x - before.x > 5.0, "{before:?} -> {after:?}");
+}
+
+#[test]
+fn handles_of_a_smooth_point_turn_together_and_handles_of_a_corner_go_alone() {
+    // The top point of the ring (0, -50) has handles at (-28, -50) and (28, -50).
+    let mut app = editing(RING);
+    let top = at(&mut app, 0.0, -50.0);
+    click(&mut app, top, Modifiers::NONE);
+    assert_eq!(vertex(&app, 0, 1).kind(), NodeKind::Symmetric);
+    let from = at(&mut app, 28.0, -50.0);
+    let to = at(&mut app, 28.0, -29.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    let v = vertex(&app, 0, 1);
+    assert_eq!(v.cout, Some(Point::new(28.0, -29.0)));
+    assert_eq!(v.kind(), NodeKind::Smooth, "the other handle stays on the line: {v:?}");
+    assert!((v.cin.unwrap().distance(v.p) - 28.0).abs() < 0.02, "and keeps its length: {v:?}");
+
+    // Alt lets the handle go alone: the point becomes a corner with handles.
+    let to = at(&mut app, 10.0, -20.0);
+    let from = at(&mut app, 28.0, -29.0);
+    let other = v.cin;
+    drag(&mut app, from, to, Modifiers::ALT);
+    let v = vertex(&app, 0, 1);
+    assert_eq!((v.cin, v.cout, v.kind()), (other, Some(Point::new(10.0, -20.0)), NodeKind::Corner));
+
+    // From now on each handle of this corner moves without the other, also without Alt.
+    let c = v.cin.unwrap();
+    let from = at(&mut app, c.x, c.y);
+    let to = at(&mut app, -30.0, -60.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    let v = vertex(&app, 0, 1);
+    assert_eq!((v.cin, v.cout), (Some(Point::new(-30.0, -60.0)), Some(Point::new(10.0, -20.0))));
+    assert_eq!(app.undo.len(), 3);
+}
+
+#[test]
+fn shift_turns_a_handle_by_steps_of_15_degrees() {
+    let mut app = editing(RING);
+    let top = at(&mut app, 0.0, -50.0);
+    click(&mut app, top, Modifiers::NONE);
+    let from = at(&mut app, 28.0, -50.0);
+    // About 27° below the horizontal: the handle takes 30°.
+    let to = at(&mut app, 20.0, -39.8);
+    drag(&mut app, from, to, Modifiers::SHIFT);
+    let v = vertex(&app, 0, 1);
+    let d = v.cout.unwrap() - v.p;
+    assert!((d.atan2().to_degrees() - 30.0).abs() < 0.05, "{d:?}");
+    assert_eq!(v.kind(), NodeKind::Smooth);
+}
+
+#[test]
+fn every_selected_point_takes_the_kind_chosen_in_the_panel() {
+    let mut app = editing(RING);
+    for (k, (x, y)) in [(-50.0, 0.0), (0.0, -50.0), (50.0, 0.0), (0.0, 50.0)].into_iter().enumerate() {
+        let p = at(&mut app, x, y);
+        click(&mut app, p, if k == 0 { Modifiers::NONE } else { Modifiers::SHIFT });
+    }
+    app.set_points_kind(NodeKind::Corner);
+    assert!(app.src.contains("d \"M -50 0 L 0 -50 L 50 0 L 0 50 Z M -30 -8 L -6 -8 L -6 16 L -30 16 Z M "), "{}", app.src);
+    assert_eq!(app.undo.len(), 1);
+    app.set_points_kind(NodeKind::Symmetric);
+    for k in 0..4 {
+        assert_eq!(vertex(&app, 0, k).kind(), NodeKind::Symmetric);
+    }
+    assert_eq!(points(&app, 1), vec![(-30.0, -8.0), (-6.0, -8.0), (-6.0, 16.0), (-30.0, 16.0)]);
+    app.undo();
+    app.undo();
+    assert_eq!(app.src, RING);
+}
+
+#[test]
+fn moved_points_are_written_without_the_noise_of_float_sums() {
+    // 0.1 + 0.2 is not 0.3 in floats; the file must still say 0.3. A coordinate written with
+    // more digits keeps them.
+    let src = "artboard \"a\" 400x300\npath ring at 200 150 d \"M 0.1 0 L 40.123456 0 L 40 30 Z\" fill #4fd38c\n";
+    let mut app = editing(src);
+    key(&mut app, Key::A, Modifiers::COMMAND);
+    app.nudge_points(motif_core::kurbo::Vec2::new(0.2, 0.0));
+    assert!(app.src.contains("d \"M 0.3 0 L 40.323456 0 L 40.2 30 Z\""), "{}", app.src);
+    // The kind buttons place handles to a hundredth.
+    app.set_points_kind(NodeKind::Smooth);
+    let d = app.src.split('"').nth(3).unwrap().to_string();
+    assert!(d.split(' ').all(|t| t.split('.').nth(1).is_none_or(|frac| frac.len() <= 6)), "{d}");
+    assert!(d.contains('C'), "{d}");
 }
