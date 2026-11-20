@@ -131,3 +131,65 @@ fn a_size_handle_reaches_the_edge_of_a_neighbour_exactly() {
     app.undo();
     assert_eq!(app.src, SCENE);
 }
+
+#[test]
+fn guides_come_out_of_the_rulers_hold_objects_and_go_back() {
+    let mut app = fixture(SCENE);
+    app.snap = crate::snap::Snap::default();
+    let top = screen(&mut app, 215.0, 0.0);
+    let ruler = app.canvas_bounds.top() + 9.0;
+    // From the top ruler to 2 points off the top edge of `box` (y = 80): a horizontal guide
+    // that sticks to the edge.
+    let to = screen(&mut app, 215.0, 80.0) + vec2(0.0, 2.0);
+    drag(&mut app, egui::pos2(top.x, ruler), to, Modifiers::NONE);
+    assert!(app.src.contains("\nguide y 80\n"), "{}", app.src);
+    // From the left ruler: a vertical one on the step.
+    let left = app.canvas_bounds.left() + 9.0;
+    let to = screen(&mut app, 215.0, 250.0);
+    drag(&mut app, egui::pos2(left, to.y), to, Modifiers::NONE);
+    assert!(app.src.contains("guide y 80\nguide x 215\n"), "{}", app.src);
+    assert_eq!(app.undo.len(), 2, "each guide is one undo step");
+    assert_eq!(app.scene.doc, motif_script::parse(SCENE).unwrap().doc, "guides are not part of the drawing");
+
+    // `other` (280..320) is dragged left until its edge is 3 points from the guide: it sticks.
+    app.select_only(Some("other".into()));
+    let from = screen(&mut app, 300.0, 200.0);
+    let to = screen(&mut app, 235.0, 200.0) + vec2(3.0, 0.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_eq!(bounds(&app, "other").x0, 215.0);
+
+    // A locked guide stays where it is; an unlocked one dropped on its ruler is gone.
+    let with_guides = app.src.clone();
+    let locked = motif_script::set_guide(&app.src, &app.scene, 0, 80.0, true).unwrap();
+    app.apply_once("guide", Some(locked));
+    app.select_only(None);
+    let on_y = screen(&mut app, 360.0, 80.0);
+    let away = screen(&mut app, 360.0, 30.0);
+    let locked_src = app.src.clone();
+    drag(&mut app, on_y, away, Modifiers::NONE);
+    assert_eq!(app.src, locked_src);
+    let on_x = screen(&mut app, 215.0, 270.0);
+    drag(&mut app, on_x, egui::pos2(left, on_x.y), Modifiers::NONE);
+    assert!(!app.src.contains("guide x"), "{}", app.src);
+    assert!(app.src.contains("guide y 80 locked"));
+    assert_ne!(app.src, with_guides);
+    assert!(app.guide_drag.is_none());
+}
+
+#[test]
+fn a_file_with_guides_is_saved_as_version_two_and_without_them_as_one() {
+    let dir = std::env::temp_dir().join(format!("motif-guides-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("g.msc");
+    let two_boards = "artboard \"a\" 40x40\nrect r size 10\nartboard \"b\" 40x40\nguide x 5\nrect q size 10\n";
+    std::fs::write(&path, two_boards).unwrap();
+    // The first board is open; the guide is on the second: the file still needs version 2.
+    let mut app = fixture(two_boards);
+    app.path = Some(path.clone());
+    app.saved_src = app.file_text();
+    app.save(false);
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(saved, format!("motif 2\n{two_boards}"));
+    assert_eq!(motif_script::parse_boards(&saved, None).unwrap()[1].guides.len(), 1);
+    let _ = std::fs::remove_dir_all(dir);
+}

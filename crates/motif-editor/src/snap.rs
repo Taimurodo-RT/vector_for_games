@@ -19,6 +19,8 @@ pub struct Snap {
     /// Points being placed (pen, corners of a new shape, size handles) also stick to the anchors
     /// and centres of other shapes.
     pub nodes: bool,
+    /// The guide lines of the board are shown, can be pulled out of the rulers and are stuck to.
+    pub user_guides: bool,
     /// Grid lines over the artboard every `grid_size` units.
     pub grid: bool,
     pub grid_size: f64,
@@ -29,7 +31,19 @@ pub struct Snap {
 
 impl Default for Snap {
     fn default() -> Self {
-        Snap { free: false, moving: 1.0, size: 1.0, rotation: 1.0, guides: true, nodes: true, grid: false, grid_size: 16.0, pixels: false, rulers: true }
+        Snap {
+            free: false,
+            moving: 1.0,
+            size: 1.0,
+            rotation: 1.0,
+            guides: true,
+            nodes: true,
+            user_guides: true,
+            grid: false,
+            grid_size: 16.0,
+            pixels: false,
+            rulers: true,
+        }
     }
 }
 
@@ -123,6 +137,8 @@ impl App {
             });
             ui.label(RichText::new("Ctrl — поставить точно под курсор, без привязки.").size(11.5).color(FAINT));
             ui.checkbox(&mut self.snap.rulers, "Линейки");
+            ui.checkbox(&mut self.snap.user_guides, "Свои направляющие")
+                .on_hover_text("Потяните из линейки на холст. Обратно на линейку — убрать. Точные числа и замок — в панели справа, когда ничего не выделено");
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.snap.grid, "Сетка");
                 let out = theme::num_field(ui, 110.0, "шаг", self.snap.grid_size, 0.2, 1.0..=512.0, 0, theme::KeyState::Hidden);

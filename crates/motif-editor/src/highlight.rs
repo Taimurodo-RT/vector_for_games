@@ -9,6 +9,7 @@ const KEYWORDS: &[&str] = &[
     "world",
     "directions",
     "backdrop",
+    "guide",
     "let",
     "group",
     "for",

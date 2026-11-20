@@ -212,6 +212,13 @@ pub enum Stmt {
         props: Vec<PropAst>,
         span: Span,
     },
+    /// `guide x 120 locked`: a guide line of the editor, vertical (`x`) or horizontal (`y`).
+    Guide {
+        vertical: bool,
+        at: ValueAst,
+        locked: bool,
+        span: Span,
+    },
     /// `world gravity 0 900 wind 200 0 gust 0.4`: the scene's gravity and wind.
     World {
         props: Vec<PropAst>,
@@ -517,6 +524,7 @@ impl<'a> Parser<'a> {
             }
             "artboard" => self.artboard(),
             "backdrop" => self.backdrop(span.start),
+            "guide" => self.guide(span.start),
             "world" => self.world(span.start),
             "directions" => self.directions(span.start),
             "let" => {
@@ -666,6 +674,27 @@ impl<'a> Parser<'a> {
             props.push(PropAst { key, key_span, values });
         }
         Ok(Stmt::Backdrop { file, props, span: Span::new(start, end) })
+    }
+
+    fn guide(&mut self, start: usize) -> Result<Stmt, ScriptError> {
+        let hint = "после guide нужна ось и место: guide x 120 — вертикальная линия, guide y 80 — горизонтальная";
+        let (axis, axis_span) = self.ident(hint)?;
+        let vertical = match axis.as_str() {
+            "x" => true,
+            "y" => false,
+            _ => return Err(self.err(axis_span, hint)),
+        };
+        let at = self.value()?;
+        let mut end = at.span.end;
+        let mut locked = false;
+        while !self.at_line_end() {
+            let (key, key_span) = self.ident("locked")?;
+            if key != "locked" {
+                return Err(self.err(key_span, format!("у направляющей нет свойства «{key}»: только locked")));
+            }
+            (locked, end) = (true, key_span.end);
+        }
+        Ok(Stmt::Guide { vertical, at, locked, span: Span::new(start, end) })
     }
 
     fn world(&mut self, start: usize) -> Result<Stmt, ScriptError> {

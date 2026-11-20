@@ -50,6 +50,7 @@ mod symbol_ui;
 mod text_ui;
 mod theme;
 mod timeline;
+mod user_guides;
 mod video_ui;
 mod web_ui;
 mod weights_ui;

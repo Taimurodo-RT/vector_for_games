@@ -300,7 +300,7 @@ impl App {
         match &self.pen_targets {
             Some((k, t)) if *k == key => t.clone(),
             _ => {
-                let t = std::rc::Rc::new(crate::guides::Targets::collect_points(doc, &[]));
+                let t = std::rc::Rc::new(self.snap_targets(doc, &[], true));
                 self.pen_targets = Some((key, t.clone()));
                 t
             }

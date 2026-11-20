@@ -535,6 +535,36 @@ fn css_like_properties() {
 }
 
 #[test]
+fn guide_lines_are_read_edited_and_never_reach_the_document() {
+    let src = "let half = 100\nartboard \"M\" 200x200\nrect a at 50 50 size 40\n";
+    let plain = scene(src);
+    assert!(plain.guides.is_empty());
+    // The first guide goes under the artboard line, the next ones after it.
+    let one = add_guide(src, &plain, true, 120.0);
+    assert_eq!(one, "let half = 100\nartboard \"M\" 200x200\nguide x 120\nrect a at 50 50 size 40\n");
+    let two = add_guide(&one, &scene(&one), false, 80.25);
+    assert_eq!(two, "let half = 100\nartboard \"M\" 200x200\nguide x 120\nguide y 80.25\nrect a at 50 50 size 40\n");
+    let s = scene(&two);
+    assert_eq!(s.guides.iter().map(|g| (g.vertical, g.at, g.locked)).collect::<Vec<_>>(), vec![(true, 120.0, false), (false, 80.25, false)]);
+    // Guides are the editor's: what is rendered, exported and played does not change.
+    assert_eq!(s.doc, plain.doc);
+    // Moving and locking rewrites the one line; a name or a formula becomes a number.
+    let moved = set_guide(&two, &s, 1, 64.0, true).unwrap();
+    assert!(moved.contains("guide x 120\nguide y 64 locked\n"));
+    assert!(scene(&moved).guides[1].locked);
+    let named = scene("let half = 100\nartboard \"M\" 200x200\nguide x half\nguide y {half / 4}\n");
+    assert_eq!((named.guides[0].at, named.guides[1].at), (100.0, 25.0));
+    // Removing takes whole lines and leaves the rest as written.
+    assert_eq!(remove_guides(&two, &s, &[0, 1]), src);
+    assert_eq!(remove_guides(&two, &s, &[0]), "let half = 100\nartboard \"M\" 200x200\nguide y 80.25\nrect a at 50 50 size 40\n");
+    // Mistakes are named.
+    for bad in ["guide z 10", "guide x", "guide x 10 hidden", "guide x #ff0000"] {
+        assert!(parse(&format!("artboard \"M\" 200x200\n{bad}\n")).is_err(), "{bad}");
+    }
+    assert!(parse("artboard \"M\" 200x200\ngroup g {\n  guide x 10\n}\n").is_err());
+}
+
+#[test]
 fn backdrop_line() {
     let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40\n";
     let s = scene(src);

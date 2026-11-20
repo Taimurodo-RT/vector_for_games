@@ -105,6 +105,11 @@ impl Targets {
         PointSnap { at, stuck: [x.is_some(), y.is_some()], guides, mark: None }
     }
 
+    /// A guide line of the board: a vertical one at `x = at`, or a horizontal one, spanning `extent`.
+    pub fn add_line(&mut self, vertical: bool, at: f64, extent: (f64, f64)) {
+        if vertical { self.xs.push((at, extent.0, extent.1)) } else { self.ys.push((at, extent.0, extent.1)) }
+    }
+
     pub fn clear_points(&mut self) {
         self.points.clear();
     }

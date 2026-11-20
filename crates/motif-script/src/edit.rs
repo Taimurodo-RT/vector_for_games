@@ -923,6 +923,36 @@ pub fn set_backdrop(src: &str, scene: &Scene, backdrop: Option<&crate::Backdrop>
     }
 }
 
+/// The script line of a guide.
+pub fn guide_text(vertical: bool, at: f64, locked: bool) -> String {
+    format!("guide {} {}{}", if vertical { "x" } else { "y" }, fmt_num(at), if locked { " locked" } else { "" })
+}
+
+/// Returns the script with a guide line added: after the guides already there, or under the
+/// `artboard` line.
+pub fn add_guide(src: &str, scene: &Scene, vertical: bool, at: f64) -> String {
+    let line = guide_text(vertical, at, false);
+    match scene.guides.last() {
+        Some(last) => {
+            let end = whole_lines(src, last.span).end;
+            let line = if src[..end].ends_with('\n') { format!("{line}\n") } else { format!("\n{line}") };
+            splice(src, Span::new(end, end), &line)
+        }
+        None => under_artboard(src, &line),
+    }
+}
+
+/// Returns the script with guide `index` (in `scene.guides`) moved to `at` and locked or not.
+pub fn set_guide(src: &str, scene: &Scene, index: usize, at: f64, locked: bool) -> Option<String> {
+    let g = scene.guides.get(index)?;
+    Some(splice(src, g.span, &guide_text(g.vertical, at, locked)))
+}
+
+/// Returns the script without the guides `indices` (in `scene.guides`).
+pub fn remove_guides(src: &str, scene: &Scene, indices: &[usize]) -> String {
+    remove_spans(src, indices.iter().filter_map(|&i| scene.guides.get(i)).map(|g| whole_lines(src, g.span)).collect())
+}
+
 /// Returns the script with `line` added under the `artboard` line, or at the top when there is none.
 fn under_artboard(src: &str, line: &str) -> String {
     let at = src
