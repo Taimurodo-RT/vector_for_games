@@ -74,6 +74,15 @@ pub(crate) fn warnings(docs: &[Document], profile: Option<&Profile>) -> Vec<(Str
                 }
             }
         }
+        // A live operation whose shapes move is combined anew on every frame it plays.
+        for (g, n) in doc.nodes.iter().enumerate().filter(|(_, n)| n.combine.is_some()) {
+            if let Some(mover) = doc.combine_moved_by(g) {
+                say(format!(
+                    "Живая операция «{}» считается заново на каждом кадре: «{mover}» двигается в анимации. В игре это дороже обычной фигуры; если вырез не должен двигаться, разберите операцию в контур",
+                    n.display_name()
+                ));
+            }
+        }
         // Morphing shapes the ReyVec engine would show otherwise (strokes, colours, lines).
         for w in motif_script::reyvec_morph_warnings([doc]) {
             say(format!("Для ReyVec: {w}"));

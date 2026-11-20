@@ -11,6 +11,7 @@ mod canvas;
 mod canvas_drag;
 mod character_ui;
 mod check_ui;
+mod combine_ui;
 mod compound;
 mod field_ui;
 mod game_panel;

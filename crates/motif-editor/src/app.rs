@@ -2241,6 +2241,9 @@ impl App {
         if show(Cat::Mask) {
             self.mask_ui(ui, &node);
         }
+        if show(Cat::Combine) {
+            self.combine_ui(ui, &node);
+        }
         if show(Cat::Symbol) {
             self.symbol_section(ui, &node);
         }
@@ -2811,6 +2814,7 @@ impl App {
         self.paint_motion(&painter, rect, view, pointer.filter(|_| self.drag.is_none() && resp.hovered()));
         self.paint_fields(&painter, rect, view, &doc);
         self.paint_marks(&painter, rect, view, &doc);
+        self.paint_combines(&painter, rect, view, &doc);
         if let Some(h) = &self.hovered
             && self.selected.as_ref() != Some(h)
             && let Some(i) = doc.index_of(h)
@@ -3203,6 +3207,10 @@ impl App {
                     ("Рамка точек", "Тёмные ручки растягивают и поворачивают выделенные точки; Alt — от середины, Shift — пропорции и 15°"),
                     ("Точка и ручка", "Точка прилипает к точкам, краям и направляющим (Ctrl — свободно, Shift — по оси); ручка: Alt — отдельно, Shift — 15°"),
                     ("Контур", "Раздел свойств «Контур»: фигуру в контур, обводку в контур, смещение наружу и внутрь"),
+                    (
+                        "Живая операция",
+                        "Кнопки булевых операций собирают фигуры в группу: они остаются и двигаются. Alt — одним контуром; «Разобрать» — в свойствах группы",
+                    ),
                     ("Tab", "Переключить Рисование / Анимацию без изменения сцены"),
                     ("Ctrl+Shift+Space", "Фокус на холсте / вернуть панели"),
                     ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),
@@ -3488,14 +3496,28 @@ impl App {
 }
 
 pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo::Rect> {
-    match doc.nodes[i].path() {
+    let node = &doc.nodes[i];
+    // A shape that draws the result of a live operation is framed by its own outline: that
+    // is what a drag of the frame changes.
+    let own = if node.combined.is_some() { node.own_path() } else { node.path() };
+    match own {
         Some(p) => Some(p.bounding_box()),
-        // Groups: the union of their direct children.
         None => {
             let inv = doc.world_transform(i).inverse();
+            let live = node.combine.is_some() && doc.combine_members(i).len() > 1;
+            // A live operation is framed by what it draws, wherever in the group that shape is.
+            if live {
+                let drawn = doc.combine_bearer(i).filter(|&b| !doc.nodes[b].absorbed)?;
+                return doc.nodes[drawn].path().map(|p| (inv * doc.world_transform(drawn)).transform_rect_bbox(p.bounding_box()));
+            }
+            // Other groups: the union of their direct children.
             (0..doc.nodes.len())
                 .filter(|&k| doc.nodes[k].parent == Some(i))
-                .filter_map(|k| doc.nodes[k].path().map(|p| (inv * doc.world_transform(k)).transform_rect_bbox(p.bounding_box())))
+                .filter_map(|k| {
+                    let child = &doc.nodes[k];
+                    let path = if child.combined.is_some() { child.own_path() } else { child.path() };
+                    path.map(|p| (inv * doc.world_transform(k)).transform_rect_bbox(p.bounding_box()))
+                })
                 .reduce(|a, b| a.union(b))
         }
     }
@@ -4294,6 +4316,9 @@ mod preview_ui;
 #[cfg(test)]
 #[path = "canvas_interaction_tests.rs"]
 mod canvas_interaction_tests;
+#[cfg(test)]
+#[path = "combine_tests.rs"]
+mod combine_tests;
 #[cfg(test)]
 #[path = "frame_tests.rs"]
 mod frame_tests;

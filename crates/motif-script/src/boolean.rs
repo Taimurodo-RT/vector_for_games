@@ -30,6 +30,16 @@ impl BoolOp {
         }
     }
 
+    /// The operation of a `combine` group as the editor's buttons name it.
+    pub fn of(live: motif_core::CombineOp) -> BoolOp {
+        match live {
+            motif_core::CombineOp::Union => BoolOp::Union,
+            motif_core::CombineOp::Subtract => BoolOp::Subtract,
+            motif_core::CombineOp::Intersect => BoolOp::Intersect,
+            motif_core::CombineOp::Exclude => BoolOp::Exclude,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             BoolOp::Union => "Объединить",

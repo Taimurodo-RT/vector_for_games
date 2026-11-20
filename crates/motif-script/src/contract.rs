@@ -240,8 +240,7 @@ fn board(doc: &Document) -> Board {
 /// The shapes of the operation of group `g` as written: every shape in it, whether an inner
 /// operation takes it in first or not.
 fn combine_shapes(doc: &Document, g: usize) -> Vec<String> {
-    let shape = |n: &motif_core::Node| !n.kind.is_container() && n.kind != motif_core::ShapeKind::Bone && !n.area;
-    doc.nodes.iter().enumerate().skip(g + 1).take_while(|(i, _)| doc.is_inside(*i, g)).filter(|(_, n)| shape(n)).map(|(_, n)| n.id.clone()).collect()
+    doc.combine_members(g).into_iter().map(|i| doc.nodes[i].id.clone()).collect()
 }
 
 fn data(pairs: &[(String, EventValue)]) -> serde_json::Map<String, serde_json::Value> {

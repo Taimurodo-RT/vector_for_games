@@ -12,6 +12,7 @@ pub(super) enum InspectorCategory {
     Text,
     Letters,
     Mask,
+    Combine,
     Deformer,
     Parameter(String),
     Bones,
@@ -40,6 +41,7 @@ impl InspectorCategory {
             Self::Text => "Текст",
             Self::Letters => "Анимация букв",
             Self::Mask => "Маска",
+            Self::Combine => "Живая операция",
             Self::Deformer => "Деформер группы",
             Self::Parameter(id) => doc.parameter(id).map_or(id, |p| p.name.as_str()),
             Self::Bones => "Кости и IK",
@@ -173,10 +175,16 @@ impl App {
         if n.kind == ShapeKind::Text {
             categories.extend([Text, Letters]);
         }
+        if !n.kind.is_container() && self.scene.doc.index_of(id).is_some_and(|i| self.scene.doc.combined_in(i).is_some()) {
+            categories.push(Combine);
+        }
         if n.kind == ShapeKind::Group {
             categories.push(Deformer);
             if !self.scene.instances.get(id).is_some_and(|inst| self.scene.symbols.iter().any(|s| s.name == inst.symbol && s.clip)) {
                 categories.push(Mask);
+            }
+            if !self.scene.instances.contains_key(id) && !n.clip {
+                categories.push(Combine);
             }
             if self.workspace() == crate::workspace::Workspace::Drawing && motif_script::character::read(&self.src).ok().flatten().is_some() {
                 categories.push(Character);

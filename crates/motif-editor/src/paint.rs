@@ -116,6 +116,14 @@ impl App {
         if symbol_clip {
             return;
         }
+        // A group is either a mask or a live operation: the file refuses both words on one line.
+        if node.combine.is_some() {
+            crate::app::fold(ui, "Маска", |ui| {
+                let hint = "У живой операции маски нет: группа либо обрезает первым объектом, либо складывает фигуры в один контур.";
+                ui.label(RichText::new(hint).size(11.5).color(MUTED));
+            });
+            return;
+        }
         let mut on = node.clip;
         crate::app::fold(ui, "Маска", |ui| {
             ui.checkbox(&mut on, RichText::new("Первый объект обрезает остальные").size(12.5).color(theme::FG));

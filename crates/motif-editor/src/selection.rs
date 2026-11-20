@@ -317,17 +317,18 @@ impl App {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 for op in motif_script::BoolOp::ALL {
                     let tip = match op {
-                        motif_script::BoolOp::Union => "Объединить: всё, что покрывает любая фигура",
-                        motif_script::BoolOp::Subtract => "Вычесть: нижняя фигура минус те, что выше",
-                        motif_script::BoolOp::Intersect => "Пересечь: только общая часть",
-                        motif_script::BoolOp::Exclude => "Исключить: общие части становятся дырками",
+                        motif_script::BoolOp::Union => "Объединить: всё, что покрывает любая фигура (Alt — одним контуром)",
+                        motif_script::BoolOp::Subtract => "Вычесть: нижняя фигура минус те, что выше (Alt — одним контуром)",
+                        motif_script::BoolOp::Intersect => "Пересечь: только общая часть (Alt — одним контуром)",
+                        motif_script::BoolOp::Exclude => "Исключить: общие части становятся дырками (Alt — одним контуром)",
                     };
-                    if bool_button(ui, op, tip).clicked() {
-                        bool_op = Some(op);
+                    if bool_button(ui, op, tip, false).clicked() {
+                        bool_op = Some((op, ui.input(|i| i.modifiers.alt)));
                     }
                 }
             });
-            ui.label(egui::RichText::new("Фигуры заменяются одним контуром со стилем нижней.").size(11.5).color(theme::FAINT));
+            let hint = "Фигуры остаются в группе с живой операцией: двигайте их, результат пересчитается. Рисует его нижняя фигура. Alt+щелчок сразу заменяет фигуры одним контуром.";
+            ui.label(egui::RichText::new(hint).size(11.5).color(theme::FAINT));
         });
         crate::app::section(ui, |ui| {
             if theme::button(ui, "Сгруппировать", theme::ButtonKind::Primary).on_hover_text("Ctrl+G: в новую группу, всё остаётся на месте").clicked()
@@ -340,8 +341,10 @@ impl App {
         if let Some(how) = pick {
             self.align(how);
         }
-        if let Some(op) = bool_op {
-            self.boolean(op);
+        match bool_op {
+            Some((op, true)) => self.boolean(op),
+            Some((op, false)) => self.combine_selection(op),
+            None => {}
         }
         if group {
             self.group_selection();
@@ -365,13 +368,13 @@ impl App {
 }
 
 /// A button whose icon shows the operation on two overlapping squares.
-fn bool_button(ui: &mut egui::Ui, op: motif_script::BoolOp, tip: &str) -> egui::Response {
+pub(crate) fn bool_button(ui: &mut egui::Ui, op: motif_script::BoolOp, tip: &str, on: bool) -> egui::Response {
     use egui::{Rect, Stroke, StrokeKind, vec2};
     use motif_script::BoolOp;
     let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 28.0), egui::Sense::click());
     let bg = if resp.hovered() { theme::RAISE } else { theme::PANEL_2 };
     let p = ui.painter();
-    p.rect(rect, 6.0, bg, Stroke::new(1.0, theme::LINE), StrokeKind::Inside);
+    p.rect(rect, 6.0, bg, Stroke::new(1.0, if on { theme::ACCENT } else { theme::LINE }), StrokeKind::Inside);
     let c = rect.center();
     let a = Rect::from_min_size(c + vec2(-8.0, -8.0), vec2(11.0, 11.0));
     let b = Rect::from_min_size(c + vec2(-3.0, -3.0), vec2(11.0, 11.0));
