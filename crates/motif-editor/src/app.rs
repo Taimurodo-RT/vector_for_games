@@ -1,12 +1,14 @@
 use crate::canvas::{Canvas, View, artboard_rect};
+pub use crate::canvas_drag::{DragOp, MoveItem};
+pub(crate) use crate::canvas_drag::{Handle, handle_points};
 use crate::pathedit::{PenPoint, PointEdit};
 use crate::theme::{self, ACCENT, ACCENT_INK, BG, ButtonKind, DANGER, FAINT, FG, GOOD, Icon, KeyState, LINE, MUTED, PANEL, SEL};
 use egui::{Align2, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, pos2, vec2};
-use motif_core::kurbo::{Affine, Point, Shape};
+use motif_core::kurbo::{Point, Shape};
 use motif_core::{Color, Document, Prop, Purpose, ShapeKind, Value};
 use motif_pixel::{FrameExport, PIXATOOL_MAX_COLORS, parse_jasc, quantize, render_frames_facing, scene_palette, to_jasc};
 use motif_render::{CpuOptions, render_cpu};
-use motif_script::{Scene, ScriptError, add_node, delete_key, delete_node, fmt_num, parse, set_key, set_prop};
+use motif_script::{Scene, ScriptError, delete_key, delete_node, fmt_num, parse, set_key, set_prop};
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 
@@ -29,58 +31,6 @@ pub enum Tool {
     Hand,
     Create(ShapeKind),
     Pen,
-}
-
-pub enum DragOp {
-    Pan,
-    Move {
-        /// Pointer position (artboard space) when the drag started.
-        from: Point,
-        items: Vec<MoveItem>,
-        /// Bounds of everything moving at the start, and what it can line up with.
-        start_box: Option<motif_core::kurbo::Rect>,
-        targets: crate::guides::Targets,
-    },
-    /// Rubber-band selection; with Shift it adds to the selection.
-    Marquee {
-        from: Point,
-        to: Point,
-        add: bool,
-    },
-    Resize {
-        node: String,
-        /// Artboard space to the node's local space, fixed at drag start.
-        to_local: Affine,
-        start: (f64, f64),
-    },
-    Rotate {
-        node: String,
-        center: Point,
-        start_angle: f64,
-        start_rot: f64,
-    },
-    Create {
-        kind: ShapeKind,
-        from: Point,
-        to: Point,
-    },
-    /// The tip of a bone: turns it, and in Design also sets its length.
-    BoneTip {
-        node: String,
-        /// The bone's joint on the artboard.
-        joint: Point,
-        /// Direction of the parent's x axis, radians.
-        parent_angle: f64,
-    },
-}
-
-/// One object moved by a drag.
-pub struct MoveItem {
-    pub(crate) node: String,
-    /// Node origin in artboard space when the drag started.
-    pub(crate) origin: Point,
-    /// Artboard space to the node's parent space.
-    pub(crate) to_parent: Affine,
 }
 
 /// A key picked in the timeline: node, property and time.
@@ -162,7 +112,7 @@ pub struct App {
     /// The «Новое…» library of templates, when open.
     pub(crate) library: Option<crate::library_ui::Library>,
     pub(crate) hovered: Option<String>,
-    view: Option<View>,
+    pub(crate) view: Option<View>,
     pub(crate) anim: Option<String>,
     /// Animation to return to when switching back to Animate.
     pub(crate) last_anim: Option<String>,
@@ -215,7 +165,7 @@ pub struct App {
     live: Vec<(String, Prop, Value)>,
     pub(crate) snap: crate::snap::Snap,
     /// Smart guides shown while moving.
-    guides: Vec<crate::guides::Guide>,
+    pub(crate) guides: Vec<crate::guides::Guide>,
     /// Points placed by the pen so far.
     pub(crate) pen: Vec<PenPoint>,
     pub(crate) pen_dragging: bool,
@@ -252,7 +202,7 @@ pub struct App {
     pending_file: Option<FileAction>,
     show_help: bool,
     pub(crate) show_syntax: bool,
-    space_used_for_pan: bool,
+    pub(crate) space_used_for_pan: bool,
     hex_edit: Option<(Prop, String)>,
     pixel: PixelPreview,
     pub(crate) export: ExportSettings,
@@ -1008,7 +958,7 @@ impl App {
     }
 
     /// Writes the values of a finished drag to the script as one undo step.
-    fn commit_live(&mut self) {
+    pub(crate) fn commit_live(&mut self) {
         let live = std::mem::take(&mut self.live);
         if live.is_empty() {
             return;
@@ -2745,69 +2695,8 @@ impl App {
             && let Some(p) = press
             && let dp = view.to_doc(rect, p)
         {
-            self.drag = if pan_gesture {
-                if space {
-                    self.space_used_for_pan = true;
-                }
-                Some(DragOp::Pan)
-            } else if let Tool::Create(kind) = self.tool {
-                Some(DragOp::Create { kind, from: dp, to: dp })
-            } else if let Some(h) = hit_handle(p)
-                && let Some(id) = self.selected.clone()
-                && let Some(i) = doc.index_of(&id)
-            {
-                let n = &doc.nodes[i];
-                match h {
-                    Handle::Corner => Some(DragOp::Resize { node: id, to_local: doc.world_transform(i).inverse(), start: (n.width, n.height) }),
-                    Handle::Rotate => {
-                        let center = doc.world_transform(i) * (Point::ZERO + n.pivot);
-                        let a = (dp - center).atan2().to_degrees();
-                        Some(DragOp::Rotate { node: id, center, start_angle: a, start_rot: n.rotation })
-                    }
-                }
-            } else if !shift
-                && !self.pointer_hits_selection(&doc, dp)
-                && let Some(hit) = self.motion_hit(rect, view, p)
-            {
-                Some(self.motion_drag(hit, dp))
-            } else if self.tool == Tool::Select
-                && !shift
-                && let Some(op) = self.bone_drag(&doc, rect, view, p, dp)
-            {
-                Some(op)
-            } else {
-                match doc.hit_test(dp) {
-                    Some(i) => {
-                        let id = doc.nodes[i].id.clone();
-                        if shift && !self.is_selected(&id) {
-                            self.toggle_selected(id.clone());
-                        } else if !self.is_selected(&id) {
-                            self.select_only(Some(id.clone()));
-                        }
-                        self.sel_keys.clear();
-                        let items = self
-                            .selection()
-                            .into_iter()
-                            .filter_map(|id| doc.index_of(&id).map(|k| (id, k)))
-                            // A stack places its children itself.
-                            .filter(|(_, k)| doc.nodes[*k].parent.is_none_or(|p| doc.nodes[p].stack.is_none()))
-                            .map(|(node, k)| MoveItem {
-                                node,
-                                origin: doc.world_transform(k) * Point::ZERO,
-                                to_parent: doc.nodes[k].parent.map_or(Affine::IDENTITY, |pi| doc.world_transform(pi).inverse()),
-                            })
-                            .collect::<Vec<_>>();
-                        if items.is_empty() {
-                            self.status = "Объект в стеке: место задаёт стек группы. Порядок меняется перетаскиванием в слоях".into();
-                        }
-                        let moving: Vec<usize> = items.iter().filter_map(|it| doc.index_of(&it.node)).collect();
-                        let start_box = moving.iter().filter_map(|&k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
-                        let targets = crate::guides::Targets::collect(&doc, &moving);
-                        Some(DragOp::Move { from: dp, items, start_box, targets })
-                    }
-                    None => Some(DragOp::Marquee { from: dp, to: dp, add: shift }),
-                }
-            };
+            let grabbed = if pan_gesture || matches!(self.tool, Tool::Create(_)) { None } else { hit_handle(p) };
+            self.drag = self.begin_drag(&doc, rect, view, p, dp, grabbed, pan_gesture, space, shift);
         }
         // Rotation has no system cursor: draw a circular arrow at the pointer instead.
         let rotating = matches!(self.drag, Some(DragOp::Rotate { .. }));
@@ -2820,111 +2709,14 @@ impl App {
             fg.circle_filled(p, 11.0, Color32::from_black_alpha(140));
             theme::paint_icon(&fg, r, Icon::Rotate, Color32::WHITE);
         }
-        let snap = self.snap;
-        if resp.dragged()
-            && let Some(dp) = doc_pt
-            && let Some(DragOp::BoneTip { node, joint, parent_angle }) = &self.drag
-        {
-            let (node, joint, parent_angle) = (node.clone(), *joint, *parent_angle);
-            self.drag_bone_tip(&doc, &node, joint, parent_angle, dp, shift);
-        }
         if resp.dragged()
             && let Some(dp) = doc_pt
         {
-            match &mut self.drag {
-                Some(DragOp::Pan) => {
-                    if let Some(v) = self.view.as_mut() {
-                        v.pan += resp.drag_delta();
-                    }
-                }
-                Some(DragOp::Create { to, .. } | DragOp::Marquee { to, .. }) => *to = dp,
-                Some(DragOp::Move { from, items, start_box, targets }) => {
-                    let mut delta = dp - *from;
-                    let mut stuck = [false; 2];
-                    self.guides.clear();
-                    // Alt moves freely past the guides.
-                    if snap.guides
-                        && !ui.input(|i| i.modifiers.alt)
-                        && let Some(b) = start_box
-                    {
-                        let (d, s, g) = targets.snap(*b, delta, view.zoom);
-                        (delta, stuck, self.guides) = (d, s, g);
-                    }
-                    let fine = |v: f64| (v * 10.0).round() / 10.0;
-                    let moves: Vec<(String, f64, f64)> = items
-                        .iter()
-                        .map(|it| {
-                            let target = it.to_parent * (it.origin + delta);
-                            // Stacks and anchors move objects by an offset the script does not hold.
-                            let off = doc.node(&it.node).map_or(motif_core::kurbo::Vec2::ZERO, |n| n.offset);
-                            let x = if stuck[0] { fine(target.x) } else { snap.pos(target.x) } - off.x;
-                            let y = if stuck[1] { fine(target.y) } else { snap.pos(target.y) } - off.y;
-                            (it.node.clone(), fine(x), fine(y))
-                        })
-                        .collect();
-                    for (node, x, y) in moves {
-                        let cur = doc.node(&node).map(|n| (n.x, n.y));
-                        if cur.is_some_and(|c| c.0 != x) {
-                            self.preview(&node, Prop::X, Value::Num(x));
-                        }
-                        if cur.is_some_and(|c| c.1 != y) {
-                            self.preview(&node, Prop::Y, Value::Num(y));
-                        }
-                    }
-                }
-                Some(DragOp::Resize { node, to_local, start }) => {
-                    let local = *to_local * dp;
-                    let (mut w, mut h) = (snap.size(local.x.abs() * 2.0), snap.size(local.y.abs() * 2.0));
-                    if shift && start.0 > 0.0 && start.1 > 0.0 {
-                        let k = (w / start.0).max(h / start.1);
-                        (w, h) = (snap.size(start.0 * k), snap.size(start.1 * k));
-                    }
-                    let node = node.clone();
-                    let cur = doc.node(&node).map(|n| (n.width, n.height));
-                    if cur.is_some_and(|c| c.0 != w) {
-                        self.preview(&node, Prop::Width, Value::Num(w.max(1.0)));
-                    }
-                    if cur.is_some_and(|c| c.1 != h) {
-                        self.preview(&node, Prop::Height, Value::Num(h.max(1.0)));
-                    }
-                }
-                Some(DragOp::Rotate { node, center, start_angle, start_rot }) => {
-                    let a = (dp - *center).atan2().to_degrees();
-                    let mut rot = *start_rot + (a - *start_angle);
-                    rot = if shift { (rot / 15.0).round() * 15.0 } else { snap.rot(rot) };
-                    let node = node.clone();
-                    if doc.node(&node).is_some_and(|n| n.rotation != rot) {
-                        self.preview(&node, Prop::Rotation, Value::Num(rot));
-                    }
-                }
-                Some(DragOp::BoneTip { .. }) | None => {}
-            }
+            let alt = ui.input(|i| i.modifiers.alt);
+            self.update_drag(&doc, view, dp, resp.drag_delta(), shift, alt);
         }
         if resp.drag_stopped() {
-            self.guides.clear();
-            self.commit_live();
-            match self.drag.take() {
-                Some(DragOp::Create { kind: ShapeKind::Bone, from, to }) => self.create_bone(from, to, 10.0 / view.zoom as f64),
-                Some(DragOp::Create { kind, from, to }) => self.create_shape(kind, from, to, shift),
-                Some(DragOp::Marquee { from, to, add }) => {
-                    let area = motif_core::kurbo::Rect::from_points(from, to);
-                    let hits: Vec<String> = (0..doc.nodes.len())
-                        .filter(|&i| doc.nodes[i].parent.is_none() && doc.is_visible(i) && !doc.is_locked(i))
-                        .filter(|&i| crate::selection::world_bounds(&doc, i).is_some_and(|b| b.intersect(area).area() > 0.0 || area.contains(b.center())))
-                        .map(|i| doc.nodes[i].id.clone())
-                        .collect();
-                    if !add {
-                        self.select_only(None);
-                    }
-                    for id in hits {
-                        if !self.is_selected(&id) {
-                            self.toggle_selected(id);
-                        }
-                    }
-                }
-                _ => {}
-            }
-            self.drag = None;
+            self.end_drag(&doc, view, shift);
         }
         if !live && !pan_gesture {
             self.canvas_context_menu(&resp, &doc, rect, view);
@@ -3024,27 +2816,6 @@ impl App {
             theme::ui_font(11.5),
             FAINT,
         );
-    }
-
-    fn create_shape(&mut self, kind: ShapeKind, from: Point, to: Point, square: bool) {
-        if !self.can_edit() {
-            return;
-        }
-        let (mut w, mut h) = ((to.x - from.x).abs().round(), (to.y - from.y).abs().round());
-        if w < 4.0 && h < 4.0 {
-            (w, h) = (80.0, 80.0);
-        }
-        if square || matches!(kind, ShapeKind::Star | ShapeKind::Polygon) && (w - h).abs() < 6.0 {
-            let m = w.max(h);
-            (w, h) = (m, m);
-        }
-        let (cx, cy) = if from == to { (from.x.round(), from.y.round()) } else { (((from.x + to.x) / 2.0).round(), ((from.y + to.y) / 2.0).round()) };
-        let (out, id) = add_node(&self.src, &self.scene, kind, (cx, cy), (w.max(1.0), h.max(1.0)));
-        if self.apply("create", Some(out)) {
-            self.selected = Some(id.clone());
-            self.status = format!("Добавлен {} «{id}» — строка в скрипте перед блоками anim", kind.keyword());
-        }
-        self.tool = Tool::Select;
     }
 
     fn paint_pixel_preview(&mut self, ui: &mut egui::Ui, rect: Rect, view: View, doc: &Document) {
@@ -3611,35 +3382,6 @@ impl App {
             }
         }
     }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Handle {
-    Corner,
-    Rotate,
-}
-
-struct Handles {
-    corners: [Pos2; 4],
-    rotate: Pos2,
-    resizable: bool,
-}
-
-fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) -> Option<Handles> {
-    let node = &doc.nodes[i];
-    // Bones have their own handles: the joint and the tip.
-    if node.kind == ShapeKind::Bone {
-        return None;
-    }
-    let bounds = node_bounds(doc, i)?;
-    let t = doc.world_transform(i);
-    let corners = [(bounds.x0, bounds.y0), (bounds.x1, bounds.y0), (bounds.x1, bounds.y1), (bounds.x0, bounds.y1)]
-        .map(|(x, y)| view.to_screen(rect, t * Point::new(x, y)));
-    let top_mid = corners[0].lerp(corners[1], 0.5);
-    let center = corners[0].lerp(corners[2], 0.5);
-    let up = (top_mid - center).normalized();
-    let up = if up.is_finite() { up } else { vec2(0.0, -1.0) };
-    Some(Handles { corners, rotate: top_mid + up * 22.0, resizable: !matches!(node.kind, ShapeKind::Group | ShapeKind::Path | ShapeKind::Text) })
 }
 
 pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo::Rect> {
