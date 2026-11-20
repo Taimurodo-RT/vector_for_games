@@ -862,9 +862,10 @@ impl App {
     /// Brings back the file as an undo step saved it, editing the board it was edited on.
     fn restore(&mut self, board: usize, file: &str) {
         if let Some(edit) = &mut self.point_edit {
-            edit.selected = None;
+            edit.select_only(None);
             edit.grab = None;
             edit.live = None;
+            edit.marquee = None;
         }
         if board != self.boards.active {
             self.selected = None;
@@ -3184,6 +3185,7 @@ impl App {
                     ("P", "Перо; Enter — закончить, клик по первой точке — замкнуть"),
                     ("B", "Кость: протяжка от сустава к кончику, следующая продолжает цепочку"),
                     ("Enter", "Редактировать точки контура (или двойной клик)"),
+                    ("Shift+клик, рамка", "В правке точек: несколько точек; Ctrl+A — все, стрелки двигают, Delete удаляет"),
                     ("Tab", "Переключить Рисование / Анимацию без изменения сцены"),
                     ("Ctrl+Shift+Space", "Фокус на холсте / вернуть панели"),
                     ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),
@@ -3330,7 +3332,7 @@ impl App {
         if cmd(Key::OpenBracket) {
             self.restack_selection(false);
         }
-        if cmd(Key::A) {
+        if cmd(Key::A) && !self.select_all_points() {
             self.select_all();
         }
         if cmd(Key::Z) {
@@ -3451,6 +3453,12 @@ impl App {
             let node = self.display_doc().node(&id).cloned();
             let nudge = [(Key::ArrowLeft, Prop::X, -step), (Key::ArrowRight, Prop::X, step), (Key::ArrowUp, Prop::Y, -step), (Key::ArrowDown, Prop::Y, step)];
             for (key, prop, delta) in nudge {
+                // While points are edited the arrows move the selected points, not the object.
+                if i.key_pressed(key) && self.point_edit.is_some() {
+                    let d = if prop == Prop::X { motif_core::kurbo::Vec2::new(delta, 0.0) } else { motif_core::kurbo::Vec2::new(0.0, delta) };
+                    self.nudge_points(d);
+                    continue;
+                }
                 if i.key_pressed(key)
                     && let Some(n) = &node
                     && let Some(v) = n.get(prop).as_num()
@@ -4272,6 +4280,9 @@ mod canvas_interaction_tests;
 #[cfg(test)]
 #[path = "frame_tests.rs"]
 mod frame_tests;
+#[cfg(test)]
+#[path = "point_tests.rs"]
+mod point_tests;
 #[cfg(test)]
 #[path = "snap_tests.rs"]
 mod snap_tests;
