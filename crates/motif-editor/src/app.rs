@@ -2747,11 +2747,7 @@ impl App {
         if let Some(p) = pointer
             && (rotating || (self.drag.is_none() && !pan_gesture && self.tool == Tool::Select && hit_handle(p) == Some(Handle::Rotate)))
         {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-            let fg = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("rotate-cursor")));
-            let r = Rect::from_center_size(p, vec2(22.0, 22.0));
-            fg.circle_filled(p, 11.0, Color32::from_black_alpha(140));
-            theme::paint_icon(&fg, r, Icon::Rotate, Color32::WHITE);
+            crate::transform_frame::paint_rotate_cursor(ui.ctx(), p);
         }
         if resp.dragged()
             && let Some(dp) = doc_pt
@@ -3186,6 +3182,7 @@ impl App {
                     ("B", "Кость: протяжка от сустава к кончику, следующая продолжает цепочку"),
                     ("Enter", "Редактировать точки контура (или двойной клик)"),
                     ("Shift+клик, рамка", "В правке точек: несколько точек; Ctrl+A — все, стрелки двигают, Delete удаляет"),
+                    ("Рамка точек", "Тёмные ручки растягивают и поворачивают выделенные точки; Alt — от середины, Shift — пропорции и 15°"),
                     ("Tab", "Переключить Рисование / Анимацию без изменения сцены"),
                     ("Ctrl+Shift+Space", "Фокус на холсте / вернуть панели"),
                     ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),

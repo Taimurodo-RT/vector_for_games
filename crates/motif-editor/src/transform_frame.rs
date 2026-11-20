@@ -55,7 +55,7 @@ pub(crate) struct Handles {
 }
 
 /// The point of `b` a handle sits on.
-fn grip(b: KRect, hx: i8, hy: i8) -> Point {
+pub(crate) fn grip(b: KRect, hx: i8, hy: i8) -> Point {
     let c = b.center();
     let side = |h: i8, lo: f64, mid: f64, hi: f64| match h {
         -1 => lo,
@@ -91,8 +91,14 @@ impl Frame {
     }
 
     pub(crate) fn handles(&self, rect: Rect, view: View) -> Handles {
-        let at = |(hx, hy): (i8, i8)| view.to_screen(rect, self.to_world * grip(self.bounds, hx, hy));
-        let corners = CORNERS.map(at);
+        Handles::around(|(hx, hy)| view.to_screen(rect, self.to_world * grip(self.bounds, hx, hy)))
+    }
+}
+
+impl Handles {
+    /// The handles of a frame whose corners, side middles and centre are at `at` on the screen.
+    pub(crate) fn around(at: impl Fn((i8, i8)) -> Pos2) -> Handles {
+        let corners = CORNERS.map(&at);
         let center = at((0, 0));
         let mut sides = [None; 4];
         for (k, side) in SIDES.into_iter().enumerate() {
@@ -105,9 +111,7 @@ impl Frame {
         let up = if up.is_finite() && up != egui::Vec2::ZERO { up } else { vec2(0.0, -1.0) };
         Handles { corners, sides, rotate: top_mid + up * 22.0, center }
     }
-}
 
-impl Handles {
     pub(crate) fn hit(&self, p: Pos2) -> Option<Handle> {
         if self.rotate.distance(p) < 8.0 {
             return Some(Handle::Rotate);
@@ -135,10 +139,18 @@ impl Handles {
     }
 }
 
+/// Rotation has no system cursor: a circular arrow is drawn at the pointer instead.
+pub(crate) fn paint_rotate_cursor(ctx: &egui::Context, p: Pos2) {
+    ctx.set_cursor_icon(egui::CursorIcon::None);
+    let fg = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("rotate-cursor")));
+    fg.circle_filled(p, 11.0, egui::Color32::from_black_alpha(140));
+    crate::theme::paint_icon(&fg, Rect::from_center_size(p, vec2(22.0, 22.0)), crate::theme::Icon::Rotate, egui::Color32::WHITE);
+}
+
 /// How far a size handle pulled to `p` (frame space) stretches the frame, and around which point.
 /// `centre` (Alt) stretches around the middle instead of the opposite side; `keep` (Shift) keeps
 /// the proportions.
-fn factors(b: KRect, hx: i8, hy: i8, p: Point, centre: bool, keep: bool) -> (Point, f64, f64) {
+pub(crate) fn factors(b: KRect, hx: i8, hy: i8, p: Point, centre: bool, keep: bool) -> (Point, f64, f64) {
     let held = grip(b, hx, hy);
     let anchor = if centre { b.center() } else { grip(b, -hx, -hy) };
     let factor = |h: i8, p: f64, anchor: f64, held: f64| if h == 0 || (held - anchor).abs() < 1e-9 { 1.0 } else { (p - anchor) / (held - anchor) };
