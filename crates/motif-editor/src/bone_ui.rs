@@ -106,7 +106,7 @@ impl App {
         let selected = self.selected.as_ref().and_then(|s| doc.index_of(s)).filter(|&i| is_bone(doc, i));
         let i = match selected {
             Some(s) if screen(ends(doc, s).1).distance(p) < GRAB => s,
-            _ => pick_bone(doc, rect, view, p).or_else(|| doc.hit_test(dp).filter(|&i| is_bone(doc, i)))?,
+            _ => pick_bone(doc, rect, view, p).or_else(|| doc.hit_test(dp).filter(|&i| is_bone(doc, i))).filter(|&i| self.in_scope(doc, i))?,
         };
         let node = &doc.nodes[i];
         let (joint, tip) = ends(doc, i);

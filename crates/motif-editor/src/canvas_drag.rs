@@ -117,7 +117,7 @@ impl App {
         {
             Some(op)
         } else {
-            match doc.hit_test(dp) {
+            match self.pick_shape(doc, dp) {
                 Some(i) => {
                     let id = doc.nodes[i].id.clone();
                     if shift && !self.is_selected(&id) {
@@ -258,8 +258,11 @@ impl App {
             Some(DragOp::Create { kind, from, to }) => self.create_shape(kind, from, to, shift),
             Some(DragOp::Marquee { from, to, add }) => {
                 let area = motif_core::kurbo::Rect::from_points(from, to);
-                let hits: Vec<String> = (0..doc.nodes.len())
-                    .filter(|&i| doc.nodes[i].parent.is_none() && doc.is_visible(i) && !doc.is_locked(i))
+                // Inside a group the marquee takes its objects only.
+                let hits: Vec<String> = self
+                    .scope_children(doc)
+                    .into_iter()
+                    .filter(|&i| doc.is_visible(i) && !doc.is_locked(i))
                     .filter(|&i| crate::selection::world_bounds(doc, i).is_some_and(|b| b.intersect(area).area() > 0.0 || area.contains(b.center())))
                     .map(|i| doc.nodes[i].id.clone())
                     .collect();
@@ -299,6 +302,7 @@ impl App {
         }
         let (cx, cy) = (exact((from.x + to.x) / 2.0), exact((from.y + to.y) / 2.0));
         let (out, id) = add_node(&self.src, &self.scene, kind, (cx, cy), (w.max(1.0), h.max(1.0)));
+        let out = self.put_in_scope(out, std::slice::from_ref(&id));
         if self.apply("create", Some(out)) {
             self.selected = Some(id.clone());
             self.status = format!("Добавлен {} «{id}» — строка в скрипте перед блоками anim", kind.keyword());

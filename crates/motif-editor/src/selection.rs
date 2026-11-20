@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::theme::{self, Icon};
 use motif_core::kurbo::{Point, Rect as KRect, Vec2};
 use motif_core::{Document, Prop, Value};
-use motif_script::{copy_nodes, delete_nodes, paste_nodes};
+use motif_script::{copy_nodes, delete_nodes};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Align {
@@ -100,7 +100,9 @@ impl App {
     }
 
     pub(crate) fn select_all(&mut self) {
-        let mut ids = self.scene.doc.nodes.iter().filter(|n| n.parent.is_none()).map(|n| n.id.clone());
+        // Inside a group: its objects only.
+        let doc = &self.scene.doc;
+        let mut ids = self.scope_children(doc).into_iter().map(|i| doc.nodes[i].id.clone()).collect::<Vec<_>>().into_iter();
         self.selected = ids.next();
         self.also = ids.collect();
         self.sel_keys.clear();
@@ -131,7 +133,7 @@ impl App {
         }
         let ours = text.is_none_or(|t| t.trim() == self.clipboard.0.trim());
         if ours && !self.clipboard.1.is_empty() {
-            let (out, ids) = paste_nodes(&self.src, &self.scene, &self.clipboard.1, (10.0, 10.0));
+            let (out, ids) = self.paste_snippets(&self.clipboard.1);
             if self.apply("paste", Some(out)) {
                 self.select_list(ids);
                 self.status = "Вставлено. Копия сдвинута на 10 px".into();
@@ -161,7 +163,7 @@ impl App {
             self.status = "Объекты из циклов дублируются вместе с циклом в скрипте".into();
             return;
         }
-        let (out, new) = paste_nodes(&self.src, &self.scene, &snippets, (10.0, 10.0));
+        let (out, new) = self.paste_snippets(&snippets);
         if self.apply("duplicate", Some(out)) {
             self.select_list(new);
             self.status = "Дубликат сдвинут на 10 px".into();

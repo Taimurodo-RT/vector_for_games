@@ -790,6 +790,8 @@ pub struct Snippet {
     pub ids: Vec<(Span, String, bool)>,
     /// The `at x y` literals of the copied node, to offset the copy.
     pub at: Option<(Span, Span)>,
+    /// The group the node was copied from: its numbers are counted from there.
+    pub parent: Option<String>,
 }
 
 /// Copies the declarations of `ids` (a node's children come along with it). Nodes made by loops
@@ -828,7 +830,8 @@ pub fn copy_nodes(scene: &Scene, src: &str, ids: &[String]) -> Vec<Snippet> {
             (Some(x), Some(y)) if x.editable && y.editable && !x.from_override && inside(x.span) && inside(y.span) => Some((rel(x.span), rel(y.span))),
             _ => None,
         };
-        out.push(Snippet { text: src[span.start..span.end].to_string(), ids: names, at });
+        let parent = doc.nodes[i].parent.map(|p| doc.nodes[p].id.clone());
+        out.push(Snippet { text: src[span.start..span.end].to_string(), ids: names, at, parent });
     }
     out
 }
@@ -836,6 +839,13 @@ pub fn copy_nodes(scene: &Scene, src: &str, ids: &[String]) -> Vec<Snippet> {
 /// Inserts copies of `snippets` with fresh ids, moved by `offset`. Returns the script and the ids
 /// of the pasted top-level nodes.
 pub fn paste_nodes(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64, f64)) -> (String, Vec<String>) {
+    paste_nodes_into(src, scene, snippets, offset, None)
+}
+
+/// [`paste_nodes`] with the copies written as the last children of group `into`, with the same
+/// numbers: a copy made inside a group stays in it, where its original stands. A group that
+/// cannot take them (it comes from a loop or a symbol) leaves them at the level of the artboard.
+pub fn paste_nodes_into(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64, f64), into: Option<&str>) -> (String, Vec<String>) {
     let mut taken: Vec<String> = scene.doc.nodes.iter().map(|n| n.id.clone()).collect();
     let mut block = String::new();
     let mut roots = Vec::new();
@@ -877,7 +887,32 @@ pub fn paste_nodes(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64,
         block.push_str(&text);
         block.push('\n');
     }
-    (insert_declaration(src, scene, &block), roots)
+    let inside = into.and_then(|group| insert_into_group(src, scene, group, &block));
+    (inside.unwrap_or_else(|| insert_declaration(src, scene, &block)), roots)
+}
+
+/// The script with the lines of `block` written before the closing brace of group `group`.
+fn insert_into_group(src: &str, scene: &Scene, group: &str, block: &str) -> Option<String> {
+    scene.doc.node(group).filter(|n| n.kind == ShapeKind::Group)?;
+    let site = scene.sites.get(group).filter(|s| !s.generated)?;
+    let close = site.span.end.checked_sub(1).filter(|&c| src[c..].starts_with('}'))?;
+    let line_start = |at: usize| src[..at].rfind('\n').map_or(0, |k| k + 1);
+    let indent: String = src[line_start(site.span.start)..].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+    let mut text = String::new();
+    for line in block.lines() {
+        if !line.trim().is_empty() {
+            text.push_str(&indent);
+            text.push_str("  ");
+        }
+        text.push_str(line);
+        text.push('\n');
+    }
+    let at = line_start(close);
+    Some(if src[at..close].trim().is_empty() {
+        splice(src, Span::new(at, at), &text)
+    } else {
+        splice(src, Span::new(close, close), &format!("\n{text}{indent}"))
+    })
 }
 
 /// `s` as a string of the script, in quotes, with its own quotes kept as `\"`.

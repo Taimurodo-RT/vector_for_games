@@ -101,6 +101,8 @@ pub struct App {
     pub(crate) selected: Option<String>,
     /// Further selected objects besides `selected` (Shift-click, marquee).
     pub(crate) also: Vec<String>,
+    /// The group being worked in: everything outside it is dimmed on the canvas and out of reach.
+    pub(crate) isolated: Option<String>,
     /// Last copy: its text on the system clipboard and the declarations to paste.
     pub(crate) clipboard: (String, Vec<motif_script::Snippet>),
     /// Undo-step name shared by a batch of edits (moving or aligning several objects).
@@ -355,6 +357,7 @@ impl App {
             key_drag: None,
             key_clip: (String::new(), Vec::new()),
             key_marquee: None,
+            isolated: None,
             event_drag: None,
             event_name: String::new(),
             event_data: Vec::new(),
@@ -2590,6 +2593,7 @@ impl App {
         {
             self.point_edit = None;
         }
+        self.sync_isolation();
         let rect = ui.available_rect_before_wrap();
         self.canvas_bounds = rect;
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
@@ -2627,7 +2631,13 @@ impl App {
         let ghosts = self.onion_doc();
         let backdrop = crate::importer::backdrop_view(&self.scene, &self.backdrop_img);
         let worn: Vec<(&Document, motif_core::kurbo::Affine)> = self.tryon.iter().filter_map(|t| Some((&t.doc, t.placed(&doc)?))).collect();
-        let stage = crate::canvas::Stage { doc: ghosts.as_ref().unwrap_or(&doc), backdrop, others: &others, worn: &worn };
+        // Inside a group the rest of the artboard is shown faint.
+        let faint = self.isolated.is_some().then(|| {
+            let mut shown = ghosts.clone().unwrap_or_else(|| doc.clone());
+            self.dim_outside(&mut shown);
+            shown
+        });
+        let stage = crate::canvas::Stage { doc: faint.as_ref().or(ghosts.as_ref()).unwrap_or(&doc), backdrop, others: &others, worn: &worn };
         self.canvas.paint(ui, frame, rect, view, stage);
         if self.pixel.on {
             self.paint_pixel_preview(ui, rect, view, &doc);
@@ -2663,14 +2673,7 @@ impl App {
         let pointer = resp.interact_pointer_pos().or(resp.hover_pos());
         let doc_pt = pointer.map(|p| view.to_doc(rect, p));
         self.pointer_doc = doc_pt.filter(|_| resp.hovered() || resp.dragged());
-        self.hovered = if self.drag.is_none() {
-            pointer
-                .and_then(|p| crate::bone_ui::pick_bone(&doc, rect, view, p))
-                .or_else(|| doc_pt.and_then(|p| doc.hit_test(p)))
-                .map(|i| doc.nodes[i].id.clone())
-        } else {
-            None
-        };
+        self.hovered = if self.drag.is_none() { pointer.and_then(|p| self.pick(&doc, rect, view, p)).map(|i| doc.nodes[i].id.clone()) } else { None };
         let frame = self.transform_frame(&doc);
         let handles = frame.as_ref().map(|f| f.handles(rect, view));
         let hit_handle = |p: Pos2| -> Option<Handle> { handles.as_ref()?.hit(p) };
@@ -2784,8 +2787,16 @@ impl App {
         if !live && !pan_gesture {
             self.canvas_context_menu(&resp, &doc, rect, view);
         }
-        if !special && resp.double_clicked() && self.selected.as_ref().and_then(|s| doc.node(s)).is_some_and(|n| n.kind == ShapeKind::Path) {
-            self.begin_point_edit();
+        let entering = !special
+            && !pan_gesture
+            && self.tool == Tool::Select
+            && resp.double_clicked()
+            && match pointer {
+                Some(p) if hit_handle(p).is_none() => self.canvas_double_click(&doc, rect, view, p),
+                _ => false,
+            };
+        if entering {
+            // Into a group, to the points of a path or out of the isolation: done there.
         } else if !special && resp.clicked() && !pan_gesture {
             if self.bone_tool()
                 && let Some(p) = doc_pt
@@ -2798,10 +2809,7 @@ impl App {
             } else if !shift && let Some(hit) = &path_hit {
                 self.motion_seek(hit);
             } else if doc_pt.and_then(|p| handles.as_ref().and_then(|_| hit_handle(view.to_screen(rect, p)))).is_none() {
-                let hit = pointer
-                    .and_then(|p| crate::bone_ui::pick_bone(&doc, rect, view, p))
-                    .or_else(|| doc_pt.and_then(|p| doc.hit_test(p)))
-                    .map(|i| doc.nodes[i].id.clone());
+                let hit = pointer.and_then(|p| self.pick(&doc, rect, view, p)).map(|i| doc.nodes[i].id.clone());
                 match hit {
                     Some(id) if shift => self.toggle_selected(id),
                     hit => self.select_only(hit),
@@ -2895,6 +2903,7 @@ impl App {
             painter.rect_filled(b, 5.0, ACCENT);
             painter.galley(b.min + vec2(8.0, 3.0), badge, ACCENT_INK);
         }
+        self.isolation_bar(ui, rect, ruler, if self.key_time().is_some() { 30.0 } else { 0.0 });
         painter.text(
             rect.right_bottom() - vec2(12.0, 10.0),
             Align2::RIGHT_BOTTOM,
@@ -3211,6 +3220,10 @@ impl App {
                         "Живая операция",
                         "Кнопки булевых операций собирают фигуры в группу: они остаются и двигаются. Alt — одним контуром; «Разобрать» — в свойствах группы",
                     ),
+                    (
+                        "Двойной клик",
+                        "По объекту группы — войти в неё: остальное приглушено и не выделяется. Esc — на уровень выше, двойной клик по пустому — выйти",
+                    ),
                     ("Tab", "Переключить Рисование / Анимацию без изменения сцены"),
                     ("Ctrl+Shift+Space", "Фокус на холсте / вернуть панели"),
                     ("Пробел", "Play / Pause (в машине состояний — запуск машины); удерживать + тянуть — панорама"),
@@ -3446,6 +3459,9 @@ impl App {
                 self.brush_w.on = None;
             } else if self.point_edit.is_some() {
                 self.point_edit = None;
+            } else if self.isolated.is_some() {
+                self.leave_group();
+                self.tool = Tool::Select;
             } else {
                 self.select_only(None);
                 self.tool = Tool::Select;
@@ -4322,6 +4338,9 @@ mod combine_tests;
 #[cfg(test)]
 #[path = "frame_tests.rs"]
 mod frame_tests;
+#[cfg(test)]
+#[path = "isolate_tests.rs"]
+mod isolate_tests;
 #[cfg(test)]
 #[path = "outline_tests.rs"]
 mod outline_tests;

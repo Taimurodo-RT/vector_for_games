@@ -118,6 +118,8 @@ enum Action {
     Group(String),
     Ungroup(String),
     Restack(String, bool),
+    /// Into a group, or out of it.
+    Isolate(Option<String>),
     Board(usize),
     BoardCopy(usize),
     BoardDelete(usize),
@@ -229,7 +231,9 @@ impl App {
                     ui.painter().rect_filled(r, 0.0, theme::PANEL_2);
                 }
                 let x = r.left() + 26.0 + 16.0 * doc.depth(i) as f32;
-                let dim = if doc.is_visible(i) { 1.0 } else { 0.4 };
+                // Like on the canvas: what lies outside the isolated group is faint; the groups around it are its path.
+                let reach = self.scope(&doc).is_none_or(|g| i == g || doc.is_inside(i, g) || doc.is_inside(g, i));
+                let dim = if doc.is_visible(i) { 1.0 } else { 0.4 } * if reach { 1.0 } else { 0.45 };
                 let has_children = doc.nodes.iter().any(|c| c.parent == Some(i));
                 let arrow = Rect::from_center_size(pos2(x - 19.0, r.center().y), vec2(14.0, ROW_H));
                 if n.kind == ShapeKind::Group && has_children {
@@ -335,6 +339,19 @@ impl App {
                     if n.kind == ShapeKind::Group && ui.add(egui::Button::new("Разгруппировать").shortcut_text("Ctrl+Shift+G")).clicked() {
                         action = Some(Action::Ungroup(n.id.clone()));
                     }
+                    if n.kind == ShapeKind::Group {
+                        if self.isolated.as_deref() == Some(n.id.as_str()) {
+                            if ui.add(egui::Button::new("Выйти из группы").shortcut_text("Esc")).clicked() {
+                                action = Some(Action::Isolate(None));
+                            }
+                        } else if ui
+                            .button("Войти в группу")
+                            .on_hover_text("Остальное приглушится и не будет выделяться. На холсте: двойной щелчок по объекту группы")
+                            .clicked()
+                        {
+                            action = Some(Action::Isolate(Some(n.id.clone())));
+                        }
+                    }
                     if ui.add(egui::Button::new("Выше").shortcut_text("Ctrl+]")).clicked() {
                         action = Some(Action::Restack(n.id.clone(), true));
                     }
@@ -411,6 +428,11 @@ impl App {
                     self.layers.anchor = Some(id);
                 }
             }
+            Some(Action::Isolate(Some(id))) => {
+                self.isolate(Some(id.clone()));
+                self.layers.folded.remove(&id);
+            }
+            Some(Action::Isolate(None)) => self.leave_group(),
             Some(Action::Fold(id)) => {
                 if !self.layers.folded.remove(&id) {
                     self.layers.folded.insert(id);

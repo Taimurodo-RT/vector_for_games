@@ -441,6 +441,40 @@ fn copy_and_paste_nodes() {
 }
 
 #[test]
+fn a_copy_is_pasted_into_the_group_it_was_taken_from() {
+    let src = "artboard \"a\" 400x300\ngroup card at 200 150 rot 90 {\n  rect plate size 160 100\n  group badge at 40 0 {\n    ellipse dot at 4 6 size 30 30\n  }\n}\nfor i in 0..2 {\n  group row{i} at 0 {i*40} {\n    rect cell{i} size 10 10\n  }\n}\nanim Idle 1s {\n  card.x 0: 200 | 1: 220\n}\n";
+    let s = scene(src);
+    let snips = copy_nodes(&s, src, &["dot".to_string()]);
+    assert_eq!(snips[0].parent.as_deref(), Some("badge"));
+    // Into its own group: the same numbers mean the same place, moved by the offset.
+    let (out, ids) = paste_nodes_into(src, &s, &snips, (10.0, 10.0), Some("badge"));
+    let pasted = scene(&out);
+    let (copy, badge) = (pasted.doc.index_of(&ids[0]).unwrap(), pasted.doc.index_of("badge").unwrap());
+    assert_eq!(pasted.doc.nodes[copy].parent, Some(badge), "{out}");
+    assert_eq!((pasted.doc.nodes[copy].x, pasted.doc.nodes[copy].y), (14.0, 16.0));
+    // It is the last child: drawn over the original. The lines keep the indent of their neighbours.
+    assert!(out.contains("    ellipse dot at 4 6 size 30 30\n    ellipse dot1 at 14 16 size 30 30\n  }\n"), "{out}");
+    // Once more: ids stay fresh.
+    let (again, ids) = paste_nodes_into(&out, &pasted, &snips, (10.0, 10.0), Some("badge"));
+    assert_eq!(ids, ["dot2"]);
+    scene(&again);
+    // A group and what is in it go together.
+    let snips = copy_nodes(&s, src, &["badge".to_string()]);
+    let (out, ids) = paste_nodes_into(src, &s, &snips, (0.0, 0.0), Some("card"));
+    let pasted = scene(&out);
+    assert_eq!(pasted.doc.nodes[pasted.doc.index_of(&ids[0]).unwrap()].parent, pasted.doc.index_of("card"));
+    assert_eq!(pasted.doc.nodes.len(), s.doc.nodes.len() + 2);
+    // A group made by a loop has no place of its own in the script, and a shape is not a group:
+    // the copy goes to the artboard, as `paste_nodes` writes it.
+    let snips = copy_nodes(&s, src, &["dot".to_string()]);
+    for target in [Some("row1"), Some("plate"), Some("nothing"), None] {
+        let (out, ids) = paste_nodes_into(src, &s, &snips, (10.0, 10.0), target);
+        assert_eq!(out, paste_nodes(src, &s, &snips, (10.0, 10.0)).0, "{target:?}");
+        assert_eq!(scene(&out).doc.node(&ids[0]).unwrap().parent, None);
+    }
+}
+
+#[test]
 fn gradients_and_masks() {
     let src = "artboard \"M\" 200x200\nrect a at 50 50 size 40 gradient linear 90 #ff0000 #0000ff\ngroup g clip {\n  ellipse m at 0 0 size 40\n  rect b at 0 0 size 60\n}\n";
     let s = scene(src);
