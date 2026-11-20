@@ -3,6 +3,7 @@
 use crate::app::App;
 use crate::theme::{self, FAINT, Icon, MUTED};
 use egui::{RichText, vec2};
+use motif_core::kurbo::Point;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Snap {
@@ -15,6 +16,9 @@ pub struct Snap {
     pub rotation: f64,
     /// Smart guides: moved objects stick to the edges and centres of others and of the artboard.
     pub guides: bool,
+    /// Points being placed (pen, corners of a new shape, size handles) also stick to the anchors
+    /// and centres of other shapes.
+    pub nodes: bool,
     /// Grid lines over the artboard every `grid_size` units.
     pub grid: bool,
     pub grid_size: f64,
@@ -25,7 +29,7 @@ pub struct Snap {
 
 impl Default for Snap {
     fn default() -> Self {
-        Snap { free: false, moving: 1.0, size: 1.0, rotation: 1.0, guides: true, grid: false, grid_size: 16.0, pixels: false, rulers: true }
+        Snap { free: false, moving: 1.0, size: 1.0, rotation: 1.0, guides: true, nodes: true, grid: false, grid_size: 16.0, pixels: false, rulers: true }
     }
 }
 
@@ -44,6 +48,27 @@ impl Snap {
 
     pub fn rot(&self, v: f64) -> f64 {
         to_step(v, self.rotation, self.free)
+    }
+
+    /// Where a point placed at `p` goes: onto an anchor, an edge or a centre line of `targets`
+    /// when the guides are on, and by the position step on the axes that stuck to nothing. `off`
+    /// (Ctrl held) places it freely, to a tenth of a unit.
+    pub fn point(&self, targets: &crate::guides::Targets, p: Point, zoom: f32, off: bool) -> crate::guides::PointSnap {
+        let fine = |v: f64| (v * 10.0).round() / 10.0;
+        if off {
+            return crate::guides::PointSnap { at: Point::new(fine(p.x), fine(p.y)), ..Default::default() };
+        }
+        let mut s = if self.guides { targets.snap_point(p, zoom) } else { crate::guides::PointSnap { at: p, ..Default::default() } };
+        if s.mark.is_some() && !self.nodes {
+            // Anchors are switched off: the edges and centre lines still count.
+            let mut lines = targets.clone();
+            lines.clear_points();
+            s = lines.snap_point(p, zoom);
+        }
+        // What stuck keeps its exact place (to a hundredth, as the script writes it).
+        let exact = |v: f64| (v * 100.0).round() / 100.0;
+        s.at = Point::new(if s.stuck[0] { exact(s.at.x) } else { self.pos(s.at.x) }, if s.stuck[1] { exact(s.at.y) } else { self.pos(s.at.y) });
+        s
     }
 
     /// Short label for the rail tooltip and the popup title.
@@ -91,7 +116,12 @@ impl App {
             ui.label(RichText::new("В свободном режиме значения пишутся с точностью 0.1.").size(11.5).color(FAINT));
             ui.separator();
             ui.label(RichText::new("Направляющие").font(theme::semibold(13.0)).color(theme::FG));
-            ui.checkbox(&mut self.snap.guides, "Умные направляющие").on_hover_text("Края и центры прилипают к другим объектам и артборду. Alt — без них");
+            ui.checkbox(&mut self.snap.guides, "Умные направляющие").on_hover_text("Края и центры прилипают к другим объектам и артборду. Ctrl — без них");
+            ui.add_enabled_ui(self.snap.guides, |ui| {
+                ui.checkbox(&mut self.snap.nodes, "Узлы и центры фигур")
+                    .on_hover_text("Точка пера, угол новой фигуры и ручка размера встают точно на узел или центр другой фигуры");
+            });
+            ui.label(RichText::new("Ctrl — поставить точно под курсор, без привязки.").size(11.5).color(FAINT));
             ui.checkbox(&mut self.snap.rulers, "Линейки");
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.snap.grid, "Сетка");

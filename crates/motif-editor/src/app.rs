@@ -166,6 +166,14 @@ pub struct App {
     pub(crate) snap: crate::snap::Snap,
     /// Smart guides shown while moving.
     pub(crate) guides: Vec<crate::guides::Guide>,
+    /// The anchor or centre the point being placed stuck to.
+    pub(crate) snap_mark: Option<Point>,
+    /// What the corner of a new shape or a size handle can stick to, collected when the drag starts.
+    pub(crate) drag_targets: crate::guides::Targets,
+    /// What a pen point can stick to, kept while the scene and the time stay the same.
+    pub(crate) pen_targets: Option<((u64, u64), std::rc::Rc<crate::guides::Targets>)>,
+    /// Grows with every accepted change of the scene.
+    pub(crate) scene_rev: u64,
     /// Points placed by the pen so far.
     pub(crate) pen: Vec<PenPoint>,
     pub(crate) pen_dragging: bool,
@@ -352,6 +360,10 @@ impl App {
             ctx,
             canvas: Canvas::new(),
             guides: Vec::new(),
+            snap_mark: None,
+            drag_targets: Default::default(),
+            pen_targets: None,
+            scene_rev: 0,
             backdrop_img: Default::default(),
             status,
             last_poll: Instant::now(),
@@ -380,6 +392,7 @@ impl App {
 
     fn accept_scene(&mut self, scene: Scene) {
         self.scene = scene;
+        self.scene_rev += 1;
         self.errors.clear();
         if let Some(id) = &self.selected
             && self.scene.doc.node(id).is_none()
@@ -2647,7 +2660,7 @@ impl App {
                     self.eyedrop_input(ui, &resp, &doc, doc_pt);
                     true
                 } else if self.tool == Tool::Pen {
-                    self.pen_input(ui, &resp, rect, view);
+                    self.pen_input(ui, &resp, rect, view, &doc);
                     true
                 } else if (self.brush_w.on.is_some() && self.weight_paint_input(ui, &resp, rect, view, &doc))
                     || (self.marking.is_some() && self.marks_input(ui, &resp, rect, view, &doc))
@@ -2696,7 +2709,8 @@ impl App {
             && let dp = view.to_doc(rect, p)
         {
             let grabbed = if pan_gesture || matches!(self.tool, Tool::Create(_)) { None } else { hit_handle(p) };
-            self.drag = self.begin_drag(&doc, rect, view, p, dp, grabbed, pan_gesture, space, shift);
+            let free = ui.input(|i| i.modifiers.command);
+            self.drag = self.begin_drag(&doc, rect, view, p, dp, grabbed, pan_gesture, space, shift, free);
         }
         // Rotation has no system cursor: draw a circular arrow at the pointer instead.
         let rotating = matches!(self.drag, Some(DragOp::Rotate { .. }));
@@ -2712,8 +2726,9 @@ impl App {
         if resp.dragged()
             && let Some(dp) = doc_pt
         {
-            let alt = ui.input(|i| i.modifiers.alt);
-            self.update_drag(&doc, view, dp, resp.drag_delta(), shift, alt);
+            // Alt (once the drag is on) or Ctrl: past the guides and the anchors.
+            let free = ui.input(|i| i.modifiers.alt || i.modifiers.command);
+            self.update_drag(&doc, view, dp, resp.drag_delta(), shift, free);
         }
         if resp.drag_stopped() {
             self.end_drag(&doc, view, shift);
@@ -2794,6 +2809,9 @@ impl App {
             painter.rect_stroke(r, 0.0, Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
         crate::guides::paint_guides(&painter, rect, view, &self.guides);
+        if let Some(m) = self.snap_mark {
+            crate::guides::paint_mark(&painter, rect, view, m);
+        }
         let ruler = if self.snap.rulers {
             let span =
                 self.selection().iter().filter_map(|id| doc.index_of(id)).filter_map(|k| crate::selection::world_bounds(&doc, k)).reduce(|a, b| a.union(b));
@@ -3132,7 +3150,8 @@ impl App {
                     ("Ctrl+] Ctrl+[", "На шаг выше или ниже соседей"),
                     ("F, Shift+F", "Вписать холст; все холсты"),
                     ("G", "Сетка"),
-                    ("Alt при сдвиге", "Без умных направляющих"),
+                    ("Ctrl при перетаскивании", "Без привязки: мимо направляющих, узлов и шага"),
+                    ("Shift с пером", "Точка по оси или под 45° от предыдущей"),
                     ("Ctrl+S, Ctrl+O", "Сохранить, открыть"),
                     ("Ctrl+N", "Новое: пустая сцена, UI-набор или шаблон экрана игры"),
                     ("Ctrl+E", "Свернуть или развернуть скрипт"),
@@ -4191,6 +4210,9 @@ mod preview_ui;
 #[cfg(test)]
 #[path = "canvas_interaction_tests.rs"]
 mod canvas_interaction_tests;
+#[cfg(test)]
+#[path = "snap_tests.rs"]
+mod snap_tests;
 
 #[cfg(test)]
 #[path = "preview_tests.rs"]

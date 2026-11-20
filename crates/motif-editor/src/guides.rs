@@ -18,6 +18,19 @@ pub struct Targets {
     /// Each value with the vertical extent of what it belongs to, so the guide can span both.
     xs: Vec<(f64, f64, f64)>,
     ys: Vec<(f64, f64, f64)>,
+    /// Anchors of outlines and centres of objects: a point being placed sticks to them whole.
+    points: Vec<Point>,
+}
+
+/// Where a point being placed or dragged ends up.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PointSnap {
+    pub at: Point,
+    /// Which axes stuck to something; the others are free to take the step.
+    pub stuck: [bool; 2],
+    pub guides: Vec<Guide>,
+    /// The anchor or centre the point sits on, to mark on the canvas.
+    pub mark: Option<Point>,
 }
 
 /// A guide to draw: vertical (`x` set) or horizontal, from `a` to `b` along it.
@@ -32,20 +45,7 @@ pub struct Guide {
 impl Targets {
     /// Every visible object that is not moving (nor inside or around a moving one), and the artboard.
     pub fn collect(doc: &Document, moving: &[usize]) -> Targets {
-        let related = |i: usize| {
-            moving.iter().any(|&m| {
-                let up = |mut a: usize, b: usize| loop {
-                    if a == b {
-                        return true;
-                    }
-                    match doc.nodes[a].parent {
-                        Some(p) => a = p,
-                        None => return false,
-                    }
-                };
-                up(i, m) || up(m, i)
-            })
-        };
+        let related = |i: usize| moving.iter().any(|&m| ancestor(doc, i, m) || ancestor(doc, m, i));
         let mut t = Targets::default();
         let (w, h) = (doc.artboard.width, doc.artboard.height);
         t.add(kurbo::Rect::new(0.0, 0.0, w, h));
@@ -58,6 +58,55 @@ impl Targets {
             }
         }
         t
+    }
+
+    /// As [`Targets::collect`], with the anchors of every outline and the centres of the objects:
+    /// what a pen point, a corner of a new shape or a size handle sticks to.
+    pub fn collect_points(doc: &Document, moving: &[usize]) -> Targets {
+        let mut t = Targets::collect(doc, moving);
+        let related = |i: usize| moving.iter().any(|&m| ancestor(doc, i, m) || ancestor(doc, m, i));
+        for i in 0..doc.nodes.len() {
+            if !doc.is_visible(i) || related(i) {
+                continue;
+            }
+            let Some(path) = doc.nodes[i].path() else { continue };
+            let world = doc.world_transform(i);
+            let place = |p: Point| world * doc.map_lattice_point(i, p);
+            for el in path.elements() {
+                if let Some(p) = el.end_point() {
+                    t.points.push(place(p));
+                }
+            }
+            t.points.push(place(kurbo::Shape::bounding_box(&path).center()));
+        }
+        t
+    }
+
+    /// The place for a point at `p`: an anchor or a centre within reach takes it whole; failing
+    /// that each axis sticks to the nearest edge or centre line within reach.
+    pub fn snap_point(&self, p: Point, zoom: f32) -> PointSnap {
+        let reach = REACH / zoom.max(0.01) as f64;
+        let nearest = self.points.iter().map(|q| (q.distance(p), *q)).filter(|(d, _)| *d <= reach).min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, q)) = nearest {
+            return PointSnap { at: q, stuck: [true, true], guides: Vec::new(), mark: Some(q) };
+        }
+        let best = |own: f64, list: &[(f64, f64, f64)]| {
+            list.iter().map(|&(v, a, b)| (v, a, b)).filter(|(v, _, _)| (v - own).abs() <= reach).min_by(|a, b| (a.0 - own).abs().total_cmp(&(b.0 - own).abs()))
+        };
+        let (x, y) = (best(p.x, &self.xs), best(p.y, &self.ys));
+        let at = Point::new(x.map_or(p.x, |h| h.0), y.map_or(p.y, |h| h.0));
+        let mut guides = Vec::new();
+        if let Some((v, a, b)) = x {
+            guides.push(Guide { vertical: true, at: v, a: a.min(at.y), b: b.max(at.y) });
+        }
+        if let Some((v, a, b)) = y {
+            guides.push(Guide { vertical: false, at: v, a: a.min(at.x), b: b.max(at.x) });
+        }
+        PointSnap { at, stuck: [x.is_some(), y.is_some()], guides, mark: None }
+    }
+
+    pub fn clear_points(&mut self) {
+        self.points.clear();
     }
 
     fn add(&mut self, b: kurbo::Rect) {
@@ -115,6 +164,27 @@ impl Targets {
         }
         (d, [dx.is_some(), dy.is_some()], guides)
     }
+}
+
+/// Whether `b` is `a` or one of the groups around it.
+fn ancestor(doc: &Document, mut a: usize, b: usize) -> bool {
+    loop {
+        if a == b {
+            return true;
+        }
+        match doc.nodes[a].parent {
+            Some(p) => a = p,
+            None => return false,
+        }
+    }
+}
+
+/// The anchor a point stuck to: a small diamond in the guide colour.
+pub fn paint_mark(painter: &egui::Painter, rect: Rect, view: View, at: Point) {
+    let c = view.to_screen(rect, at);
+    let r = 5.0;
+    let diamond = vec![pos2(c.x, c.y - r), pos2(c.x + r, c.y), pos2(c.x, c.y + r), pos2(c.x - r, c.y)];
+    painter.add(egui::Shape::closed_line(diamond, Stroke::new(1.5, GUIDE)));
 }
 
 pub fn paint_guides(painter: &egui::Painter, rect: Rect, view: View, guides: &[Guide]) {
@@ -244,5 +314,59 @@ mod tests {
         // Centres line up too: 210 -> 50 on y.
         let (d, stuck, _) = t.snap(moving, Vec2::new(-130.0, -158.0), 1.0);
         assert_eq!((d.y, stuck[1]), (-160.0, true));
+    }
+
+    fn scene(src: &str) -> Document {
+        motif_script::parse(src).unwrap().doc
+    }
+
+    #[test]
+    fn a_point_takes_an_anchor_whole_and_otherwise_an_edge_per_axis() {
+        let doc = scene("artboard \"a\" 400x300\nrect box at 100 100 size 60 40\npath tri at 300 200 d \"M -20 10 L 20 10 L 0 -30 Z\"\n");
+        let t = Targets::collect_points(&doc, &[]);
+        // The corner of the rectangle at (70, 80): a point 3 units away lands on it exactly.
+        let s = t.snap_point(Point::new(72.0, 78.0), 1.0);
+        assert_eq!((s.at, s.stuck, s.mark), (Point::new(70.0, 80.0), [true, true], Some(Point::new(70.0, 80.0))));
+        // The tip of the triangle is an anchor too, in artboard space.
+        assert_eq!(t.snap_point(Point::new(301.0, 171.5), 1.0).at, Point::new(300.0, 170.0));
+        // Away from anchors only the axis near an edge sticks: x to the right edge of the box.
+        let s = t.snap_point(Point::new(132.0, 250.0), 1.0);
+        assert_eq!((s.at, s.stuck, s.mark), (Point::new(130.0, 250.0), [true, false], None));
+        assert!(s.guides.iter().all(|g| g.vertical && g.at == 130.0 && g.b >= 250.0));
+        // Out of reach nothing moves; zoomed in the reach shrinks with the screen.
+        assert_eq!(t.snap_point(Point::new(215.0, 250.0), 1.0).stuck, [false, false]);
+        assert_eq!(t.snap_point(Point::new(72.0, 78.0), 8.0).stuck, [false, false]);
+    }
+
+    #[test]
+    fn the_shape_being_changed_and_hidden_ones_are_not_targets() {
+        let doc = scene("artboard \"a\" 400x300\nrect box at 100 100 size 60 40\nrect ghost at 300 200 size 20 20 hidden\n");
+        let own = doc.index_of("box").unwrap();
+        let t = Targets::collect_points(&doc, &[own]);
+        assert_eq!(t.snap_point(Point::new(71.0, 81.0), 1.0).stuck, [false, false]);
+        assert_eq!(t.snap_point(Point::new(291.0, 191.0), 1.0).stuck, [false, false]);
+    }
+
+    #[test]
+    fn a_thousand_objects_are_collected_and_asked_quickly() {
+        let mut src = String::from("artboard \"a\" 4000x4000\n");
+        for i in 0..1000 {
+            src.push_str(&format!("rect r{i} at {} {} size 30 20 r 4\n", 40 + (i % 40) * 90, 40 + (i / 40) * 90));
+        }
+        let doc = scene(&src);
+        let start = std::time::Instant::now();
+        let t = Targets::collect_points(&doc, &[]);
+        let collected = start.elapsed();
+        let start = std::time::Instant::now();
+        let mut stuck = 0;
+        for k in 0..1000 {
+            stuck += t.snap_point(Point::new(27.0 + (k % 40) as f64 * 90.0, 31.0 + (k / 40) as f64 * 90.0), 1.0).stuck[0] as usize;
+        }
+        let asked = start.elapsed();
+        assert_eq!(stuck, 1000);
+        // One collection per gesture and one question per pointer move: far inside a frame even
+        // in a debug build on a slow machine.
+        assert!(collected.as_millis() < 400, "collecting took {collected:?}");
+        assert!(asked.as_millis() < 1500, "1000 questions took {asked:?}");
     }
 }

@@ -90,6 +90,15 @@ pub(crate) fn handle_points(rect: Rect, view: View, doc: &Document, i: usize) ->
 }
 
 impl App {
+    /// Where a point being placed at `p` goes ([`crate::snap::Snap::point`]), with the guides and
+    /// the mark it shows on the canvas. Also tells whether it stuck to anything.
+    pub(crate) fn place_point(&mut self, p: Point, zoom: f32, free: bool) -> (Point, bool) {
+        let s = self.snap.point(&self.drag_targets, p, zoom, free);
+        self.guides = s.guides;
+        self.snap_mark = s.mark;
+        (s.at, s.stuck[0] || s.stuck[1])
+    }
+
     /// What a press on the canvas starts: panning, a new shape, a handle of the selection, a key of a
     /// motion path, a bone, the objects under the pointer or a selection frame.
     #[allow(clippy::too_many_arguments)]
@@ -104,6 +113,7 @@ impl App {
         pan_gesture: bool,
         space: bool,
         shift: bool,
+        free: bool,
     ) -> Option<DragOp> {
         if pan_gesture {
             if space {
@@ -111,14 +121,22 @@ impl App {
             }
             Some(DragOp::Pan)
         } else if let Tool::Create(kind) = self.tool {
-            Some(DragOp::Create { kind, from: dp, to: dp })
+            let mut from = dp;
+            if kind != ShapeKind::Bone {
+                self.drag_targets = crate::guides::Targets::collect_points(doc, &[]);
+                from = self.place_point(dp, view.zoom, free).0;
+            }
+            Some(DragOp::Create { kind, from, to: from })
         } else if let Some(h) = grabbed
             && let Some(id) = self.selected.clone()
             && let Some(i) = doc.index_of(&id)
         {
             let n = &doc.nodes[i];
             match h {
-                Handle::Corner => Some(DragOp::Resize { node: id, to_local: doc.world_transform(i).inverse(), start: (n.width, n.height) }),
+                Handle::Corner => {
+                    self.drag_targets = crate::guides::Targets::collect_points(doc, &[i]);
+                    Some(DragOp::Resize { node: id, to_local: doc.world_transform(i).inverse(), start: (n.width, n.height) })
+                }
                 Handle::Rotate => {
                     let center = doc.world_transform(i) * (Point::ZERO + n.pivot);
                     let a = (dp - center).atan2().to_degrees();
@@ -171,8 +189,16 @@ impl App {
     }
 
     /// Follows the pointer with whatever is being dragged; changes are previewed and written on release.
-    pub(crate) fn update_drag(&mut self, doc: &Document, view: View, dp: Point, drag_delta: egui::Vec2, shift: bool, alt: bool) {
+    pub(crate) fn update_drag(&mut self, doc: &Document, view: View, dp: Point, drag_delta: egui::Vec2, shift: bool, free: bool) {
         let snap = self.snap;
+        // The corner of a new shape and a size handle are points being placed: they stick to
+        // anchors, edges and centre lines.
+        let placing = match &self.drag {
+            Some(DragOp::Create { kind, .. }) => *kind != ShapeKind::Bone,
+            Some(DragOp::Resize { .. }) => true,
+            _ => false,
+        };
+        let (placed, placed_stuck) = if placing { self.place_point(dp, view.zoom, free) } else { (dp, false) };
         if let Some(DragOp::BoneTip { node, joint, parent_angle }) = &self.drag {
             let (node, joint, parent_angle) = (node.clone(), *joint, *parent_angle);
             self.drag_bone_tip(doc, &node, joint, parent_angle, dp, shift);
@@ -183,29 +209,31 @@ impl App {
                     v.pan += drag_delta;
                 }
             }
-            Some(DragOp::Create { to, .. } | DragOp::Marquee { to, .. }) => *to = dp,
+            Some(DragOp::Create { to, .. } | DragOp::Marquee { to, .. }) => *to = placed,
             Some(DragOp::Move { from, items, start_box, targets }) => {
                 let mut delta = dp - *from;
                 let mut stuck = [false; 2];
                 self.guides.clear();
-                // Alt moves freely past the guides.
+                // Alt or Ctrl moves freely past the guides.
                 if snap.guides
-                    && !alt
+                    && !free
                     && let Some(b) = start_box
                 {
                     let (d, s, g) = targets.snap(*b, delta, view.zoom);
                     (delta, stuck, self.guides) = (d, s, g);
                 }
                 let fine = |v: f64| (v * 10.0).round() / 10.0;
+                // What stuck to a guide keeps its exact place, to a hundredth.
+                let exact = |v: f64| (v * 100.0).round() / 100.0;
                 let moves: Vec<(String, f64, f64)> = items
                     .iter()
                     .map(|it| {
                         let target = it.to_parent * (it.origin + delta);
                         // Stacks and anchors move objects by an offset the script does not hold.
                         let off = doc.node(&it.node).map_or(motif_core::kurbo::Vec2::ZERO, |n| n.offset);
-                        let x = if stuck[0] { fine(target.x) } else { snap.pos(target.x) } - off.x;
-                        let y = if stuck[1] { fine(target.y) } else { snap.pos(target.y) } - off.y;
-                        (it.node.clone(), fine(x), fine(y))
+                        let x = if stuck[0] { exact(target.x - off.x) } else { fine(snap.pos(target.x) - off.x) };
+                        let y = if stuck[1] { exact(target.y - off.y) } else { fine(snap.pos(target.y) - off.y) };
+                        (it.node.clone(), x, y)
                     })
                     .collect();
                 for (node, x, y) in moves {
@@ -219,11 +247,13 @@ impl App {
                 }
             }
             Some(DragOp::Resize { node, to_local, start }) => {
-                let local = *to_local * dp;
-                let (mut w, mut h) = (snap.size(local.x.abs() * 2.0), snap.size(local.y.abs() * 2.0));
+                let local = *to_local * placed;
+                // A handle that stuck to something keeps the size that reaches it exactly.
+                let size = |v: f64| if placed_stuck { (v * 100.0).round() / 100.0 } else { snap.size(v) };
+                let (mut w, mut h) = (size(local.x.abs() * 2.0), size(local.y.abs() * 2.0));
                 if shift && start.0 > 0.0 && start.1 > 0.0 {
                     let k = (w / start.0).max(h / start.1);
-                    (w, h) = (snap.size(start.0 * k), snap.size(start.1 * k));
+                    (w, h) = (size(start.0 * k), size(start.1 * k));
                 }
                 let node = node.clone();
                 let cur = doc.node(&node).map(|n| (n.width, n.height));
@@ -250,6 +280,8 @@ impl App {
     /// Ends the drag: writes the previewed values, makes the new shape or selects what the frame covers.
     pub(crate) fn end_drag(&mut self, doc: &Document, view: View, shift: bool) {
         self.guides.clear();
+        self.snap_mark = None;
+        self.drag_targets = Default::default();
         self.commit_live();
         match self.drag.take() {
             Some(DragOp::Create { kind: ShapeKind::Bone, from, to }) => self.create_bone(from, to, 10.0 / view.zoom as f64),
@@ -279,15 +311,23 @@ impl App {
         if !self.can_edit() {
             return;
         }
-        let (mut w, mut h) = ((to.x - from.x).abs().round(), (to.y - from.y).abs().round());
+        // The corners were placed by the snapping: the shape spans them exactly, to a hundredth.
+        let exact = |v: f64| (v * 100.0).round() / 100.0;
+        let (mut w, mut h) = (exact((to.x - from.x).abs()), exact((to.y - from.y).abs()));
+        let mut to = to;
         if w < 4.0 && h < 4.0 {
-            (w, h) = (80.0, 80.0);
+            (w, h, to) = (80.0, 80.0, from);
         }
         if square || matches!(kind, ShapeKind::Star | ShapeKind::Polygon) && (w - h).abs() < 6.0 {
+            // A square grows from the corner where the drag started.
             let m = w.max(h);
+            let sign = |d: f64| if d < 0.0 { -1.0 } else { 1.0 };
+            if to != from {
+                to = Point::new(from.x + sign(to.x - from.x) * m, from.y + sign(to.y - from.y) * m);
+            }
             (w, h) = (m, m);
         }
-        let (cx, cy) = if from == to { (from.x.round(), from.y.round()) } else { (((from.x + to.x) / 2.0).round(), ((from.y + to.y) / 2.0).round()) };
+        let (cx, cy) = (exact((from.x + to.x) / 2.0), exact((from.y + to.y) / 2.0));
         let (out, id) = add_node(&self.src, &self.scene, kind, (cx, cy), (w.max(1.0), h.max(1.0)));
         if self.apply("create", Some(out)) {
             self.selected = Some(id.clone());
