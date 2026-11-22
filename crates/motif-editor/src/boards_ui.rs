@@ -86,6 +86,11 @@ impl App {
         self.set_file(&file, active);
     }
 
+    /// Forgets the other boards as they were read: they are read again in the theme now shown.
+    pub(crate) fn forget_other_boards(&mut self) {
+        self.boards.parsed.borrow_mut().clear();
+    }
+
     pub(crate) fn board_count(&self) -> usize {
         self.boards.texts.len().max(1)
     }
@@ -100,7 +105,7 @@ impl App {
             cache.resize(self.boards.texts.len(), (String::new(), None));
         }
         if cache[k].0 != text || (cache[k].1.is_none() && cache[k].0.is_empty()) {
-            let scene = motif_script::parse_in(&text, self.path.as_ref().and_then(|p| p.parent())).ok();
+            let scene = self.parse_shown(&text).ok();
             cache[k] = (text, scene);
         }
         cache[k].1.as_ref().map(f)
@@ -362,7 +367,8 @@ impl App {
         };
         let label = |k: usize| {
             let r = screen(k);
-            let text = format!("{}  {}×{}", specs[k].1, fmt_num(specs[k].0.0), fmt_num(specs[k].0.1));
+            let shown = self.scene.theme.as_ref().map(|t| format!("  ·  тема {t}")).unwrap_or_default();
+            let text = format!("{}  {}×{}{shown}", specs[k].1, fmt_num(specs[k].0.0), fmt_num(specs[k].0.1));
             let galley = ui.painter().layout_no_wrap(text, theme::ui_font(12.0), MUTED);
             (Rect::from_min_size(r.left_top() - vec2(0.0, galley.size().y + 6.0), galley.size() + vec2(4.0, 2.0)), galley)
         };

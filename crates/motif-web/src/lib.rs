@@ -7,6 +7,22 @@ pub use config::{Asset, Config, Layer, Profile, ident, read, slug, validate_meta
 pub use package::{Package, build, export, gallery};
 pub use svg::{Svg, render};
 
+/// `config` with the themes written in the script (`theme dark { … }`) added to its own: a color
+/// that a theme gives to a palette name bound to a token becomes the token's value in that
+/// theme of the package. What the config says itself stays. Only colors reach the web this
+/// way: a gradient, a number or a style that a theme changes is not a token.
+pub fn with_script_themes(config: &Config, src: &str, base: Option<&std::path::Path>) -> Config {
+    let mut out = config.clone();
+    // `default` is the name the package gives to the scene as written.
+    for name in motif_script::theme_names(src).into_iter().filter(|n| n != "default") {
+        let Ok(scenes) = motif_script::parse_boards_themed(src, base, Some(&name)) else { continue };
+        for s in scenes.iter().flat_map(|s| &s.palette).filter(|s| s.themed && config.tokens.contains_key(&s.name)) {
+            out.themes.entry(name.clone()).or_default().entry(s.name.clone()).or_insert_with(|| s.color.to_hex());
+        }
+    }
+    out
+}
+
 /// Preview only: never changes the document's authored colors or source text.
 pub fn preview_theme(scene: &motif_script::Scene, doc: &mut motif_core::Document, config: &Config, theme: &str) {
     let Some(colors) = config.themes.get(theme) else { return };

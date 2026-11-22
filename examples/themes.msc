@@ -1,0 +1,97 @@
+motif 4
+// Набор кнопок в двух темах. Цвета, градиенты и стили названы один раз в начале файла.
+// Тема night даёт тем же именам другие значения: сцена, записанная один раз, показывается и
+// выгружается в двух видах без копии файла.
+// В редакторе тема переключается в разделе «Палитра» (когда ничего не выделено), при выгрузке —
+// в окне «Экспорт» или параметром --theme night, в игре — set_theme("night").
+let paper = #f4efe6
+let panel = #ffffff
+let ink = #1b1d24
+let muted = #6b7080
+let main = #3b6cff
+let main_light = #6f93ff
+let main_deep = #2441a8
+let quiet = #e7e2d6
+let quiet_deep = #b9b3a4
+let bad = #ff5c6c
+let bad_deep = #a8303d
+let good = #2fb573
+let well = #d9d3c5
+let radius = 14
+let face = linear 90 main_light main
+let danger_face = linear 90 #ff8590 bad
+style body stroke ink 3 r radius
+style caption fill #ffffff font bold font-size 19
+style caption_quiet fill ink font bold font-size 19
+style sheet fill panel stroke ink 3 r 20 shadow 0 8 0 #1b1d2433
+style heading fill ink font bold font-size 20
+style note fill muted font-size 13
+
+// Тема пишет только то, что в ней другое. Строка стиля в теме заменяет строку стиля целиком.
+theme night {
+  paper = #14161f
+  panel = #232838
+  ink = #0a0c12
+  muted = #9aa1b5
+  main = #7c5cff
+  main_light = #a48bff
+  main_deep = #3d2a99
+  quiet = #343b52
+  quiet_deep = #1b2030
+  well = #0f1119
+  radius = 8
+  face = linear 60 main_light main_deep
+  style caption_quiet fill #f4efe6 font bold font-size 19
+  style sheet fill panel stroke ink 3 r 20 shadow 0 8 0 #00000066 glow 14 #7c5cff55
+  style heading fill #f4efe6 font bold font-size 20
+}
+
+artboard "Кнопки" 560x330 bg paper ui
+
+group window "Окно" at 280 165 ui panel slice 26 {
+  rect window_sheet size 500 270 style sheet
+}
+text title at 280 66 content "Сохранить игру?" style heading
+text hint at 280 94 content "Прогресс уровня будет записан" style note
+
+group save "Сохранить" at 115 160 ui button slice 20 {
+  rect save_base at 0 5 size 150 50 style body fill main_deep
+  rect save_body size 150 50 style body gradient face
+  text save_caption "Подпись" at 0 1 content "Сохранить" style caption part text
+}
+group later "Позже" at 280 160 ui button slice 20 {
+  rect later_base at 0 5 size 150 50 style body fill quiet_deep
+  rect later_body size 150 50 style body fill quiet
+  text later_caption "Подпись" at 0 1 content "Позже" style caption_quiet part text
+}
+group drop "Удалить" at 445 160 ui button slice 20 {
+  rect drop_base at 0 5 size 150 50 style body fill bad_deep
+  rect drop_body size 150 50 style body gradient danger_face
+  text drop_caption "Подпись" at 0 1 content "Удалить" style caption part text
+}
+
+group progress "Прогресс" at 280 240 ui progress {
+  rect bar_frame "Рамка" size 440 24 r 12 fill well stroke ink 3 slice 14 part background
+  rect bar_fill "Заливка" at -100 0 size 228 12 r 6 fill good slice 6 part fill
+}
+
+// Состояния кнопок: поза в конце анимации. Ключи пишут имена палитры, поэтому идут за темой.
+anim Hover 0.15s id=h7th {
+  save_body.y   0: 0 | 0.15: -2
+  later_body.y  0: 0 | 0.15: -2
+  later_body.fill 0: quiet | 0.15: panel
+  drop_body.y   0: 0 | 0.15: -2
+}
+anim Press 0.08s id=p7th {
+  save_body.y     0: 0 | 0.08: 5
+  save_caption.y  0: 1 | 0.08: 6
+  later_body.y    0: 0 | 0.08: 5
+  later_caption.y 0: 1 | 0.08: 6
+  drop_body.y     0: 0 | 0.08: 5
+  drop_caption.y  0: 1 | 0.08: 6
+}
+anim Disabled 0.1s id=d7th {
+  save.opacity  0: 1 | 0.1: 0.45
+  later.opacity 0: 1 | 0.1: 0.45
+  drop.opacity  0: 1 | 0.1: 0.45
+}

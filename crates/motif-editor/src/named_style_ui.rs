@@ -20,6 +20,8 @@ enum Act {
     /// Every object of the first style takes the second.
     Replace(String, String),
     Select(String),
+    /// The theme shown no longer changes this style.
+    Unthemed(String),
 }
 
 /// A look property in the words of the panels: `r` is «скругление».
@@ -189,9 +191,13 @@ impl App {
                 }
             });
             ui.horizontal(|ui| {
-                if theme::button(ui, "Записать в стиль", ButtonKind::Primary)
-                    .on_hover_text(format!("Свои свойства этого объекта уйдут в стиль «{name}»: так же изменятся все объекты, которые его берут"))
-                    .clicked()
+                let hint = match self.scene.theme.as_deref() {
+                    Some(theme) => format!(
+                        "Свои свойства этого объекта запишутся в стиль «{name}» темы «{theme}»: в ней так же изменятся все объекты, которые его берут. У объекта они останутся: его строка общая для всех тем"
+                    ),
+                    None => format!("Свои свойства этого объекта уйдут в стиль «{name}»: так же изменятся все объекты, которые его берут"),
+                };
+                if theme::button(ui, "Записать в стиль", ButtonKind::Primary).on_hover_text(hint).clicked()
                 {
                     act = Some(Act::WriteInto);
                 }
@@ -238,6 +244,9 @@ impl App {
     /// The styles of the file: a sample, the name (editable), how many objects take it.
     pub(crate) fn styles_section(&mut self, ui: &mut egui::Ui) {
         let styles: Vec<String> = self.scene.styles.iter().map(|s| s.name.clone()).collect();
+        // The styles the theme shown writes its own line for.
+        let themed: Vec<String> = self.scene.styles.iter().filter(|s| s.themed).map(|s| s.name.clone()).collect();
+        let shown = self.scene.theme.clone().unwrap_or_default();
         let mut act = None;
         fold(ui, "Стили", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
@@ -250,13 +259,21 @@ impl App {
                 let users = self.styled_with(name);
                 let like = users.first().and_then(|id| self.scene.doc.node(id));
                 ui.horizontal(|ui| {
-                    if sample(ui, like).on_hover_text("Выбрать объекты этого стиля").clicked() && !users.is_empty() {
+                    // The name takes what the count and the buttons leave. While a theme is shown
+                    // the count moves into the hint: «↺» needs the room.
+                    let count = format!("объектов: {}", users.len());
+                    let counted = shown.is_empty();
+                    let hint = if counted {
+                        "Выбрать объекты этого стиля".to_string()
+                    } else {
+                        format!("Выбрать объекты этого стиля ({count})")
+                    };
+                    if sample(ui, like).on_hover_text(hint).clicked() && !users.is_empty() {
                         act = Some(Act::Select(name.clone()));
                     }
-                    // The name takes what the count and the button leave.
-                    let count = format!("объектов: {}", users.len());
-                    let swap = if styles.len() > 1 { 34.0 } else { 0.0 };
-                    let taken = ui.painter().layout_no_wrap(count.clone(), egui::FontId::proportional(11.5), FAINT).size().x + 28.0 + 30.0 + swap;
+                    let swap = if styles.len() > 1 { 34.0 } else { 0.0 } + if themed.contains(name) { 34.0 } else { 0.0 };
+                    let label = if counted { ui.painter().layout_no_wrap(count.clone(), egui::FontId::proportional(11.5), FAINT).size().x + 28.0 } else { 8.0 };
+                    let taken = label + 30.0 + swap;
                     if let Some(new) = crate::machine_ui::name_edit(ui, ("style-name", name), name, (ui.available_width() - taken).max(60.0)) {
                         act = Some(Act::Rename(name.clone(), new));
                     }
@@ -277,7 +294,12 @@ impl App {
                                 }
                             });
                         }
-                        ui.label(RichText::new(count).size(11.5).color(FAINT));
+                        if themed.contains(name) && crate::palette_ui::theme_reset_button(ui, &shown) {
+                            act = Some(Act::Unthemed(name.clone()));
+                        }
+                        if counted {
+                            ui.label(RichText::new(count).size(11.5).color(FAINT));
+                        }
                     });
                 });
             }
@@ -336,7 +358,19 @@ impl App {
                 let name = scene.styled.get(first).cloned().unwrap_or_default();
                 let out = motif_script::write_into_style(src, scene, first);
                 if self.apply("style-write", out) {
-                    self.status = format!("Стиль «{name}» обновлён: изменились все объекты, которые его берут ({})", self.styled_with(&name).len());
+                    let users = self.styled_with(&name).len();
+                    self.status = match self.scene.theme.as_deref() {
+                        Some(theme) => format!(
+                            "Стиль «{name}» обновлён в теме «{theme}»: в ней изменились все объекты, которые его берут ({users}). Исходная сцена и свои свойства объекта остались"
+                        ),
+                        None => format!("Стиль «{name}» обновлён: изменились все объекты, которые его берут ({users})"),
+                    };
+                }
+            }
+            Act::Unthemed(name) => {
+                let out = motif_script::reset_in_theme(src, scene, &name, true);
+                if self.apply_once("theme-reset", out) {
+                    self.status = format!("Стиль «{name}» в теме «{}» снова как в исходной сцене", self.theme);
                 }
             }
             Act::Rename(old, new) => {

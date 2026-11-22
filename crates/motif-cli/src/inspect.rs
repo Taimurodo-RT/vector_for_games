@@ -105,6 +105,7 @@ fn report(args: &Args, src: &str, scenes: &[Scene]) -> Result<Json, String> {
             "machines":scene.doc.machines.iter().map(machine).collect::<Vec<_>>(),
             "metadata":{"characters":motif_script::character::read(&board_src).ok().flatten(),
                 "palette":scene.palette.iter().map(|s|json!({"name":s.name,"color":color(Some(s.color)),"literal":s.literal,"span":span(s.span)})).collect::<Vec<_>>(),
+                "themes":scene.doc.themes,"theme":scene.theme,
                 "board_cell":scene.board_cell,
                 "directions":scene.doc.directions.as_ref().map(|d|json!({"count":d.count,"turn":d.turn,"mirror":d.mirror}))}
         }));

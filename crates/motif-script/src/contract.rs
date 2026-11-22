@@ -39,6 +39,10 @@ pub struct Board {
     /// scene costs. The field is left out of a scene without them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub combines: Vec<Combine>,
+    /// The themes the board can be shown in (`theme dark { … }`), by name: a game picks one,
+    /// or none for the scene as it is written. The field is left out of a scene without them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub themes: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -234,6 +238,7 @@ fn board(doc: &Document) -> Board {
                 })
             })
             .collect(),
+        themes: doc.themes.clone(),
     }
 }
 

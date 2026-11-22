@@ -92,6 +92,19 @@ pub(crate) enum Act {
     Name(Color),
     /// Every repeated color and gradient gets a name.
     Collect,
+    /// The scene is shown in this theme; empty shows it as written.
+    Theme(String),
+    AddTheme,
+    RenameTheme(String, String),
+    DeleteTheme(String),
+    /// The theme shown no longer changes this name of the palette.
+    Reset(String),
+}
+
+/// The small button that takes a name out of the theme shown.
+pub(crate) fn theme_reset_button(ui: &mut egui::Ui, theme: &str) -> bool {
+    let hint = format!("Тема «{theme}» даёт этому имени своё значение. Щелчок убирает его из темы: будет как в исходной сцене");
+    theme::button(ui, "↺", theme::ButtonKind::Normal).on_hover_text(hint).clicked()
 }
 
 /// How many rows of «Цвета сцены» are shown before the rest is summed up.
@@ -120,8 +133,49 @@ impl App {
         let uses = if self.errors.is_empty() { self.counted_colors() } else { Vec::new() };
         let places = |name: &str| uses.iter().find(|u| u.name.as_deref() == Some(name)).map_or(0, |u| u.places);
         let mut act: Option<Act> = None;
+        let themes = self.scene.doc.themes.clone();
+        let shown = self.scene.theme.clone().unwrap_or_default();
         fold(ui, "Палитра", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            // The theme the scene is shown in: what is edited below is edited in it.
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Тема").size(12.0).color(MUTED));
+                let mut chosen = shown.clone();
+                egui::ComboBox::from_id_salt("palette-theme").width(104.0).selected_text(if chosen.is_empty() { "Исходная" } else { chosen.as_str() }).show_ui(
+                    ui,
+                    |ui| {
+                        ui.selectable_value(&mut chosen, String::new(), "Исходная");
+                        for name in &themes {
+                            ui.selectable_value(&mut chosen, name.clone(), name);
+                        }
+                    },
+                );
+                if chosen != shown {
+                    act = Some(Act::Theme(chosen));
+                }
+                if theme::button(ui, "+ Тема", theme::ButtonKind::Normal)
+                    .on_hover_text("Новая тема: второй набор значений для тех же имён палитры и стилей, блок theme в начале скрипта")
+                    .clicked()
+                {
+                    act = Some(Act::AddTheme);
+                }
+            });
+            if !shown.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Имя").size(12.0).color(MUTED));
+                    if let Some(new) = crate::machine_ui::name_edit(ui, ("theme-name", &shown), &shown, 104.0) {
+                        act = Some(Act::RenameTheme(shown.clone(), new));
+                    }
+                    if theme::button(ui, "×", theme::ButtonKind::Normal).on_hover_text("Удалить тему. Исходная сцена не меняется").clicked()
+                    {
+                        act = Some(Act::DeleteTheme(shown.clone()));
+                    }
+                });
+                let text = format!(
+                    "Показана тема «{shown}». Правка цвета или градиента здесь и «Записать в стиль» у объекта меняют тему, исходная сцена остаётся. ↺ возвращает имени исходное значение."
+                );
+                ui.label(RichText::new(text).size(11.5).color(ACCENT));
+            }
             if palette.is_empty() && gradients.is_empty() {
                 ui.label(
                     RichText::new(
@@ -137,13 +191,25 @@ impl App {
                     let hex = if s.literal { s.color.to_hex() } else { "по имени".into() };
                     let count = format!("мест: {}", places(&s.name));
                     let width = |text: &str, font: egui::FontId| ui.painter().layout_no_wrap(text.to_string(), font, FAINT).size().x;
-                    let taken = width(&hex, theme::mono(11.0)) + width(&count, egui::FontId::proportional(11.5)) + 22.0;
+                    // While a theme is shown the row is about the value in it: the number of places
+                    // moves into the hint, and the name stays readable next to «↺».
+                    let counted = shown.is_empty();
+                    let taken = width(&hex, theme::mono(11.0))
+                        + if counted { width(&count, egui::FontId::proportional(11.5)) + 22.0 } else { 14.0 }
+                        + if s.themed { 30.0 } else { 0.0 };
                     if let Some(new) = crate::machine_ui::name_edit(ui, ("swatch-name", &s.name), &s.name, (ui.available_width() - taken).max(50.0)) {
                         act = Some(Act::Rename(s.name.clone(), new));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(hex).font(theme::mono(11.0)).color(MUTED));
-                        ui.label(RichText::new(count).size(11.5).color(FAINT)).on_hover_text("В скольких местах файла цвет записан этим именем");
+                        if s.themed && theme_reset_button(ui, &shown) {
+                            act = Some(Act::Reset(s.name.clone()));
+                        }
+                        let value = ui.label(RichText::new(hex).font(theme::mono(11.0)).color(if s.themed { ACCENT } else { MUTED }));
+                        if counted {
+                            ui.label(RichText::new(count).size(11.5).color(FAINT)).on_hover_text("В скольких местах файла цвет записан этим именем");
+                        } else {
+                            value.on_hover_text(format!("{count} по всему файлу"));
+                        }
                     });
                     theme::color_popup(&resp).show(|ui| {
                         if s.literal {
@@ -182,12 +248,16 @@ impl App {
                     } else {
                         format!("линейный {}°", motif_script::fmt_num(s.gradient.angle))
                     };
-                    let taken = ui.painter().layout_no_wrap(kind.clone(), egui::FontId::proportional(11.5), FAINT).size().x + 14.0;
+                    let taken =
+                        ui.painter().layout_no_wrap(kind.clone(), egui::FontId::proportional(11.5), FAINT).size().x + 14.0 + if s.themed { 30.0 } else { 0.0 };
                     if let Some(new) = crate::machine_ui::name_edit(ui, ("swatch-name", &s.name), &s.name, (ui.available_width() - taken).max(50.0)) {
                         act = Some(Act::Rename(s.name.clone(), new));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(kind).size(11.5).color(FAINT));
+                        if s.themed && theme_reset_button(ui, &shown) {
+                            act = Some(Act::Reset(s.name.clone()));
+                        }
+                        ui.label(RichText::new(kind).size(11.5).color(if s.themed { ACCENT } else { FAINT }));
                     });
                     theme::color_popup(&resp).show(|ui| {
                         ui.set_max_width(260.0);
@@ -332,6 +402,63 @@ impl App {
         };
         match act {
             Act::Pick(_) => {}
+            Act::Theme(name) => {
+                self.show_theme(&name);
+                self.status = match self.scene.theme.as_deref() {
+                    Some(t) => format!("Показана тема «{t}»: правки палитры и «Записать в стиль» идут в неё. Экспорт выгружает сцену в этой теме"),
+                    None => "Показана исходная сцена".to_string(),
+                };
+            }
+            Act::AddTheme => {
+                let name = motif_script::free_theme_name(&file);
+                match motif_script::add_theme(&file, base, &name) {
+                    Some(out) => {
+                        if self.apply_file("theme-add", Some(out)) {
+                            self.show_theme(&name);
+                            self.status =
+                                format!("Тема «{name}» добавлена и показана. Меняйте цвета палитры: новые значения запишутся в тему, исходная сцена останется");
+                        }
+                    }
+                    None => self.status = refused("Тему добавить не получилось".into()),
+                }
+            }
+            Act::RenameTheme(old, new) => {
+                let new = new.trim().to_string();
+                if !motif_script::theme_name_ok(&file, &new) {
+                    self.status = format!("Имя «{new}» не подходит: нужно одно слово из букв, цифр и «_», которого ещё нет среди тем");
+                    return;
+                }
+                match motif_script::rename_theme(&file, base, &old, &new) {
+                    Some(out) => {
+                        // The theme shown is the renamed one: it stays shown under its new name.
+                        self.theme.clone_from(&new);
+                        if self.apply_file("theme-rename", Some(out)) {
+                            self.status = format!("Тема «{old}» теперь «{new}»");
+                        } else {
+                            self.theme = old;
+                        }
+                    }
+                    None => self.status = refused(format!("Тему «{old}» переименовать не получилось")),
+                }
+            }
+            Act::DeleteTheme(name) => match motif_script::delete_theme(&file, base, &name) {
+                Some(out) => {
+                    self.theme.clear();
+                    self.forget_other_boards();
+                    if self.apply_file("theme-delete", Some(out)) {
+                        self.status = format!("Тема «{name}» удалена. Показана исходная сцена: она не изменилась");
+                    } else {
+                        self.show_theme(&name);
+                    }
+                }
+                None => self.status = refused(format!("Тему «{name}» удалить не получилось")),
+            },
+            Act::Reset(name) => {
+                let out = motif_script::reset_in_theme(&self.src, &self.scene, &name, false);
+                if self.apply_once("theme-reset", out) {
+                    self.status = format!("«{name}» в теме «{}» снова как в исходной сцене", self.theme);
+                }
+            }
             Act::Set(name, c) => {
                 let out = motif_script::set_swatch(&self.src, &self.scene, &name, c);
                 self.apply(&format!("swatch-{name}"), out);
@@ -545,6 +672,59 @@ ellipse d at 100 50 size 20 20 fill #ff5a36 stroke ink 1
 
     fn hex(c: &str) -> Color {
         Color::from_hex(c).unwrap()
+    }
+
+    #[test]
+    fn a_theme_is_made_shown_edited_and_removed_from_the_panel() {
+        let mut app = fixture(FILE.replace("artboard \"one\" 200x100", "artboard \"one\" 200x100 bg ink").as_str());
+        let written = docs(&app);
+        let bg = |app: &App| app.scene.doc.artboard.background;
+        draw(&mut app);
+        // A new theme is empty and shown at once: the picture is the same.
+        app.palette_act(Act::AddTheme);
+        assert!(app.file_text().starts_with("let ink = #1b1d24\nstyle card fill #ffffff stroke ink 2\ntheme dark {\n}\n"), "{}", app.file_text());
+        assert_eq!((app.theme.as_str(), app.scene.theme.as_deref(), bg(&app)), ("dark", Some("dark"), hex("#1b1d24")));
+        assert!(app.status.contains("Тема «dark» добавлена и показана"), "{}", app.status);
+        draw(&mut app);
+        // A color of the palette edited now goes into the theme; the scene as written stays.
+        app.palette_act(Act::Set("ink".into(), hex("#f4efe6")));
+        assert!(app.file_text().contains("let ink = #1b1d24\n") && app.file_text().contains("theme dark {\n  ink = #f4efe6\n}\n"), "{}", app.file_text());
+        assert_eq!(bg(&app), hex("#f4efe6"));
+        assert!(app.scene.palette[0].themed);
+        // The other board is shown in the theme too, and the files of an export are named after it.
+        assert_eq!(app.board_doc(1).unwrap().node("d").unwrap().stroke, Some(hex("#f4efe6")));
+        app.export.all_boards = true;
+        assert_eq!(app.export_boards().unwrap().iter().map(|b| b.0.clone()).collect::<Vec<_>>(), ["one-dark", "two-dark"]);
+        let dark = app.export_boards().unwrap()[0].1.clone();
+        draw(&mut app);
+        // The scene as written: nothing of the theme is seen or exported.
+        app.palette_act(Act::Theme(String::new()));
+        assert_eq!((app.scene.theme.clone(), bg(&app)), (None, hex("#1b1d24")));
+        assert_eq!(app.export_boards().unwrap().iter().map(|b| b.0.clone()).collect::<Vec<_>>(), ["one", "two"]);
+        assert_ne!(app.export_boards().unwrap()[0].1, dark);
+        assert_eq!(app.board_doc(1).unwrap().node("d").unwrap().stroke, Some(hex("#1b1d24")));
+        let mut now = docs(&app);
+        now.iter_mut().for_each(|d| d.themes.clear());
+        assert_eq!(now, written);
+        // Back in the theme: its name is changed, a name goes back to the scene's value.
+        app.palette_act(Act::Theme("dark".into()));
+        assert_eq!(bg(&app), hex("#f4efe6"));
+        app.palette_act(Act::RenameTheme("dark".into(), "night".into()));
+        assert_eq!((app.scene.theme.as_deref(), bg(&app)), (Some("night"), hex("#f4efe6")));
+        assert!(app.file_text().contains("theme night {\n  ink = #f4efe6\n}\n"), "{}", app.file_text());
+        app.palette_act(Act::RenameTheme("night".into(), "1 bad".into()));
+        assert!(app.status.contains("не подходит"), "{}", app.status);
+        app.palette_act(Act::Reset("ink".into()));
+        assert!(app.file_text().contains("theme night {\n}\n"), "{}", app.file_text());
+        assert_eq!(bg(&app), hex("#1b1d24"));
+        app.undo();
+        assert_eq!(bg(&app), hex("#f4efe6"));
+        // Removing the theme shows the scene as written.
+        app.palette_act(Act::DeleteTheme("night".into()));
+        assert!(!app.file_text().contains("theme"), "{}", app.file_text());
+        assert_eq!((app.theme.as_str(), app.scene.theme.clone(), bg(&app)), ("", None, hex("#1b1d24")));
+        assert_eq!(docs(&app), written);
+        draw(&mut app);
     }
 
     #[test]

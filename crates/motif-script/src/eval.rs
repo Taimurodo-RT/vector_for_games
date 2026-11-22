@@ -34,6 +34,13 @@ pub struct Evaluator<'a> {
     gradients: HashMap<String, (motif_core::Gradient, Vec<Option<String>>)>,
     /// Where the colors and gradients noted so far start: a line in a loop is noted once.
     paint_seen: std::collections::HashSet<usize>,
+    /// The theme the scene is read in (`theme dark { … }`): its values stand in for the values
+    /// of the palette and of the styles. `None` reads the scene as it is written.
+    pub theme: Option<String>,
+    /// The lines of that theme.
+    theme_entries: Vec<crate::parser::ThemeEntryAst>,
+    /// The lines of the theme that found the name they change, by where each starts.
+    theme_used: std::collections::HashSet<usize>,
     /// Put before every id while a symbol is being copied: `coin1-`.
     prefix: String,
     /// How many symbols are being copied one inside another (to stop a symbol using itself).
@@ -68,6 +75,9 @@ impl<'a> Evaluator<'a> {
             style_uses_seen: Default::default(),
             gradients: HashMap::new(),
             paint_seen: Default::default(),
+            theme: None,
+            theme_entries: Vec::new(),
+            theme_used: Default::default(),
             prefix: String::new(),
             depth: 0,
             rig_refs: Vec::new(),
@@ -110,6 +120,8 @@ impl<'a> Evaluator<'a> {
                 gradient_names: HashMap::new(),
                 colors: Vec::new(),
                 gradient_sites: Vec::new(),
+                themes: Vec::new(),
+                theme: None,
             },
             errors: Vec::new(),
         }
@@ -185,7 +197,41 @@ impl<'a> Evaluator<'a> {
         self.depth -= 1;
     }
 
+    /// The line of the theme being read that changes `name` (a style, or a name of the
+    /// palette), marked as having found it.
+    fn theme_entry(&mut self, name: &str, style: bool) -> Option<crate::parser::ThemeEntryAst> {
+        let e = self.theme_entries.iter().find(|e| e.name == name && matches!(e.value, crate::parser::ThemeValueAst::Style { .. }) == style)?.clone();
+        self.theme_used.insert(e.span.start);
+        Some(e)
+    }
+
     pub fn run(&mut self, stmts: &[Stmt]) {
+        // Themes first: a theme may be written above or below the names it changes.
+        let mut written: std::collections::HashSet<(&str, &str, bool)> = Default::default();
+        for s in stmts {
+            if let Stmt::Theme { name, name_span, entries, span, close } = s {
+                let mut site = crate::ThemeSite { name: name.clone(), name_span: *name_span, span: *span, close: *close, entries: Vec::new() };
+                for e in entries {
+                    let style = matches!(e.value, crate::parser::ThemeValueAst::Style { .. });
+                    if !written.insert((name, &e.name, style)) {
+                        let what = if style { "стиль" } else { "имя" };
+                        self.err(e.name_span, format!("в теме «{name}» {what} «{}» уже записано", e.name));
+                        continue;
+                    }
+                    site.entries.push(crate::ThemeEntrySite { name: e.name.clone(), name_span: e.name_span, span: e.span, style });
+                    if self.theme.as_deref() == Some(name) {
+                        self.theme_entries.push(e.clone());
+                    }
+                }
+                self.scene.themes.push(site);
+                if !self.scene.doc.themes.contains(name) {
+                    self.scene.doc.themes.push(name.clone());
+                }
+            }
+        }
+        // A theme the scene does not have changes nothing.
+        self.theme = self.theme.take().filter(|t| self.scene.doc.themes.contains(t));
+        self.scene.theme.clone_from(&self.theme);
         // Symbols can be used above the place they are written.
         for s in stmts {
             if let Stmt::Symbol { name, name_span, clip, params, body, span } = s {
@@ -218,6 +264,15 @@ impl<'a> Evaluator<'a> {
                     self.err(*name_span, format!("стиль «{name}» уже есть"));
                     continue;
                 }
+                // The theme's line of the style stands in for the whole line.
+                let themed = self.theme_entry(name, true);
+                let (decl, decl_name) = (*span, *name_span);
+                let (props, name_span, span, insert_at) = match &themed {
+                    Some(crate::parser::ThemeEntryAst { name_span, span, value: crate::parser::ThemeValueAst::Style { props, insert_at }, .. }) => {
+                        (props, name_span, span, insert_at)
+                    }
+                    _ => (props, name_span, span, insert_at),
+                };
                 self.styles.insert(name.clone(), props.clone());
                 self.scene.styles.push(crate::StyleSite {
                     name: name.clone(),
@@ -225,11 +280,33 @@ impl<'a> Evaluator<'a> {
                     span: *span,
                     insert_at: *insert_at,
                     props: props.iter().map(|p| (p.key.clone(), Span::new(p.key_span.start, p.values.last().map_or(p.key_span.end, |v| v.span.end)))).collect(),
+                    themed: themed.is_some(),
+                    decl,
+                    decl_name,
                 });
             }
         }
         // Animations and overrides refer to nodes, so they run after the whole tree is built.
         self.stmts(stmts, None, false);
+        // A line of the theme that changes nothing is a mistyped name.
+        let theme = self.theme.clone().unwrap_or_default();
+        for e in self.theme_entries.clone() {
+            if self.theme_used.contains(&e.span.start) {
+                continue;
+            }
+            let list = |names: Vec<&str>| if names.is_empty() { "их пока нет".to_string() } else { names.join(", ") };
+            let message = if matches!(e.value, crate::parser::ThemeValueAst::Style { .. }) {
+                let known = list(self.scene.styles.iter().map(|s| s.name.as_str()).collect());
+                format!("тема «{theme}» меняет стиль «{}», а такого стиля нет. Стили сцены: {known}", e.name)
+            } else {
+                let mut names: Vec<&str> =
+                    self.scene.palette.iter().map(|s| s.name.as_str()).chain(self.scene.gradients.iter().map(|s| s.name.as_str())).collect();
+                names.dedup();
+                let known = list(names);
+                format!("тема «{theme}» меняет «{}», а такого имени на верхнем уровне сцены нет (let {} = …). Палитра: {known}", e.name, e.name)
+            };
+            self.err(e.name_span, message);
+        }
         for s in stmts {
             if let Stmt::Override { entries, close, start } = s {
                 self.note_block(*start);
@@ -757,19 +834,66 @@ impl<'a> Evaluator<'a> {
                         self.err(*name_span, "стиль пишется на верхнем уровне сцены, не внутри группы, цикла или символа");
                     }
                 }
+                Stmt::Theme { name_span, .. } => {
+                    if parent.is_some() || generated || self.depth > 0 {
+                        self.err(*name_span, "тема пишется на верхнем уровне сцены, не внутри группы, цикла или символа");
+                    }
+                }
                 Stmt::Let { name, name_span, value } => {
-                    let v = self.value(value);
+                    let mut v = self.value(value);
                     // After `=` the color is made, not used: replacing a color leaves it alone.
                     if let Some(site) = self.scene.colors.last_mut().filter(|s| s.span == value.span) {
                         site.decl = true;
                     }
                     let top = parent.is_none() && !generated;
+                    // The value the theme gives the name stands in for the one written here.
+                    let themed = if top { self.theme_entry(name, false) } else { None };
+                    let themed = match themed {
+                        Some(crate::parser::ThemeEntryAst { name_span: at, value: crate::parser::ThemeValueAst::Value(value), .. }) => {
+                            let given = self.value(&value);
+                            if let Some(site) = self.scene.colors.last_mut().filter(|s| s.span == value.span) {
+                                site.decl = true;
+                            }
+                            let theme = self.theme.clone().unwrap_or_default();
+                            match (&v, &given) {
+                                (Some(Value::Color(_)), Some(Value::Num(_))) => {
+                                    self.err(at, format!("«{name}» в палитре цвет, а тема «{theme}» пишет число"));
+                                    None
+                                }
+                                (Some(Value::Num(_)), Some(Value::Color(_))) => {
+                                    self.err(at, format!("«{name}» в сцене число, а тема «{theme}» пишет цвет"));
+                                    None
+                                }
+                                (_, None) => None,
+                                _ => {
+                                    v = given;
+                                    Some(value)
+                                }
+                            }
+                        }
+                        Some(e) => {
+                            let theme = self.theme.clone().unwrap_or_default();
+                            self.err(e.name_span, format!("«{name}» в палитре цвет или число, а тема «{theme}» пишет градиент"));
+                            None
+                        }
+                        None => None,
+                    };
+                    let decl = value.span;
+                    let value = themed.as_ref().unwrap_or(value);
                     if top && self.gradients.contains_key(name) {
                         self.err(*name_span, format!("имя «{name}» уже у градиента палитры: цвету нужно другое"));
                         continue;
                     }
                     if top && let Some(Value::Color(color)) = v {
-                        let swatch = crate::Swatch { name: name.clone(), name_span: *name_span, color, span: value.span, literal: value.is_literal() };
+                        let swatch = crate::Swatch {
+                            name: name.clone(),
+                            name_span: *name_span,
+                            color,
+                            span: value.span,
+                            literal: value.is_literal(),
+                            themed: themed.is_some(),
+                            decl,
+                        };
                         match self.scene.palette.iter_mut().find(|s| s.name == *name) {
                             Some(s) => *s = swatch,
                             None => self.scene.palette.push(swatch),
@@ -792,9 +916,34 @@ impl<'a> Evaluator<'a> {
                         self.err(*name_span, format!("имя «{name}» уже у цвета или числа: градиенту палитры нужно другое"));
                         continue;
                     }
-                    let Some((gradient, stops)) = self.gradient_of(values, *name_span, &format!("let {name} =")) else { continue };
-                    let span = Span::new(values[0].span.start, values[values.len() - 1].span.end);
-                    let swatch = crate::GradientSwatch { name: name.clone(), name_span: *name_span, gradient: gradient.clone(), span, stops: stops.clone() };
+                    let Some((mut gradient, mut stops)) = self.gradient_of(values, *name_span, &format!("let {name} =")) else { continue };
+                    let mut span = Span::new(values[0].span.start, values[values.len() - 1].span.end);
+                    let decl = span;
+                    // The gradient the theme gives the name stands in for the one written here.
+                    let mut themed = false;
+                    match self.theme_entry(name, false) {
+                        Some(crate::parser::ThemeEntryAst { name_span: at, value: crate::parser::ThemeValueAst::Gradient(values), .. }) => {
+                            if let Some(given) = self.gradient_of(&values, at, &format!("{name} =")) {
+                                (gradient, stops) = given;
+                                span = Span::new(values[0].span.start, values[values.len() - 1].span.end);
+                                themed = true;
+                            }
+                        }
+                        Some(e) => {
+                            let theme = self.theme.clone().unwrap_or_default();
+                            self.err(e.name_span, format!("«{name}» в палитре градиент, а тема «{theme}» пишет цвет или число"));
+                        }
+                        None => {}
+                    }
+                    let swatch = crate::GradientSwatch {
+                        name: name.clone(),
+                        name_span: *name_span,
+                        gradient: gradient.clone(),
+                        span,
+                        stops: stops.clone(),
+                        themed,
+                        decl,
+                    };
                     match self.scene.gradients.iter_mut().find(|s| s.name == *name) {
                         Some(s) => *s = swatch,
                         None => self.scene.gradients.push(swatch),

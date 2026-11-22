@@ -1,0 +1,41 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Кнопки",
+      "width": 560.0,
+      "height": 330.0,
+      "animations": [
+        {
+          "id": "h7th",
+          "name": "Hover",
+          "duration": 0.15,
+          "loop": false,
+          "events": []
+        },
+        {
+          "id": "p7th",
+          "name": "Press",
+          "duration": 0.08,
+          "loop": false,
+          "events": []
+        },
+        {
+          "id": "d7th",
+          "name": "Disabled",
+          "duration": 0.1,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "themes": [
+        "night"
+      ]
+    }
+  ]
+}

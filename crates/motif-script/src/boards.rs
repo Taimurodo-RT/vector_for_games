@@ -178,6 +178,12 @@ impl BoardGrid {
 /// Every board of `src` parsed on its own, the shared head included, in the order written.
 /// Errors point into `src`; one in the head is reported once.
 pub fn parse_boards(src: &str, base: Option<&std::path::Path>) -> Result<Vec<crate::Scene>, Vec<crate::ScriptError>> {
+    parse_boards_themed(src, base, None)
+}
+
+/// [`parse_boards`] with every board shown in `theme`. A board that does not have the theme is
+/// read as written.
+pub fn parse_boards_themed(src: &str, base: Option<&std::path::Path>, theme: Option<&str>) -> Result<Vec<crate::Scene>, Vec<crate::ScriptError>> {
     let (head, ranges) = boards(src);
     let head = &src[head];
     let head_lines = head.matches('\n').count();
@@ -185,7 +191,7 @@ pub fn parse_boards(src: &str, base: Option<&std::path::Path>) -> Result<Vec<cra
     let mut errors: Vec<crate::ScriptError> = Vec::new();
     for r in ranges {
         let line = src[..r.start].matches('\n').count();
-        match crate::parse_in(&format!("{head}{}", &src[r.clone()]), base) {
+        match crate::parse_themed(&format!("{head}{}", &src[r.clone()]), base, theme) {
             Ok(scene) => scenes.push(scene),
             Err(errs) => {
                 for e in errs {
