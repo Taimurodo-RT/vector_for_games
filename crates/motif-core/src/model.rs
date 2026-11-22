@@ -1,5 +1,5 @@
 use crate::{Blend, Cap, Color, Ease, Glow, Join, Noise, Shadow};
-use kurbo::{Affine, BezPath, Ellipse, ParamCurveNearest, Point, RoundedRect, Shape, Vec2};
+use kurbo::{Affine, BezPath, Ellipse, ParamCurveNearest, PathEl, Point, RoundedRect, Shape, Vec2};
 
 /// The whole scene: one artboard, its nodes in paint order, and its animations.
 #[derive(Clone, Debug, PartialEq)]
@@ -1208,7 +1208,14 @@ impl Document {
         if let Some(faces) = node.body_faces(self.light) {
             return faces.iter().any(|f| f.path.contains(local));
         }
-        path.contains(local) || (node.stroke.is_some() && near_outline(&path, local, node.stroke_width.max(4.0)))
+        // An open outline has no inside of its own: counted as it is, a point far to one side
+        // of it would be "in" it. With a fill, its inside is what the fill paints, the outline
+        // closed by a straight line. Without one, only its closed pieces have an inside, and the
+        // line itself is what there is to hit, drawn or not.
+        let filled = node.fill.is_some() || node.gradient.is_some();
+        let (inside, open) = closed_pieces(&path, filled);
+        let drawn = node.stroke.is_some() || node.stroke_gradient.is_some();
+        inside.as_ref().unwrap_or(&path).contains(local) || ((drawn || (open && !filled)) && near_outline(&path, local, node.stroke_width.max(4.0)))
     }
 
     pub fn animation(&self, name: &str) -> Option<&Animation> {
@@ -1218,6 +1225,39 @@ impl Document {
     pub fn machine(&self, name: &str) -> Option<&crate::Machine> {
         self.machines.iter().find(|m| m.name == name)
     }
+}
+
+/// What of `path` has an inside, and whether a piece of it is open. With `close_open`, the open
+/// pieces are closed by a straight line, as a fill closes them; without, they are left out.
+/// `None` is `path` itself: all of its pieces are closed.
+fn closed_pieces(path: &BezPath, close_open: bool) -> (Option<BezPath>, bool) {
+    let els = path.elements();
+    let starts = |i: usize| matches!(els[i], PathEl::MoveTo(_));
+    // The pieces: from one `MoveTo` to the next.
+    let mut pieces = Vec::new();
+    let mut from = 0;
+    for i in 1..=els.len() {
+        if i == els.len() || starts(i) {
+            pieces.push(from..i);
+            from = i;
+        }
+    }
+    let is_open = |piece: &std::ops::Range<usize>| !matches!(els[piece.end - 1], PathEl::ClosePath) && piece.len() > 1;
+    if !pieces.iter().any(is_open) {
+        return (None, false);
+    }
+    let mut out = BezPath::new();
+    for piece in pieces {
+        let open = is_open(&piece);
+        if open && !close_open {
+            continue;
+        }
+        els[piece].iter().for_each(|&el| out.push(el));
+        if open {
+            out.close_path();
+        }
+    }
+    (Some(out), true)
 }
 
 fn near_outline(path: &BezPath, p: Point, width: f64) -> bool {
