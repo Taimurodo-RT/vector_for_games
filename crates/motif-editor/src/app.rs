@@ -3643,14 +3643,21 @@ pub(crate) fn node_bounds(doc: &Document, i: usize) -> Option<motif_core::kurbo:
                 let drawn = doc.combine_bearer(i).filter(|&b| !doc.nodes[b].absorbed)?;
                 return doc.nodes[drawn].path().map(|p| (inv * doc.world_transform(drawn)).transform_rect_bbox(p.bounding_box()));
             }
-            // Other groups: the union of their direct children.
-            doc.children(i)
-                .filter_map(|k| {
-                    let child = &doc.nodes[k];
-                    let path = if child.combined.is_some() { child.own_path() } else { child.path() };
-                    path.map(|p| (inv * doc.world_transform(k)).transform_rect_bbox(p.bounding_box()))
-                })
-                .reduce(|a, b| a.union(b))
+            // Other groups: the union of what is inside them. A group inside the group is framed
+            // with it: a copy of a symbol whose objects are laid out by a `stack` group has
+            // nothing but that group. What is hidden is left out of the frame while anything
+            // else is seen: a ribbon that only one variant shows does not widen every card.
+            let part = |k: usize| {
+                let child = &doc.nodes[k];
+                let to_group = inv * doc.world_transform(k);
+                let path = if child.combined.is_some() { child.own_path() } else { child.path() };
+                match path {
+                    Some(p) => Some(to_group.transform_rect_bbox(p.bounding_box())),
+                    None => node_bounds(doc, k).map(|inner| to_group.transform_rect_bbox(inner)),
+                }
+            };
+            let seen = doc.children(i).filter(|&k| doc.nodes[k].visible).filter_map(part).reduce(|a, b| a.union(b));
+            seen.or_else(|| doc.children(i).filter_map(part).reduce(|a, b| a.union(b)))
         }
     }
 }
