@@ -12,6 +12,7 @@ png.workspace = true
 motif-core.workspace = true
 motif-render.workspace = true
 motif-script.workspace = true
+serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 tiny-skia.workspace = true
 tungstenite.workspace = true

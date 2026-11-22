@@ -39,6 +39,8 @@ pub(crate) struct Boards {
     /// «Показать полем»: a board that is a tile is drawn with its neighbours around it, to
     /// look at the seams. A choice of the view, not of the file.
     pub tile_field: bool,
+    /// The words of the board (`tags`) while they are typed in the board panel.
+    pub tags_edit: Option<String>,
 }
 
 pub(crate) enum BoardDrag {
@@ -232,6 +234,7 @@ impl App {
                 "Тайл повторяется в поле без швов: трава, кладка, земля. Объект на краю холста продолжится с другой стороны."
             };
             ui.label(RichText::new(text).size(11.5).color(FAINT));
+            self.board_tags_row(ui);
         });
     }
 

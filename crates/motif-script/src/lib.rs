@@ -78,7 +78,9 @@ pub use edit::{
 pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
 pub use extract::{Bundled, Extracted, bundle_scene, copy_fonts, extract_symbol, file_name_for};
 pub use include::{IncludeSite, add_include, file_includes, include_path, inline_includes, remove_include, touched as include_touched, with_included_names};
-pub use library::{LibraryFile, LibrarySymbol, add_library_use, library_file, library_files, library_match, library_own_preview, library_preview, set_tags};
+pub use library::{
+    LibraryFile, LibrarySymbol, add_library_use, library_file, library_files, library_match, library_own_preview, library_preview, set_board_tags, set_tags,
+};
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
 };
@@ -220,6 +222,8 @@ pub struct Scene {
     pub weights: HashMap<String, WeightsSite>,
     /// The grid cell (column, row) of this artboard among the others of its file: `cell 1 0`.
     pub board_cell: Option<(u32, u32)>,
+    /// The `tags` line of the board (the words a game finds it by), when it has one.
+    pub board_tags: Option<Span>,
     /// Colors named by top-level `let` lines, in the order written: the scene's palette.
     pub palette: Vec<Swatch>,
     /// Properties written as a name (`fill main`): the name, by node id and property.

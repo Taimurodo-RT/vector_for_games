@@ -825,6 +825,47 @@ fn an_artboard_is_a_tile() {
 }
 
 #[test]
+fn a_board_has_the_words_a_game_finds_it_by() {
+    let src = "artboard \"Трава\" 64x64 tile\nrect a size 8 8\n";
+    assert!(scene(src).doc.tags.is_empty());
+    // The line goes under the `artboard` line; a word with a space is quoted, a word said twice
+    // stays once.
+    let words = ["земля".to_string(), "мягкая трава".to_string(), "Земля".to_string()];
+    let tagged = crate::set_board_tags(src, &scene(src), &words);
+    assert_eq!(tagged, "artboard \"Трава\" 64x64 tile\ntags земля \"мягкая трава\"\nrect a size 8 8\n");
+    assert_eq!(scene(&tagged).doc.tags, ["земля", "мягкая трава"]);
+    // Other words rewrite the line where it is; no words take it away.
+    let other = crate::set_board_tags(&tagged, &scene(&tagged), &["вода".to_string()]);
+    assert_eq!(other, "artboard \"Трава\" 64x64 tile\ntags вода\nrect a size 8 8\n");
+    assert_eq!(crate::set_board_tags(&other, &scene(&other), &[]), src);
+    // A scene without an `artboard` line gets the line on top, under the version.
+    let bare = crate::set_board_tags("motif 1\nrect a size 8 8\n", &scene("motif 1\nrect a size 8 8\n"), &["вода".to_string()]);
+    assert_eq!(bare, "motif 1\ntags вода\nrect a size 8 8\n");
+    assert_eq!(scene(&bare).doc.tags, ["вода"]);
+    // Each board of a file has its own words, and a game reads them in the contract.
+    let two = format!("{tagged}\nartboard \"Камень\" 64x64\nrect b size 4 4\n");
+    let boards = parse_boards(&two, None).unwrap();
+    assert_eq!(boards[0].doc.tags, ["земля", "мягкая трава"]);
+    assert!(boards[1].doc.tags.is_empty());
+    let contract = crate::contract(boards.iter().map(|b| &b.doc));
+    assert_eq!(contract.boards[0].tags, ["земля", "мягкая трава"]);
+    assert!(!crate::contract_json(&[boards[1].doc.clone()]).contains("\"tags\""));
+    // The words of a board need version 8; the words of a symbol are those of version 7.
+    assert_eq!(crate::format::needed("artboard 8x8\ntags вода\n"), 8);
+    assert_eq!(crate::format::needed("symbol Coin {\n  tags монета\n  rect a size 2 2\n}\n"), 7);
+    // One line for a board, under its `artboard` line and in no group.
+    let twice = parse("artboard 8x8\ntags вода\ntags лёд\n").unwrap_err();
+    assert!(twice[0].message.contains("уже есть строка tags"), "{}", twice[0].message);
+    let above = parse("tags вода\nartboard 8x8\n").unwrap_err();
+    assert!(above[0].message.contains("под его строкой artboard"), "{}", above[0].message);
+    let inside = parse("artboard 8x8\ngroup g {\n  tags вода\n  rect a size 2 2\n}\n").unwrap_err();
+    assert!(inside[0].message.contains("под строкой artboard"), "{}", inside[0].message);
+    // The words of a symbol stay its own: a copy does not give them to the board.
+    let kit = "artboard 8x8\nsymbol Coin {\n  tags монета\n  rect body size 2 2\n}\nuse Coin c1\n";
+    assert!(scene(kit).doc.tags.is_empty());
+}
+
+#[test]
 fn artboard_purpose() {
     use motif_core::Purpose;
     let src = "artboard \"Меню игры\" 200x100 bg #fff light 45 // экран\nrect a\n";

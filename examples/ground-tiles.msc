@@ -1,0 +1,184 @@
+motif 8
+// Набор тайлов земли: 16 холстов одного размера сеткой 4×4, каждый — тайл без швов (слово tile).
+// Строка tags под строкой artboard — метки тайла: слова, по которым игра находит его в наборе
+// и решает, что он значит (проходимо, преграда, дорога). На рисунок они не влияют.
+// Весь набор выгружается одной командой: атлас и описание к нему (имена, место, метки).
+//   motif tiles examples/ground-tiles.msc -o папка            ground-tiles.png + ground-tiles.json
+//   motif tiles examples/ground-tiles.msc --scale 2 --bleed 2  вдвое крупнее, с запасом вокруг тайла
+// Какой тайл с каким соседствует, решает игра: правил соседства в наборе нет.
+let ink = #2f2a26
+let grass = #7fb069
+let blade = #4f7a3c
+let dirt = #a97f56
+let clod = #86603f
+let sand = #e9d294
+let ripple = #cdaa62
+let stone = #b9a98c
+let mortar = #6f6558
+let water = #4f9bd1
+let wave = #c4e6f6
+let leaf = #5fa052
+
+artboard "Трава" 64x64 bg grass tile cell 0 0
+tags трава проходимо
+group lawn at 8 9 repeat grid 4 4 step 16 16 vary-at 6 6 vary-rot 25 vary-scale 0.3 vary-fill #2d4a26 0.4 vary-seed 4 {
+  path lawn-t d "M -6 4 C -5 -2 -4 -6 -7 -10 C -2 -7 -1 -3 0 4 C 1 -4 2 -9 0 -14 C 5 -9 5 -3 4 4 C 5 0 7 -3 10 -5 C 9 -1 8 2 8 4 Z" scale 0.6 fill blade
+}
+
+artboard "Трава с цветами" 64x64 bg grass tile cell 1 0
+tags трава проходимо украшение
+group meadow at 10 12 repeat grid 3 3 step 21.33 21.33 vary-at 6 6 vary-rot 25 vary-scale 0.3 vary-fill #2d4a26 0.4 vary-seed 9 {
+  path meadow-t d "M -6 4 C -5 -2 -4 -6 -7 -10 C -2 -7 -1 -3 0 4 C 1 -4 2 -9 0 -14 C 5 -9 5 -3 4 4 C 5 0 7 -3 10 -5 C 9 -1 8 2 8 4 Z" scale 0.6 fill blade
+}
+group daisies at 0 0 repeat grid 2 2 step 32 32 vary-at 9 9 vary-rot 40 vary-seed 3 {
+  ellipse d-up at 0 -3.5 size 4.5 4.5 fill #fff4e4 stroke ink 0.8
+  ellipse d-right at 3.5 0 size 4.5 4.5 fill #fff4e4 stroke ink 0.8
+  ellipse d-down at 0 3.5 size 4.5 4.5 fill #fff4e4 stroke ink 0.8
+  ellipse d-left at -3.5 0 size 4.5 4.5 fill #fff4e4 stroke ink 0.8
+  ellipse d-heart size 3.5 3.5 fill #ffd23f stroke ink 0.8
+}
+
+artboard "Высокая трава" 64x64 bg #4f8240 tile cell 2 0
+tags трава проходимо укрытие
+// Четыре ряда пучков, от дальнего к ближнему: каждый следующий ряд закрывает низ предыдущего.
+group far at 4 12 repeat grid 4 1 step 16 0 vary-at 3 2 vary-rot 7 vary-scale 0.15 vary-seed 3 {
+  path far-t d "M -7 6 C -7 0 -8 -5 -11 -9 C -6 -7 -4 -3 -3 2 C -3 -5 -2 -12 -4 -19 C 1 -13 3 -6 3 2 C 4 -3 6 -8 10 -11 C 8 -6 7 0 7 6 Z" fill #5b9447 stroke #2f5a2a 1 join round
+}
+group mid at 12 28 repeat grid 4 1 step 16 0 vary-at 3 2 vary-rot 7 vary-scale 0.15 vary-seed 5 {
+  path mid-t d "M -7 6 C -7 0 -8 -5 -11 -9 C -6 -7 -4 -3 -3 2 C -3 -5 -2 -12 -4 -19 C 1 -13 3 -6 3 2 C 4 -3 6 -8 10 -11 C 8 -6 7 0 7 6 Z" fill #63a04d stroke #2f5a2a 1 join round
+}
+group near at 4 44 repeat grid 4 1 step 16 0 vary-at 3 2 vary-rot 7 vary-scale 0.15 vary-seed 8 {
+  path near-t d "M -7 6 C -7 0 -8 -5 -11 -9 C -6 -7 -4 -3 -3 2 C -3 -5 -2 -12 -4 -19 C 1 -13 3 -6 3 2 C 4 -3 6 -8 10 -11 C 8 -6 7 0 7 6 Z" fill #6aa852 stroke #2f5a2a 1 join round
+}
+group front at 12 60 repeat grid 4 1 step 16 0 vary-at 3 2 vary-rot 7 vary-scale 0.15 vary-seed 11 {
+  path front-t d "M -7 6 C -7 0 -8 -5 -11 -9 C -6 -7 -4 -3 -3 2 C -3 -5 -2 -12 -4 -19 C 1 -13 3 -6 3 2 C 4 -3 6 -8 10 -11 C 8 -6 7 0 7 6 Z" fill #72b158 stroke #2f5a2a 1 join round
+}
+
+artboard "Трава с камнями" 64x64 bg grass tile cell 3 0
+tags трава проходимо украшение
+group rough at 10 12 repeat grid 3 3 step 21.33 21.33 vary-at 6 6 vary-rot 25 vary-scale 0.3 vary-fill #2d4a26 0.4 vary-seed 12 {
+  path rough-t d "M -6 4 C -5 -2 -4 -6 -7 -10 C -2 -7 -1 -3 0 4 C 1 -4 2 -9 0 -14 C 5 -9 5 -3 4 4 C 5 0 7 -3 10 -5 C 9 -1 8 2 8 4 Z" scale 0.6 fill blade
+}
+ellipse rock-a at 64 40 size 22 15 fill stone stroke ink 1.5
+ellipse fleck-a at 60 37 size 7 3.5 fill #d8ccb4
+ellipse rock-b at 22 20 size 14 10 fill #a89878 stroke ink 1.5
+ellipse fleck-b at 20 18 size 5 2.5 fill #cfc2a6
+ellipse rock-c at 38 64 size 12 9 fill stone stroke ink 1.5
+ellipse fleck-c at 36 62 size 4 2 fill #d8ccb4
+
+artboard "Земля" 64x64 bg dirt tile cell 0 1
+tags земля проходимо
+group clods at 8 8 repeat grid 4 4 step 16 16 vary-at 7 7 vary-rot 30 vary-scale 0.5 vary-fill #5f4129 0.4 vary-seed 5 {
+  ellipse clods-c size 7 3.5 fill clod
+}
+group specks at 16 16 repeat grid 4 4 step 16 16 vary-at 7 7 vary-scale 0.5 vary-seed 8 {
+  ellipse specks-c size 3 2 fill #c79d72
+}
+
+artboard "Земля с галькой" 64x64 bg dirt tile cell 1 1
+tags земля проходимо украшение
+group soil at 8 8 repeat grid 4 4 step 16 16 vary-at 7 7 vary-rot 30 vary-scale 0.5 vary-fill #5f4129 0.4 vary-seed 15 {
+  ellipse soil-c size 6 3 fill clod
+}
+group pebbles at 10 12 repeat grid 3 3 step 21.33 21.33 vary-at 8 8 vary-rot 40 vary-scale 0.4 vary-fill #8d8474 0.5 vary-seed 6 {
+  ellipse pebbles-p size 9 6.5 fill stone stroke ink 1.2
+  ellipse pebbles-f at -1 -1.2 size 3.5 1.6 fill #d8ccb4
+}
+
+artboard "Пашня" 64x64 bg dirt tile cell 2 1
+tags земля проходимо посадка
+group furrows at 0 8 repeat grid 1 4 step 0 16 {
+  path furrow d "M 0 -2 C 8 -2 8 2 16 2 C 24 2 24 -2 32 -2 C 40 -2 40 2 48 2 C 56 2 56 -2 64 -2" fill none stroke clod 4
+  path ridge d "M 0 -6 C 8 -6 8 -2 16 -2 C 24 -2 24 -6 32 -6 C 40 -6 40 -2 48 -2 C 56 -2 56 -6 64 -6" fill none stroke #c79d72 1.5
+}
+group sprouts at 16 4 repeat grid 2 4 step 32 16 vary-at 5 0 vary-seed 2 {
+  path sprout d "M 0 3 C 0 0 -1 -2 -4 -3 C -1 -3 0 -2 0 0 C 0 -2 1 -4 4 -4 C 2 -2 1 -1 1 3 Z" fill leaf
+}
+
+artboard "Грязь" 64x64 bg #8f6a47 tile cell 3 1
+tags земля проходимо медленно
+group mud at 8 8 repeat grid 4 4 step 16 16 vary-at 7 7 vary-rot 30 vary-scale 0.5 vary-fill #4c3524 0.4 vary-seed 21 {
+  ellipse mud-c size 7 3.5 fill #74543a
+}
+path puddle at 34 34 d "M -20 0 C -20 -10 -8 -14 2 -12 C 14 -15 22 -6 20 2 C 22 10 10 14 0 12 C -10 15 -20 9 -20 0 Z" fill #5d7f8f stroke #5a3f2b 2
+path shine at 30 29 d "M -9 0 C -6 -4 2 -5 8 -3" fill none stroke #a9cbd6 1.5 cap round
+path puddle2 at 0 0 d "M -10 0 C -10 -5 -3 -7 2 -6 C 8 -7 11 -2 10 2 C 10 6 4 7 0 6 C -5 7 -10 5 -10 0 Z" fill #5d7f8f stroke #5a3f2b 2
+
+artboard "Песок" 64x64 bg sand tile cell 0 2
+tags песок проходимо
+group dunes at 8 8 repeat grid 4 4 step 16 16 vary-at 5 5 vary-rot 12 vary-scale 0.3 vary-seed 3 {
+  path dunes-r d "M -6 1 C -3 -2 3 -2 6 1" fill none stroke ripple 1.4 cap round
+}
+group grains at 16 16 repeat grid 4 4 step 16 16 vary-at 7 7 vary-seed 11 {
+  ellipse grains-g size 1.6 1.6 fill #b8935a
+}
+
+artboard "Песок с ракушками" 64x64 bg sand tile cell 1 2
+tags песок проходимо украшение
+group beach at 8 8 repeat grid 4 4 step 16 16 vary-at 5 5 vary-rot 12 vary-scale 0.3 vary-seed 17 {
+  path beach-r d "M -6 1 C -3 -2 3 -2 6 1" fill none stroke ripple 1.4 cap round
+}
+path shell at 20 22 d "M 0 6 L -7 -1 C -7 -8 7 -8 7 -1 Z" rot -20 fill #fff4e4 stroke ink 1.2 join round
+path shell-ribs at 20 22 d "M 0 6 L -3 -5 M 0 6 L 0 -6 M 0 6 L 3 -5" rot -20 fill none stroke #d9b8a0 1
+star starfish at 64 46 size 16 16 points 5 inner 0.45 rot 12 fill #e2573b stroke ink 1.2 join round
+path shell2 at 44 64 d "M 0 4 L -5 -1 C -5 -6 5 -6 5 -1 Z" rot 30 fill #f6d9c6 stroke ink 1.2 join round
+
+artboard "Брусчатка" 64x64 bg mortar tile cell 2 2
+tags камень проходимо дорога
+group row-a at 16 16 repeat grid 2 1 step 32 0 vary-fill #8d8474 0.35 vary-seed 2 {
+  rect cobble-a size 28 28 r 9 fill stone stroke ink 1.5
+  rect cobble-as at 0 -8 size 16 3 r 1.5 fill #d8ccb4
+}
+group row-b at 0 48 repeat grid 3 1 step 32 0 vary-fill #8d8474 0.35 vary-seed 5 {
+  rect cobble-b size 28 28 r 9 fill #a89878 stroke ink 1.5
+  rect cobble-bs at 0 -8 size 16 3 r 1.5 fill #cfc2a6
+}
+
+artboard "Плиты" 64x64 bg mortar tile cell 3 2
+tags камень проходимо дорога
+group slabs at 16 16 repeat grid 2 2 step 32 32 vary-fill #8d8474 0.3 vary-seed 9 {
+  rect slab size 29 29 r 2.5 fill stone stroke ink 1.5
+}
+path crack at 16 16 d "M -8 -10 L -3 -3 L -6 2 L 0 9" fill none stroke #6f6558 1.2 cap round join round
+path crack2 at 48 48 d "M 9 -8 L 4 -2 L 7 5" fill none stroke #6f6558 1.2 cap round join round
+path moss at 32 64 d "M -6 4 C -5 -2 -4 -6 -7 -10 C -2 -7 -1 -3 0 4 C 1 -4 2 -9 0 -14 C 5 -9 5 -3 4 4 C 5 0 7 -3 10 -5 C 9 -1 8 2 8 4 Z" scale 0.55 fill blade
+
+artboard "Вода" 64x64 bg water tile cell 0 3
+tags вода преграда
+group sea at 10 10 repeat grid 3 3 step 21.33 21.33 vary-at 7 6 vary-scale 0.3 vary-seed 4 {
+  path sea-w d "M -7 0 C -5 -3 -2 -3 0 0 C 2 3 5 3 7 0" fill none stroke wave 1.5 cap round
+}
+
+artboard "Вода с кувшинкой" 64x64 bg water tile cell 1 3
+tags вода преграда украшение
+group pond at 10 10 repeat grid 3 3 step 21.33 21.33 vary-at 7 6 vary-scale 0.3 vary-seed 14 {
+  path pond-w d "M -7 0 C -5 -3 -2 -3 0 0 C 2 3 5 3 7 0" fill none stroke wave 1.5 cap round
+}
+path pad at 24 38 d "M 0 0 L 11 -4 C 9 -11 -2 -12 -8 -7 C -14 -1 -11 8 -3 10 C 4 12 11 8 11 3 Z" fill leaf stroke ink 1.5 join round
+star lily at 21 37 size 10 10 points 6 inner 0.5 fill #ffd0e0 stroke ink 1
+ellipse lily-heart at 21 37 size 3 3 fill #ffd23f
+path pad2 at 64 12 d "M 0 0 L 8 -3 C 7 -8 -2 -9 -6 -5 C -10 -1 -8 6 -2 7 C 3 9 8 6 8 2 Z" rot 140 fill #6fae5f stroke ink 1.5 join round
+
+artboard "Тропа по горизонтали" 64x64 bg grass tile cell 2 3
+tags трава проходимо дорога
+group verge at 8 4 repeat grid 4 2 step 16 56 vary-at 5 3 vary-rot 25 vary-scale 0.3 vary-fill #2d4a26 0.4 vary-seed 6 {
+  path verge-t d "M -6 4 C -5 -2 -4 -6 -7 -10 C -2 -7 -1 -3 0 4 C 1 -4 2 -9 0 -14 C 5 -9 5 -3 4 4 C 5 0 7 -3 10 -5 C 9 -1 8 2 8 4 Z" scale 0.55 fill blade
+}
+path trail d "M 0 18 C 8 18 8 22 16 22 C 24 22 24 18 32 18 C 40 18 40 22 48 22 C 56 22 56 18 64 18 L 64 46 C 56 46 56 42 48 42 C 40 42 40 46 32 46 C 24 46 24 42 16 42 C 8 42 8 46 0 46 Z" fill dirt
+path trail-top d "M 0 18 C 8 18 8 22 16 22 C 24 22 24 18 32 18 C 40 18 40 22 48 22 C 56 22 56 18 64 18" fill none stroke clod 2
+path trail-low d "M 0 46 C 8 46 8 42 16 42 C 24 42 24 46 32 46 C 40 46 40 42 48 42 C 56 42 56 46 64 46" fill none stroke clod 2
+group trail-clods at 8 28 repeat grid 4 2 step 16 9 vary-at 6 3 vary-rot 30 vary-scale 0.5 vary-seed 5 {
+  ellipse trail-c size 6 3 fill clod
+}
+
+artboard "Тропа по вертикали" 64x64 bg grass tile cell 3 3
+tags трава проходимо дорога
+group side at 4 8 repeat grid 2 4 step 56 16 vary-at 3 5 vary-rot 25 vary-scale 0.3 vary-fill #2d4a26 0.4 vary-seed 16 {
+  path side-t d "M -6 4 C -5 -2 -4 -6 -7 -10 C -2 -7 -1 -3 0 4 C 1 -4 2 -9 0 -14 C 5 -9 5 -3 4 4 C 5 0 7 -3 10 -5 C 9 -1 8 2 8 4 Z" scale 0.55 fill blade
+}
+path lane d "M 18 0 C 18 8 22 8 22 16 C 22 24 18 24 18 32 C 18 40 22 40 22 48 C 22 56 18 56 18 64 L 46 64 C 46 56 42 56 42 48 C 42 40 46 40 46 32 C 46 24 42 24 42 16 C 42 8 46 8 46 0 Z" fill dirt
+path lane-left d "M 18 0 C 18 8 22 8 22 16 C 22 24 18 24 18 32 C 18 40 22 40 22 48 C 22 56 18 56 18 64" fill none stroke clod 2
+path lane-right d "M 46 0 C 46 8 42 8 42 16 C 42 24 46 24 46 32 C 46 40 42 40 42 48 C 42 56 46 56 46 64" fill none stroke clod 2
+group lane-clods at 28 8 repeat grid 2 4 step 9 16 vary-at 3 6 vary-rot 30 vary-scale 0.5 vary-seed 25 {
+  ellipse lane-c size 6 3 fill clod
+}

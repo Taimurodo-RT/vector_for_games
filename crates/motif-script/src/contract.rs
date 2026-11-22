@@ -57,6 +57,10 @@ pub struct Board {
     /// left out of a board that is not a tile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tile: Option<String>,
+    /// The words the game finds the board by (`tags трава земля` under its `artboard` line), as
+    /// written. The field is left out of a board without them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -261,6 +265,7 @@ fn board(doc: &Document) -> Board {
             (false, true) => Some("y".into()),
             (false, false) => None,
         },
+        tags: doc.tags.clone(),
     }
 }
 

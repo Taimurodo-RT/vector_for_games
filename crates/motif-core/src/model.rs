@@ -45,6 +45,9 @@ pub struct Document {
     /// The artboard is a tile that repeats (`artboard … tile`): what reaches past an edge goes
     /// on from the opposite one.
     pub tile: Tile,
+    /// The words a game finds the board by (`tags трава земля` under its `artboard` line): what
+    /// a tile of a set is, for the game that lays it. They do not change the drawing.
+    pub tags: Vec<String>,
 }
 
 /// The sides an artboard repeats along as a tile of a field (`tile`, `tile-x`, `tile-y`).
@@ -1124,6 +1127,7 @@ impl Document {
             varies: false,
             includes: Vec::new(),
             tile: Tile::default(),
+            tags: Vec::new(),
         }
     }
 
