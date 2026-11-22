@@ -165,7 +165,7 @@
 <p>Посмотреть набор в теме: <code>motif render examples/shop.msc --theme night -o папка</code>.</p>
 
 <h2 id="repeats">Живые повторы</h2>
-<p>Группа со словом <code>repeat</code> показывает то, что в ней лежит, несколько раз: сеткой, по кругу или вдоль контура другой фигуры. То, что написано в блоке, — первый повтор. Остальные Motif делает сам при чтении файла, поэтому правка первого сразу меняет все. Пример — <code>examples/repeats.msc</code>.</p>
+<p>Группа со словом <code>repeat</code> показывает то, что в ней лежит, несколько раз: сеткой, по кругу, вдоль контура другой фигуры или <a href="#symmetry">отражением в зеркале</a>. То, что написано в блоке, — первый повтор. Остальные Motif делает сам при чтении файла, поэтому правка первого сразу меняет все. Пример — <code>examples/repeats.msc</code>.</p>
 <figure><img src="img/repeats.png" alt="Пульт из примера repeats.msc: заклёпки по краю панели, решётка, вентилятор с лампами и шкала с делениями" style="max-width:100%"><figcaption>Заклёпки идут вдоль контура панели, решётка стоит сеткой, лопасти, лампы и деления — по кругу. В каждой группе нарисован один объект.</figcaption></figure>
 <pre><code><span class="k">rect</span> plate <span class="p">at</span> <span class="n">240 170</span> <span class="p">size</span> <span class="n">388 268</span> <span class="p">r</span> <span class="n">14</span> <span class="p">fill</span> <span class="n">#39404d</span>
 <span class="k">group</span> rivets <span class="p">repeat</span> along plate <span class="n">20</span> offset <span class="n">14</span> {
@@ -191,7 +191,34 @@
   <li><b>Чего нельзя.</b> <code>repeat</code> бывает только у <code>group</code> и не бывает вместе с <code>clip</code>, <code>stack</code> и <code>combine</code>: положите такую группу внутрь повтора. Копия символа сама не повторяется, её кладут в группу. В одной группе не больше 2000 повторов.</li>
   <li><b>В игре.</b> Повторы раскрываются при чтении скрипта, как цикл <code>for</code>: игра получает обычные объекты с постоянными id и ничего не считает на кадре. Анимация первого повтора остальные не двигает; чтобы двигалось всё, анимируйте саму группу (<code>fan.rot</code>) или пишите дорожки для нужных повторов.</li>
 </ul>
-<p>Файл с повторами сохраняется как <code>motif 6</code>. Слова <code>step</code>, <code>arc</code>, <code>offset</code> и <code>upright</code> значат что-то только после <code>repeat</code>: объект по-прежнему можно назвать <code>arc</code> или <code>step</code>. Работа с повторами в редакторе — в разделе <a href="tools.html#repeats">«Живые повторы»</a>.</p>
+<p>Файл с повторами сохраняется как <code>motif 6</code>. Слова <code>step</code>, <code>arc</code>, <code>offset</code>, <code>upright</code> и <code>mirror</code> значат что-то только после <code>repeat</code>: объект по-прежнему можно назвать <code>arc</code> или <code>step</code>. Работа с повторами в редакторе — в разделе <a href="tools.html#repeats">«Живые повторы»</a>.</p>
+
+<h3 id="symmetry">Симметрия</h3>
+<p>Симметрия — тот же повтор: рисуете половину герба или пол-лепестка, остальное группа показывает отражением. Правите половину — меняется всё. Пример — <code>examples/symmetry.msc</code>.</p>
+<figure><img src="img/symmetry.png" alt="Пример symmetry.msc: герб из левой половины, рамка из одного угла и цветок из половины лепестка" style="max-width:100%"><figcaption>У герба нарисована левая половина, у рамки один угол, у цветка половина одного лепестка.</figcaption></figure>
+<pre><code><span class="k">group</span> crest <span class="p">at</span> <span class="n">150 170</span> <span class="p">repeat</span> mirror x {
+  <span class="k">path</span> shield <span class="p">d</span> <span class="n">"M 0 -96 L -78 -96 L -78 8 C -78 58 -40 88 0 104"</span> <span class="p">fill</span> <span class="n">#c8423b</span> <span class="p">stroke</span> <span class="n">#141722 5</span>
+}
+<span class="k">group</span> frame <span class="p">at</span> <span class="n">400 92</span> <span class="p">repeat</span> mirror x y {
+  <span class="k">path</span> corner <span class="p">d</span> <span class="n">"M -84 0 L -84 -44 C -84 -58 -74 -66 -60 -66 L 0 -66"</span> <span class="p">fill</span> <span class="n">none</span> <span class="p">stroke</span> <span class="n">#e9b949 4</span>
+}
+<span class="k">group</span> flower <span class="p">at</span> <span class="n">400 250</span> <span class="p">repeat</span> circle <span class="n">6</span> mirror {
+  <span class="k">path</span> petal <span class="p">d</span> <span class="n">"M 0 -8 C 14 -22 20 -44 0 -68"</span> <span class="p">fill</span> <span class="n">#6fbf73</span>
+}</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Вид</th><th>Запись</th><th>Пояснение</th></tr>
+  <tr><td>Слева направо</td><td><code>repeat mirror x</code></td><td>Отражение в вертикальной оси. Одно слово <code>repeat mirror</code> значит то же.</td></tr>
+  <tr><td>Сверху вниз</td><td><code>repeat mirror y</code></td><td>Отражение в горизонтальной оси.</td></tr>
+  <tr><td>Четыре четверти</td><td><code>repeat mirror x y</code></td><td>Обе оси сразу: рисуется одна четверть.</td></tr>
+  <tr><td>Секторы с отражением</td><td><code>repeat circle 6 mirror</code></td><td>У каждого повтора круга рядом встаёт его отражение в оси, которая идёт от центра вверх и поворачивается вместе с повтором. Из половины лепестка выходит целый цветок. Секторы без отражения — обычный <code>repeat circle 6</code>. Вместе с <code>upright</code> не пишется.</td></tr>
+</table></div>
+<ul>
+  <li><b>Где ось.</b> Оси идут через опорную точку группы (<code>pivot</code>; без него это точка <code>at</code> группы). Поворот группы (<code>rot</code>) поворачивает оси вместе с рисунком.</li>
+  <li><b>Имена отражений.</b> <code>crest-x</code>, <code>frame-y</code>, <code>frame-xy</code>, а объекты в них — <code>crest-x-shield</code>. В круге отражение повтора получает букву <code>m</code>: <code>flower-1m</code> — отражение написанного, <code>flower-2</code> и <code>flower-2m</code> — второй сектор. Номерные повторы сохраняют id, когда отражение включают и выключают.</li>
+  <li><b>Половины сходятся без шва.</b> Половину контура рисуют незамкнутой, с концами на оси: заливка смыкается по оси сама, а обводка по оси не идёт. Отражение такого контура Motif рисует с заходом за ось на единицу (каждый следующий слой на единицу дальше, не больше четырёх), иначе между двумя заливками встык просвечивала бы волосяная линия. Замкнутый контур и контур, который до оси не доходит, отражаются как есть.</li>
+  <li><b>Что на оси, рисуется один раз.</b> Камень в середине герба лежит снаружи группы с зеркалом или целиком по одну сторону оси. Текст в отражении тоже зеркальный, подписи ставят снаружи.</li>
+  <li><b>Порядок.</b> Отражение рисуется поверх написанной половины, со всеми своими слоями.</li>
+</ul>
 
 <h2 id="styles">Стили</h2>
 <p>Стиль хранит вид под именем. Он пишется одной строкой на верхнем уровне, а объект берёт его словом <code>style</code> на своей строке. Поменяли строку стиля — изменились все объекты, которые его берут. Пример — <code>examples/styles.msc</code>.</p>
@@ -288,6 +315,7 @@
   <tr><td>Маска у группы</td><td><code>group окно clip { ellipse форма … остальное … }</code></td></tr>
   <tr><td>Живая операция у группы</td><td><code>group луна combine subtract { ellipse диск … ellipse тень … }</code>: <code>union</code>, <code>subtract</code> (нижняя минус верхние), <code>intersect</code>, <code>exclude</code>. Фигуры остаются в файле, рисуется один контур стилем первой. Появилась в формате 3. Подробнее — <a href="tools.html#live-booleans">Живые операции</a>.</td></tr>
   <tr><td>Живой повтор у группы</td><td><code>group ряд repeat grid 6 1 step 28 0 { ellipse заклёпка … }</code>, <code>repeat circle 8</code>, <code>repeat along панель 12 offset 8</code>. Группа показывает то, что в ней лежит, несколько раз. Появился в формате 6. Подробнее — <a href="#repeats">Живые повторы</a>.</td></tr>
+  <tr><td>Симметрия у группы</td><td><code>group герб repeat mirror x { половина… }</code>, <code>repeat mirror y</code>, <code>repeat mirror x y</code>, <code>repeat circle 6 mirror</code>. Группа показывает то, что в ней лежит, и его отражение в осях через свою опорную точку. Подробнее — <a href="#symmetry">Симметрия</a>.</td></tr>
   <tr><td>Стек у группы</td><td><code>group меню stack column center gap 10 pad 18 { … }</code>: <code>row</code> или <code>column</code>, выравнивание <code>start|center|end</code></td></tr>
   <tr><td>Фон по размеру стека</td><td><code>rect фон r 18 fill #1f2333 fit</code> внутри группы со стеком</td></tr>
   <tr><td>Привязка к краю</td><td><code>anchor right</code>, <code>anchor center bottom</code>: <code>at</code> считается от этой точки артборда</td></tr>

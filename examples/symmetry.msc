@@ -1,0 +1,47 @@
+motif 6
+// Живая симметрия: рисуете половину герба или пол-лепестка, остальное показывает группа.
+// Симметрия — это повтор: пишется в строке group, отражения делаются из того, что лежит в блоке.
+//   repeat mirror x          отражение слева направо, в вертикальной оси
+//   repeat mirror y          сверху вниз, в горизонтальной оси
+//   repeat mirror x y        все четыре четверти
+//   repeat circle 6 mirror   по кругу, и у каждого повтора его отражение: целый цветок из половины лепестка
+// Оси идут через опорную точку группы (pivot); без pivot это точка самой группы.
+// Отражения получают id от группы: crest-x, frame-y, frame-xy, flower-1m, flower-2, flower-2m.
+artboard "Герб" 520x340 bg #1d2230
+let ink = #141722
+let gold = #e9b949
+let red = #c8423b
+let cream = #f3ead7
+let leaf = #6fbf73
+
+// Зеркало слева направо. Левая половина щита — незамкнутый контур с концами на оси:
+// заливка смыкается по оси, обводка по ней не идёт, а отражение само заходит за ось
+// на единицу, чтобы между половинами не просвечивала волосяная линия.
+group crest "Герб" at 150 170 repeat mirror x {
+  path shield d "M 0 -96 L -78 -96 L -78 8 C -78 58 -40 88 0 104" fill red stroke ink 5 join round cap round
+  path band d "M 0 -40 L -75.5 -40 L -75.5 -10 L 0 -10" fill gold
+  path wing d "M -12 20 C -30 4 -58 6 -66 24 C -50 22 -40 30 -34 44 C -28 34 -20 30 -12 34 Z" fill cream stroke ink 3 join round
+  star spark at -40 -68 size 22 22 points 5 inner 0.45 fill gold stroke ink 2
+}
+// То, что стоит на оси, рисуется один раз, снаружи группы.
+ellipse gem at 150 145 size 22 22 fill gold stroke ink 3
+
+// Четыре четверти. Угол рамки нарисован один, в левой верхней четверти.
+group frame "Рамка" at 400 92 repeat mirror x y {
+  path corner d "M -84 0 L -84 -44 C -84 -58 -74 -66 -60 -66 L 0 -66" fill none stroke gold 4 cap round
+  ellipse stud at -84 -66 size 12 12 fill gold stroke ink 2
+  rect dash at -40 -52 size 26 4 r 2 fill cream
+}
+
+// По кругу с отражением. Пол-лепестка справа от оси, шесть секторов — целый цветок.
+ellipse bed at 400 250 size 150 150 fill ink
+group flower "Цветок" at 400 250 repeat circle 6 mirror {
+  path petal d "M 0 -8 C 14 -22 20 -44 0 -68" fill leaf stroke ink 2 join round
+  path vein d "M 4 -20 C 9 -30 9 -42 4 -52" fill none stroke ink 1.5 cap round
+}
+ellipse heart at 400 250 size 20 20 fill gold stroke ink 3
+
+anim Idle 6s loop {
+  flower.rot 0: 0 linear | 6: 60
+  spark.rot 0: -8 ease-in-out | 3: 8 ease-in-out | 6: -8
+}

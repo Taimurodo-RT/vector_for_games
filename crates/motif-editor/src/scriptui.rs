@@ -77,6 +77,11 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
                 "повтор по кругу вокруг опорной точки группы; arc — часть круга, upright — не поворачивать",
             ),
             ("group g repeat along plate 20 offset 14 { … }", "повтор вдоль контура другой фигуры; место группе даёт контур"),
+            (
+                "group g at X Y repeat mirror x { … }",
+                "симметрия: отражение слева направо в оси через опорную точку; mirror y — сверху вниз, mirror x y — четыре четверти",
+            ),
+            ("group g at X Y repeat circle 6 mirror { … }", "у каждого повтора круга рядом его отражение: целый цветок из половины лепестка"),
             ("group m stack column center gap 8 pad 12 {", "стек: ряд или столбик, как flex"),
             ("  rect bg fit · anchor right bottom", "фон во весь стек; at от края артборда"),
         ],

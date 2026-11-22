@@ -109,7 +109,7 @@ fn the_panel_changes_the_kind_and_the_numbers_of_a_repeat() {
     assert!(app.set_repeat("dots", Some(RepeatKind::Grid { cols: 2, rows: 2, step: (30.0, 20.0) }), true));
     assert!(app.src.contains("repeat grid 2 2 step 30 20"), "{}", app.src);
     // Another kind: the repeats of the grid go, with what was said about them.
-    assert!(app.set_repeat("dots", Some(RepeatKind::Circle { count: 4, arc: 360.0, upright: true }), false));
+    assert!(app.set_repeat("dots", Some(RepeatKind::Circle { count: 4, arc: 360.0, upright: true, mirror: false }), false));
     assert!(app.src.contains("group dots at 100 100 repeat circle 4 upright {") && !app.src.contains("dots-2-1-dot"), "{}", app.src);
     // No repeat: an ordinary group with the first dot in it.
     assert!(app.set_repeat("dots", None, false));
@@ -127,6 +127,43 @@ fn the_panel_changes_the_kind_and_the_numbers_of_a_repeat() {
     assert!(app.src.contains("group dots at 100 100 pivot 0 15 {"), "{}", app.src);
     // A made repeat is not a line of the script: it has nothing to set.
     let mut app = started(DOTS, "dots-2-1");
-    assert!(!app.set_repeat("dots-2-1", Some(RepeatKind::Circle { count: 4, arc: 360.0, upright: false }), false));
+    assert!(!app.set_repeat("dots-2-1", Some(RepeatKind::Circle { count: 4, arc: 360.0, upright: false, mirror: false }), false));
     assert_eq!(app.src, DOTS);
+}
+
+#[test]
+fn a_mirror_reflects_an_object_in_its_side_and_a_group_beside_its_content() {
+    // The button: the half goes into a new group, the line stands on its right side.
+    const HALF: &str = "artboard \"a\" 400x300\nrect half at 100 100 size 40 60 fill #c9ced8\n";
+    let mut app = started(HALF, "half");
+    app.repeat_selection(4);
+    assert!(app.src.contains("group group1 at 100 100 pivot 20 30 repeat mirror x {"), "{}", app.src);
+    assert_eq!(app.selected.as_deref(), Some("group1"));
+    assert_eq!((at(&app, "half"), at(&app, "group1-x-half")), ((100.0, 100.0), (140.0, 100.0)));
+    // The second line of the panel: all four quarters around the lower right corner of the half.
+    assert!(app.set_repeat("group1", Some(RepeatKind::Mirror { x: true, y: true }), true));
+    assert!(app.src.contains("repeat mirror x y {"), "{}", app.src);
+    assert_eq!((at(&app, "group1-y-half"), at(&app, "group1-xy-half")), ((100.0, 160.0), (140.0, 160.0)));
+    // One step back for the line, one for the mirror.
+    app.undo();
+    app.undo();
+    assert_eq!(app.src, HALF);
+
+    // The switch for a group: its objects lie over its own point, so the line goes to their side.
+    const GROUP: &str = "artboard \"a\" 400x300\ngroup wing at 100 100 {\n  rect feather size 40 10 fill #c9ced8\n}\n";
+    let mut app = started(GROUP, "wing");
+    app.switch_repeat("wing", 4);
+    assert!(app.src.contains("group wing at 100 100 pivot 20 5 repeat mirror x {"), "{}", app.src);
+    assert_eq!(at(&app, "wing-x-feather"), (140.0, 100.0));
+    // Objects drawn beside the point of the group are reflected in the line through it.
+    let beside = GROUP.replace("rect feather size", "rect feather at -30 0 size");
+    let mut app = started(&beside, "wing");
+    app.switch_repeat("wing", 4);
+    assert!(app.src.contains("group wing at 100 100 repeat mirror x {"), "{}", app.src);
+    assert_eq!((at(&app, "feather"), at(&app, "wing-x-feather")), ((70.0, 100.0), (130.0, 100.0)));
+    // A circle whose repeats are reflected: twice as many, the numbered ones keep their ids.
+    app.switch_repeat("wing", 2);
+    assert!(app.set_repeat("wing", Some(RepeatKind::Circle { count: 3, arc: 360.0, upright: false, mirror: true }), false));
+    assert!(app.src.contains("repeat circle 3 mirror {"), "{}", app.src);
+    assert_eq!(app.scene.repeats["wing"].clones, ["wing-1m", "wing-2", "wing-2m", "wing-3", "wing-3m"]);
 }
