@@ -17,7 +17,7 @@ pub(crate) enum VariantAct {
     /// The variant sets the parameter, or stops setting it.
     Value(String, Option<Value>),
     /// The variant hides the object of the symbol, or shows it.
-    Hide(String, bool),
+    Visible(String, bool),
 }
 
 /// The editor of one parameter value: a number field or a color swatch with its code. Hands
@@ -158,18 +158,26 @@ impl App {
                     act = Some(VariantAct::Value(add, Some(p.value)));
                 }
             }
-            ui.label(RichText::new("Скрытые детали").size(11.5).color(FAINT));
+            ui.label(RichText::new("Видимые детали").size(11.5).color(FAINT));
             if parts.is_empty() {
                 ui.label(RichText::new("В символе нет объектов.").size(11.5).color(FAINT));
             }
             for part in &parts {
-                let mut hidden = variant.hide.iter().any(|(id, _)| id == part);
-                if ui.checkbox(&mut hidden, RichText::new(part).size(12.5).color(FG)).changed() {
-                    act = Some(VariantAct::Hide(part.clone(), hidden));
-                }
+                // As the symbol has it, unless the variant says otherwise.
+                let in_symbol = !sym.hidden.contains(part);
+                let listed = |ids: &[(String, motif_script::Span)]| ids.iter().any(|(id, _)| id == part);
+                let mut visible = listed(&variant.show) || (in_symbol && !listed(&variant.hide));
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut visible, RichText::new(part).size(12.5).color(FG)).changed() {
+                        act = Some(VariantAct::Visible(part.clone(), visible));
+                    }
+                    if !in_symbol {
+                        ui.label(RichText::new("скрыта в символе").size(10.5).color(FAINT));
+                    }
+                });
             }
             let note = format!(
-                "Вариант — набор значений параметров и скрытых деталей символа. Что вы меняете здесь, меняется у всех копий с этим вариантом ({copies}). Параметр, заданный у самой копии, сильнее варианта."
+                "Вариант — значения параметров символа и то, какие его детали видны. Что вы меняете здесь, меняется у всех копий с этим вариантом ({copies}). Параметр, заданный у самой копии, сильнее варианта."
             );
             ui.label(RichText::new(note).size(11.5).color(if copies > 1 { ACCENT } else { FAINT }));
         });
@@ -245,14 +253,14 @@ impl App {
                     self.status = format!("Вариант «{name}» теперь задаёт «{param}»");
                 }
             }
-            VariantAct::Hide(part, hidden) => {
+            VariantAct::Visible(part, visible) => {
                 let Some(name) = current else { return };
-                let out = motif_script::set_variant_hidden(&self.src, &self.scene, &inst.symbol, &name, &part, hidden);
-                if self.apply_once("variant-hide", out) {
-                    self.status = if hidden {
-                        format!("Вариант «{name}» скрывает «{part}» во всех своих копиях")
+                let out = motif_script::set_variant_visible(&self.src, &self.scene, &inst.symbol, &name, &part, visible);
+                if self.apply_once("variant-visible", out) {
+                    self.status = if visible {
+                        format!("Вариант «{name}» показывает «{part}» во всех своих копиях")
                     } else {
-                        format!("Вариант «{name}» снова показывает «{part}»")
+                        format!("Вариант «{name}» скрывает «{part}» во всех своих копиях")
                     };
                 }
             }

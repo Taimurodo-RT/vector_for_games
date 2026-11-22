@@ -322,6 +322,8 @@ pub enum Stmt {
         values: Vec<ParamAst>,
         /// The objects it hides, by their ids inside the symbol.
         hide: Vec<(String, Span)>,
+        /// The objects it shows though the symbol has them `hidden`.
+        show: Vec<(String, Span)>,
         /// The whole line.
         span: Span,
     },
@@ -704,6 +706,7 @@ impl<'a> Parser<'a> {
                 let (name, name_span) = self.ident("имя варианта: variant main face=#ff5a36 hide icon")?;
                 let mut values = Vec::new();
                 let mut hide = Vec::new();
+                let mut show = Vec::new();
                 let mut end = name_span.end;
                 while !self.at_line_end() {
                     if matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq)) {
@@ -712,23 +715,34 @@ impl<'a> Parser<'a> {
                         values.push(p);
                         continue;
                     }
-                    let (word, word_span) = self.ident("значение параметра (имя=значение) или hide и id скрытых объектов")?;
-                    if word != "hide" {
-                        return Err(
-                            self.err(word_span, format!("в варианте пишутся значения параметров (имя=значение) и hide с id скрытых объектов, а не «{word}»"))
-                        );
-                    }
-                    let before = hide.len();
-                    while matches!(self.peek(), Some(Tok::Ident(_))) && !matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq)) {
+                    let (word, word_span) = self.ident("значение параметра (имя=значение), hide или show и id объектов")?;
+                    let list = match word.as_str() {
+                        "hide" => &mut hide,
+                        "show" => &mut show,
+                        _ => {
+                            return Err(self.err(
+                                word_span,
+                                format!(
+                                    "в варианте пишутся значения параметров (имя=значение), hide с id скрытых объектов и show с id показанных, а не «{word}»"
+                                ),
+                            ));
+                        }
+                    };
+                    let before = list.len();
+                    // The ids run to the next value, to the other list or to the end of the line.
+                    while matches!(self.peek(), Some(Tok::Ident(w)) if w != "hide" && w != "show")
+                        && !matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq))
+                    {
                         let (id, id_span) = self.ident("id объекта")?;
                         end = id_span.end;
-                        hide.push((id, id_span));
+                        list.push((id, id_span));
                     }
-                    if hide.len() == before {
-                        return Err(self.err(word_span, "после hide нужны id объектов символа, которые вариант скрывает: hide icon"));
+                    if list.len() == before {
+                        let what = if word == "hide" { "скрывает: hide icon" } else { "показывает: show badge" };
+                        return Err(self.err(word_span, format!("после {word} нужны id объектов символа, которые вариант {what}")));
                     }
                 }
-                Ok(Stmt::Variant { name, name_span, values, hide, span: Span::new(span.start, end) })
+                Ok(Stmt::Variant { name, name_span, values, hide, show, span: Span::new(span.start, end) })
             }
             "override" => {
                 self.expect(Tok::BlockOpen, "«{» в конце строки")?;

@@ -95,7 +95,7 @@ pub use svg::import_svg;
 pub use symbol::{CopyChange, add_use, copy_changes, free_symbol_name, make_symbol, part_of, reset_copy, set_param};
 pub use themes::{add_theme, delete_theme, free_theme_name, rename_theme, reset_in_theme, theme_name_ok, theme_names};
 pub use variants::{
-    add_variant, delete_variant, free_variant_name, rename_variant, set_variant, set_variant_hidden, set_variant_value, variant_from_copy, variant_name_ok,
+    add_variant, delete_variant, free_variant_name, rename_variant, set_variant, set_variant_value, set_variant_visible, variant_from_copy, variant_name_ok,
 };
 
 /// Byte range in the script text.
@@ -402,10 +402,13 @@ pub struct SymbolSite {
     pub span: Span,
     /// Its variants, in the order written.
     pub variants: Vec<VariantSite>,
+    /// The objects written `hidden` in the symbol, by their ids inside it: a copy does not show
+    /// them unless its variant does (`show badge`).
+    pub hidden: Vec<String>,
 }
 
-/// A `variant` line of a symbol: a named set of parameter values and of objects that are not
-/// shown. A copy takes it with `variant main` on its `use` line.
+/// A `variant` line of a symbol: a named set of parameter values, of objects that are not
+/// shown and of hidden objects that are. A copy takes it with `variant main` on its `use` line.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VariantSite {
     pub name: String,
@@ -416,6 +419,8 @@ pub struct VariantSite {
     pub values: Vec<VariantValue>,
     /// The objects it hides, by their ids inside the symbol, and where each is written.
     pub hide: Vec<(String, Span)>,
+    /// The objects it shows though the symbol has them `hidden`, the same way.
+    pub show: Vec<(String, Span)>,
 }
 
 /// A parameter a variant sets: `face=accent`.

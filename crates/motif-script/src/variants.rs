@@ -26,10 +26,12 @@ pub fn free_variant_name(scene: &Scene, symbol_name: &str) -> String {
     (1..).map(|k| format!("variant{k}")).find(|n| !taken(n)).expect("names are unbounded")
 }
 
-/// What a variant line says, as written: the values by parameter and the hidden objects.
+/// What a variant line says, as written: the values by parameter, the hidden objects and the
+/// shown ones.
 struct Written {
     values: Vec<(String, String)>,
     hide: Vec<String>,
+    show: Vec<String>,
 }
 
 impl Written {
@@ -37,10 +39,11 @@ impl Written {
         Written {
             values: v.values.iter().map(|p| (p.name.clone(), src[p.span.start..p.span.end].to_string())).collect(),
             hide: v.hide.iter().map(|(id, _)| id.clone()).collect(),
+            show: v.show.iter().map(|(id, _)| id.clone()).collect(),
         }
     }
 
-    /// The line: values first, then what is hidden.
+    /// The line: values first, then what is hidden, then what is shown.
     fn line(&self, name: &str) -> String {
         let mut out = format!("variant {name}");
         for (param, value) in &self.values {
@@ -48,6 +51,9 @@ impl Written {
         }
         if !self.hide.is_empty() {
             out.push_str(&format!(" hide {}", self.hide.join(" ")));
+        }
+        if !self.show.is_empty() {
+            out.push_str(&format!(" show {}", self.show.join(" ")));
         }
         out
     }
@@ -110,7 +116,7 @@ pub fn variant_from_copy(src: &str, scene: &Scene, copy: &str, name: &str) -> Op
     }
     let mut written = match inst.variant.as_ref().and_then(|(old, _)| variant(scene, &inst.symbol, old)) {
         Some(old) => Written::of(src, old),
-        None => Written { values: Vec::new(), hide: Vec::new() },
+        None => Written { values: Vec::new(), hide: Vec::new(), show: Vec::new() },
     };
     let own: Vec<crate::CopyChange> = crate::copy_changes(src, scene, copy).into_iter().filter(|c| c.part.is_none()).collect();
     let mut edits: Vec<(Span, String)> = Vec::new();
@@ -159,21 +165,28 @@ pub fn set_variant_value(src: &str, scene: &Scene, symbol_name: &str, name: &str
     (out != src).then_some(out)
 }
 
-/// Returns the script with variant `name` of the symbol hiding object `part` (its id inside
-/// the symbol, `icon`), or showing it again. `None` when there is no such variant, or nothing
-/// changes.
-pub fn set_variant_hidden(src: &str, scene: &Scene, symbol_name: &str, name: &str, part: &str, hidden: bool) -> Option<String> {
+/// Returns the script with object `part` of the symbol (its id inside the symbol, `icon`) seen
+/// or not seen in the copies of variant `name`. The variant writes only what differs from the
+/// symbol: `hide icon` for an object the symbol shows, `show badge` for one it has `hidden`.
+/// `None` when there is no such variant, or nothing changes.
+pub fn set_variant_visible(src: &str, scene: &Scene, symbol_name: &str, name: &str, part: &str, visible: bool) -> Option<String> {
+    let sym = symbol(scene, symbol_name)?;
     let v = variant(scene, symbol_name, name)?;
     let mut written = Written::of(src, v);
-    let at = written.hide.iter().position(|id| id == part);
-    match (at, hidden) {
-        (None, true) => written.hide.push(part.to_string()),
-        (Some(k), false) => {
-            written.hide.remove(k);
-        }
-        _ => return None,
+    let hidden = sym.hidden.iter().any(|id| id == part);
+    let now = written.show.iter().any(|id| id == part) || (!hidden && !written.hide.iter().any(|id| id == part));
+    if now == visible {
+        return None;
     }
-    Some(splice(src, v.span, &written.line(name)))
+    written.hide.retain(|id| id != part);
+    written.show.retain(|id| id != part);
+    match (hidden, visible) {
+        (true, true) => written.show.push(part.to_string()),
+        (false, false) => written.hide.push(part.to_string()),
+        _ => {}
+    }
+    let out = splice(src, v.span, &written.line(name));
+    (out != src).then_some(out)
 }
 
 /// The lines of the copies that are variant `name` of the symbol: where `variant name` is
@@ -247,21 +260,22 @@ pub fn delete_variant(file: &str, base: Option<&std::path::Path>, board: usize, 
     })
 }
 
-/// What leaves the `hide` lists of the symbol's variants when objects of the symbol are
-/// deleted: `gone` tells by the id inside the symbol. A list that loses every object loses
-/// its `hide` word too.
+/// What leaves the `hide` and `show` lists of the symbol's variants when objects of the symbol
+/// are deleted: `gone` tells by the id inside the symbol. A list that loses every object loses
+/// its word too.
 pub(crate) fn hide_spans(src: &str, sym: &SymbolSite, gone: impl Fn(&str) -> bool) -> Vec<Span> {
     let mut out = Vec::new();
-    for v in &sym.variants {
-        // One list is the ids that follow one `hide` word.
+    for ids in sym.variants.iter().flat_map(|v| [&v.hide, &v.show]) {
+        // One list is the ids that follow one `hide` or `show` word.
         let mut k = 0;
-        while k < v.hide.len() {
+        while k < ids.len() {
             let mut end = k + 1;
-            while end < v.hide.len() && src[v.hide[end - 1].1.end..v.hide[end].1.start].trim().is_empty() {
+            while end < ids.len() && src[ids[end - 1].1.end..ids[end].1.start].trim().is_empty() {
                 end += 1;
             }
-            let list = &v.hide[k..end];
+            let list = &ids[k..end];
             if list.iter().all(|(id, _)| gone(id)) {
+                // Both words are as long.
                 let word = src[..list[0].1.start].trim_end().len().saturating_sub("hide".len());
                 out.push(with_space_before(src, Span::new(word, list[list.len() - 1].1.end)));
             } else {
@@ -419,14 +433,14 @@ use Button b4 at 220 140 variant icon w=60 face=#000000
         assert_eq!(set_variant_value(BUTTONS, &scene, "Button", "main", "nope", Some(Value::Num(1.0))), None);
         assert_eq!(set_variant_value(BUTTONS, &scene, "Button", "main", "w", None), None);
 
-        let out = set_variant_hidden(BUTTONS, &scene, "Button", "icon", "glyph", true).unwrap();
+        let out = set_variant_visible(BUTTONS, &scene, "Button", "icon", "glyph", false).unwrap();
         assert!(out.contains("  variant icon w=44 hide label glyph\n"), "{out}");
-        let out = set_variant_hidden(BUTTONS, &scene, "Button", "main", "glyph", true).unwrap();
+        let out = set_variant_visible(BUTTONS, &scene, "Button", "main", "glyph", false).unwrap();
         assert!(out.contains("  variant main face=accent hide glyph\n"), "{out}");
         assert!(!parse(&out).unwrap().doc.node("b2-glyph").unwrap().visible);
-        let out = set_variant_hidden(BUTTONS, &scene, "Button", "icon", "label", false).unwrap();
+        let out = set_variant_visible(BUTTONS, &scene, "Button", "icon", "label", true).unwrap();
         assert!(out.contains("  variant icon w=44\n"), "{out}");
-        assert_eq!(set_variant_hidden(BUTTONS, &scene, "Button", "icon", "label", true), None);
+        assert_eq!(set_variant_visible(BUTTONS, &scene, "Button", "icon", "label", false), None);
     }
 
     #[test]
@@ -464,6 +478,69 @@ use Button b4 at 220 140 variant icon w=60 face=#000000
         assert!(out.contains("  variant main face=accent hide label\n  variant icon w=44 ink=#111111 hide label\n"), "{out}");
         let (out, ..) = crate::delete_nodes(&src, &through(&src), &["b1-label".to_string(), "b1-glyph".to_string()], None).unwrap();
         assert!(out.contains("  variant main face=accent\n  variant icon w=44 ink=#111111\n  rect bg"), "{out}");
+    }
+
+    const CARDS: &str = "\
+artboard \"Карточки\" 320x200 bg #ffffff
+symbol Card w=80 {
+  variant hit show ribbon
+  variant locked show lock hide price
+  rect sheet size {w} 100 fill #ffffff
+  rect ribbon at 0 -40 size 40 12 fill #ff5a36 hidden
+  text price at 0 30 content \"10\" font-size 14 fill #1b1d24
+  group lock hidden {
+    rect shade size {w} 100 fill #00000088
+  }
+}
+use Card a at 50 100
+use Card b at 150 100 variant hit
+use Card c at 250 100 variant locked
+";
+
+    #[test]
+    fn a_variant_shows_what_the_symbol_has_hidden() {
+        let scene = parse(CARDS).unwrap();
+        let seen = |scene: &Scene, id: &str| scene.doc.node(id).unwrap().visible;
+        assert_eq!(scene.symbols[0].hidden, ["ribbon", "lock"]);
+        // As the symbol: the ribbon and the lock are not shown.
+        assert!(!seen(&scene, "a-ribbon") && !seen(&scene, "a-lock") && seen(&scene, "a-price"));
+        assert!(seen(&scene, "b-ribbon") && !seen(&scene, "b-lock"));
+        assert!(seen(&scene, "c-lock") && !seen(&scene, "c-price") && !seen(&scene, "c-ribbon"));
+        // The copy a symbol is edited through is the symbol itself.
+        let edited = parse_as(CARDS, None, Reading { theme: None, symbol_of: Some("b") }).unwrap();
+        assert!(!seen(&edited, "b-ribbon") && seen(&edited, "c-lock"));
+
+        let told = |src: &str| parse(src).unwrap_err().iter().map(ToString::to_string).collect::<Vec<_>>().join("\n");
+        let errors = told(&CARDS.replace("show ribbon", "show bow"));
+        assert!(errors.contains("в символе «Card» нет объекта «bow»: вариант не может его показать"), "{errors}");
+        let errors = told(&CARDS.replace("show ribbon", "hide ribbon show ribbon"));
+        assert!(errors.contains("вариант «hit» и скрывает, и показывает «ribbon»"), "{errors}");
+        let errors = told(&CARDS.replace("show ribbon", "show"));
+        assert!(errors.contains("после show нужны id объектов символа"), "{errors}");
+    }
+
+    #[test]
+    fn a_variant_writes_only_what_differs_from_the_symbol() {
+        let scene = parse(CARDS).unwrap();
+        let set = |variant: &str, part: &str, visible: bool| set_variant_visible(CARDS, &scene, "Card", variant, part, visible);
+        assert!(set("hit", "ribbon", false).unwrap().contains("  variant hit\n"));
+        assert!(set("hit", "lock", true).unwrap().contains("  variant hit show ribbon lock\n"));
+        assert!(set("hit", "sheet", false).unwrap().contains("  variant hit hide sheet show ribbon\n"));
+        assert!(set("locked", "price", true).unwrap().contains("  variant locked show lock\n"));
+        // Already so.
+        assert_eq!(set("hit", "ribbon", true), None);
+        assert_eq!(set("hit", "lock", false), None);
+        assert_eq!(set("locked", "price", false), None);
+
+        // A new variant from a copy keeps what its variant shows.
+        let out = variant_from_copy(CARDS, &scene, "c", "sold").unwrap();
+        assert!(out.contains("  variant locked show lock hide price\n  variant sold hide price show lock\n"), "{out}");
+        assert_eq!(parse(&out).unwrap().doc, scene.doc);
+
+        // An object deleted from the symbol leaves the lists of shown ones too.
+        let through = parse_as(CARDS, None, Reading { theme: None, symbol_of: Some("a") }).unwrap();
+        let (out, ..) = crate::delete_nodes(CARDS, &through, &["a-lock".to_string()], None).unwrap();
+        assert!(out.contains("  variant hit show ribbon\n  variant locked hide price\n  rect sheet"), "{out}");
     }
 
     #[test]

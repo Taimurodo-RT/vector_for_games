@@ -146,9 +146,9 @@ impl App {
                 if !uses.variants.is_empty() {
                     let names = uses.variants.join(", ");
                     let text = if uses.variants.len() == 1 {
-                        format!("Вариант {names} перестанет её скрывать.")
+                        format!("Она уйдёт и из варианта {names}.")
                     } else {
-                        format!("Варианты {names} перестанут её скрывать.")
+                        format!("Она уйдёт и из вариантов {names}.")
                     };
                     ui.label(RichText::new(text).size(12.5).color(FG));
                 }

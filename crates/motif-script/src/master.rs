@@ -28,7 +28,7 @@ pub struct PartUses {
     pub symbol: String,
     /// The objects asked about, by their ids inside the symbol.
     pub parts: Vec<String>,
-    /// Variants of the symbol that hide one of them.
+    /// Variants of the symbol that hide or show one of them.
     pub variants: Vec<String>,
     /// Every board that has copies of the symbol.
     pub boards: Vec<BoardUse>,
@@ -97,7 +97,7 @@ fn plan(file: &str, base: Option<&std::path::Path>, board: usize, copy: &str, id
             + scene.doc.machines.iter().flat_map(|m| &m.listeners).filter(|l| all.contains(&l.node)).count();
         boards.push(BoardUse { board: k, name: v.scene.doc.artboard.name.clone(), copies: copies.len(), tracks, edits, links });
     }
-    let variants = sym.variants.iter().filter(|v| v.hide.iter().any(|(id, _)| inside.contains(id))).map(|v| v.name.clone()).collect();
+    let variants = sym.variants.iter().filter(|v| v.hide.iter().chain(&v.show).any(|(id, _)| inside.contains(id))).map(|v| v.name.clone()).collect();
     Some((PartUses { symbol, parts, variants, boards }, spans))
 }
 

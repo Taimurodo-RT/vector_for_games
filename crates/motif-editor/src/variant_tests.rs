@@ -67,7 +67,7 @@ fn the_look_of_a_copy_becomes_a_variant_other_copies_can_take() {
     // What the variant holds is changed for both copies at once.
     app.variant_act("b1", VariantAct::Value("w".into(), Some(Value::Num(70.0))));
     assert_eq!((width(&app, "b1-bg"), width(&app, "b3-bg")), (70.0, 70.0));
-    app.variant_act("b1", VariantAct::Hide("glyph".into(), true));
+    app.variant_act("b1", VariantAct::Visible("glyph".into(), false));
     assert!(app.src.contains("  variant small w=70 hide glyph\n"), "{}", app.src);
     let visible = |app: &App, id: &str| app.scene.doc.node(id).unwrap().visible;
     assert!(!visible(&app, "b1-glyph") && !visible(&app, "b3-glyph") && visible(&app, "b2-glyph"));
@@ -84,6 +84,22 @@ fn the_look_of_a_copy_becomes_a_variant_other_copies_can_take() {
     app.variant_act("b1", VariantAct::Delete);
     assert!(!app.src.contains("variant small") && app.src.contains("use Button b3 at 100 180 face=#ffffff\n"), "{}", app.src);
     assert!(visible(&app, "b1-glyph") && fill(&app, "b1-bg") == "#2d6cdf");
+}
+
+#[test]
+fn a_variant_shows_a_detail_the_symbol_keeps_hidden() {
+    let src = BUTTONS.replace("fill #ffffff\n}", "fill #ffffff\n  ellipse badge at 54 -14 size 10 10 fill #ff0000 hidden\n}");
+    let mut app = fixture(&src);
+    let visible = |app: &App, id: &str| app.scene.doc.node(id).unwrap().visible;
+    assert!(!visible(&app, "b1-badge") && !visible(&app, "b2-badge"));
+    // Seen in the copies of the variant only: the variant writes what differs from the symbol.
+    app.variant_act("b2", VariantAct::Visible("badge".into(), true));
+    assert!(app.src.contains("  variant main face=#ff5a36 show badge\n"), "{}", app.src);
+    assert!(visible(&app, "b2-badge") && !visible(&app, "b1-badge") && app.status.contains("показывает «badge»"), "{}", app.status);
+    app.variant_act("b2", VariantAct::Visible("badge".into(), false));
+    assert!(app.src.contains("  variant main face=#ff5a36\n") && !visible(&app, "b2-badge"), "{}", app.src);
+    app.undo();
+    assert!(visible(&app, "b2-badge"));
 }
 
 #[test]

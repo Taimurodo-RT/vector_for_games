@@ -280,7 +280,7 @@ impl<'a> Evaluator<'a> {
                 }
                 let mut variants: Vec<crate::VariantSite> = Vec::new();
                 for v in body {
-                    let Stmt::Variant { name: variant, name_span, values, hide, span } = v else { continue };
+                    let Stmt::Variant { name: variant, name_span, values, hide, show, span } = v else { continue };
                     if variants.iter().any(|w| &w.name == variant) {
                         self.err(*name_span, format!("у символа «{name}» уже есть вариант «{variant}»"));
                         continue;
@@ -298,16 +298,22 @@ impl<'a> Evaluator<'a> {
                             self.err(p.name_span, format!("параметр «{}» в варианте «{variant}» уже задан", p.name));
                         }
                     }
+                    for (part, part_span) in show {
+                        if hide.iter().any(|(h, _)| h == part) {
+                            self.err(*part_span, format!("вариант «{variant}» и скрывает, и показывает «{part}»: оставьте одно"));
+                        }
+                    }
                     variants.push(crate::VariantSite {
                         name: variant.clone(),
                         name_span: *name_span,
                         span: *span,
                         values: values.iter().map(|p| crate::VariantValue { name: p.name.clone(), span: p.value.span, value: None }).collect(),
                         hide: hide.clone(),
+                        show: show.clone(),
                     });
                 }
                 self.symbols.insert(name.clone(), (*clip, params.clone(), body.clone()));
-                self.scene.symbols.push(SymbolSite { name: name.clone(), clip: *clip, params: defaults, span: *span, variants });
+                self.scene.symbols.push(SymbolSite { name: name.clone(), clip: *clip, params: defaults, span: *span, variants, hidden: hidden_parts(body) });
             }
         }
         // Styles too: an object may take a style written below it.
@@ -1226,9 +1232,10 @@ impl<'a> Evaluator<'a> {
         let told = !self.variants_told.insert(u.symbol.clone());
         let before = self.errors.len();
         let mut hidden: Vec<(String, Span)> = Vec::new();
+        let mut shown: Vec<(String, Span)> = Vec::new();
         let mut found = false;
         for s in &body {
-            let Stmt::Variant { name, values, hide, .. } = s else { continue };
+            let Stmt::Variant { name, values, hide, show, .. } = s else { continue };
             let mine = !found && u.variant.as_ref().is_some_and(|v| &v.name == name);
             for p in values {
                 let Some(value) = self.param_value(&p.value) else { continue };
@@ -1251,6 +1258,7 @@ impl<'a> Evaluator<'a> {
             if mine {
                 found = true;
                 hidden.clone_from(hide);
+                shown.clone_from(show);
             }
         }
         if told {
@@ -1298,15 +1306,19 @@ impl<'a> Evaluator<'a> {
         self.stmts(&body, Some(index), !edited);
         self.symbol_top = false;
         self.depth -= 1;
-        // What the variant hides. The copy a symbol is edited through shows all of the symbol.
-        for (part, span) in hidden {
-            let whole = format!("{id}-{part}");
-            match self.scene.doc.nodes[index..].iter_mut().find(|n| n.id == whole) {
-                Some(node) if !edited => node.visible = false,
-                Some(_) => {}
-                None => {
-                    if self.hide_told.insert(span.start) {
-                        self.err(span, format!("в символе «{}» нет объекта «{part}»: вариант не может его скрыть", u.symbol));
+        // What the variant hides and what it shows. The copy a symbol is edited through is the
+        // symbol itself: every object is as its own line says.
+        for (visible, parts) in [(false, hidden), (true, shown)] {
+            for (part, span) in parts {
+                let whole = format!("{id}-{part}");
+                match self.scene.doc.nodes[index..].iter_mut().find(|n| n.id == whole) {
+                    Some(node) if !edited => node.visible = visible,
+                    Some(_) => {}
+                    None => {
+                        if self.hide_told.insert(span.start) {
+                            let what = if visible { "показать" } else { "скрыть" };
+                            self.err(span, format!("в символе «{}» нет объекта «{part}»: вариант не может его {what}", u.symbol));
+                        }
                     }
                 }
             }
@@ -2593,4 +2605,19 @@ fn ui_owner(doc: &motif_core::Document, i: usize) -> Option<usize> {
         up = doc.nodes[k].parent;
     }
     None
+}
+
+/// The objects of a symbol written `hidden`, by their ids inside it. Lines of loops are not
+/// looked at: their ids are made when the loop runs.
+fn hidden_parts(body: &[Stmt]) -> Vec<String> {
+    let mut out = Vec::new();
+    for s in body {
+        if let Stmt::Node(n) = s {
+            if n.props.iter().any(|p| p.key == "hidden") {
+                out.push(n.id.clone());
+            }
+            out.extend(hidden_parts(&n.children));
+        }
+    }
+    out
 }
