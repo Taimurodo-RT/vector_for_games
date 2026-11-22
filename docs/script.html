@@ -118,7 +118,7 @@
   <tr><td>Копия</td><td><code>use Имя id ["имя"] свойства параметры</code></td><td>Копия — это группа: <code>at</code>, <code>rot</code>, <code>scale</code>, <code>opacity</code>, <code>blur</code> и другие свойства группы, плюс <code>имя=значение</code> для параметров. Незаписанные параметры берутся по умолчанию.</td></tr>
   <tr><td>Объекты копии</td><td><code>c1-face</code></td><td>id копии, дефис, id внутри символа. По нему анимируют и правят одну копию.</td></tr>
   <tr><td>В цикле</td><td><code>for i in 0..6 { use Coin coin{i} at {i * 40} 0 }</code></td><td>Копии можно ставить циклом и в группы.</td></tr>
-  <tr><td>Вариант</td><td><code>variant main face=accent hide icon</code></td><td>Строка внутри <code>symbol</code>: именованный набор значений параметров и объектов символа, которые вариант скрывает. Подробнее <a href="#variants">ниже</a>.</td></tr>
+  <tr><td>Вариант</td><td><code>variant main face=accent hide icon</code></td><td>Строка внутри <code>symbol</code>: именованный набор значений параметров и объектов символа, которые вариант скрывает (<code>hide</code>) или показывает (<code>show</code>). Подробнее <a href="#variants">ниже</a>.</td></tr>
   <tr><td>Копия-вариант</td><td><code>use Button b2 at 40 90 variant main</code></td><td>Копия берёт вариант символа. Параметр, записанный у самой копии, сильнее варианта.</td></tr>
 </table></div>
 <p>Блок <code>symbol</code> правится и мышью: двойной щелчок по копии в «Рисовании» открывает символ, и правки внутри пишутся в его строки, то есть меняют все копии (<a href="tools.html#symbol-edit">подробнее</a>). Правка объекта копии только для неё самой (например, сдвиг <code>c1-face</code> при включённом «только эту копию» или ключ анимации) записывается в <code>override</code> или в клип и остальные копии не трогает. Подробнее о работе с символами в редакторе — на странице <a href="properties.html#symbols">«Панель свойств»</a>.</p>
@@ -129,22 +129,26 @@
 <span class="k">symbol</span> Button <span class="p">face</span>=<span class="n">#ffffff</span> <span class="p">text</span>=<span class="n">#1b1d24</span> {
   <span class="k">variant</span> main <span class="p">face</span>=accent <span class="p">text</span>=<span class="n">#ffffff</span>
   <span class="k">variant</span> icon <span class="k">hide</span> label
+  <span class="k">variant</span> fresh <span class="k">show</span> badge
   <span class="k">group</span> row <span class="p">stack</span> row center <span class="p">gap</span> <span class="n">8</span> <span class="p">pad</span> <span class="n">12</span> {
     <span class="k">rect</span> bg <span class="p">fit</span> <span class="p">r</span> <span class="n">10</span> <span class="p">fill</span> face
     <span class="k">star</span> glyph <span class="p">size</span> <span class="n">16</span> <span class="p">fill</span> text
     <span class="k">text</span> label <span class="p">content</span> <span class="s">"Играть"</span> <span class="p">font-size</span> <span class="n">16</span> <span class="p">fill</span> text
   }
+  <span class="k">ellipse</span> badge <span class="p">at</span> <span class="n">50 -20</span> <span class="p">size</span> <span class="n">14 14</span> <span class="p">fill</span> accent <span class="p">hidden</span>
 }
 <span class="k">use</span> Button plain <span class="p">at</span> <span class="n">90 80</span>
 <span class="k">use</span> Button play <span class="p">at</span> <span class="n">260 80</span> <span class="k">variant</span> main
 <span class="k">use</span> Button star <span class="p">at</span> <span class="n">420 80</span> <span class="k">variant</span> icon
-<span class="k">use</span> Button buy <span class="p">at</span> <span class="n">260 200</span> <span class="k">variant</span> main <span class="p">face</span>=<span class="n">#2d6cdf</span></code></pre>
-<figure><img src="img/variants.png" alt="Одна кнопка в вариантах: обычная, главная, с иконкой, тихая, главная со своим цветом и три значка из цикла" style="max-width:520px"><figcaption>Пример <code>examples/variants.msc</code>: один символ <code>Button</code>, восемь копий.</figcaption></figure>
+<span class="k">use</span> Button buy <span class="p">at</span> <span class="n">260 200</span> <span class="k">variant</span> main <span class="p">face</span>=<span class="n">#2d6cdf</span>
+<span class="k">use</span> Button fresh <span class="p">at</span> <span class="n">90 320</span> <span class="k">variant</span> fresh</code></pre>
+<figure><img src="img/variants.png" alt="Одна кнопка в вариантах: обычная, главная, с иконкой, тихая, главная со своим цветом, три значка из цикла и кнопка с меткой" style="max-width:520px"><figcaption>Пример <code>examples/variants.msc</code>: один символ <code>Button</code>, девять копий.</figcaption></figure>
 <ul>
   <li><b>Значения.</b> После имени варианта идут <code>параметр=значение</code>. Порядок такой: значение по умолчанию из строки <code>symbol</code>, поверх него значение варианта, поверх него то, что записано у самой копии. В варианте значением может быть имя палитры (<code>face=accent</code>), поэтому темы меняют и варианты; в умолчаниях символа имена палитры не пишутся.</li>
   <li><b>Скрытые детали.</b> После <code>hide</code> идут id объектов символа, которых у этого варианта нет. Скрытая деталь не занимает места в раскладке <code>stack</code>: кнопка без подписи сама становится уже.</li>
+  <li><b>Показанные детали.</b> После <code>show</code> идут id объектов, которые в самом символе записаны со свойством <code>hidden</code>. Такой детали нет ни в одной копии, пока вариант её не покажет: метка «новое», замок, лента «хит». Добавили в символ новую скрытую деталь — готовые копии не изменились, деталь появится только там, где вариант её показывает.</li>
   <li><b>Копия без слова <code>variant</code></b> рисуется как сам символ. Вариант у копии один.</li>
-  <li><b>Ошибки.</b> Имя варианта, которого у символа нет, неизвестный параметр и скрытый объект, которого нет в символе, показываются с подсказкой, какие есть.</li>
+  <li><b>Ошибки.</b> Имя варианта, которого у символа нет, неизвестный параметр и объект после <code>hide</code> или <code>show</code>, которого нет в символе, показываются с подсказкой. Один объект нельзя и скрыть, и показать в одном варианте.</li>
 </ul>
 <p>Файл с вариантами сохраняется как <code>motif 5</code>. Игре вариант ничего не стоит: он применяется при чтении скрипта, как стиль. Работа с вариантами в редакторе — в разделе <a href="properties.html#variants">«Панель свойств»</a>.</p>
 

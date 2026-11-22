@@ -27,6 +27,7 @@ const KEYWORDS: &[&str] = &[
     "use",
     "variant",
     "hide",
+    "show",
     "machine",
     "input",
     "listen",

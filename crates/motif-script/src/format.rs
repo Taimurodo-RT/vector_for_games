@@ -8,7 +8,7 @@
 //! - 3: `group … combine subtract` — live boolean operations.
 //! - 4: `style card fill #ffffff` — named styles; `let sky = linear 90 #a #b` — gradients of
 //!   the palette; `theme dark { … }` — themes.
-//! - 5: `variant main face=#ff5a36 hide icon` inside a symbol and `variant main` on a `use`
+//! - 5: `variant main face=#ff5a36 hide icon show badge` inside a symbol and `variant main` on a `use`
 //!   line — variants of a symbol.
 
 /// The newest format this Motif reads.

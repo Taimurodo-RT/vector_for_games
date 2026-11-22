@@ -16,6 +16,8 @@ struct Subst<'a> {
     shadowed: Vec<String>,
     /// The objects the copy's variant hides, and whether each was found.
     hide: Vec<(String, bool)>,
+    /// The objects it shows though the symbol has them `hidden`, the same way.
+    show: Vec<(String, bool)>,
     edits: Vec<(Span, String)>,
 }
 
@@ -107,7 +109,13 @@ impl Subst<'_> {
                 }
             }
         }
-        if let Some(found) = self.hide.iter_mut().find(|(part, _)| *part == n.id) {
+        if let Some(found) = self.show.iter_mut().find(|(part, _)| *part == n.id) {
+            // What the variant shows is an object like any other in the group.
+            found.1 = true;
+            for p in n.props.iter().filter(|p| p.key == "hidden") {
+                self.edits.push((with_space_before(self.src, p.key_span), String::new()));
+            }
+        } else if let Some(found) = self.hide.iter_mut().find(|(part, _)| *part == n.id) {
             found.1 = true;
             if !n.props.iter().any(|p| p.key == "hidden") {
                 self.edits.push((Span::new(n.insert_at, n.insert_at), " hidden".to_string()));
@@ -209,22 +217,15 @@ pub fn detach_copy(src: &str, scene: &Scene, copy: &str, base: Option<&std::path
     let end = src[..close].rfind('\n').map_or(open, |n| n + 1).max(open);
 
     let params: Vec<(String, Value)> = inst.params.iter().map(|p| (p.name.clone(), p.value)).collect();
-    let hide: Vec<(String, bool)> = match &inst.variant {
-        Some((name, _)) => scene
-            .symbols
-            .iter()
-            .filter(|s| s.name == inst.symbol)
-            .flat_map(|s| &s.variants)
-            .filter(|v| v.name == *name)
-            .flat_map(|v| v.hide.iter().map(|(id, _)| (id.clone(), false)))
-            .collect(),
-        None => Vec::new(),
-    };
-    let mut subst = Subst { src, copy, params: &params, shadowed: Vec::new(), hide, edits: Vec::new() };
+    let taken =
+        inst.variant.as_ref().and_then(|(name, _)| scene.symbols.iter().filter(|s| s.name == inst.symbol).flat_map(|s| &s.variants).find(|v| v.name == *name));
+    let listed = |ids: &[(String, Span)]| -> Vec<(String, bool)> { ids.iter().map(|(id, _)| (id.clone(), false)).collect() };
+    let (hide, show) = taken.map_or((Vec::new(), Vec::new()), |v| (listed(&v.hide), listed(&v.show)));
+    let mut subst = Subst { src, copy, params: &params, shadowed: Vec::new(), hide, show, edits: Vec::new() };
     subst.stmts(body);
-    if let Some((part, _)) = subst.hide.iter().find(|(_, found)| !found) {
+    if let Some((part, _)) = subst.hide.iter().chain(&subst.show).find(|(_, found)| !found) {
         return Err(format!(
-            "Вариант скрывает «{part}», а такой строки в символе нет (объект создан циклом или стоит во вложенной копии). Отцепите копию в скрипте"
+            "Вариант скрывает или показывает «{part}», а такой строки в символе нет (объект создан циклом или стоит во вложенной копии). Отцепите копию в скрипте"
         ));
     }
     let inner = edited(src, open, end, subst.edits);
@@ -325,6 +326,27 @@ override {
         assert!(!after.doc.node("c2-shine").unwrap().visible);
         assert_eq!(after.doc.node("c2-body").unwrap().width, 40.0);
         assert_eq!(after.doc, scene.doc, "nothing moves, not even by a rounding");
+    }
+
+    #[test]
+    fn what_the_variant_shows_is_seen_in_the_group() {
+        let src = "\
+artboard \"Карточки\" 200x120
+symbol Card {
+  variant hit show ribbon
+  rect sheet size 80 100 fill #ffffff
+  rect ribbon at 0 -40 size 40 12 hidden fill #ff5a36
+  rect lock size 20 20 fill #000000 hidden
+}
+use Card b at 100 60 variant hit
+";
+        let scene = parse(src).unwrap();
+        let out = detach_copy(src, &scene, "b", None).unwrap();
+        assert!(
+            out.contains("group b at 100 60 {\n  rect b-sheet size 80 100 fill #ffffff\n  rect b-ribbon at 0 -40 size 40 12 fill #ff5a36\n  rect b-lock size 20 20 fill #000000 hidden\n}\n"),
+            "{out}"
+        );
+        assert_eq!(parse(&out).unwrap().doc, scene.doc);
     }
 
     #[test]
