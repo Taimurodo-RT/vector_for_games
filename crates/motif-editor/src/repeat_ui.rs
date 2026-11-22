@@ -1,14 +1,15 @@
 //! Live repeats in the editor: the section «Повтор» of the inspector, the buttons that put an
 //! object into a group that repeats it, and the grips of a grid on the canvas — one pair for
-//! the step, one for how many columns and rows there are.
+//! the step, one for how many columns and rows there are. Under the numbers of a repeat stands
+//! «Разброс»: how much the repeats differ from the written one, and the seed it is counted from.
 
 use crate::app::{App, Tool, fold};
 use crate::canvas::View;
 use crate::theme::{self, FAINT, FG, KeyState, MUTED, SEL};
-use egui::{Color32, Pos2, Rect, RichText, Stroke, vec2};
+use egui::{Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
 use motif_core::kurbo::{Point, Rect as KRect, Vec2};
-use motif_core::{Document, Node, Prop, ShapeKind};
-use motif_script::{RepeatKind, fmt_num};
+use motif_core::{Color, Document, Node, Prop, ShapeKind};
+use motif_script::{RepeatKind, Vary, VaryFill, fmt_num};
 
 /// How close the pointer must be to a grip to take it, in screen points.
 const GRAB: f32 = 7.0;
@@ -77,6 +78,78 @@ enum Ask {
     Kind(usize),
     Wrap(usize),
     Select(String),
+    /// Another variation of the repeats. The word names what was changed: one number being
+    /// scrubbed is one undo step. `false` for a press of a button, a step of its own.
+    Vary(Vary, &'static str, bool),
+}
+
+/// «Разброс»: how the repeats differ from the written one. Returns the variation when something
+/// changed, with a word for what it was and whether it is a value being dragged.
+fn vary_ui(ui: &mut egui::Ui, vary: &Vary, half: f32) -> Option<(Vary, &'static str, bool)> {
+    let mut out = None;
+    ui.add_space(4.0);
+    ui.label(RichText::new("Разброс").size(12.0).color(MUTED));
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Сдвиг X", vary.at.0, 0.25, 0.0..=10_000.0, 1, KeyState::Hidden).changed {
+            out = Some((Vary { at: (v, vary.at.1), ..vary.clone() }, "vary-x", true));
+        }
+        if let Some(v) = theme::num_field(ui, half, "Сдвиг Y", vary.at.1, 0.25, 0.0..=10_000.0, 1, KeyState::Hidden).changed {
+            out = Some((Vary { at: (vary.at.0, v), ..vary.clone() }, "vary-y", true));
+        }
+    });
+    ui.horizontal(|ui| {
+        if let Some(v) = theme::num_field(ui, half, "Поворот °", vary.rot, 0.5, 0.0..=180.0, 1, KeyState::Hidden).changed {
+            out = Some((Vary { rot: v, ..vary.clone() }, "vary-rot", true));
+        }
+        let most = Vary::MAX_SCALE * 100.0;
+        if let Some(v) = theme::num_field(ui, half, "Размер %", (vary.scale * 100.0).round(), 0.5, 0.0..=most, 0, KeyState::Hidden).changed {
+            out = Some((Vary { scale: v.round().clamp(0.0, most) / 100.0, ..vary.clone() }, "vary-scale", true));
+        }
+    });
+    ui.horizontal(|ui| {
+        // The colour the fills are mixed with. Until one is chosen it is black: darker shades.
+        let now = vary.fill.clone().unwrap_or(VaryFill { text: "#000000".into(), color: Color::BLACK, amount: 0.0 });
+        let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+        let mut c32 = Color32::from_rgb(now.color.r, now.color.g, now.color.b);
+        ui.painter().rect_filled(sw, 6.0, c32);
+        ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, theme::LINE), StrokeKind::Inside);
+        let resp = resp.on_hover_text(format!("{} · с этим цветом смешиваются заливки повторов. Клик — изменить", now.text));
+        theme::color_popup(&resp).show(|ui| {
+            if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::Opaque) {
+                let color = Color::rgb(c32.r(), c32.g(), c32.b());
+                // A colour chosen with nothing of it mixed in would show nothing.
+                let amount = if now.amount == 0.0 { 0.3 } else { now.amount };
+                out = Some((Vary { fill: Some(VaryFill { text: color.to_hex(), color, amount }), ..vary.clone() }, "vary-fill", true));
+            }
+        });
+        let w = half * 2.0 - 28.0;
+        if let Some(v) = theme::num_field(ui, w, "Цвет %", (now.amount * 100.0).round(), 0.5, 0.0..=100.0, 0, KeyState::Hidden).changed {
+            let fill = VaryFill { amount: v.round().clamp(0.0, 100.0) / 100.0, ..now.clone() };
+            out = Some((Vary { fill: Some(fill), ..vary.clone() }, "vary-amount", true));
+        }
+    });
+    // The seed counts something only when something varies.
+    ui.add_enabled_ui(!vary.is_none(), |ui| {
+        ui.horizontal(|ui| {
+            let most = f64::from(Vary::MAX_SEED);
+            if let Some(v) = theme::num_field(ui, half, "Зерно", f64::from(vary.seed), 0.05, 0.0..=most, 0, KeyState::Hidden).changed {
+                out = Some((Vary { seed: v.round().clamp(0.0, most) as u32, ..vary.clone() }, "vary-seed", true));
+            }
+            if theme::button(ui, "Другой вариант", theme::ButtonKind::Normal)
+                .on_hover_text("Следующее зерно: те же пределы, другой рисунок. Прежний вернёт Ctrl+Z или прежнее число")
+                .clicked()
+            {
+                out = Some((Vary { seed: if vary.seed >= Vary::MAX_SEED { 0 } else { vary.seed + 1 }, ..vary.clone() }, "vary-next", false));
+            }
+        });
+    });
+    let hint = if vary.is_none() {
+        "Повторы точные. Задайте, на сколько самое большее каждый может сдвинуться, повернуться, изменить размер или цвет заливки: камни, трава, заклёпки станут живее."
+    } else {
+        "Первый повтор остаётся таким, как нарисован, остальные отличаются от него в этих пределах. Одно и то же зерно всегда даёт один и тот же рисунок."
+    };
+    ui.label(RichText::new(hint).size(11.5).color(FAINT));
+    out
 }
 
 /// The box of what is written in the group `i`, without the repeats made from it, in the space
@@ -229,6 +302,28 @@ impl App {
         changed
     }
 
+    /// Another variation for the repeats of the group `id`. `live` joins the steps of one number
+    /// being scrubbed, named by `what`, into one undo step.
+    pub(crate) fn set_vary(&mut self, id: &str, vary: &Vary, what: &str, live: bool) -> bool {
+        if !self.can_edit() {
+            return false;
+        }
+        let Some(out) = motif_script::set_vary(&self.src, &self.scene, id, vary) else {
+            return false;
+        };
+        let changed = if live { self.apply(what, Some(out)) } else { self.apply_once(what, Some(out)) };
+        if changed {
+            self.status = if vary.is_none() {
+                format!("Повторы «{id}» снова точные: каждый такой же, как первый")
+            } else if what == "vary-next" {
+                format!("Другой вариант «{id}»: зерно {}. Прежний вернёт Ctrl+Z", vary.seed)
+            } else {
+                format!("Разброс «{id}»:{}", vary.words())
+            };
+        }
+        changed
+    }
+
     /// Another kind of repeat for the group `id`, with numbers to start with: `which` is 0 for
     /// none, 1 for a grid, 2 for a circle, 3 for an outline, 4 for a mirror.
     pub(crate) fn switch_repeat(&mut self, id: &str, which: usize) {
@@ -320,7 +415,7 @@ impl App {
                 ui.label(
                     RichText::new(format!(
                         "{}. Повтор записан именами или формулами: его меняют в скрипте.",
-                        site.as_ref().map_or(String::new(), |s| s.kind.words())
+                        site.as_ref().map_or(String::new(), |s| format!("{}{}", s.kind.words(), s.vary.words()))
                     ))
                     .size(11.5)
                     .color(FG),
@@ -429,6 +524,11 @@ impl App {
                 }
                 Some(RepeatKind::Mirror { .. }) => {}
             }
+            if let Some(site) = site.as_ref().filter(|s| s.kind.takes_vary())
+                && let Some((vary, what, live)) = vary_ui(ui, &site.vary, half)
+            {
+                ask = Some(Ask::Vary(vary, what, live));
+            }
             if let Some(RepeatKind::Mirror { x, y }) = site.as_ref().map(|s| s.kind.clone()) {
                 // One line at least: the last one cannot be taken away, «Нет» removes the mirror.
                 let (mut across, mut down) = (x, y);
@@ -469,6 +569,9 @@ impl App {
             Some(Ask::Kind(k)) => self.switch_repeat(&node.id, k),
             Some(Ask::Wrap(which)) => self.repeat_selection(which),
             Some(Ask::Select(id)) => self.select_only(Some(id)),
+            Some(Ask::Vary(vary, what, live)) => {
+                self.set_vary(&node.id, &vary, what, live);
+            }
             None => {}
         }
     }

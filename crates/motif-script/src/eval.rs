@@ -1,7 +1,7 @@
 //! Expands the statement tree into a `Document` and records where each property value came from.
 
 use crate::parser::{MachineLine, MachineLineAst, NodeAst, ParamAst, Stmt, UseAst, ValueAst, ValueKind};
-use crate::repeat::{RepeatKind, RepeatSite};
+use crate::repeat::{RepeatKind, RepeatSite, Vary, VaryFill};
 use crate::{AnimSite, Backdrop, EventSite, Instance, KeySite, MachineSite, NodeSite, ParamSite, Scene, ScriptError, Source, Span, SymbolSite, TrackSite};
 use motif_core::kurbo::{Affine, Shape, Vec2};
 use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, ShapeKind, Track, Value};
@@ -1476,7 +1476,7 @@ impl<'a> Evaluator<'a> {
         let mut flow: Option<(f64, Span)> = None;
         let mut roll: Option<(motif_core::Roll, Span)> = None;
         let mut warps = Vec::new();
-        let mut repeat: Option<(RepeatKind, bool, Span)> = None;
+        let mut repeat: Option<(RepeatKind, Vary, bool, Span)> = None;
         for (at, p) in style_props.iter().chain(&n.props).enumerate() {
             from_style.set(at < styled_count);
             if at == styled_count
@@ -2199,10 +2199,12 @@ impl<'a> Evaluator<'a> {
                     // when a `let` is called the same.
                     let mirror = matches!(p.values.first().map(|v| &v.kind), Some(ValueKind::Ref(k)) if k == "mirror");
                     let word = |name: &str| crate::parser::REPEAT_WORDS.contains(&name) || (mirror && matches!(name, "x" | "y"));
-                    let plain = p.values.iter().skip(1).all(|v| {
-                        !matches!(v.kind, ValueKind::Expr(_)) && !matches!(&v.kind, ValueKind::Ref(name) if !word(name) && self.vars.contains_key(name))
+                    // The colour after `vary-fill` may be a name of the palette: it is kept as written.
+                    let colour = |k: usize| k > 0 && matches!(&p.values[k - 1].kind, ValueKind::Ref(w) if w == "vary-fill");
+                    let plain = p.values.iter().enumerate().skip(1).all(|(k, v)| {
+                        !matches!(v.kind, ValueKind::Expr(_)) && (colour(k) || !matches!(&v.kind, ValueKind::Ref(name) if !word(name) && self.vars.contains_key(name)))
                     });
-                    repeat = self.repeat_kind(p).map(|kind| (kind, plain && !generated, p.key_span));
+                    repeat = self.repeat_kind(p).map(|(kind, vary)| (kind, vary, plain && !generated, p.key_span));
                 }
                 "clip" => {
                     if n.kind != ShapeKind::Group {
@@ -2516,7 +2518,7 @@ impl<'a> Evaluator<'a> {
             node.skin = Some(motif_core::Skin { sharp, ..motif_core::Skin::new(ids) });
             self.rig_refs.extend(bones.into_iter().map(|(b, span)| (index, format!("{}{b}", self.prefix), span)));
         }
-        if let Some((kind, _, span)) = &repeat {
+        if let Some((kind, _, _, span)) = &repeat {
             let with = if node.clip {
                 Some("clip: маска обрезает то, что лежит в группе, а повтор поставил бы рядом ещё объекты. Положите группу с маской внутрь повтора")
             } else if node.stack.is_some() {
@@ -2548,15 +2550,16 @@ impl<'a> Evaluator<'a> {
             },
         );
         self.stmts(&n.children, Some(index), generated);
-        if let Some((kind, editable, span)) = repeat {
-            self.repeats(n, index, kind, editable, span);
+        if let Some((kind, vary, editable, span)) = repeat {
+            self.repeats(n, index, kind, vary, editable, span);
         }
         Some(index)
     }
 
     /// Reads `repeat grid 4 2 step 40 30` and the like: the kind, how many, then the words of
-    /// the repeat with their numbers, in the order the parser took them.
-    fn repeat_kind(&mut self, p: &crate::parser::PropAst) -> Option<RepeatKind> {
+    /// the repeat with their numbers, in the order the parser took them. The words `vary-…`
+    /// among them say how the repeats differ from the written one.
+    fn repeat_kind(&mut self, p: &crate::parser::PropAst) -> Option<(RepeatKind, Vary)> {
         use crate::repeat::MAX;
         let ValueKind::Ref(kind) = &p.values.first()?.kind else { return None };
         let mut at = 1;
@@ -2596,21 +2599,30 @@ impl<'a> Evaluator<'a> {
             }
         }
         let (mut step, mut arc, mut offset, mut upright, mut mirror) = (None, None, None, false, false);
+        let mut vary = Vary::default();
+        let mut varies: Option<Span> = None;
         while let Some(word) = p.values.get(at) {
             at += 1;
             let ValueKind::Ref(name) = &word.kind else { return None };
-            let (least, most) = match name.as_str() {
-                "step" => (1, 2),
-                "upright" | "mirror" => (0, 0),
-                _ => (1, 1),
-            };
+            let (least, most) = crate::parser::repeat_word_arity(name);
             let mut nums: Vec<f64> = Vec::new();
+            let mut colour = None;
             for k in 0..most {
                 let Some(v) = p.values.get(at) else { break };
                 if k >= least && matches!(&v.kind, ValueKind::Ref(w) if crate::parser::REPEAT_WORDS.contains(&w.as_str())) {
                     break;
                 }
                 at += 1;
+                if name == "vary-fill" && k == 0 {
+                    match self.value(v)? {
+                        Value::Color(c) => colour = Some((self.src[v.span.start..v.span.end].to_string(), c)),
+                        _ => {
+                            self.err(v.span, "после vary-fill нужен цвет, с которым смешиваются заливки повторов, и доля от 0 до 1: vary-fill #c0392b 0.4");
+                            return None;
+                        }
+                    }
+                    continue;
+                }
                 match self.value(v)?.as_num() {
                     Some(n) if n.is_finite() => nums.push(n),
                     _ => {
@@ -2625,6 +2637,7 @@ impl<'a> Evaluator<'a> {
                 "arc" => kind == "circle",
                 "offset" => kind == "along",
                 "mirror" => kind == "circle",
+                w if w.starts_with("vary-") => true,
                 _ => kind == "circle" || kind == "along",
             };
             if !fits {
@@ -2640,15 +2653,75 @@ impl<'a> Evaluator<'a> {
                 self.err(word.span, why);
                 return None;
             }
+            if name.starts_with("vary-") {
+                varies.get_or_insert(word.span);
+            }
+            // What a word of the variation may be: the message says it and gives an example.
+            let refuse = |this: &mut Self, why: &str| {
+                this.err(word.span, why);
+                None::<()>
+            };
             match name.as_str() {
                 "step" => step = Some((nums[0], nums.get(1).copied().unwrap_or(nums[0]))),
                 "arc" => arc = Some((nums[0], word.span)),
                 "offset" => offset = Some(nums[0]),
                 "mirror" => mirror = true,
+                "vary-at" => {
+                    let (x, y) = (nums[0], nums.get(1).copied().unwrap_or(nums[0]));
+                    if x < 0.0 || y < 0.0 {
+                        refuse(self, "vary-at — на сколько самое большее сдвигать повторы в каждую сторону, числа не меньше 0: vary-at 3 2")?;
+                    }
+                    vary.at = (x, y);
+                }
+                "vary-rot" => {
+                    if !(0.0..=180.0).contains(&nums[0]) {
+                        refuse(self, "vary-rot — на сколько градусов самое большее поворачивать повторы в каждую сторону, от 0 до 180: vary-rot 15")?;
+                    }
+                    vary.rot = nums[0];
+                }
+                "vary-scale" => {
+                    if !(0.0..=Vary::MAX_SCALE).contains(&nums[0]) {
+                        refuse(self, "vary-scale — доля, на которую повторы бывают больше и меньше, от 0 до 0.95: vary-scale 0.2 даёт от 0.8 до 1.2 размера")?;
+                    }
+                    vary.scale = nums[0];
+                }
+                "vary-fill" => {
+                    let (Some((text, color)), Some(&amount)) = (colour, nums.first()) else { return None };
+                    if !(0.0..=1.0).contains(&amount) {
+                        refuse(self, "после цвета у vary-fill пишется доля от 0 до 1, сколько его самое большее подмешать: vary-fill #c0392b 0.4")?;
+                    }
+                    vary.fill = Some(VaryFill { text, color, amount });
+                }
+                "vary-seed" => {
+                    if nums[0].fract() != 0.0 || !(0.0..=f64::from(Vary::MAX_SEED)).contains(&nums[0]) {
+                        refuse(self, "vary-seed — целое число от 0 до 999999, от которого считается разброс: vary-seed 7")?;
+                    }
+                    vary.seed = nums[0] as u32;
+                }
                 _ => upright = true,
             }
         }
-        match kind.as_str() {
+        let kind = self.kind_of_repeat(p, kind, &counts, path, axes, (step, arc, offset, upright, mirror))?;
+        if let Some(span) = varies.filter(|_| !kind.takes_vary()) {
+            self.err(span, "разброс не пишется вместе с зеркалом: отражение должно сойтись со своей половиной. Уберите слова vary-… или mirror");
+            return None;
+        }
+        Some((kind, vary))
+    }
+
+    /// The kind of a repeat from what its line says, checked.
+    #[allow(clippy::type_complexity)]
+    fn kind_of_repeat(
+        &mut self,
+        p: &crate::parser::PropAst,
+        kind: &str,
+        counts: &[u32],
+        path: String,
+        axes: (bool, bool),
+        (step, arc, offset, upright, mirror): (Option<(f64, f64)>, Option<(f64, Span)>, Option<f64>, bool, bool),
+    ) -> Option<RepeatKind> {
+        use crate::repeat::MAX;
+        match kind {
             "grid" => {
                 let (cols, rows) = (counts[0], counts[1]);
                 if u64::from(cols) * u64::from(rows) > u64::from(MAX) {
@@ -2693,7 +2766,7 @@ impl<'a> Evaluator<'a> {
 
     /// Makes the repeats of the group `index` but the first, which is what its block says: a
     /// group for each, with the block read once more inside it under the id of that group.
-    fn repeats(&mut self, n: &NodeAst, index: usize, kind: RepeatKind, editable: bool, span: Span) {
+    fn repeats(&mut self, n: &NodeAst, index: usize, kind: RepeatKind, vary: Vary, editable: bool, span: Span) {
         /// Past this many objects a scene is a mistake in a number, not a drawing.
         const MOST: usize = 200_000;
         let id = self.scene.doc.nodes[index].id.clone();
@@ -2707,6 +2780,13 @@ impl<'a> Evaluator<'a> {
         let line = self.line_ends.partition_point(|&end| end < n.id_span.start) + 1;
         // A circle goes around the pivot of the group: each repeat turns around the same point.
         let pivot = self.scene.doc.nodes[index].pivot;
+        // What a varied repeat turns and grows around: the middle of the written content. Along
+        // an outline it is the point of the group, which stands on the outline.
+        let middle = match kind {
+            RepeatKind::Along { .. } => Vec2::ZERO,
+            _ if vary.moves() => self.content_middle(index).unwrap_or(anchor),
+            _ => anchor,
+        };
         let mut clones = Vec::new();
         for ((suffix, (x, y, rot)), flip) in kind.suffixes().into_iter().zip(kind.places(anchor, pivot)).zip(kind.flips()) {
             let clone = format!("{id}-{suffix}");
@@ -2726,6 +2806,18 @@ impl<'a> Evaluator<'a> {
             if rot != 0.0 || flip != (false, false) {
                 group.pivot = pivot;
             }
+            // A varied repeat: moved along its own axes, then turned and scaled around its middle.
+            let varied = vary.of(&suffix);
+            if vary.moves() {
+                // Along an outline the place and the turn are given when the outline is known.
+                if !matches!(kind, RepeatKind::Along { .. }) {
+                    let to = group.local_transform() * (middle + varied.at).to_point();
+                    group.pivot = middle;
+                    group.rotation = rot + varied.rot;
+                    (group.x, group.y) = (to.x - middle.x, to.y - middle.y);
+                }
+                (group.scale_x, group.scale_y) = (varied.scale, varied.scale);
+            }
             let at = self.scene.doc.nodes.len();
             self.scene.doc.nodes.push(group);
             self.scene
@@ -2734,6 +2826,15 @@ impl<'a> Evaluator<'a> {
             let outer = std::mem::replace(&mut self.prefix, format!("{clone}-"));
             self.stmts(&n.children, Some(at), true);
             self.prefix = outer;
+            // The plain fills of the repeat take some of the colour of `vary-fill`, each keeping
+            // how see-through it is.
+            if let Some(fill) = vary.fill.as_ref().filter(|_| varied.tint > 0.0) {
+                for node in &mut self.scene.doc.nodes[at + 1..] {
+                    if let Some(own) = node.fill {
+                        node.fill = Some(own.lerp(Color { a: own.a, ..fill.color }, varied.tint));
+                    }
+                }
+            }
             // A reflection reaches a little over the line of the mirror, so that the halves do
             // not show a hairline between them. Every reflection of a mirror does; in a circle,
             // the reflection of each repeat.
@@ -2750,7 +2851,30 @@ impl<'a> Evaluator<'a> {
         if let RepeatKind::Along { path, .. } = &kind {
             self.along_refs.push((id.clone(), path.clone(), self.prefix.clone(), span));
         }
-        self.scene.repeats.insert(id, RepeatSite { kind, clones, editable });
+        self.scene.repeats.insert(id, RepeatSite { kind, vary, clones, editable });
+    }
+
+    /// The middle of everything inside the group `index`, in its own space.
+    fn content_middle(&self, index: usize) -> Option<Vec2> {
+        let doc = &self.scene.doc;
+        (index + 1..doc.nodes.len())
+            .take_while(|&k| doc.is_inside(k, index))
+            .filter_map(|k| {
+                let node = &doc.nodes[k];
+                let bounds = match &node.text {
+                    Some(text) => text.bounds(&node.text_style),
+                    None => node.path()?.bounding_box(),
+                };
+                let mut to_group = node.local_transform();
+                let mut up = node.parent;
+                while let Some(p) = up.filter(|&p| p != index) {
+                    to_group = doc.nodes[p].local_transform() * to_group;
+                    up = doc.nodes[p].parent;
+                }
+                Some(to_group.transform_rect_bbox(bounds))
+            })
+            .reduce(|a, b| a.union(b))
+            .map(|r| r.center().to_vec2())
     }
 
     /// The open outlines inside the reflection `clone` that end on a line of its mirror are
@@ -2803,7 +2927,7 @@ impl<'a> Evaluator<'a> {
                 self.err(span, format!("у «{name}» нет контура: повторы идут вдоль фигуры (rect, ellipse, path…), не вдоль группы или кости"));
                 continue;
             };
-            let Some(RepeatSite { kind: RepeatKind::Along { count, offset, upright, .. }, clones, .. }) = self.scene.repeats.get(&id).cloned() else {
+            let Some(RepeatSite { kind: RepeatKind::Along { count, offset, upright, .. }, clones, vary, .. }) = self.scene.repeats.get(&id).cloned() else {
                 continue;
             };
             // The outline as the parent of the group sees it.
@@ -2825,7 +2949,11 @@ impl<'a> Evaluator<'a> {
             let back = Affine::rotate(-turn.to_radians());
             for (clone, &(p, dir)) in clones.iter().zip(&points[1..]) {
                 let at = back * (p - first).to_point();
-                put(&mut self.scene, clone, at.x, at.y, if upright { 0.0 } else { dir - turn });
+                let rot = if upright { 0.0 } else { dir - turn };
+                // A varied repeat moves along the outline and across it, and turns where it stands.
+                let varied = vary.of(clone.strip_prefix(id.as_str()).map_or("", |s| s.trim_start_matches('-')));
+                let at = at + (Affine::rotate(rot.to_radians()) * varied.at.to_point()).to_vec2();
+                put(&mut self.scene, clone, at.x, at.y, rot + varied.rot);
             }
         }
     }

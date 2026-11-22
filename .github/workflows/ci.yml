@@ -60,6 +60,8 @@ jobs:
       - run: cargo run -p motif-cli -- render examples/repeats.msc --anim Idle --time 1.3 -o target/repeats.png
       - run: cargo run -p motif-cli -- check examples/symmetry.msc
       - run: cargo run -p motif-cli -- render examples/symmetry.msc --anim Idle --time 1 -o target/symmetry.png
+      - run: cargo run -p motif-cli -- check examples/variation.msc
+      - run: cargo run -p motif-cli -- render examples/variation.msc --anim Idle --time 1 -o target/variation.png
       - run: cargo run -p motif-cli -- check examples/character-side.msc
       - run: cargo run -p motif-cli -- check examples/character-platformer.msc
       - run: cargo run -p motif-cli -- check examples/character-portrait.msc

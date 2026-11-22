@@ -15,6 +15,12 @@
 //! the upright line through the pivot of the group; `mirror y` reflects it top to bottom, and
 //! `mirror x y` fills all four quarters. `circle COUNT mirror` gives every repeat of the circle
 //! its reflection in that line, turned with it: half a petal makes a whole flower.
+//!
+//! The repeats of a grid, of a circle and of an outline can differ a little from the written
+//! one ([`Vary`]): `vary-at 3 2` moves each by up to that much, `vary-rot 15` turns it, `vary-scale
+//! 0.2` makes it up to a fifth larger or smaller, `vary-fill #c33 0.4` mixes its fills with a
+//! colour. How much each repeat gets is counted from `vary-seed N` and the place of the repeat,
+//! never from a clock: the same seed gives the same drawing, another seed gives another one.
 
 use motif_core::kurbo::{BezPath, PathEl, Point, Vec2};
 
@@ -38,10 +44,118 @@ pub enum RepeatKind {
     Mirror { x: bool, y: bool },
 }
 
+/// How the repeats of a group differ from the written one: the words `vary-…` of its `repeat`.
+/// The written one stays as it is drawn.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Vary {
+    /// The most a repeat is moved along its own axes, each way.
+    pub at: (f64, f64),
+    /// The most a repeat is turned around its middle, in degrees, each way.
+    pub rot: f64,
+    /// The most a repeat grows or shrinks around its middle: 0.2 is from 0.8 to 1.2 of its size.
+    pub scale: f64,
+    /// The colour the plain fills of a repeat are mixed with.
+    pub fill: Option<VaryFill>,
+    /// The number all of this is counted from.
+    pub seed: u32,
+}
+
+/// `vary-fill COLOR AMOUNT`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VaryFill {
+    /// The colour as it is written: `#c0392b` or a name of the palette.
+    pub text: String,
+    pub color: motif_core::Color,
+    /// The most of the colour a repeat takes, from 0 to 1.
+    pub amount: f64,
+}
+
+/// What one repeat gets from a [`Vary`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Varied {
+    pub at: Vec2,
+    pub rot: f64,
+    pub scale: f64,
+    /// How much of the colour of `vary-fill` its fills take, from 0 to its amount.
+    pub tint: f64,
+}
+
+impl Default for Vary {
+    fn default() -> Self {
+        Vary { at: (0.0, 0.0), rot: 0.0, scale: 0.0, fill: None, seed: 1 }
+    }
+}
+
+impl Vary {
+    /// The largest seed: six digits are enough to tell variants apart and easy to say aloud.
+    pub const MAX_SEED: u32 = 999_999;
+    /// The most `vary-scale` takes: a repeat never shrinks to nothing.
+    pub const MAX_SCALE: f64 = 0.95;
+
+    /// Nothing differs: the repeats are exact.
+    pub fn is_none(&self) -> bool {
+        !self.moves() && self.fill.as_ref().is_none_or(|f| f.amount == 0.0)
+    }
+
+    /// The repeats stand, turn or measure differently.
+    pub fn moves(&self) -> bool {
+        self.at != (0.0, 0.0) || self.rot != 0.0 || self.scale != 0.0
+    }
+
+    /// The words of the group's line that say this, each with a space before it.
+    pub fn words(&self) -> String {
+        let n = crate::fmt_num;
+        let mut out = String::new();
+        if self.at != (0.0, 0.0) {
+            out.push_str(&format!(" vary-at {} {}", n(self.at.0), n(self.at.1)));
+        }
+        if self.rot != 0.0 {
+            out.push_str(&format!(" vary-rot {}", n(self.rot)));
+        }
+        if self.scale != 0.0 {
+            out.push_str(&format!(" vary-scale {}", n(self.scale)));
+        }
+        if let Some(fill) = self.fill.as_ref().filter(|f| f.amount != 0.0) {
+            out.push_str(&format!(" vary-fill {} {}", fill.text, n(fill.amount)));
+        }
+        // A seed with nothing to count is not worth a word.
+        if self.seed != 1 && !out.is_empty() {
+            out.push_str(&format!(" vary-seed {}", self.seed));
+        }
+        out
+    }
+
+    /// What the repeat with this ending of its id gets (`2-1` in a grid, `3` in a circle). It is
+    /// counted from the seed and the ending alone: a repeat keeps its look when others are
+    /// added, when the group is renamed and on every machine.
+    pub fn of(&self, suffix: &str) -> Varied {
+        // A number from 0 up to 1 for each thing that varies.
+        let unit = |channel: u8| {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for &b in self.seed.to_le_bytes().iter().chain(suffix.as_bytes()).chain(&[0xff, channel]) {
+                h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            h = (h ^ (h >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            h = (h ^ (h >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            h ^= h >> 31;
+            (h >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let each_way = |channel: u8| unit(channel) * 2.0 - 1.0;
+        Varied {
+            at: Vec2::new(self.at.0 * each_way(0), self.at.1 * each_way(1)),
+            rot: self.rot * each_way(2),
+            scale: 1.0 + self.scale * each_way(3),
+            tint: self.fill.as_ref().map_or(0.0, |f| f.amount * unit(4)),
+        }
+    }
+}
+
 /// A group with `repeat` on its line.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RepeatSite {
     pub kind: RepeatKind,
+    /// How the repeats differ from the written one.
+    pub vary: Vary,
     /// The groups made for every repeat but the first, in the order they are drawn.
     pub clones: Vec<String>,
     /// The line is written by hand with plain numbers: the panel and the handles can rewrite it.
@@ -63,6 +177,12 @@ impl RepeatKind {
                 }
             }
         }
+    }
+
+    /// Whether the repeats may differ from each other ([`Vary`]). A reflection may not: it has
+    /// to meet what it reflects.
+    pub fn takes_vary(&self) -> bool {
+        !matches!(self, RepeatKind::Mirror { .. } | RepeatKind::Circle { mirror: true, .. })
     }
 
     /// What follows the id of the group in the id of each repeat but the first: `2-1` (column,
@@ -458,8 +578,13 @@ fn rewrite(src: &str, scene: &Scene, id: &str, kind: Option<&RepeatKind>, pivot:
         Some(p) => format!(" pivot {} {}", crate::fmt_num(p.x), crate::fmt_num(p.y)),
         None => String::new(),
     };
+    // What the repeats vary by stays with them, unless the new kind is a reflection.
+    let vary = match (now, kind) {
+        (Some(site), Some(kind)) if kind.takes_vary() => site.vary.words(),
+        _ => String::new(),
+    };
     match (written, kind) {
-        (Some(span), Some(kind)) => edits.push((span, format!("{}{pivot}", kind.words()))),
+        (Some(span), Some(kind)) => edits.push((span, format!("{}{vary}{pivot}", kind.words()))),
         (Some(span), None) => edits.push((crate::edit::with_space_before(src, span), String::new())),
         (None, Some(kind)) => edits.push((Span::new(site.insert_at, site.insert_at), format!("{pivot} {}", kind.words()))),
         (None, None) => return None,
@@ -473,6 +598,19 @@ fn rewrite(src: &str, scene: &Scene, id: &str, kind: Option<&RepeatKind>, pivot:
         }
     }
     Some(crate::edit::splice_all(src, edits))
+}
+
+/// Rewrites how the repeats of the group `id` differ from the written one. Returns `None` when
+/// the group does not repeat, when its repeat is not for the panel to rewrite, when it is a
+/// reflection, or when nothing would change.
+pub fn set_vary(src: &str, scene: &Scene, id: &str, vary: &Vary) -> Option<String> {
+    scene.sites.get(id).filter(|s| !s.generated)?;
+    let site = scene.repeats.get(id).filter(|r| r.editable && r.kind.takes_vary())?;
+    let span = scene.prop_spans.get(&(id.to_string(), "repeat".to_string())).copied()?;
+    if vary.words() == site.vary.words() {
+        return None;
+    }
+    Some(crate::edit::splice_all(src, vec![(span, format!("{}{}", site.kind.words(), vary.words()))]))
 }
 
 /// Returns the script with `ids` put into a new group that repeats them, and the id of the
@@ -609,6 +747,9 @@ mod tests {
     }
 
     const BOARD: &str = "artboard \"a\" 400x300\n";
+
+    /// What the second cell of a grid gets from seed 1: `vary-at 10 10 vary-rot 90 vary-scale 0.5`.
+    const PINNED: (f64, f64, f64, f64) = (6.836133, 2.209001, -54.164038, 0.757716);
 
     #[test]
     fn a_group_shows_what_is_in_it_in_every_cell_of_a_grid() {
@@ -907,6 +1048,199 @@ anim Blink 1s {{
         assert_eq!(scene.repeats["outer-1-2-inner"].clones, ["outer-1-2-inner-2"]);
     }
 
+    /// The middle of the object on the board, to a hundredth.
+    fn middle(scene: &Scene, id: &str) -> (f64, f64) {
+        let c = scene.doc.world_bounds(scene.doc.index_of(id).unwrap_or_else(|| panic!("no {id}"))).unwrap().center();
+        ((c.x * 100.0).round() / 100.0 + 0.0, (c.y * 100.0).round() / 100.0 + 0.0)
+    }
+
+    #[test]
+    fn what_a_repeat_gets_is_counted_from_the_seed_and_its_place() {
+        let fill = VaryFill { text: "#c0392b".into(), color: motif_core::Color::rgb(192, 57, 43), amount: 0.4 };
+        let vary = Vary { at: (8.0, 6.0), rot: 25.0, scale: 0.3, fill: Some(fill), seed: 3 };
+        let cells: Vec<String> = RepeatKind::Grid { cols: 20, rows: 20, step: (1.0, 1.0) }.suffixes();
+        let got: Vec<Varied> = cells.iter().map(|c| vary.of(c)).collect();
+        // Never more than was asked for, and each way.
+        for v in &got {
+            assert!(v.at.x.abs() <= 8.0 && v.at.y.abs() <= 6.0 && v.rot.abs() <= 25.0, "{v:?}");
+            assert!((0.7..=1.3).contains(&v.scale) && (0.0..=0.4).contains(&v.tint), "{v:?}");
+        }
+        let mean = |f: &dyn Fn(&Varied) -> f64| got.iter().map(f).sum::<f64>() / got.len() as f64;
+        assert!(mean(&|v| v.at.x).abs() < 0.8 && mean(&|v| v.rot).abs() < 2.5 && (mean(&|v| v.scale) - 1.0).abs() < 0.03, "not even");
+        assert!((mean(&|v| v.tint) - 0.2).abs() < 0.03);
+        assert!(got.iter().any(|v| v.at.x > 6.0) && got.iter().any(|v| v.at.x < -6.0) && got.iter().any(|v| v.tint > 0.35));
+        // The things that vary do not go together: a repeat moved right is not always turned right.
+        assert!(got.iter().any(|v| v.at.x > 0.0 && v.rot < 0.0) && got.iter().any(|v| v.at.x > 0.0 && v.rot > 0.0));
+        // The same seed counts the same, another seed counts anew.
+        assert_eq!(got, cells.iter().map(|c| vary.of(c)).collect::<Vec<_>>());
+        let other = Vary { seed: 4, ..vary.clone() };
+        let same = cells.iter().filter(|c| other.of(c) == vary.of(c)).count();
+        assert_eq!(same, 0);
+        // The numbers themselves are part of the format: a file drawn today looks the same tomorrow.
+        let pinned = Vary { at: (10.0, 10.0), rot: 90.0, scale: 0.5, fill: None, seed: 1 }.of("2-1");
+        let round = |v: f64| (v * 1e6).round() / 1e6;
+        assert_eq!((round(pinned.at.x), round(pinned.at.y), round(pinned.rot), round(pinned.scale)), PINNED, "{pinned:?}");
+        // Nothing asked for, nothing changed, whatever the seed.
+        assert_eq!(Vary { seed: 9, ..Vary::default() }.of("3"), Varied { at: Vec2::ZERO, rot: 0.0, scale: 1.0, tint: 0.0 });
+    }
+
+    #[test]
+    fn varied_repeats_differ_from_the_written_one_the_same_way_every_time() {
+        let grid = |cols: u32, seed: u32, id: &str| {
+            format!(
+                "{BOARD}group {id} at 100 50 repeat grid {cols} 2 step 40 30 vary-at 6 4 vary-rot 20 vary-scale 0.25 vary-seed {seed} {{\n  rect stone at 2 1 size 12 8\n  ellipse spot at 6 0 size 2 2\n}}\n"
+            )
+        };
+        let a = scene(&grid(3, 7, "g"));
+        // The written repeat stays as it is drawn.
+        assert_eq!(stands(&a, "stone"), (102.0, 51.0, 0.0));
+        let site = &a.repeats["g"];
+        assert_eq!(site.vary, Vary { at: (6.0, 4.0), rot: 20.0, scale: 0.25, fill: None, seed: 7 });
+        assert!(site.editable);
+        // Each of the others is moved, turned and scaled by what its place counts, around the
+        // middle of the content: (2, 1) from the point of the group.
+        for (cell, (col, row)) in [("2-1", (1.0, 0.0)), ("3-1", (2.0, 0.0)), ("1-2", (0.0, 1.0)), ("3-2", (2.0, 1.0))] {
+            let v = site.vary.of(cell);
+            let clone = &a.doc.nodes[a.doc.index_of(&format!("g-{cell}")).unwrap()];
+            assert!(near(clone.rotation, v.rot) && near(clone.scale_x, v.scale) && near(clone.scale_y, v.scale), "{cell}");
+            assert!(v.rot != 0.0 && v.scale != 1.0 && v.at != Vec2::ZERO, "{cell}: {v:?}");
+            let to = a.doc.world_transform(a.doc.index_of(&format!("g-{cell}")).unwrap()) * Point::new(2.0, 1.0);
+            assert!(near(to.x, 102.0 + col * 40.0 + v.at.x) && near(to.y, 51.0 + row * 30.0 + v.at.y), "{cell}: {to:?}");
+        }
+        // Read again, the scene is the same to the last digit.
+        let again = scene(&grid(3, 7, "g"));
+        for (x, y) in a.doc.nodes.iter().zip(&again.doc.nodes) {
+            assert_eq!(
+                (x.x.to_bits(), x.y.to_bits(), x.rotation.to_bits(), x.scale_x.to_bits()),
+                (y.x.to_bits(), y.y.to_bits(), y.rotation.to_bits(), y.scale_x.to_bits())
+            );
+        }
+        // More columns: the repeats that were there keep their look. So does a renamed group.
+        let wider = scene(&grid(5, 7, "g"));
+        let renamed = scene(&grid(3, 7, "pebbles"));
+        for cell in ["2-1", "3-1", "1-2", "2-2", "3-2"] {
+            assert_eq!(stands(&a, &format!("g-{cell}-stone")), stands(&wider, &format!("g-{cell}-stone")), "{cell}");
+            assert_eq!(stands(&a, &format!("g-{cell}-stone")), stands(&renamed, &format!("pebbles-{cell}-stone")), "{cell}");
+        }
+        // Another seed: another drawing from the same lines.
+        let other = scene(&grid(3, 8, "g"));
+        for cell in ["2-1", "3-1", "1-2", "2-2", "3-2"] {
+            assert_ne!(stands(&a, &format!("g-{cell}-stone")), stands(&other, &format!("g-{cell}-stone")), "{cell}");
+        }
+        assert_eq!(stands(&other, "stone"), (102.0, 51.0, 0.0));
+        // Only turned and scaled, a repeat stays where its cell is.
+        let turned = scene(&format!("{BOARD}group g at 100 50 repeat grid 3 1 step 40 vary-rot 90 vary-scale 0.5 {{\n  rect stone at 20 10 size 12 8\n}}\n"));
+        assert_eq!(middle(&turned, "g-2-1-stone"), (160.0, 60.0));
+        assert_eq!(middle(&turned, "g-3-1-stone"), (200.0, 60.0));
+        assert!(turned.doc.nodes[turned.doc.index_of("g-2-1").unwrap()].rotation != 0.0);
+    }
+
+    #[test]
+    fn a_varied_repeat_of_a_circle_and_of_an_outline_moves_along_its_own_axes() {
+        // Up and down of a petal is to and from the centre: its angle stays, the distance varies.
+        let ring = scene(&format!("{BOARD}group ring at 200 150 repeat circle 8 vary-at 0 12 {{\n  ellipse petal at 0 -60 size 10 10\n}}\n"));
+        let mut far = Vec::new();
+        for (k, deg) in (2..=8).zip(RepeatKind::angles(8, 360.0).into_iter().skip(1)) {
+            let (x, y) = middle(&ring, &format!("ring-{k}-petal"));
+            let (dx, dy) = (x - 200.0, y - 150.0);
+            let angle = dx.atan2(-dy).to_degrees().rem_euclid(360.0);
+            assert!((angle - deg).abs() < 0.05, "{k}: {angle}, wanted {deg}");
+            assert!((48.0..=72.0).contains(&dx.hypot(dy)), "{k}");
+            far.push((dx.hypot(dy) * 10.0).round() as i64);
+        }
+        far.dedup();
+        assert!(far.len() > 4, "{far:?}");
+        // Upright repeats are moved along the axes of the group.
+        let upright = scene(&format!("{BOARD}group ring at 200 150 repeat circle 4 upright vary-at 0 12 {{\n  ellipse petal at 0 -60 size 10 10\n}}\n"));
+        assert_eq!(middle(&upright, "ring-2-petal").0, 260.0);
+        assert_eq!(middle(&upright, "ring-3-petal").0, 200.0);
+        // Along an outline: across it only, each repeat at its place along it and scaled where it stands.
+        let line = format!(
+            "{BOARD}path wire d \"M 0 0 L 300 0\" at 200 100\ngroup beads repeat along wire 7 vary-at 0 5 vary-rot 30 vary-scale 0.4 vary-seed 2 {{\n  rect bead size 6 6\n}}\n"
+        );
+        let beads = scene(&line);
+        assert_eq!(stands(&beads, "bead"), (200.0, 100.0, 0.0));
+        let vary = &beads.repeats["beads"].vary;
+        for k in 2..=7u32 {
+            let (x, y, rot) = stands(&beads, &format!("beads-{k}"));
+            let v = vary.of(&k.to_string());
+            assert!(near(x, 200.0 + f64::from(k - 1) * 50.0), "{k}: {x}");
+            assert!(near(y, 100.0 + (v.at.y * 10.0).round() / 10.0) && v.at.y != 0.0 && v.at.y.abs() <= 5.0, "{k}: {y}");
+            assert!(near(rot, (v.rot * 10.0).round() / 10.0), "{k}: {rot}");
+            assert!(near(beads.doc.nodes[beads.doc.index_of(&format!("beads-{k}")).unwrap()].scale_x, v.scale));
+        }
+        // What `override` put by hand stays there.
+        let held = scene(&format!("{line}override {{\n  beads-3.y = 40\n}}\n"));
+        assert_eq!(stands(&held, "beads-3").1, 140.0);
+    }
+
+    #[test]
+    fn the_fills_of_a_varied_repeat_take_some_of_a_colour() {
+        use motif_core::Color;
+        let src = format!(
+            "let rust = #c0392b\n{BOARD}group g repeat grid 4 1 step 20 vary-fill rust 0.5 {{\n  rect a size 8 8 fill #808080 stroke #000000 2\n  rect glass size 4 4 fill #ffffff80\n  rect hole size 2 2 fill none\n}}\n"
+        );
+        let scene = scene(&src);
+        let site = &scene.repeats["g"];
+        // A name of the palette is kept as it is written, and the panel may rewrite the line.
+        assert_eq!(site.vary.fill, Some(VaryFill { text: "rust".into(), color: Color::rgb(192, 57, 43), amount: 0.5 }));
+        assert!(site.editable);
+        let node = |id: &str| &scene.doc.nodes[scene.doc.index_of(id).unwrap()];
+        assert_eq!(node("a").fill, Some(Color::rgb(128, 128, 128)));
+        let mut seen = Vec::new();
+        for cell in ["2-1", "3-1", "4-1"] {
+            let t = site.vary.of(cell).tint;
+            assert!(t > 0.0 && t <= 0.5);
+            let fill = node(&format!("g-{cell}-a")).fill.unwrap();
+            assert_eq!(fill, Color::rgb(128, 128, 128).lerp(Color::rgb(192, 57, 43), t), "{cell}");
+            assert!(fill.r > 128 && fill.g < 128 && fill.a == 255, "{cell}: {fill:?}");
+            seen.push(fill);
+            // What is see-through stays as see-through; no fill stays no fill; the stroke is not touched.
+            assert_eq!(node(&format!("g-{cell}-glass")).fill.unwrap().a, 0x80);
+            assert_eq!(node(&format!("g-{cell}-hole")).fill, None);
+            assert_eq!(node(&format!("g-{cell}-a")).stroke, Some(Color::BLACK));
+        }
+        seen.dedup();
+        assert_eq!(seen.len(), 3);
+        // A fill written for one repeat in `override` is the last word.
+        let held = crate::parse(&format!("{src}override {{\n  g-3-1-a.fill = #00ff00\n}}\n")).unwrap();
+        assert_eq!(held.doc.nodes[held.doc.index_of("g-3-1-a").unwrap()].fill, Some(Color::rgb(0, 255, 0)));
+    }
+
+    #[test]
+    fn the_panel_rewrites_how_the_repeats_vary_and_keeps_it_with_another_kind() {
+        let src = format!("{BOARD}group g at 100 50 repeat grid 3 2 step 40 30 vary-rot 15 opacity 0.5 {{\n  rect stone size 12 8\n}}\n");
+        let was = scene(&src);
+        assert_eq!(was.doc.nodes[0].opacity, 0.5);
+        let fill = VaryFill { text: "#c0392b".into(), color: motif_core::Color::rgb(192, 57, 43), amount: 0.4 };
+        let vary = Vary { at: (3.0, 2.0), rot: 15.0, scale: 0.2, fill: Some(fill), seed: 12 };
+        let out = set_vary(&src, &was, "g", &vary).unwrap();
+        assert!(
+            out.contains(
+                "group g at 100 50 repeat grid 3 2 step 40 30 vary-at 3 2 vary-rot 15 vary-scale 0.2 vary-fill #c0392b 0.4 vary-seed 12 opacity 0.5 {"
+            ),
+            "{out}"
+        );
+        let now = scene(&out);
+        assert_eq!(now.repeats["g"].vary, vary);
+        assert_eq!(set_vary(&out, &now, "g", &vary), None);
+        // Another kind of repeat keeps it; a reflection has none.
+        let ring = set_repeat(&out, &now, "g", Some(&RepeatKind::Circle { count: 5, arc: 360.0, upright: false, mirror: false })).unwrap();
+        assert!(ring.contains("repeat circle 5 vary-at 3 2 vary-rot 15 vary-scale 0.2 vary-fill #c0392b 0.4 vary-seed 12 opacity 0.5 {"), "{ring}");
+        let ring_scene = scene(&ring);
+        let twins = set_repeat(&ring, &ring_scene, "g", Some(&RepeatKind::Circle { count: 5, arc: 360.0, upright: false, mirror: true })).unwrap();
+        assert!(twins.contains("group g at 100 50 repeat circle 5 mirror opacity 0.5 {"), "{twins}");
+        assert_eq!(set_vary(&twins, &scene(&twins), "g", &vary), None);
+        // Nothing varies: the words go, the seed with them.
+        let plain = set_vary(&out, &now, "g", &Vary { seed: 12, ..Vary::default() }).unwrap();
+        assert!(plain.contains("group g at 100 50 repeat grid 3 2 step 40 30 opacity 0.5 {"), "{plain}");
+        // A repeat written with names is for the script, and a made one is not a line at all.
+        let named = format!("{BOARD}let n = 3\ngroup g repeat grid n 2 step 40 30 {{\n  rect stone size 12 8\n}}\n");
+        assert_eq!(set_vary(&named, &scene(&named), "g", &vary), None);
+        assert_eq!(set_vary(&src, &was, "g-2-1", &vary), None);
+        assert_eq!(set_vary(&src, &was, "stone", &vary), None);
+    }
+
     #[test]
     fn a_wrong_repeat_says_what_is_wrong() {
         let group =
@@ -930,6 +1264,18 @@ anim Blink 1s {{
             (group("group g repeat mirror x upright"), "в сетке и в зеркале они и так не поворачиваются"),
             (group("group g repeat mirror x step 3"), "step — шаг сетки"),
             (group("group g repeat mirror 2"), "у зеркала нет числа"),
+            (group("group g repeat mirror x vary-rot 10"), "разброс не пишется вместе с зеркалом"),
+            (group("group g repeat circle 4 mirror vary-at 2"), "разброс не пишется вместе с зеркалом"),
+            (group("group g repeat circle 4 vary-at"), "после vary-at нужно, на сколько"),
+            (group("group g repeat circle 4 vary-at -2"), "vary-at — на сколько самое большее сдвигать"),
+            (group("group g repeat circle 4 vary-rot"), "после vary-rot нужно, на сколько градусов"),
+            (group("group g repeat circle 4 vary-rot 200"), "от 0 до 180"),
+            (group("group g repeat circle 4 vary-scale 1"), "от 0 до 0.95"),
+            (group("group g repeat circle 4 vary-fill 0.4"), "после vary-fill нужны цвет и доля"),
+            (group("group g repeat circle 4 vary-fill 3 0.4"), "после vary-fill нужен цвет"),
+            (group("group g repeat circle 4 vary-fill #ff0000 2"), "доля от 0 до 1"),
+            (group("group g repeat circle 4 vary-seed 1.5"), "vary-seed — целое число от 0 до 999999"),
+            (group("group g repeat circle 4 vary-seed"), "после vary-seed нужно целое число"),
             (group("group g repeat along frame 4 arc 90"), "arc — часть круга"),
             (group("group g repeat along 4"), "после repeat along нужен id контура"),
             (group("group g repeat along nothing 4"), "нет объекта «nothing»"),

@@ -191,7 +191,7 @@
   <li><b>Чего нельзя.</b> <code>repeat</code> бывает только у <code>group</code> и не бывает вместе с <code>clip</code>, <code>stack</code> и <code>combine</code>: положите такую группу внутрь повтора. Копия символа сама не повторяется, её кладут в группу. В одной группе не больше 2000 повторов.</li>
   <li><b>В игре.</b> Повторы раскрываются при чтении скрипта, как цикл <code>for</code>: игра получает обычные объекты с постоянными id и ничего не считает на кадре. Анимация первого повтора остальные не двигает; чтобы двигалось всё, анимируйте саму группу (<code>fan.rot</code>) или пишите дорожки для нужных повторов.</li>
 </ul>
-<p>Файл с повторами сохраняется как <code>motif 6</code>. Слова <code>step</code>, <code>arc</code>, <code>offset</code>, <code>upright</code> и <code>mirror</code> значат что-то только после <code>repeat</code>: объект по-прежнему можно назвать <code>arc</code> или <code>step</code>. Работа с повторами в редакторе — в разделе <a href="tools.html#repeats">«Живые повторы»</a>.</p>
+<p>Файл с повторами сохраняется как <code>motif 6</code>. Слова <code>step</code>, <code>arc</code>, <code>offset</code>, <code>upright</code> и <code>mirror</code> значат что-то только после <code>repeat</code>: объект по-прежнему можно назвать <code>arc</code> или <code>step</code>. Там же пишутся слова <a href="#variation">разброса</a> <code>vary-…</code>. Работа с повторами в редакторе — в разделе <a href="tools.html#repeats">«Живые повторы»</a>.</p>
 
 <h3 id="symmetry">Симметрия</h3>
 <p>Симметрия — тот же повтор: рисуете половину герба или пол-лепестка, остальное группа показывает отражением. Правите половину — меняется всё. Пример — <code>examples/symmetry.msc</code>.</p>
@@ -219,6 +219,35 @@
   <li><b>Что на оси, рисуется один раз.</b> Камень в середине герба лежит снаружи группы с зеркалом или целиком по одну сторону оси. Текст в отражении тоже зеркальный, подписи ставят снаружи.</li>
   <li><b>Порядок.</b> Отражение рисуется поверх написанной половины, со всеми своими слоями.</li>
 </ul>
+
+<h3 id="variation">Разброс</h3>
+<p>Повторы сетки, круга и контура могут немного отличаться от нарисованного: каждый камень мостовой лежит по-своему, у каждого лепестка свой оттенок. Сколько достаётся каждому повтору, считается из числа <code>vary-seed</code> и места повтора. Поэтому одно и то же зерно всегда даёт один и тот же рисунок: при каждом открытии файла, в редакторе, в игре и на любой машине. Другое зерно даёт новый вариант из тех же строк. Пример — <code>examples/variation.msc</code>.</p>
+<figure><img src="img/variation.png" alt="Пример variation.msc: мостовая из одного камня, камыши вокруг пруда, цветок и три куста из одного символа" style="max-width:100%"><figcaption>Нарисованы один камень, один камыш, один лепесток и один лист. Три куста сделаны из одного символа с разным зерном.</figcaption></figure>
+<pre><code><span class="k">group</span> paving <span class="p">at</span> <span class="n">46 214</span> <span class="p">repeat</span> grid <span class="n">10 3</span> step <span class="n">47 38</span> vary-at <span class="n">5 4</span> vary-rot <span class="n">14</span> vary-scale <span class="n">0.22</span> vary-fill moss <span class="n">0.55</span> vary-seed <span class="n">3</span> {
+  <span class="k">rect</span> slab <span class="p">size</span> <span class="n">36 26</span> <span class="p">r</span> <span class="n">9</span> <span class="p">fill</span> stone <span class="p">stroke</span> ink <span class="n">2</span>
+}
+<span class="k">group</span> reeds <span class="p">repeat</span> along pond <span class="n">26</span> offset <span class="n">-3</span> upright vary-at <span class="n">0 4</span> vary-rot <span class="n">10</span> vary-scale <span class="n">0.3</span> vary-seed <span class="n">5</span> {
+  <span class="k">path</span> reed <span class="p">d</span> <span class="n">"M 0 0 C 2 -8 -2 -14 0 -22"</span> <span class="p">stroke</span> <span class="n">#4f7a3c 3</span> <span class="p">fill</span> <span class="n">none</span>
+}</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Слово</th><th>Запись</th><th>Пояснение</th></tr>
+  <tr><td>Сдвиг</td><td><code>vary-at 5 4</code></td><td>На сколько самое большее сдвинуть повтор в каждую сторону: по X и по Y. Одно число — оба сразу.</td></tr>
+  <tr><td>Поворот</td><td><code>vary-rot 14</code></td><td>На сколько градусов самое большее повернуть повтор в каждую сторону, от 0 до 180.</td></tr>
+  <tr><td>Размер</td><td><code>vary-scale 0.22</code></td><td>Доля, на которую повтор бывает больше и меньше: 0.22 даёт от 0.78 до 1.22 размера. От 0 до 0.95.</td></tr>
+  <tr><td>Цвет</td><td><code>vary-fill moss 0.55</code></td><td>Цвет и доля от 0 до 1: заливки каждого повтора смешиваются с этим цветом, самое большее на столько. Цвет — <code>#rrggbb</code> или имя из палитры.</td></tr>
+  <tr><td>Зерно</td><td><code>vary-seed 3</code></td><td>Целое число от 0 до 999999, от которого всё это считается. Без слова зерно равно 1.</td></tr>
+</table></div>
+<ul>
+  <li><b>Первый повтор не меняется.</b> То, что написано в блоке, остаётся таким, как нарисовано. Отличаются повторы, которые делает группа.</li>
+  <li><b>Вокруг чего.</b> Повтор поворачивается и меняет размер вокруг середины нарисованного, поэтому остаётся в своей клетке. У повтора вдоль контура это точка на контуре.</li>
+  <li><b>Куда сдвиг.</b> Сдвиг считается по осям самого повтора. В сетке это вправо и вниз. В круге оси повёрнуты вместе с повтором: если первый стоит над центром, ось Y у каждого идёт к центру и от него. Вдоль контура ось X идёт по контуру, ось Y поперёк: <code>vary-at 0 4</code> шевелит камыши только поперёк берега. С <code>upright</code> оси те же, что у группы.</li>
+  <li><b>Что красится.</b> Смешивается сплошная заливка (<code>fill</code>); обводка и градиент остаются. Прозрачность заливки не меняется. Цвет, записанный одному повтору в <code>override</code>, важнее.</li>
+  <li><b>Повтор помнит свой вид.</b> Значения привязаны к месту повтора, то есть к хвосту его id (<code>2-1</code>, <code>7</code>). Добавили столбец или переименовали группу — прежние повторы выглядят как раньше.</li>
+  <li><b>Зерно как параметр символа.</b> <code>symbol Bush look=1 { group leaves repeat circle 9 … vary-seed look { … } }</code>, затем <code>use Bush b1 look=1</code> и <code>use Bush b2 look=2</code>: два разных куста из одного символа.</li>
+  <li><b>Не вместе с зеркалом.</b> У <code>repeat mirror …</code> и <code>repeat circle 6 mirror</code> слов <code>vary-…</code> нет: отражение должно сойтись со своей половиной.</li>
+  <li><b>В игре.</b> Разброс считается при чтении скрипта, как и сами повторы. Игра получает готовые объекты и своей случайности сюда не добавляет.</li>
+</ul>
+<p>Формат файла тот же, <code>motif 6</code>. В редакторе это блок <a href="tools.html#vary">«Разброс»</a> в разделе «Повтор».</p>
 
 <h2 id="styles">Стили</h2>
 <p>Стиль хранит вид под именем. Он пишется одной строкой на верхнем уровне, а объект берёт его словом <code>style</code> на своей строке. Поменяли строку стиля — изменились все объекты, которые его берут. Пример — <code>examples/styles.msc</code>.</p>
@@ -315,6 +344,7 @@
   <tr><td>Маска у группы</td><td><code>group окно clip { ellipse форма … остальное … }</code></td></tr>
   <tr><td>Живая операция у группы</td><td><code>group луна combine subtract { ellipse диск … ellipse тень … }</code>: <code>union</code>, <code>subtract</code> (нижняя минус верхние), <code>intersect</code>, <code>exclude</code>. Фигуры остаются в файле, рисуется один контур стилем первой. Появилась в формате 3. Подробнее — <a href="tools.html#live-booleans">Живые операции</a>.</td></tr>
   <tr><td>Живой повтор у группы</td><td><code>group ряд repeat grid 6 1 step 28 0 { ellipse заклёпка … }</code>, <code>repeat circle 8</code>, <code>repeat along панель 12 offset 8</code>. Группа показывает то, что в ней лежит, несколько раз. Появился в формате 6. Подробнее — <a href="#repeats">Живые повторы</a>.</td></tr>
+  <tr><td>Разброс у повторов</td><td><code>repeat grid 10 3 step 47 38 vary-at 5 4 vary-rot 14 vary-scale 0.2 vary-fill #5b6b4a 0.5 vary-seed 3</code>. Повторы отличаются от первого в этих пределах; одно и то же зерно всегда даёт один и тот же рисунок. Подробнее — <a href="#variation">Разброс</a>.</td></tr>
   <tr><td>Симметрия у группы</td><td><code>group герб repeat mirror x { половина… }</code>, <code>repeat mirror y</code>, <code>repeat mirror x y</code>, <code>repeat circle 6 mirror</code>. Группа показывает то, что в ней лежит, и его отражение в осях через свою опорную точку. Подробнее — <a href="#symmetry">Симметрия</a>.</td></tr>
   <tr><td>Стек у группы</td><td><code>group меню stack column center gap 10 pad 18 { … }</code>: <code>row</code> или <code>column</code>, выравнивание <code>start|center|end</code></td></tr>
   <tr><td>Фон по размеру стека</td><td><code>rect фон r 18 fill #1f2333 fit</code> внутри группы со стеком</td></tr>

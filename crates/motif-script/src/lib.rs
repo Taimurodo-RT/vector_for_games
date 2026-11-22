@@ -86,7 +86,7 @@ pub use palette::{
 };
 /// Native node property names and their value arity, useful to avoid ambiguous generated IDs.
 pub use parser::prop_arity;
-pub use repeat::{RepeatKind, RepeatSite, repeat_nodes, set_repeat, set_repeat_around};
+pub use repeat::{RepeatKind, RepeatSite, Vary, VaryFill, repeat_nodes, set_repeat, set_repeat_around, set_vary};
 use std::collections::HashMap;
 use std::fmt;
 pub use styles::{

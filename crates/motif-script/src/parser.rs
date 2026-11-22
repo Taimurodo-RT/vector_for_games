@@ -374,8 +374,19 @@ pub enum Stmt {
     },
 }
 
-/// The words of a repeat that follow its numbers: `repeat grid 4 2 step 40 30`.
-pub const REPEAT_WORDS: [&str; 5] = ["step", "arc", "offset", "upright", "mirror"];
+/// The words of a repeat that follow its numbers: `repeat grid 4 2 step 40 30`. The ones that
+/// start with `vary-` say how the repeats differ from the written one.
+pub const REPEAT_WORDS: [&str; 10] = ["step", "arc", "offset", "upright", "mirror", "vary-at", "vary-rot", "vary-scale", "vary-fill", "vary-seed"];
+
+/// The fewest and the most values a word of a repeat takes.
+pub fn repeat_word_arity(word: &str) -> (usize, usize) {
+    match word {
+        "step" | "vary-at" => (1, 2),
+        "upright" | "mirror" => (0, 0),
+        "vary-fill" => (2, 2),
+        _ => (1, 1),
+    }
+}
 
 /// Properties a node line accepts, with their minimum and maximum number of values.
 pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
@@ -1023,7 +1034,7 @@ impl<'a> Parser<'a> {
                 }
             }
             // A repeat is read whole: its kind, the id of the outline for `along`, how many, then
-            // its own words (`step`, `arc`, `offset`, `upright`) with their numbers. These words
+            // its own words (`step`, `arc`, `offset`, `upright`, `vary-rot`…) with their numbers. These words
             // mean something only here, so an object may still be called `arc` or `step`.
             if key == "repeat" {
                 if params.is_some() {
@@ -1081,11 +1092,7 @@ impl<'a> Parser<'a> {
                 while word(self.peek()) {
                     let t = self.next().unwrap();
                     let Tok::Ident(name) = t.tok else { unreachable!() };
-                    let (least, most) = match name.as_str() {
-                        "step" => (1, 2),
-                        "upright" | "mirror" => (0, 0),
-                        _ => (1, 1),
-                    };
+                    let (least, most) = repeat_word_arity(&name);
                     values.push(ValueAst { kind: ValueKind::Ref(name.clone()), span: t.span });
                     for k in 0..most {
                         // The number a word cannot do without is read whatever it is; the second
@@ -1097,6 +1104,15 @@ impl<'a> Parser<'a> {
                             let hint = match name.as_str() {
                                 "step" => "после step нужен шаг сетки: step 40 30 (вправо и вниз) или step 40",
                                 "arc" => "после arc нужна часть круга в градусах: arc 90",
+                                "vary-at" => {
+                                    "после vary-at нужно, на сколько самое большее сдвигать повторы: vary-at 3 2 (вправо-влево и вверх-вниз) или vary-at 3"
+                                }
+                                "vary-rot" => "после vary-rot нужно, на сколько градусов самое большее поворачивать повторы: vary-rot 15",
+                                "vary-scale" => {
+                                    "после vary-scale нужна доля, на которую повторы бывают больше и меньше: vary-scale 0.2 — от 0.8 до 1.2 размера"
+                                }
+                                "vary-fill" => "после vary-fill нужны цвет и доля от 0 до 1, сколько его самое большее подмешать: vary-fill #c0392b 0.4",
+                                "vary-seed" => "после vary-seed нужно целое число, от которого считается разброс: vary-seed 7",
                                 _ => "после offset нужно, на сколько отступить от контура внутрь: offset 8",
                             };
                             return Err(self.err(t.span, hint));
