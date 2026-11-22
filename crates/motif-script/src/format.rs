@@ -11,9 +11,10 @@
 //! - 5: `variant main face=#ff5a36 hide icon show badge` inside a symbol and `variant main` on a `use`
 //!   line — variants of a symbol; `title.content = "Купить"` in `override` — words of a text
 //!   for one copy.
+//! - 6: `group … repeat grid 4 2 step 40 30` — live repeats of what is in a group.
 
 /// The newest format this Motif reads.
-pub const VERSION: u32 = 5;
+pub const VERSION: u32 = 6;
 
 /// The lowest format version that reads `src`: the first one that has everything it uses.
 pub fn needed(src: &str) -> u32 {
@@ -49,7 +50,15 @@ pub fn needed(src: &str) -> u32 {
     // The words of a text in `override` came with version 5 too: `title.content = "…"`.
     let own_text =
         src.lines().any(|l| l.split_once('=').is_some_and(|(path, _)| path.trim().ends_with(".content") && !path.trim().contains(char::is_whitespace)));
-    if variant || own_text {
+    // A live repeat came with version 6: a property of a group, as `combine` is.
+    let repeat = src.lines().any(|l| {
+        let code: String = l.split("//").next().unwrap_or("").split('"').step_by(2).collect::<Vec<_>>().join(" ");
+        let mut words = code.split_whitespace();
+        words.next() == Some("group") && words.skip(1).any(|w| w == "repeat")
+    });
+    if repeat {
+        6
+    } else if variant || own_text {
         5
     } else if style || gradient || theme {
         4
@@ -125,6 +134,12 @@ mod tests {
         assert_eq!(needed(&coin.replace("  rect", "  variant big size=8\n  rect")), 5);
         let big = coin.replace("  rect", "  variant big size=8\n  rect");
         assert_eq!(stamp(&format!("{big}use Coin c1 variant big\n")), format!("motif 5\n{big}use Coin c1 variant big\n"));
+        // Live repeats came with version 6.
+        let rivets = "artboard \"a\" 10x10\ngroup rivets repeat grid 4 1 step 8 0 {\n  ellipse rivet size 2 2\n}\n";
+        assert_eq!(needed(rivets), 6);
+        assert_eq!(stamp(rivets), format!("motif 6\n{rivets}"));
+        // A group called `repeat`, a name and a comment with the word are not a repeat.
+        assert_eq!(needed("artboard \"a\" 10x10\ngroup repeat \"we repeat it\" { // repeat\n}\n"), 1);
         // A copy called `variant`, a name and a comment with the word are not a variant.
         assert_eq!(needed(&format!("{coin}use Coin variant \"variant big\" at 1 1 // variant big\n")), 1);
         // An object called `style` and a comment with the word are not a style.

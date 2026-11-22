@@ -369,6 +369,10 @@ impl App {
         }
         let picked: Vec<usize> = self.selected_in(doc).into_iter().filter(|&i| doc.nodes[i].kind != ShapeKind::Bone).collect();
         if let ([i], true) = (picked.as_slice(), self.also.is_empty()) {
+            // A repeat along an outline stands where the outline puts it: no frame to pull.
+            if self.placed_by_outline(&doc.nodes[*i].id, motif_core::Prop::X).is_some() {
+                return None;
+            }
             return Some(Frame { to_world: doc.world_transform(*i), bounds: node_bounds(doc, *i)?, items: picked });
         }
         // An object inside a selected group moves with the group.

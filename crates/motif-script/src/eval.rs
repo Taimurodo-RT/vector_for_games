@@ -1,8 +1,9 @@
 //! Expands the statement tree into a `Document` and records where each property value came from.
 
 use crate::parser::{MachineLine, MachineLineAst, NodeAst, ParamAst, Stmt, UseAst, ValueAst, ValueKind};
+use crate::repeat::{RepeatKind, RepeatSite};
 use crate::{AnimSite, Backdrop, EventSite, Instance, KeySite, MachineSite, NodeSite, ParamSite, Scene, ScriptError, Source, Span, SymbolSite, TrackSite};
-use motif_core::kurbo::Shape;
+use motif_core::kurbo::{Affine, Shape, Vec2};
 use motif_core::{Animation, Artboard, Color, Document, Ease, Keyframe, Node, Prop, ShapeKind, Track, Value};
 use std::collections::HashMap;
 
@@ -68,6 +69,9 @@ pub struct Evaluator<'a> {
     morph_refs: Vec<(usize, String, Span)>,
     /// Shapes with `match`: each mark with the span of its group, checked against the key contours.
     match_refs: Vec<(usize, Vec<Span>)>,
+    /// Groups that repeat along an outline, placed once every object exists: the id of the
+    /// group, the id of the outline as written, the prefix it was written under, where.
+    along_refs: Vec<(String, String, String, Span)>,
     pub scene: Scene,
     pub errors: Vec<ScriptError>,
 }
@@ -101,6 +105,7 @@ impl<'a> Evaluator<'a> {
             rope_refs: Vec::new(),
             morph_refs: Vec::new(),
             match_refs: Vec::new(),
+            along_refs: Vec::new(),
             scene: Scene {
                 doc: Document::new(Artboard::default()),
                 sources: HashMap::new(),
@@ -138,6 +143,7 @@ impl<'a> Evaluator<'a> {
                 themes: Vec::new(),
                 theme: None,
                 editing: None,
+                repeats: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -395,6 +401,7 @@ impl<'a> Evaluator<'a> {
                 }
             }
         }
+        self.place_along();
         self.check_rig();
         self.check_combines();
         for s in stmts {
@@ -1469,6 +1476,7 @@ impl<'a> Evaluator<'a> {
         let mut flow: Option<(f64, Span)> = None;
         let mut roll: Option<(motif_core::Roll, Span)> = None;
         let mut warps = Vec::new();
+        let mut repeat: Option<(RepeatKind, bool, Span)> = None;
         for (at, p) in style_props.iter().chain(&n.props).enumerate() {
             from_style.set(at < styled_count);
             if at == styled_count
@@ -1493,7 +1501,7 @@ impl<'a> Evaluator<'a> {
                 // A gradient reads its own values: its kind word, or the name of a palette one.
                 "gradient" | "stroke-gradient" => Vec::new(),
                 // Keywords, not names: `cap round`, `blend multiply`.
-                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" | "combine" | "style" | "no" => Vec::new(),
+                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" | "combine" | "style" | "no" | "repeat" => Vec::new(),
                 // `dial turn 300`: the way is a word, the arc a number (or `{arc}`).
                 "dial" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(_)) { None } else { self.value(v) }).collect(),
                 // `cross` is a keyword of the hatching.
@@ -2182,6 +2190,14 @@ impl<'a> Evaluator<'a> {
                         self.err(p.key_span, "anchor — от какого края считать at: left, center, right и top, middle, bottom — anchor right bottom");
                     }
                 }
+                "repeat" => {
+                    if n.kind != ShapeKind::Group {
+                        self.err(p.key_span, "repeat бывает у group: группа показывает то, что в ней лежит, несколько раз — group row repeat grid 4 1 step 40 0 { … }");
+                        continue;
+                    }
+                    let plain = p.values.iter().all(|v| !matches!(v.kind, ValueKind::Expr(_)) && !matches!(&v.kind, ValueKind::Ref(name) if self.vars.contains_key(name)));
+                    repeat = self.repeat_kind(p).map(|kind| (kind, plain && !generated, p.key_span));
+                }
                 "clip" => {
                     if n.kind != ShapeKind::Group {
                         self.err(p.key_span, "маска clip бывает только у group: первый объект группы обрезает остальные");
@@ -2494,9 +2510,28 @@ impl<'a> Evaluator<'a> {
             node.skin = Some(motif_core::Skin { sharp, ..motif_core::Skin::new(ids) });
             self.rig_refs.extend(bones.into_iter().map(|(b, span)| (index, format!("{}{b}", self.prefix), span)));
         }
+        if let Some((kind, _, span)) = &repeat {
+            let with = if node.clip {
+                Some("clip: маска обрезает то, что лежит в группе, а повтор поставил бы рядом ещё объекты. Положите группу с маской внутрь повтора")
+            } else if node.stack.is_some() {
+                Some("stack: повтор сам расставляет то, что в нём лежит. Положите стек внутрь повтора или повтор внутрь стека")
+            } else if node.combine.is_some() {
+                Some("combine: положите группу, которая складывает фигуры, внутрь повтора")
+            } else {
+                None
+            };
+            if let Some(with) = with {
+                self.err(*span, format!("repeat не бывает вместе с {with}"));
+                repeat = None;
+            } else if matches!(kind, RepeatKind::Along { .. })
+                && let Some(p) = n.props.iter().find(|p| crate::repeat::PLACED.contains(&p.key.as_str()))
+            {
+                self.err(p.key_span, format!("место и поворот повтора вдоль контура задаёт сам контур: уберите «{}» со строки группы", p.key));
+            }
+        }
         self.scene.doc.nodes.push(node);
         self.scene.sites.insert(
-            id,
+            id.clone(),
             NodeSite {
                 insert_at: n.insert_at,
                 generated,
@@ -2507,7 +2542,212 @@ impl<'a> Evaluator<'a> {
             },
         );
         self.stmts(&n.children, Some(index), generated);
+        if let Some((kind, editable, span)) = repeat {
+            self.repeats(n, index, kind, editable, span);
+        }
         Some(index)
+    }
+
+    /// Reads `repeat grid 4 2 step 40 30` and the like: the kind, how many, then the words of
+    /// the repeat with their numbers, in the order the parser took them.
+    fn repeat_kind(&mut self, p: &crate::parser::PropAst) -> Option<RepeatKind> {
+        use crate::repeat::MAX;
+        let ValueKind::Ref(kind) = &p.values.first()?.kind else { return None };
+        let mut at = 1;
+        let mut path = String::new();
+        if kind == "along" {
+            let ValueKind::Path(id) = &p.values.get(1)?.kind else { return None };
+            path.clone_from(id);
+            at = 2;
+        }
+        let mut counts: Vec<u32> = Vec::new();
+        for _ in 0..if kind == "grid" { 2 } else { 1 } {
+            let v = p.values.get(at)?;
+            at += 1;
+            match self.value(v)?.as_num() {
+                Some(c) if c.fract() == 0.0 && (1.0..=f64::from(MAX)).contains(&c) => counts.push(c as u32),
+                _ => {
+                    self.err(v.span, format!("число повторов — целое от 1 до {MAX}"));
+                    return None;
+                }
+            }
+        }
+        let (mut step, mut arc, mut offset, mut upright) = (None, None, None, false);
+        while let Some(word) = p.values.get(at) {
+            at += 1;
+            let ValueKind::Ref(name) = &word.kind else { return None };
+            let (least, most) = match name.as_str() {
+                "step" => (1, 2),
+                "upright" => (0, 0),
+                _ => (1, 1),
+            };
+            let mut nums: Vec<f64> = Vec::new();
+            for k in 0..most {
+                let Some(v) = p.values.get(at) else { break };
+                if k >= least && matches!(&v.kind, ValueKind::Ref(w) if crate::parser::REPEAT_WORDS.contains(&w.as_str())) {
+                    break;
+                }
+                at += 1;
+                match self.value(v)?.as_num() {
+                    Some(n) if n.is_finite() => nums.push(n),
+                    _ => {
+                        self.err(v.span, format!("после «{name}» нужно число"));
+                        return None;
+                    }
+                }
+            }
+            // A word of another kind of repeat is a mistake, not something to pass over.
+            let fits = match name.as_str() {
+                "step" => kind == "grid",
+                "arc" => kind == "circle",
+                "offset" => kind == "along",
+                _ => kind != "grid",
+            };
+            if !fits {
+                let why = match name.as_str() {
+                    "step" => "step — шаг сетки, он бывает у repeat grid: repeat grid 4 2 step 40 30",
+                    "arc" => "arc — часть круга, она бывает у repeat circle: repeat circle 5 arc 90",
+                    "offset" => "offset — отступ от контура внутрь, он бывает у repeat along: repeat along frame 12 offset 8",
+                    _ => "upright держит прямо повторы по кругу и вдоль контура: в сетке они и так не поворачиваются",
+                };
+                self.err(word.span, why);
+                return None;
+            }
+            match name.as_str() {
+                "step" => step = Some((nums[0], nums.get(1).copied().unwrap_or(nums[0]))),
+                "arc" => arc = Some((nums[0], word.span)),
+                "offset" => offset = Some(nums[0]),
+                _ => upright = true,
+            }
+        }
+        match kind.as_str() {
+            "grid" => {
+                let (cols, rows) = (counts[0], counts[1]);
+                if u64::from(cols) * u64::from(rows) > u64::from(MAX) {
+                    self.err(
+                        p.key_span,
+                        format!("в сетке {cols} на {rows} выходит {} повторов, а в одной группе их не больше {MAX}", u64::from(cols) * u64::from(rows)),
+                    );
+                    return None;
+                }
+                let Some(step) = step else {
+                    self.err(p.key_span, "сетке нужен шаг, на сколько сдвигать повторы вправо и вниз: repeat grid 4 2 step 40 30");
+                    return None;
+                };
+                Some(RepeatKind::Grid { cols, rows, step })
+            }
+            "circle" => {
+                let arc = match arc {
+                    Some((a, span)) if a == 0.0 || a.abs() > 360.0 => {
+                        self.err(span, "arc — часть круга в градусах, от -360 до 360 и не 0: arc 90");
+                        return None;
+                    }
+                    Some((a, _)) => a,
+                    None => 360.0,
+                };
+                Some(RepeatKind::Circle { count: counts[0], arc, upright })
+            }
+            _ => Some(RepeatKind::Along { path, count: counts[0], offset: offset.unwrap_or(0.0), upright }),
+        }
+    }
+
+    /// Makes the repeats of the group `index` but the first, which is what its block says: a
+    /// group for each, with the block read once more inside it under the id of that group.
+    fn repeats(&mut self, n: &NodeAst, index: usize, kind: RepeatKind, editable: bool, span: Span) {
+        /// Past this many objects a scene is a mistake in a number, not a drawing.
+        const MOST: usize = 200_000;
+        let id = self.scene.doc.nodes[index].id.clone();
+        // The middle of what is written: an upright repeat of a circle carries it around.
+        let kids: Vec<usize> = self.scene.doc.children(index).collect();
+        let anchor = if kids.is_empty() {
+            Vec2::ZERO
+        } else {
+            kids.iter().map(|&k| Vec2::new(self.scene.doc.nodes[k].x, self.scene.doc.nodes[k].y)).fold(Vec2::ZERO, |a, b| a + b) / kids.len() as f64
+        };
+        let line = self.line_ends.partition_point(|&end| end < n.id_span.start) + 1;
+        // A circle goes around the pivot of the group: each repeat turns around the same point.
+        let pivot = self.scene.doc.nodes[index].pivot;
+        let mut clones = Vec::new();
+        for (suffix, (x, y, rot)) in kind.suffixes().into_iter().zip(kind.places(anchor, pivot)) {
+            let clone = format!("{id}-{suffix}");
+            if self.scene.sites.contains_key(&clone) {
+                self.err(n.id_span, format!("id «{clone}» уже занят, а его берёт повтор группы «{id}»: назовите тот объект иначе"));
+                break;
+            }
+            if self.scene.doc.nodes.len() > MOST {
+                self.err(span, format!("повторы дают больше {MOST} объектов: уменьшите их число"));
+                break;
+            }
+            let mut group = Node::new(clone.clone(), ShapeKind::Group);
+            group.parent = Some(index);
+            (group.x, group.y, group.rotation) = (x, y, rot);
+            if rot != 0.0 {
+                group.pivot = pivot;
+            }
+            let at = self.scene.doc.nodes.len();
+            self.scene.doc.nodes.push(group);
+            self.scene
+                .sites
+                .insert(clone.clone(), NodeSite { insert_at: n.insert_at, generated: true, line, span: n.span, id_span: n.id_span, name_span: None });
+            let outer = std::mem::replace(&mut self.prefix, format!("{clone}-"));
+            self.stmts(&n.children, Some(at), true);
+            self.prefix = outer;
+            clones.push(clone);
+        }
+        if let RepeatKind::Along { path, .. } = &kind {
+            self.along_refs.push((id.clone(), path.clone(), self.prefix.clone(), span));
+        }
+        self.scene.repeats.insert(id, RepeatSite { kind, clones, editable });
+    }
+
+    /// Puts the repeats that go along an outline in their places, once every object exists and
+    /// `override` has had its say: the group at the first point, the others evenly after it.
+    fn place_along(&mut self) {
+        if self.along_refs.is_empty() {
+            return;
+        }
+        // A stack gives its objects their places and sizes: the outline is read after that.
+        self.scene.doc.layout();
+        for (id, name, prefix, span) in std::mem::take(&mut self.along_refs) {
+            let doc = &self.scene.doc;
+            let Some(index) = doc.index_of(&id) else { continue };
+            let Some(target) = doc.index_of(&format!("{prefix}{name}")).or_else(|| doc.index_of(&name)) else {
+                self.err(span, format!("нет объекта «{name}»: после repeat along пишется id фигуры, вдоль контура которой идут повторы"));
+                continue;
+            };
+            if target == index || doc.is_inside(target, index) {
+                self.err(span, format!("«{name}» лежит в самом повторе: контур, вдоль которого идут повторы, должен быть снаружи"));
+                continue;
+            }
+            let Some(path) = doc.nodes[target].path() else {
+                self.err(span, format!("у «{name}» нет контура: повторы идут вдоль фигуры (rect, ellipse, path…), не вдоль группы или кости"));
+                continue;
+            };
+            let Some(RepeatSite { kind: RepeatKind::Along { count, offset, upright, .. }, clones, .. }) = self.scene.repeats.get(&id).cloned() else {
+                continue;
+            };
+            // The outline as the parent of the group sees it.
+            let to_parent = doc.nodes[index].parent.map_or(Affine::IDENTITY, |p| doc.world_transform(p).inverse()) * doc.world_transform(target);
+            let points = crate::repeat::along(&(to_parent * path), count, offset);
+            let Some(&(first, turn)) = points.first() else { continue };
+            let turn = if upright { 0.0 } else { turn };
+            // What `override` moved by hand stays where it was put.
+            let free = |scene: &Scene, id: &str, prop: Prop| !scene.sources.get(&(id.to_string(), prop)).is_some_and(|s| s.from_override);
+            let put = |scene: &mut Scene, id: &str, x: f64, y: f64, rot: f64| {
+                let Some(i) = scene.doc.index_of(id) else { return };
+                for (prop, v) in [(Prop::X, x), (Prop::Y, y), (Prop::Rotation, rot)] {
+                    if free(scene, id, prop) {
+                        scene.doc.nodes[i].set(prop, Value::Num(v));
+                    }
+                }
+            };
+            put(&mut self.scene, &id, first.x, first.y, turn);
+            let back = Affine::rotate(-turn.to_radians());
+            for (clone, &(p, dir)) in clones.iter().zip(&points[1..]) {
+                let at = back * (p - first).to_point();
+                put(&mut self.scene, clone, at.x, at.y, if upright { 0.0 } else { dir - turn });
+            }
+        }
     }
 
     /// Expands `{expr}` parts of an id.

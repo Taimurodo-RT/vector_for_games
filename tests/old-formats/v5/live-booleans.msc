@@ -1,0 +1,57 @@
+motif 3
+// Живые операции: фигуры группы складываются в один контур, но остаются в файле.
+// Подвиньте в «Рисовании» любую из них — результат пересчитается. Рисуется он
+// стилем нижней (первой) фигуры группы, остальные только задают форму.
+// Клип Idle двигает вырез луны и облако: операция считается заново на каждом кадре.
+let ink = #1b2a41
+let paper = #f4f1ea
+
+artboard "Живые операции" 640x400 bg paper
+
+// Вычитание: нижняя минус все, что выше. Тень ползёт по луне.
+group moon "Луна: subtract" at 110 110 combine subtract {
+  ellipse disc "Диск" size 120 120 fill #ffd166 stroke ink 4
+  ellipse shade "Тень" at 34 -10 size 110 110 fill #ef476f
+}
+
+// Объединение: один контур по внешнему краю.
+group cloud "Облако: union" at 320 110 combine union {
+  ellipse puff_a "Клуб слева" at -44 12 size 90 60 fill #ffffff stroke ink 4
+  ellipse puff_b "Клуб в середине" at 0 -14 size 100 84 fill #ef476f
+  ellipse puff_c "Клуб справа" at 48 14 size 84 56 fill #ef476f
+  rect base "Низ" at 0 26 size 150 34 r 17 fill #ef476f
+}
+
+// Пересечение: только общая часть.
+group leaf "Лист: intersect" at 530 110 combine intersect {
+  ellipse left "Левый круг" at -32 0 size 150 150 fill #06d6a0 stroke ink 4
+  ellipse right "Правый круг" at 32 0 size 150 150 fill #ef476f
+}
+
+// Исключение: перекрытия становятся дырками.
+group rings "Кольца: exclude" at 110 290 combine exclude {
+  ellipse outer "Большой круг" size 130 130 fill #118ab2 stroke ink 4
+  ellipse middle "Средний круг" size 90 90 fill #ef476f
+  ellipse inner "Малый круг" size 46 46 fill #ef476f
+}
+
+// Операция в операции: скважина (круг плюс стержень) вычитается из пластины.
+group lock "Замок: операция в операции" at 320 290 combine subtract {
+  rect plate "Пластина" size 130 150 r 22 fill #8d99ae stroke ink 4
+  group keyhole "Скважина: union" at 0 -6 combine union {
+    ellipse eye "Глазок" at 0 -18 size 44 44 fill #ef476f
+    rect slot "Стержень" at 0 22 size 20 60 r 6 fill #ef476f
+  }
+}
+
+// Вырез повёрнутой и растянутой фигурой: считается так, как видит глаз.
+group gear "Шестерня: звезда минус круг" at 530 290 combine subtract {
+  star teeth "Зубцы" size 150 150 points 10 inner 0.74 fill #ef8354 stroke ink 4 join round
+  ellipse hub "Отверстие" size 60 40 rot 30 fill #ef476f
+}
+
+anim Idle 3s loop {
+  shade.x 0: 34 | 1.5: -34 | 3: 34
+  puff_b.y 0: -14 | 1.5: -30 | 3: -14
+  gear.rot 0: 0 linear | 3: 36
+}
