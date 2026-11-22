@@ -265,3 +265,30 @@ fn a_detached_copy_is_a_group_of_its_own_with_the_same_picture() {
     assert_eq!((app.scene.editing.as_deref(), app.isolated.as_deref()), (None, None));
     assert!(app.src.contains("group c1 at 100 150 {\n  ellipse c1-body size 40 40 fill #ffd23f\n"), "{}", app.src);
 }
+
+#[test]
+fn the_words_typed_for_a_text_of_a_copy_stay_with_that_copy() {
+    let mut app = fixture(
+        "artboard \"a\" 400x300
+symbol Button {
+  rect bg size 120 36 r 8 fill #2d6cdf
+  text label content \"Играть\" font-size 16 fill #ffffff
+}
+use Button play at 100 60
+use Button buy at 100 140
+",
+    );
+    let words = |app: &App, id: &str| app.scene.doc.node(id).unwrap().text.as_ref().unwrap().content.clone();
+    // Typed letter by letter: one entry, one step back.
+    for typed in ["К", "Ку", "Купить"] {
+        app.set_own_text("buy-label", typed);
+    }
+    assert!(app.src.ends_with("override {\n  buy-label.content = \"Купить\"\n}\n"), "{}", app.src);
+    assert_eq!((words(&app, "buy-label").as_str(), words(&app, "play-label").as_str()), ("Купить", "Играть"));
+    assert!(app.status.contains("теперь свой"), "{}", app.status);
+    // The list of the copy's changes takes the words back.
+    assert_eq!(motif_script::copy_changes(&app.src, &app.scene, "buy").len(), 1);
+    app.undo();
+    assert_eq!(words(&app, "buy-label"), "Играть");
+    assert!(!app.src.contains("buy-label.content"), "{}", app.src);
+}

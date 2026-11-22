@@ -9,7 +9,8 @@
 //! - 4: `style card fill #ffffff` — named styles; `let sky = linear 90 #a #b` — gradients of
 //!   the palette; `theme dark { … }` — themes.
 //! - 5: `variant main face=#ff5a36 hide icon show badge` inside a symbol and `variant main` on a `use`
-//!   line — variants of a symbol.
+//!   line — variants of a symbol; `title.content = "Купить"` in `override` — words of a text
+//!   for one copy.
 
 /// The newest format this Motif reads.
 pub const VERSION: u32 = 5;
@@ -45,7 +46,10 @@ pub fn needed(src: &str) -> u32 {
             _ => false,
         }
     });
-    if variant {
+    // The words of a text in `override` came with version 5 too: `title.content = "…"`.
+    let own_text =
+        src.lines().any(|l| l.split_once('=').is_some_and(|(path, _)| path.trim().ends_with(".content") && !path.trim().contains(char::is_whitespace)));
+    if variant || own_text {
         5
     } else if style || gradient || theme {
         4

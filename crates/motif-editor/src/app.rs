@@ -2239,6 +2239,7 @@ impl App {
         let mut pick_font = false;
         let mut outline_text = false;
         let mut outline_command = None;
+        let mut own_text: Option<String> = None;
         if node.kind == ShapeKind::Text {
             let font = self.scene.prop_spans.get(&(id.clone(), "font".to_string())).map(|s| {
                 let t = self.src[s.start..s.end].trim_start_matches("font").trim();
@@ -2247,7 +2248,11 @@ impl App {
             if show(Cat::Text) {
                 fold(ui, "Текст", |ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                    crate::text_ui::content_row(ui, &node, &mut styles);
+                    if self.scene.sites.get(&id).is_some_and(|s| s.generated) {
+                        own_text = crate::text_ui::own_content_row(ui, &node, self.scene.own_texts.contains_key(&id));
+                    } else {
+                        crate::text_ui::content_row(ui, &node, &mut styles);
+                    }
                     ui.horizontal(|ui| {
                         field(self, ui, "Размер", Prop::FontSize, 0.5, 1.0..=2000.0, 1.0, 1);
                         field(self, ui, "Интервал", Prop::LetterSpacing, 0.1, -500.0..=500.0, 1.0, 1);
@@ -2495,6 +2500,9 @@ impl App {
             self.edit(&id, prop, value);
         }
         self.apply_styles(&id, styles);
+        if let Some(text) = own_text {
+            self.set_own_text(&id, &text);
+        }
         if pick_font {
             self.pick_font(&id);
         }

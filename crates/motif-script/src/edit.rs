@@ -192,16 +192,32 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
 }
 
 pub(crate) fn write_override(src: &str, scene: &Scene, node: &str, prop: Prop, text: &str) -> String {
-    let line = format!("  {node}.{} = {text}\n", prop.path_name());
+    override_line(src, scene, &format!("  {node}.{} = {text}\n", prop.path_name()))
+}
+
+/// Returns the script with text `node` saying `text` by an entry of `override`, over what its
+/// line says: a text of a symbol or of a loop has one line for every copy, and this gives one
+/// copy words of its own. An entry there already is rewritten. `None` when `node` is not a text.
+pub fn set_own_text(src: &str, scene: &Scene, node: &str, text: &str) -> Option<String> {
+    scene.doc.node(node)?.text.as_ref()?;
+    let quoted = crate::content::quoted_content(text);
+    Some(match scene.own_texts.get(node) {
+        Some(span) => splice(src, *span, &quoted),
+        None => override_line(src, scene, &format!("  {node}.content = {quoted}\n")),
+    })
+}
+
+/// Adds a whole `line` to the `override` block, starting the block when there is none.
+fn override_line(src: &str, scene: &Scene, line: &str) -> String {
     match scene.override_close {
-        Some(close) => insert_before_close(src, close, &line),
+        Some(close) => insert_before_close(src, close, line),
         None => {
             let mut out = src.to_string();
             if !out.is_empty() && !out.ends_with('\n') {
                 out.push('\n');
             }
             out.push_str("\n// Правки из редактора для объектов, заданных формулами или циклами\noverride {\n");
-            out.push_str(&line);
+            out.push_str(line);
             out.push_str("}\n");
             out
         }

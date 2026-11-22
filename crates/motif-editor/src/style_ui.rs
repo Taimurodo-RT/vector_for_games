@@ -236,6 +236,19 @@ pub fn blend_row(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) {
 
 impl App {
     /// Writes the collected whole-property edits to the script.
+    /// Gives text `node`, made by a symbol or a loop, words of its own: the other copies keep
+    /// the words of the shared line. Typing is one step back.
+    pub(crate) fn set_own_text(&mut self, node: &str, text: &str) {
+        if !self.can_edit() {
+            return;
+        }
+        let had = self.scene.own_texts.contains_key(node);
+        let out = motif_script::set_own_text(&self.src, &self.scene, node, text);
+        if self.apply(&format!("{node}.content"), out) && !had {
+            self.status = format!("Текст «{node}» теперь свой: остальные копии не изменились. Вернуть общий текст можно в списке «Правки этой копии»");
+        }
+    }
+
     pub(crate) fn apply_styles(&mut self, node: &str, edits: Vec<StyleEdit>) {
         for (key, text) in edits {
             if !self.can_edit() {

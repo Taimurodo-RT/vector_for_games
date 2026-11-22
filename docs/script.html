@@ -287,6 +287,19 @@
   coin2.y = <span class="n">12</span>
 }</code></pre>
 <p>Так формулы остаются формулами, а ручные правки видны отдельно. Строку из <code>override</code> можно удалить, и объект вернётся к значению по формуле.</p>
+<p id="own-text"><b>Свой текст у копии.</b> У текста внутри символа или цикла строка одна на все копии, поэтому слова одной копии тоже пишутся в <code>override</code>:</p>
+<pre><code><span class="k">symbol</span> Button {
+  <span class="k">group</span> row <span class="p">stack</span> row center <span class="p">pad</span> <span class="n">12</span> {
+    <span class="k">rect</span> bg <span class="p">fit</span> <span class="p">r</span> <span class="n">10</span> <span class="p">fill</span> <span class="n">#2d6cdf</span>
+    <span class="k">text</span> label <span class="p">content</span> <span class="s">"Играть"</span> <span class="p">font-size</span> <span class="n">16</span> <span class="p">fill</span> <span class="n">#ffffff</span>
+  }
+}
+<span class="k">use</span> Button play <span class="p">at</span> <span class="n">90 60</span>
+<span class="k">use</span> Button buy <span class="p">at</span> <span class="n">90 120</span>
+<span class="k">override</span> {
+  buy-label.content = <span class="s">"Купить всё"</span>
+}</code></pre>
+<p>Кнопка <code>play</code> говорит «Играть», как символ, а <code>buy</code> — «Купить всё», и её фон в раскладке <code>stack</code> сам становится шире. В редакторе это делается без скрипта: выделите текст копии и напишите новые слова в поле «Текст» (<a href="properties.html#own-text">подробнее</a>). В примере <code>examples/variants.msc</code> так подписаны кнопки «Купить» и «Назад». Файл с такой строкой сохраняется как <code>motif 5</code>.</p>
 
 <div class="note info">
   <p><b>Сцена — обычный текст.</b> Файлы <code>.msc</code> удобно хранить в git рядом с игрой: в истории видно, какое число поменялось. Их можно генерировать скриптами и проверять командой <code>motif check</code>.</p>
