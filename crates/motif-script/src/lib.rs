@@ -35,6 +35,7 @@ pub mod correctives;
 mod edit;
 mod eval;
 mod expr;
+mod extract;
 pub mod fonts;
 pub mod format;
 pub mod forms;
@@ -75,6 +76,7 @@ pub use edit::{
     set_purpose, set_stroke_gradient, set_style, set_world, ungroup, world_text, write_event, write_event_data, write_tracks,
 };
 pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
+pub use extract::{Bundled, Extracted, bundle_scene, copy_fonts, extract_symbol, file_name_for};
 pub use include::{IncludeSite, add_include, file_includes, include_path, inline_includes, remove_include, touched as include_touched, with_included_names};
 pub use library::{LibraryFile, LibrarySymbol, add_library_use, library_file, library_files, library_match, library_own_preview, library_preview, set_tags};
 pub use machine::{

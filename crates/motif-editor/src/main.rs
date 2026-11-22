@@ -9,6 +9,7 @@ mod bone_ui;
 mod brush_ui;
 mod canvas;
 mod canvas_drag;
+mod carry_ui;
 mod character_ui;
 mod check_ui;
 mod combine_ui;

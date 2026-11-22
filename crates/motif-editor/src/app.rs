@@ -1300,7 +1300,11 @@ impl App {
                 self.pose_preview.clear();
                 self.reset_workspace_document();
                 self.recovery.clear();
-                self.undo.push((self.boards.active, self.file_text()));
+                // The steps back belong to the file that was open: under the name of this one
+                // they would bring its text, and a save would write it over this file.
+                self.undo.clear();
+                self.redo.clear();
+                self.last_checkpoint.0.clear();
                 self.set_file(&s, 0);
                 self.saved_src = s;
                 self.disk_mtime = mtime(&p);
@@ -4511,6 +4515,9 @@ mod big_scene_tests;
 #[cfg(test)]
 #[path = "canvas_interaction_tests.rs"]
 mod canvas_interaction_tests;
+#[cfg(test)]
+#[path = "carry_tests.rs"]
+mod carry_tests;
 #[cfg(test)]
 #[path = "combine_tests.rs"]
 mod combine_tests;

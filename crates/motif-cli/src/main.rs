@@ -20,6 +20,8 @@ motif — скрипты сцен Motif без окна редактора
   motif import-html <фрагмент.html> [--css стиль.css] [--browser chrome|firefox] [-o сцена.msc]
   motif inspect <сцена.msc> [--board ИМЯ] [--anim ИМЯ --time СЕК] [--node ID] [-o отчёт.json]
   motif contract <сцена.msc> [-o договор.json] [--board ИМЯ]
+  motif bundle  <сцена.msc> -o одна.msc                (сцена одним файлом, без строк include)
+  motif extract <сцена.msc> --symbol ИМЯ [-o символ.msc] (символ со всем, что ему нужно)
   motif morph   <сцена.msc> [-o фигуры.json] [--board ИМЯ]
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
@@ -91,6 +93,54 @@ frames и video снимает одну сторону: down, down_right, right,
 pixel снимает кадры и сам прогоняет их через PixaTool с пресетом, сохранённым в PixaTool кнопкой
 «Save Preset». PixaTool ищется в --pixatool, в переменной MOTIF_PIXATOOL и в папке tools рядом с Motif.";
 
+/// `bundle`: the scene as one file. `extract`: a symbol with all it needs as a file of its own.
+/// The font files the new file names are copied beside it.
+fn carry(a: &Args, src: &str) -> Result<(), String> {
+    let from = a.scene.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
+    let (text, fonts, out, said) = if a.cmd == "bundle" {
+        let out = a.out.clone().ok_or("bundle: куда писать — -o одна.msc")?;
+        let b = motif_script::bundle_scene(src, Some(&from))?;
+        let said = if b.files.is_empty() {
+            "в сцене нет строк include, она записана как есть".to_string()
+        } else {
+            format!("вставлены строки файлов: {}", b.files.join(", "))
+        };
+        (b.text, b.fonts.iter().map(|f| (f.clone(), f.clone())).collect::<Vec<_>>(), out, said)
+    } else {
+        let symbol = a.symbol.as_deref().ok_or("extract: какой символ — --symbol ИМЯ")?;
+        let out = a.out.clone().unwrap_or_else(|| motif_script::file_name_for(symbol));
+        let e = motif_script::extract_symbol(src, Some(&from), symbol)?;
+        let mut with = Vec::new();
+        for (what, names) in [("палитра", &e.palette), ("стили", &e.styles), ("символы", &e.symbols), ("темы", &e.themes)] {
+            if !names.is_empty() {
+                with.push(format!("{what}: {}", names.join(", ")));
+            }
+        }
+        let said = if with.is_empty() {
+            format!("символ {symbol} ни от чего не зависит")
+        } else {
+            format!("с символом {symbol} взято — {}", with.join("; "))
+        };
+        (e.text, e.fonts, out, said)
+    };
+    if std::fs::canonicalize(&out).ok().is_some_and(|o| std::fs::canonicalize(&a.scene).ok() == Some(o)) {
+        return Err(format!("{}: это сама сцена, новый файл пишется рядом под другим именем", out.display()));
+    }
+    let to = out.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
+    std::fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()))?;
+    std::fs::write(&out, text).map_err(|e| format!("{}: {e}", out.display()))?;
+    println!("{} — {said}", out.display());
+    let left = motif_script::copy_fonts(&fonts, &from, &to);
+    let copied = fonts.len() - left.len();
+    if copied > 0 {
+        println!("шрифты рядом с файлом: {copied}");
+    }
+    if !left.is_empty() {
+        eprintln!("внимание: шрифты не скопированы, положите их рядом с новым файлом сами: {}", left.join(", "));
+    }
+    Ok(())
+}
+
 struct Args {
     cmd: String,
     scene: PathBuf,
@@ -108,6 +158,7 @@ struct Args {
     preset: Option<PathBuf>,
     pixatool: Option<PathBuf>,
     node: Option<String>,
+    symbol: Option<String>,
     pivot: Option<(f64, f64)>,
     pixelize: bool,
     machine: Option<String>,
@@ -146,6 +197,7 @@ fn parse_args() -> Result<Args, String> {
         preset: None,
         pixatool: None,
         node: None,
+        symbol: None,
         pivot: None,
         pixelize: false,
         machine: None,
@@ -177,6 +229,7 @@ fn parse_args() -> Result<Args, String> {
             "--preset" => a.preset = Some(it.next().ok_or("после --preset нужен файл пресета")?.into()),
             "--pixatool" => a.pixatool = Some(it.next().ok_or("после --pixatool нужен путь к Pixatool.exe")?.into()),
             "--node" => a.node = Some(it.next().ok_or("после --node нужен id объекта")?),
+            "--symbol" => a.symbol = Some(it.next().ok_or("после --symbol нужно имя символа")?),
             "--board" => a.board = Some(it.next().ok_or("после --board нужно имя холста или его номер")?),
             "--take" => a.take = Some(it.next().ok_or("после --take нужны моменты: \"1 speed=1, 2.5 jump\"")?),
             "--length" => a.length = Some(num(it.next(), "--length")?),
@@ -244,6 +297,9 @@ fn run() -> Result<(), String> {
     }
     if a.cmd == "inspect" {
         return inspect::run(&a, &src, &scenes);
+    }
+    if a.cmd == "bundle" || a.cmd == "extract" {
+        return carry(&a, &src);
     }
     if a.cmd == "svg" || a.cmd == "web" {
         return export_web(&a, &src, scenes);
