@@ -854,7 +854,7 @@ impl App {
         self.anim = Some(name);
     }
 
-    fn undo(&mut self) {
+    pub(crate) fn undo(&mut self) {
         if let Some((board, prev)) = self.undo.pop() {
             self.redo.push((self.boards.active, self.file_text()));
             self.restore(board, &prev);
@@ -2267,6 +2267,9 @@ impl App {
                 self.game_section(ui, &node);
             }
         }
+        if show(Cat::Fill) {
+            self.style_row(ui, &node);
+        }
         if !node.kind.is_container() {
             if show(Cat::Fill) {
                 fold(ui, "Заливка", |ui| {
@@ -2465,6 +2468,7 @@ impl App {
         });
         self.guides_section(ui);
         self.palette_section(ui);
+        self.styles_section(ui);
         if self.tool_profile() == Purpose::Ui {
             self.symbols_library(ui);
             self.backdrop_section(ui);

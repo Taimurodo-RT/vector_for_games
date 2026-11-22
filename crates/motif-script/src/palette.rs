@@ -24,18 +24,23 @@ pub fn add_swatch(src: &str, scene: &Scene, name: &str, color: Color) -> String 
             splice(src, Span::new(at, at), &line)
         }
         None => {
-            // After the format version and the comments that open the file.
-            let mut at = if crate::format::declared(src).is_some() { src.find('\n').map_or(src.len(), |i| i + 1) } else { 0 };
-            for l in src[at..].split_inclusive('\n') {
-                if !(l.trim().is_empty() || l.trim_start().starts_with("//")) {
-                    break;
-                }
-                at += l.len();
-            }
-            let at = at.min(crate::head_end(src));
+            let at = top_of_file(src);
             splice(src, Span::new(at, at), &format!("{line}\n"))
         }
     }
+}
+
+/// Where the first declaration of a file goes: after the format version and the comments that
+/// open the file, in the head that every artboard shares.
+pub(crate) fn top_of_file(src: &str) -> usize {
+    let mut at = if crate::format::declared(src).is_some() { src.find('\n').map_or(src.len(), |i| i + 1) } else { 0 };
+    for l in src[at..].split_inclusive('\n') {
+        if !(l.trim().is_empty() || l.trim_start().starts_with("//")) {
+            break;
+        }
+        at += l.len();
+    }
+    at.min(crate::head_end(src))
 }
 
 /// A palette name not used yet: `color1`, `color2`…

@@ -104,7 +104,7 @@ fn arrow_head(painter: &egui::Painter, tip: Pos2, dir: Vec2, color: Color32) {
 }
 
 /// A one-line name field that hands back the new text when editing ends with a different, valid name.
-fn name_edit(ui: &mut Ui, salt: impl std::hash::Hash + std::fmt::Debug, current: &str, width: f32) -> Option<String> {
+pub(crate) fn name_edit(ui: &mut Ui, salt: impl std::hash::Hash + std::fmt::Debug, current: &str, width: f32) -> Option<String> {
     let id = ui.make_persistent_id(salt);
     let edit_id = id.with("edit");
     let focused = ui.memory(|m| m.has_focus(edit_id));

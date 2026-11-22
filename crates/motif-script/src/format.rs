@@ -6,9 +6,10 @@
 //!
 //! - 2: `guide x 120` — guide lines of the editor.
 //! - 3: `group … combine subtract` — live boolean operations.
+//! - 4: `style card fill #ffffff` — named styles.
 
 /// The newest format this Motif reads.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 
 /// The lowest format version that reads `src`: the first one that has everything it uses.
 pub fn needed(src: &str) -> u32 {
@@ -21,7 +22,11 @@ pub fn needed(src: &str) -> u32 {
         let mut words = code.split_whitespace();
         words.next() == Some("group") && words.skip(1).any(|w| w == "combine")
     });
-    if combine {
+    // A statement starts its line; `style` came with version 4.
+    let style = src.lines().any(|l| l.split_whitespace().next() == Some("style"));
+    if style {
+        4
+    } else if combine {
         3
     } else if guide {
         2
@@ -83,6 +88,12 @@ mod tests {
         let live = "artboard \"a\" 10x10\ngroup g combine subtract {\n  rect a size 4 4\n  rect b size 2 2\n}\n";
         assert_eq!(needed(live), 3);
         assert_eq!(needed(&format!("{live}guide x 5\n")), 3);
+        // Named styles came with version 4.
+        let styled = "artboard \"a\" 10x10\nstyle card fill #ffffff\nrect a size 4 4 style card\n";
+        assert_eq!(needed(styled), 4);
+        assert_eq!(stamp(styled), format!("motif 4\n{styled}"));
+        // An object called `style` and a comment with the word are not a style.
+        assert_eq!(needed("artboard \"a\" 10x10\nrect style at 0 0 size 4 4 // style card\n"), 1);
         // A group called `combine`, a name and a comment with the word are not the property.
         assert_eq!(needed("artboard \"a\" 10x10\ngroup combine \"we combine it\" { // combine\n}\n"), 1);
     }
