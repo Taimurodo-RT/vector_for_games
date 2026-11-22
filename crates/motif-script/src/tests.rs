@@ -2517,3 +2517,46 @@ fn every_example_poses_the_same_twice() {
     }
     assert!(posed > 40, "{posed} animations posed");
 }
+
+/// An open outline used to be "hit" by every point in a band to one side of it, however far:
+/// its inside was counted without the side that is not written.
+#[test]
+fn a_click_beside_an_open_outline_does_not_reach_it() {
+    use motif_core::kurbo::Point;
+    // An angle: the top side and the right side of a square 40 by 40, the rest is not written.
+    let angle = "M 0 0 L 40 0 L 40 40";
+    let src = format!(
+        "artboard \"A\" 400x300 bg #101010\n\
+         path wire at 100 60 d \"{angle}\" fill none stroke #ffffff 2\n\
+         path flag at 100 160 d \"{angle}\" fill #ff0000\n\
+         path ghost at 250 60 d \"M 0 0 L 40 0\" fill none\n\
+         path both at 250 160 d \"M 0 0 L 20 0 L 20 20 L 0 20 Z M 30 0 L 40 0 L 40 40\" fill none stroke #ffffff 2\n"
+    );
+    let s = scene(&src);
+    let hit = |x: f64, y: f64| s.doc.hit_test(Point::new(x, y)).map(|i| s.doc.nodes[i].id.as_str());
+    // A line without a fill is hit on the line: not between its sides and not beside it.
+    assert_eq!((hit(120.0, 60.0), hit(140.0, 80.0)), (Some("wire"), Some("wire")));
+    assert_eq!((hit(130.0, 70.0), hit(110.0, 90.0), hit(20.0, 80.0), hit(390.0, 80.0)), (None, None, None, None));
+    // With a fill, the inside is what the fill paints: the angle closed by a straight line.
+    assert_eq!((hit(130.0, 170.0), hit(139.0, 198.0)), (Some("flag"), Some("flag")));
+    assert_eq!((hit(110.0, 190.0), hit(20.0, 180.0), hit(390.0, 180.0)), (None, None, None));
+    // A line that is not drawn at all can still be picked by itself.
+    assert_eq!((hit(270.0, 61.0), hit(270.0, 70.0), hit(390.0, 60.0)), (Some("ghost"), None, None));
+    // A closed piece keeps its inside next to an open one.
+    assert_eq!((hit(260.0, 170.0), hit(285.0, 160.0), hit(280.0, 175.0), hit(390.0, 170.0)), (Some("both"), Some("both"), None, None));
+
+    // Half of a sign and its reflection lie over a button. The reflection is the half turned
+    // over, and its band reached the other way: over the button.
+    let src = "artboard \"A\" 400x300 bg #101010\n\
+               rect button at 30 100 size 20 20 fill #ff0000\n\
+               group sign at 100 100 repeat mirror x {\n  path half d \"M 0 -30 L -30 -30 L -30 30 L 0 30\" fill none stroke #ffffff 2\n}\n\
+               rect other at 170 100 size 20 20 fill #ff0000\n";
+    let s = scene(src);
+    let hit = |x: f64, y: f64| s.doc.hit_test(Point::new(x, y)).map(|i| s.doc.nodes[i].id.as_str());
+    assert_eq!((hit(30.0, 100.0), hit(170.0, 100.0)), (Some("button"), Some("other")));
+    assert_eq!((hit(70.0, 100.0), hit(130.0, 100.0), hit(100.0, 100.0)), (Some("half"), Some("sign-x-half"), None));
+    // What listens to the pointer in a state machine is asked the same way.
+    let sign = s.doc.index_of("sign").unwrap();
+    assert!(s.doc.hits_tree(sign, Point::new(70.0, 100.0)) && s.doc.hits_tree(sign, Point::new(130.0, 100.0)));
+    assert!(!s.doc.hits_tree(sign, Point::new(30.0, 100.0)) && !s.doc.hits_tree(sign, Point::new(170.0, 100.0)));
+}
