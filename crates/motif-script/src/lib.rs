@@ -72,14 +72,18 @@ pub use machine::{
 };
 use motif_core::{Color, Document, Prop};
 pub use outline::{offset_path, shape_to_path, stroke_to_path};
-pub use palette::{add_swatch, free_swatch_name, set_ref, set_swatch};
+pub use palette::{
+    Collected, ColorUse, ColorWord, Replaced, add_gradient_swatch, add_swatch, collect_palette, color_uses, free_gradient_name, free_swatch_name,
+    gradient_to_palette, name_color, rename_swatch, replace_color, scene_color_uses, set_gradient_ref, set_gradient_swatch, set_ref, set_swatch,
+    swatch_name_ok,
+};
 /// Native node property names and their value arity, useful to avoid ambiguous generated IDs.
 pub use parser::prop_arity;
 use std::collections::HashMap;
 use std::fmt;
 pub use styles::{
-    assign_style, delete_style, delete_style_in_file, detach_style, free_style_name, make_style, own_look, rename_style, rename_style_in_file, reset_to_style,
-    style_name_ok, write_into_style,
+    assign_style, delete_style, delete_style_in_file, detach_style, free_style_name, make_style, own_look, rename_style, rename_style_in_file, replace_style,
+    reset_to_style, style_name_ok, write_into_style,
 };
 pub use svg::import_svg;
 pub use symbol::{add_use, free_symbol_name, make_symbol, set_param};
@@ -208,6 +212,50 @@ pub struct Scene {
     pub style_uses: Vec<StyleUse>,
     /// The style each object takes, by the object's id.
     pub styled: HashMap<String, String>,
+    /// Gradients named by top-level `let` lines (`let sky = linear 90 #6fb8ff #ffffff`), in the
+    /// order written: the gradients of the palette.
+    pub gradients: Vec<GradientSwatch>,
+    /// The palette gradient a fill (`false`) or a stroke (`true`) takes by name, by node id.
+    pub gradient_names: HashMap<(String, bool), String>,
+    /// Every place where a color is written and read, `#ff5a36` or the name of a palette color.
+    /// A line inside a loop or a symbol is here once. A symbol that is never placed and a style
+    /// that nothing takes are not read, so their colors are not here.
+    pub colors: Vec<ColorSite>,
+    /// Every gradient written after `gradient` or `stroke-gradient`, in the same way.
+    pub gradient_sites: Vec<GradientSite>,
+}
+
+/// A place of the script where a color is written.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ColorSite {
+    pub span: Span,
+    pub color: Color,
+    /// The palette color it is written by, when it is a name.
+    pub name: Option<String>,
+    /// The value of a `let`: here the color is made, not used.
+    pub decl: bool,
+}
+
+/// A place of the script where the gradient of a fill or a stroke is written.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GradientSite {
+    /// What follows the property word: `linear 90 #a #b`, or the name of a palette gradient.
+    pub span: Span,
+    pub gradient: motif_core::Gradient,
+    /// The palette gradient it is written by, when it is a name.
+    pub name: Option<String>,
+}
+
+/// A named gradient of the palette: `let sky = linear 90 #6fb8ff #ffffff`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GradientSwatch {
+    pub name: String,
+    pub name_span: Span,
+    pub gradient: motif_core::Gradient,
+    /// The value after `=`, from the kind word to the last color.
+    pub span: Span,
+    /// The palette color each of its colors is written by, when it is a name.
+    pub stops: Vec<Option<String>>,
 }
 
 /// A named look: `style card fill #ffffff stroke ink 2 r 10`.
@@ -240,6 +288,7 @@ pub struct StyleUse {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Swatch {
     pub name: String,
+    pub name_span: Span,
     pub color: Color,
     /// The value after `=`; rewritten when the color is edited, if it is a plain color.
     pub span: Span,
@@ -427,6 +476,7 @@ pub fn parse_in(src: &str, base: Option<&std::path::Path>) -> Result<Scene, Vec<
     let stmts = parser.block(false);
     let mut ev = eval::Evaluator::new(src, base);
     ev.run(&stmts);
+    ev.read_unused();
     let mut errors = parser.errors;
     errors.extend(ev.errors);
     if errors.is_empty() {

@@ -9,6 +9,52 @@ use motif_script::{set_clip, set_gradient, set_stroke_gradient};
 /// Fill type choices, in the order of the switch.
 const KINDS: [&str; 3] = ["Цвет", "Линейный", "Радиальный"];
 
+/// The colours of a gradient as squares to edit, «+» for one more, and the angle of a linear
+/// one. Returns the gradient when something changed.
+pub(crate) fn gradient_editor(ui: &mut egui::Ui, g: &Gradient) -> Option<Gradient> {
+    let mut g2 = g.clone();
+    let mut changed = false;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+        let mut remove = None;
+        for (i, c) in g.colors.iter().enumerate() {
+            let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+            ui.painter().rect_filled(sw, 6.0, Color32::from_rgb(c.r, c.g, c.b));
+            ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, theme::LINE), StrokeKind::Inside);
+            let resp = resp.on_hover_text(format!("{} · клик — изменить", c.to_hex()));
+            let mut c32 = Color32::from_rgb(c.r, c.g, c.b);
+            theme::color_popup(&resp).show(|ui| {
+                if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::Opaque) {
+                    g2.colors[i] = Color { r: c32.r(), g: c32.g(), b: c32.b(), a: c.a };
+                    changed = true;
+                }
+                if g.colors.len() > 2 && ui.button("Убрать цвет").clicked() {
+                    remove = Some(i);
+                }
+            });
+        }
+        if g.colors.len() < 8 && theme::button(ui, "+", theme::ButtonKind::Normal).on_hover_text("Добавить цвет в конец").clicked() {
+            let last = *g.colors.last().unwrap();
+            g2.colors.push(lighten(last, 0.5));
+            changed = true;
+        }
+        if let Some(i) = remove {
+            g2.colors.remove(i);
+            changed = true;
+        }
+    });
+    if !g.radial {
+        ui.add_space(6.0);
+        let w = ui.available_width();
+        let out = theme::num_field(ui, w, "Угол °", g.angle, 1.0, -360.0..=360.0, 0, theme::KeyState::Hidden);
+        if let Some(a) = out.changed {
+            g2.angle = a.round();
+            changed = true;
+        }
+    }
+    changed.then_some(g2)
+}
+
 impl App {
     /// The fill type switch, and for a gradient its colours and angle.
     /// Returns true when the plain colour row should be shown.
@@ -43,50 +89,59 @@ impl App {
         }
         if let Some(g) = gradient {
             ui.add_space(6.0);
-            let mut g2 = g.clone();
-            let mut changed = false;
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                let mut remove = None;
-                for (i, c) in g.colors.iter().enumerate() {
-                    let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-                    ui.painter().rect_filled(sw, 6.0, Color32::from_rgb(c.r, c.g, c.b));
-                    ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, theme::LINE), StrokeKind::Inside);
-                    let resp = resp.on_hover_text(format!("{} · клик — изменить", c.to_hex()));
-                    let mut c32 = Color32::from_rgb(c.r, c.g, c.b);
-                    theme::color_popup(&resp).show(|ui| {
-                        if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::Opaque) {
-                            g2.colors[i] = Color { r: c32.r(), g: c32.g(), b: c32.b(), a: c.a };
-                            changed = true;
-                        }
-                        if g.colors.len() > 2 && ui.button("Убрать цвет").clicked() {
-                            remove = Some(i);
-                        }
-                    });
-                }
-                if g.colors.len() < 8 && theme::button(ui, "+", theme::ButtonKind::Normal).on_hover_text("Добавить цвет в конец").clicked() {
-                    let last = *g.colors.last().unwrap();
-                    g2.colors.push(lighten(last, 0.5));
-                    changed = true;
-                }
-                if let Some(i) = remove {
-                    g2.colors.remove(i);
-                    changed = true;
-                }
-            });
-            if !g.radial {
-                ui.add_space(6.0);
-                let w = ui.available_width();
-                let out = theme::num_field(ui, w, "Угол °", g.angle, 1.0, -360.0..=360.0, 0, theme::KeyState::Hidden);
-                if let Some(a) = out.changed {
-                    g2.angle = a.round();
-                    changed = true;
-                }
-            }
-            if changed {
+            if let Some(g2) = gradient_editor(ui, g) {
                 next = Some(Some(g2));
             }
             ui.label(RichText::new("Цвета идут по порядку вдоль градиента. Угол 0 — слева направо, 90 — сверху вниз.").size(11.5).color(theme::FAINT));
+        }
+        // The gradients of the palette: a click takes one by its name, so it changes with the palette.
+        let named = self.scene.gradient_names.get(&(node.id.clone(), stroke)).cloned();
+        let mut take: Option<String> = None;
+        let mut keep = false;
+        if !self.scene.gradients.is_empty() || gradient.is_some() {
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                for s in &self.scene.gradients {
+                    let on = named.as_deref() == Some(s.name.as_str());
+                    let resp = crate::palette_ui::gradient_swatch(ui, vec2(30.0, 16.0), &s.gradient, on);
+                    if resp.on_hover_text(format!("{}: градиент палитры. Меняется в палитре сразу везде", s.name)).clicked()
+                    {
+                        take = Some(s.name.clone());
+                    }
+                }
+                match &named {
+                    Some(name) => {
+                        ui.label(RichText::new(name).size(11.0).color(MUTED));
+                    }
+                    None if gradient.is_some() => {
+                        let hint = "Градиент объекта получит имя в палитре (строка let), и его можно будет назначать другим объектам";
+                        keep = theme::button(ui, "В палитру", theme::ButtonKind::Normal).on_hover_text(hint).clicked();
+                    }
+                    None => {}
+                }
+            });
+        }
+        if let Some(name) = take
+            && self.can_edit()
+        {
+            match motif_script::set_gradient_ref(&self.src, &self.scene, &node.id, stroke, &name) {
+                Some(out) => {
+                    self.apply_once("gradient-ref", Some(out));
+                }
+                None => self.status = "Градиент объекта из цикла меняется в тексте цикла".into(),
+            }
+        }
+        if keep && self.can_edit() {
+            let name = motif_script::free_gradient_name(&self.file_text());
+            match motif_script::gradient_to_palette(&self.src, &self.scene, &node.id, stroke, &name) {
+                Some(out) => {
+                    if self.apply_once("gradient-keep", Some(out)) {
+                        self.status = format!("Градиент записан в палитру как «{name}». Имя меняется в панели артборда, раздел «Палитра»");
+                    }
+                }
+                None => self.status = "В палитру идёт градиент, записанный на строке самого объекта (не в стиле и не в цикле)".into(),
+            }
         }
         if let Some(g) = next
             && self.can_edit()

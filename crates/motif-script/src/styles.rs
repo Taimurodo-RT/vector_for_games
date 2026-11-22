@@ -315,6 +315,43 @@ pub fn rename_style_in_file(file: &str, base: Option<&std::path::Path>, board: u
     in_file(file, base, board, old, |_, scene| rename_edits(scene, old, new))
 }
 
+/// Returns the file with every object that takes the style `from` taking `to` instead, on
+/// every board, and how many lines changed. What a line writes over its style stays; what it
+/// refused (`no shadow`) was about the old style and goes. `board` is the board whose styles
+/// the names are of. `None` when a board has errors, one of the styles is missing, `to` is not
+/// seen on a board that uses `from`, or nothing takes `from`.
+pub fn replace_style(file: &str, base: Option<&std::path::Path>, board: usize, from: &str, to: &str) -> Option<(String, usize)> {
+    if from == to {
+        return None;
+    }
+    let views = crate::boards::board_views(file, base)?;
+    let line = |v: &crate::boards::BoardView, name: &str| site(&v.scene, name).map(|s| v.in_file(s.span));
+    let active = views.get(board)?;
+    let (from_at, to_at) = (line(active, from)?, line(active, to)?);
+    let mut edits: Vec<(Span, String)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut lines = 0;
+    for v in views.iter().filter(|v| line(v, from) == Some(from_at)) {
+        for u in v.scene.style_uses.iter().filter(|u| u.style == from) {
+            if line(v, to) != Some(to_at) {
+                return None;
+            }
+            if !seen.insert(v.in_file(u.name_span).start) {
+                continue;
+            }
+            lines += 1;
+            edits.push((v.in_file(u.name_span), to.to_string()));
+            edits.extend(u.own.iter().filter(|(k, _)| refused(k).is_some()).map(|(_, s)| (v.in_file(with_space_before(&v.text, *s)), String::new())));
+        }
+    }
+    if edits.is_empty() {
+        return None;
+    }
+    let out = splice_all(file, edits);
+    crate::parse_boards(&out, base).ok()?;
+    Some((out, lines))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,6 +767,43 @@ rect d at 50 50 size 40 40 style note
         assert_eq!(rename_style_in_file(one, None, 0, "card", "plate"), rename_style(one, &scene(one), "card", "plate"));
         assert_eq!(delete_style_in_file(one, None, 0, "card"), delete_style(one, &scene(one), "card"));
         assert_eq!(delete_style_in_file(one, None, 0, "none"), None);
+    }
+
+    #[test]
+    fn a_style_is_replaced_by_another_everywhere() {
+        let file = "let ink = #1b1d24
+style card fill #ffffff stroke ink 2 shadow 0 2 4 #00000033
+style flat fill #f0f0f0
+symbol Spare {
+  rect body size 4 4 style card
+}
+artboard \"one\" 100x100
+rect a at 50 50 size 40 40 style card no shadow r 4
+artboard \"two\" 100x100 cell 1 0
+style own fill #000000
+for i in 0..2 {
+  rect b{i} at {i * 20} 50 size 10 10 style card fill #ffd23f
+}
+rect c at 50 80 size 40 10 style own
+";
+        let (out, lines) = replace_style(file, None, 0, "card", "flat").unwrap();
+        // The line of the first board, the loop of the second and the symbol nobody placed.
+        assert_eq!(lines, 3);
+        // What was refused belonged to the old style; what the line writes itself stays.
+        assert!(out.contains("rect a at 50 50 size 40 40 style flat r 4\n"), "{out}");
+        assert!(out.contains("size 10 10 style flat fill #ffd23f\n") && out.contains("  rect body size 4 4 style flat\n"), "{out}");
+        assert!(out.contains("style card fill #ffffff stroke ink 2 shadow 0 2 4 #00000033\n"), "{out}");
+        let boards = crate::parse_boards(&out, None).unwrap();
+        assert_eq!(boards[0].doc.node("a").unwrap().fill, Some(hex("#f0f0f0")));
+        assert_eq!(boards[1].doc.node("b1").unwrap().fill, Some(hex("#ffd23f")));
+        assert_eq!(boards[1].doc.node("b1").unwrap().stroke_width, 0.0);
+        // A style one board keeps for itself cannot be taken on another.
+        assert_eq!(replace_style(file, None, 1, "card", "own"), None);
+        let (out, lines) = replace_style(file, None, 1, "own", "card").unwrap();
+        assert!(lines == 1 && out.contains("rect c at 50 80 size 40 10 style card\n"), "{out}");
+        assert_eq!(replace_style(file, None, 0, "flat", "card"), None);
+        assert_eq!(replace_style(file, None, 0, "card", "card"), None);
+        assert_eq!(replace_style(file, None, 0, "card", "gone"), None);
     }
 
     #[test]

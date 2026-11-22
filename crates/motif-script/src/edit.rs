@@ -386,12 +386,27 @@ pub fn gradient_text(g: &motif_core::Gradient) -> String {
 /// Returns the script with the gradient of `node` set, replaced or removed (`None`: back to the
 /// plain fill). `None` when the node comes from a loop.
 pub fn set_gradient(src: &str, scene: &Scene, node: &str, gradient: Option<&motif_core::Gradient>) -> Option<String> {
-    set_style(src, scene, node, "gradient", gradient.map(gradient_text).as_deref())
+    set_style(src, scene, node, "gradient", gradient.map(|g| format!("gradient {}", kept_names(scene, node, false, g))).as_deref())
+}
+
+/// The text of a gradient being set on `node`: a color that was written by a palette name and
+/// did not change keeps the name, so editing one color of a gradient does not take the others
+/// out of the palette.
+fn kept_names(scene: &Scene, node: &str, stroke: bool, g: &motif_core::Gradient) -> String {
+    let before = scene.doc.node(node).and_then(|n| if stroke { n.stroke_gradient.as_ref() } else { n.gradient.as_ref() });
+    let names = scene.gradient_refs.get(&(node.to_string(), stroke));
+    let stops: Vec<Option<String>> = (0..g.colors.len())
+        .map(|i| {
+            let same = before.is_some_and(|b| b.colors.len() == g.colors.len() && b.colors[i] == g.colors[i]);
+            names.and_then(|n| n.get(i).cloned().flatten()).filter(|name| same && scene.palette.iter().any(|s| s.name == *name))
+        })
+        .collect();
+    crate::palette::gradient_text(g, &stops)
 }
 
 /// Returns the script with the stroke gradient of `node` set, or removed when `None`.
 pub fn set_stroke_gradient(src: &str, scene: &Scene, node: &str, gradient: Option<&motif_core::Gradient>) -> Option<String> {
-    set_style(src, scene, node, "stroke-gradient", gradient.map(|g| format!("stroke-{}", gradient_text(g))).as_deref())
+    set_style(src, scene, node, "stroke-gradient", gradient.map(|g| format!("stroke-gradient {}", kept_names(scene, node, true, g))).as_deref())
 }
 
 /// Returns the script with the `clip` flag of group `node` turned on or off.

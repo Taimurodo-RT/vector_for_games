@@ -17,6 +17,8 @@ enum Act {
     WriteInto,
     Rename(String, String),
     Delete(String),
+    /// Every object of the first style takes the second.
+    Replace(String, String),
     Select(String),
 }
 
@@ -253,7 +255,8 @@ impl App {
                     }
                     // The name takes what the count and the button leave.
                     let count = format!("объектов: {}", users.len());
-                    let taken = ui.painter().layout_no_wrap(count.clone(), egui::FontId::proportional(11.5), FAINT).size().x + 28.0 + 30.0;
+                    let swap = if styles.len() > 1 { 34.0 } else { 0.0 };
+                    let taken = ui.painter().layout_no_wrap(count.clone(), egui::FontId::proportional(11.5), FAINT).size().x + 28.0 + 30.0 + swap;
                     if let Some(new) = crate::machine_ui::name_edit(ui, ("style-name", name), name, (ui.available_width() - taken).max(60.0)) {
                         act = Some(Act::Rename(name.clone(), new));
                     }
@@ -261,6 +264,18 @@ impl App {
                         if theme::button(ui, "×", ButtonKind::Normal).on_hover_text("Удалить стиль. Объекты сохранят вид: он запишется в их строки").clicked()
                         {
                             act = Some(Act::Delete(name.clone()));
+                        }
+                        if styles.len() > 1 {
+                            let resp = theme::button(ui, "⇄", ButtonKind::Normal).on_hover_text("Заменить везде: все объекты этого стиля возьмут другой");
+                            theme::color_popup(&resp).show(|ui| {
+                                ui.label(RichText::new(format!("Заменить «{name}» везде на:")).size(11.5).color(MUTED));
+                                for other in styles.iter().filter(|o| *o != name) {
+                                    if theme::button(ui, other, ButtonKind::Normal).clicked() {
+                                        act = Some(Act::Replace(name.clone(), other.clone()));
+                                        ui.close();
+                                    }
+                                }
+                            });
                         }
                         ui.label(RichText::new(count).size(11.5).color(FAINT));
                     });
@@ -351,6 +366,22 @@ impl App {
                     self.status = OTHER_BOARD_ERRORS.into();
                 } else if self.apply_file("style-delete", out) {
                     self.status = format!("Стиль «{name}» удалён. Объекты сохранили вид: {users}");
+                }
+            }
+            Act::Replace(from, to) => {
+                let (file, base) = (self.file_text(), self.path.as_ref().and_then(|p| p.parent()));
+                match motif_script::replace_style(&file, base, self.boards.active, &from, &to) {
+                    Some((out, lines)) => {
+                        if self.apply_file("style-replace", Some(out)) {
+                            self.status = format!("Стиль «{from}» заменён на «{to}», строк: {lines}");
+                        }
+                    }
+                    None => {
+                        self.status = match motif_script::parse_boards(&file, base) {
+                            Ok(_) => format!("Заменить не получилось: стиль «{from}» никто не берёт, или «{to}» виден не на всех холстах, где он используется"),
+                            Err(_) => OTHER_BOARD_ERRORS.into(),
+                        };
+                    }
                 }
             }
             Act::Select(_) => {}
