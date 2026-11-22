@@ -27,6 +27,7 @@ mod library_ui;
 mod link_ui;
 mod machine_ui;
 mod marks_ui;
+mod master_ui;
 mod measure;
 mod morph_ui;
 mod motion_ui;

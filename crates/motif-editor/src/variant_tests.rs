@@ -97,6 +97,9 @@ fn inside_a_copy_the_symbol_shows_what_its_variant_hides() {
     // The object leaves the symbol and the list of what the variant hides.
     app.select_only(Some("b2-glyph".into()));
     app.delete_selection();
+    // A variant hides it: the question names the variant.
+    assert_eq!(app.symbol_delete.as_ref().map(|d| d.uses.variants.clone()), Some(vec!["main".to_string()]));
+    app.answer_symbol_delete(true);
     assert!(app.src.contains("  variant main face=#ff5a36\n  rect bg") && !app.src.contains("glyph"), "{}", app.src);
 }
 

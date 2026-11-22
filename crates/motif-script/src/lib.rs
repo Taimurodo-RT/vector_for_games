@@ -27,6 +27,7 @@ mod boolean;
 mod combine_edit;
 mod content;
 pub mod contract;
+mod detach;
 pub use content::quoted_content;
 pub use contract::{Contract, contract, contract_json};
 pub use reyvec::{MorphFile, reyvec_morph, reyvec_morph_json, reyvec_morph_warnings};
@@ -41,6 +42,7 @@ pub mod ids;
 mod lexer;
 mod machine;
 pub mod marks;
+mod master;
 mod outline;
 mod parser;
 pub mod reyvec;
@@ -61,6 +63,7 @@ pub mod character;
 mod character_controls;
 pub use boolean::{BoolOp, boolean};
 pub use combine_edit::{combine_nodes, flatten_combine, set_combine};
+pub use detach::detach_copy;
 pub use edit::{
     KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_guide, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_anim,
     delete_key, delete_keys, delete_node, directions_text, duplicate_anim, fmt_value, gradient_text, group_nodes, guide_text, move_key, move_node, paste_keys,
@@ -72,6 +75,7 @@ pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_no
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
 };
+pub use master::{BoardUse, PartUses, delete_symbol_parts, symbol_part_uses};
 use motif_core::{Color, Document, Prop};
 pub use outline::{offset_path, shape_to_path, stroke_to_path};
 pub use palette::{
