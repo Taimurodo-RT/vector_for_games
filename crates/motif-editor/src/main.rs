@@ -59,6 +59,7 @@ mod theme;
 mod timeline;
 mod transform_frame;
 mod user_guides;
+mod variant_ui;
 mod video_ui;
 mod web_ui;
 mod weights_ui;

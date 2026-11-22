@@ -1,0 +1,23 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Варианты",
+      "width": 520.0,
+      "height": 300.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 1.6,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": []
+    }
+  ]
+}

@@ -8,9 +8,11 @@
 //! - 3: `group … combine subtract` — live boolean operations.
 //! - 4: `style card fill #ffffff` — named styles; `let sky = linear 90 #a #b` — gradients of
 //!   the palette; `theme dark { … }` — themes.
+//! - 5: `variant main face=#ff5a36 hide icon` inside a symbol and `variant main` on a `use`
+//!   line — variants of a symbol.
 
 /// The newest format this Motif reads.
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 
 /// The lowest format version that reads `src`: the first one that has everything it uses.
 pub fn needed(src: &str) -> u32 {
@@ -32,7 +34,20 @@ pub fn needed(src: &str) -> u32 {
     });
     // A theme (`theme dark {`) came with version 4 as well; its lines of styles are found above.
     let theme = src.lines().any(|l| l.split_whitespace().next() == Some("theme"));
-    if style || gradient || theme {
+    // A variant of a symbol came with version 5: its line inside the symbol, and the word on
+    // the line of a copy after the name of the symbol and the id of the copy.
+    let variant = src.lines().any(|l| {
+        let code: String = l.split("//").next().unwrap_or("").split('"').step_by(2).collect::<Vec<_>>().join(" ");
+        let mut words = code.split_whitespace();
+        match words.next() {
+            Some("variant") => true,
+            Some("use") => words.skip(2).any(|w| w == "variant"),
+            _ => false,
+        }
+    });
+    if variant {
+        5
+    } else if style || gradient || theme {
         4
     } else if combine {
         3
@@ -100,6 +115,14 @@ mod tests {
         let styled = "artboard \"a\" 10x10\nstyle card fill #ffffff\nrect a size 4 4 style card\n";
         assert_eq!(needed(styled), 4);
         assert_eq!(stamp(styled), format!("motif 4\n{styled}"));
+        // Variants of a symbol came with version 5: the line in the symbol or the word at a copy.
+        let coin = "artboard \"a\" 10x10\nsymbol Coin size=4 {\n  rect body size {size}\n}\n";
+        assert_eq!(needed(&format!("{coin}use Coin c1\n")), 1);
+        assert_eq!(needed(&coin.replace("  rect", "  variant big size=8\n  rect")), 5);
+        let big = coin.replace("  rect", "  variant big size=8\n  rect");
+        assert_eq!(stamp(&format!("{big}use Coin c1 variant big\n")), format!("motif 5\n{big}use Coin c1 variant big\n"));
+        // A copy called `variant`, a name and a comment with the word are not a variant.
+        assert_eq!(needed(&format!("{coin}use Coin variant \"variant big\" at 1 1 // variant big\n")), 1);
         // An object called `style` and a comment with the word are not a style.
         assert_eq!(needed("artboard \"a\" 10x10\nrect style at 0 0 size 4 4 // style card\n"), 1);
         // A group called `combine`, a name and a comment with the word are not the property.

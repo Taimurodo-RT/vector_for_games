@@ -28,6 +28,13 @@ pub struct Evaluator<'a> {
     styles: HashMap<String, Vec<crate::parser::PropAst>>,
     /// Styles whose mistakes are already told: a style taken by ten objects is wrong once.
     styles_told: std::collections::HashSet<String>,
+    /// Symbols whose variants are already read once: a wrong value of a variant is told once,
+    /// however many copies the symbol has.
+    variants_told: std::collections::HashSet<String>,
+    /// Objects named by `hide` that a symbol does not have, already told, by where each is written.
+    hide_told: std::collections::HashSet<usize>,
+    /// The next lines read are the lines of a symbol itself, where its `variant` lines are.
+    symbol_top: bool,
     /// Where the `style card` properties noted so far start: a line in a loop is noted once.
     style_uses_seen: std::collections::HashSet<usize>,
     /// Gradients of the palette by name, each with the palette names of its colors.
@@ -75,6 +82,9 @@ impl<'a> Evaluator<'a> {
             symbols: HashMap::new(),
             styles: HashMap::new(),
             styles_told: Default::default(),
+            variants_told: Default::default(),
+            hide_told: Default::default(),
+            symbol_top: false,
             style_uses_seen: Default::default(),
             gradients: HashMap::new(),
             paint_seen: Default::default(),
@@ -190,8 +200,18 @@ impl<'a> Evaluator<'a> {
                     _ => None,
                 };
             }
+            // The values of its variants hold colors too.
+            for s in &body {
+                if let Stmt::Variant { values, .. } = s {
+                    for p in values {
+                        self.param_value(&p.value);
+                    }
+                }
+            }
             self.prefix = format!("unused-{name}-");
+            self.symbol_top = true;
             self.stmts(&body, None, true);
+            self.symbol_top = false;
             self.vars.clone_from(&vars);
         }
         let found = (std::mem::take(&mut self.scene.colors), std::mem::take(&mut self.scene.gradient_sites), std::mem::take(&mut self.scene.style_uses));
@@ -258,8 +278,36 @@ impl<'a> Evaluator<'a> {
                         site.decl = true;
                     }
                 }
+                let mut variants: Vec<crate::VariantSite> = Vec::new();
+                for v in body {
+                    let Stmt::Variant { name: variant, name_span, values, hide, span } = v else { continue };
+                    if variants.iter().any(|w| &w.name == variant) {
+                        self.err(*name_span, format!("у символа «{name}» уже есть вариант «{variant}»"));
+                        continue;
+                    }
+                    for (k, p) in values.iter().enumerate() {
+                        if !params.iter().any(|q| q.name == p.name) {
+                            let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+                            let hint = if names.is_empty() {
+                                "у него нет параметров".to_string()
+                            } else {
+                                format!("есть: {}", names.join(", "))
+                            };
+                            self.err(p.name_span, format!("у символа «{name}» нет параметра «{}»: {hint}", p.name));
+                        } else if values[..k].iter().any(|q| q.name == p.name) {
+                            self.err(p.name_span, format!("параметр «{}» в варианте «{variant}» уже задан", p.name));
+                        }
+                    }
+                    variants.push(crate::VariantSite {
+                        name: variant.clone(),
+                        name_span: *name_span,
+                        span: *span,
+                        values: values.iter().map(|p| crate::VariantValue { name: p.name.clone(), span: p.value.span, value: None }).collect(),
+                        hide: hide.clone(),
+                    });
+                }
                 self.symbols.insert(name.clone(), (*clip, params.clone(), body.clone()));
-                self.scene.symbols.push(SymbolSite { name: name.clone(), clip: *clip, params: defaults, span: *span });
+                self.scene.symbols.push(SymbolSite { name: name.clone(), clip: *clip, params: defaults, span: *span, variants });
             }
         }
         // Styles too: an object may take a style written below it.
@@ -803,6 +851,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn stmts(&mut self, stmts: &[Stmt], parent: Option<usize>, generated: bool) {
+        let symbol_top = std::mem::take(&mut self.symbol_top);
         for s in stmts {
             match s {
                 Stmt::Artboard { name, width, height, props } => {
@@ -1100,6 +1149,14 @@ impl<'a> Evaluator<'a> {
                     }
                 }
                 Stmt::Use(u) => self.use_symbol(u, parent, generated),
+                Stmt::Variant { name_span, .. } => {
+                    if !symbol_top {
+                        self.err(
+                            *name_span,
+                            "variant пишется строкой внутри symbol, не внутри group или for; у копии вариант выбирают в строке use: use Имя id variant имя",
+                        );
+                    }
+                }
                 Stmt::For { var, from, to, body } => {
                     let (Some(Value::Num(a)), Some(Value::Num(b))) = (self.value(from), self.value(to)) else {
                         self.err(from.span, "границы цикла должны быть числами");
@@ -1161,8 +1218,48 @@ impl<'a> Evaluator<'a> {
         let mut sites: Vec<ParamSite> = Vec::new();
         for p in &params {
             if let Some(value) = self.param_value(&p.value) {
-                sites.push(ParamSite { name: p.name.clone(), value, span: None, editable: false });
+                sites.push(ParamSite { name: p.name.clone(), value, span: None, editable: false, variant: false });
             }
+        }
+        // The variants of the symbol. Their values are read here, at the copy, where the names
+        // of the palette are known; the variant of the copy gives its values over the defaults.
+        let told = !self.variants_told.insert(u.symbol.clone());
+        let before = self.errors.len();
+        let mut hidden: Vec<(String, Span)> = Vec::new();
+        let mut found = false;
+        for s in &body {
+            let Stmt::Variant { name, values, hide, .. } = s else { continue };
+            let mine = !found && u.variant.as_ref().is_some_and(|v| &v.name == name);
+            for p in values {
+                let Some(value) = self.param_value(&p.value) else { continue };
+                if !told
+                    && let Some(known) = self
+                        .scene
+                        .symbols
+                        .iter_mut()
+                        .filter(|s| s.name == u.symbol)
+                        .flat_map(|s| &mut s.variants)
+                        .flat_map(|v| &mut v.values)
+                        .find(|v| v.span == p.value.span)
+                {
+                    known.value = Some(value);
+                }
+                if let Some(site) = sites.iter_mut().find(|s| mine && s.name == p.name) {
+                    *site = ParamSite { name: p.name.clone(), value, span: None, editable: false, variant: true };
+                }
+            }
+            if mine {
+                found = true;
+                hidden.clone_from(hide);
+            }
+        }
+        if told {
+            self.errors.truncate(before);
+        }
+        if let Some(v) = u.variant.as_ref().filter(|_| !found) {
+            let names: Vec<&str> = self.scene.symbols.iter().filter(|s| s.name == u.symbol).flat_map(|s| s.variants.iter().map(|v| v.name.as_str())).collect();
+            let hint = if names.is_empty() { "у него нет вариантов".to_string() } else { format!("есть: {}", names.join(", ")) };
+            self.err(v.name_span, format!("у символа «{}» нет варианта «{}»: {hint}", u.symbol, v.name));
         }
         for p in &u.params {
             let Some(site) = sites.iter().position(|s| s.name == p.name) else {
@@ -1172,7 +1269,7 @@ impl<'a> Evaluator<'a> {
                 continue;
             };
             if let Some(value) = self.param_value(&p.value) {
-                sites[site] = ParamSite { name: p.name.clone(), value, span: Some(p.value.span), editable: p.value.is_literal() && !generated };
+                sites[site] = ParamSite { name: p.name.clone(), value, span: Some(p.value.span), editable: p.value.is_literal() && !generated, variant: false };
             }
         }
         let Some(index) = self.node(&u.node, parent, generated) else { return };
@@ -1194,10 +1291,26 @@ impl<'a> Evaluator<'a> {
         if edited {
             self.scene.editing = Some(id.clone());
         }
-        self.scene.instances.insert(id, Instance { symbol: u.symbol.clone(), params: sites });
+        let variant = u.variant.as_ref().filter(|_| found).map(|v| (v.name.clone(), v.span));
+        self.scene.instances.insert(id.clone(), Instance { symbol: u.symbol.clone(), params: sites, variant });
         self.depth += 1;
+        self.symbol_top = true;
         self.stmts(&body, Some(index), !edited);
+        self.symbol_top = false;
         self.depth -= 1;
+        // What the variant hides. The copy a symbol is edited through shows all of the symbol.
+        for (part, span) in hidden {
+            let whole = format!("{id}-{part}");
+            match self.scene.doc.nodes[index..].iter_mut().find(|n| n.id == whole) {
+                Some(node) if !edited => node.visible = false,
+                Some(_) => {}
+                None => {
+                    if self.hide_told.insert(span.start) {
+                        self.err(span, format!("в символе «{}» нет объекта «{part}»: вариант не может его скрыть", u.symbol));
+                    }
+                }
+            }
+        }
         self.prefix = saved_prefix;
         self.vars = saved_vars;
     }

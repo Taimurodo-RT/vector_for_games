@@ -2,9 +2,9 @@
 //! its own, «Сделать символом» for a group, and the list of symbols to place copies from.
 
 use crate::app::{App, fold};
-use crate::theme::{self, ACCENT, ButtonKind, FAINT, FG, KeyState, LINE, MUTED};
-use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
-use motif_core::{Color, Node, ShapeKind, Value};
+use crate::theme::{self, ACCENT, ButtonKind, FAINT, FG, MUTED};
+use egui::{RichText, vec2};
+use motif_core::{Node, ShapeKind, Value};
 
 impl App {
     /// The symbol that `id` is a copy of, or that the copy holding `id` is of.
@@ -25,6 +25,10 @@ impl App {
         let generated = self.scene.sites.get(&node.id).is_some_and(|s| s.generated);
         if let Some(inst) = self.scene.instances.get(&node.id).cloned() {
             let mut change: Option<(String, Value)> = None;
+            let mut variant_act = None;
+            let variants: Vec<String> =
+                self.scene.symbols.iter().filter(|s| s.name == inst.symbol).flat_map(|s| s.variants.iter().map(|v| v.name.clone())).collect();
+            let variant = inst.variant.as_ref().map(|(v, _)| v.clone());
             let mut enter = false;
             let copies = self.copies_of(&inst.symbol);
             let inside = self.scene.editing.as_deref() == Some(node.id.as_str());
@@ -33,35 +37,21 @@ impl App {
                 if inst.params.is_empty() {
                     ui.label(RichText::new("У символа нет параметров. Их пишут в строке symbol: symbol Имя size=16 color=#ffd23f.").size(11.5).color(FAINT));
                 }
+                // A symbol with variants shows the choice; «+ Вариант» is there for every copy
+                // written by hand, as the way to the first variant.
+                if !generated || !variants.is_empty() {
+                    variant_act = crate::variant_ui::variant_row(ui, &node.id, &variants, variant.as_deref());
+                }
                 for p in &inst.params {
-                    let written = p.span.is_some();
-                    match p.value {
-                        Value::Num(v) => {
-                            let w = ui.available_width();
-                            let out = theme::num_field(ui, w, &p.name, v, 0.5, f64::MIN..=f64::MAX, 2, KeyState::Hidden);
-                            if let Some(nv) = out.changed {
-                                change = Some((p.name.clone(), Value::Num((nv * 100.0).round() / 100.0)));
-                            }
+                    ui.horizontal(|ui| {
+                        let w = ui.available_width();
+                        if let Some(value) = crate::variant_ui::param_editor(ui, w, &p.name, p.value) {
+                            change = Some((p.name.clone(), value));
                         }
-                        Value::Color(c) => {
-                            ui.horizontal(|ui| {
-                                let (sw, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-                                let mut c32 = Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a);
-                                ui.painter().rect_filled(sw, 6.0, c32);
-                                ui.painter().rect_stroke(sw, 6.0, Stroke::new(1.0, LINE), StrokeKind::Inside);
-                                theme::color_popup(&resp).show(|ui| {
-                                    if egui::color_picker::color_picker_color32(ui, &mut c32, egui::color_picker::Alpha::OnlyBlend) {
-                                        let [r, g, b, a] = c32.to_srgba_unmultiplied();
-                                        change = Some((p.name.clone(), Value::Color(Color { r, g, b, a })));
-                                    }
-                                });
-                                ui.label(RichText::new(&p.name).size(12.0).color(MUTED));
-                                ui.label(RichText::new(c.to_hex()).font(theme::mono(11.5)).color(FG));
-                            });
-                        }
-                        Value::None => {}
-                    }
-                    if !written {
+                    });
+                    if p.variant {
+                        ui.label(RichText::new(format!("из варианта {}", variant.as_deref().unwrap_or_default())).size(10.5).color(FAINT));
+                    } else if p.span.is_none() {
                         ui.label(RichText::new("по умолчанию").size(10.5).color(FAINT));
                     }
                 }
@@ -81,7 +71,12 @@ impl App {
                         .clicked();
                 }
             });
+            self.variant_section(ui, &node.id);
             self.copy_changes_section(ui, &node.id);
+            if let Some(act) = variant_act {
+                self.variant_act(&node.id, act);
+                return;
+            }
             if enter {
                 self.edit_symbol(&node.id);
                 return;
