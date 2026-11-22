@@ -23,7 +23,7 @@ rect far at 350 250 size 40 40 fill #888888
 
 /// Two clicks in one place. egui counts clicks by time alone, so the clicks made before must be
 /// old enough not to make this a triple click.
-fn double_click(app: &mut App, p: Pos2) {
+pub(super) fn double_click(app: &mut App, p: Pos2) {
     static LATER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     let time = Some(10.0 * f64::from(LATER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     let ctx = app.ctx.clone();
@@ -36,7 +36,7 @@ fn double_click(app: &mut App, p: Pos2) {
     }
 }
 
-fn key(app: &mut App, key: Key, modifiers: Modifiers) {
+pub(super) fn key(app: &mut App, key: Key, modifiers: Modifiers) {
     let ctx = app.ctx.clone();
     let events = vec![egui::Event::ModifiersChanged(modifiers), egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }];
     ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 850.0))), events, ..Default::default() }, |ui| {
@@ -52,7 +52,7 @@ fn picked(app: &App) -> Vec<String> {
     all
 }
 
-fn parent(app: &App, id: &str) -> Option<String> {
+pub(super) fn parent(app: &App, id: &str) -> Option<String> {
     let doc = &app.scene.doc;
     doc.node(id).unwrap().parent.map(|p| doc.nodes[p].id.clone())
 }

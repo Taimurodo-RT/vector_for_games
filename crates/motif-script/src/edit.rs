@@ -65,7 +65,14 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
     if let Some(s) = scene.sources.get(&key) {
         // A palette color named on the node's own line (`fill main`) gives way to the picked color
         // there: the object leaves the palette. Numbers from `let` stay and get an override.
-        let named = prop.is_color() && scene.refs.contains_key(&key) && !s.from_override && scene.sites.get(node).is_some_and(|site| !site.generated);
+        // In a symbol being edited the name may be a parameter of the symbol: it stays, a picked
+        // color would silently end it for every copy.
+        let parameter = scene.editing.as_ref().is_some_and(|copy| {
+            crate::symbol::edited_part(scene, node).is_some()
+                && scene.refs.get(&key).is_some_and(|name| scene.instances.get(copy).is_some_and(|i| i.params.iter().any(|p| p.name == *name)))
+        });
+        let named =
+            prop.is_color() && scene.refs.contains_key(&key) && !parameter && !s.from_override && scene.sites.get(node).is_some_and(|site| !site.generated);
         if !s.editable && !named {
             return Some(write_override(src, scene, node, prop, &text));
         }
@@ -293,7 +300,57 @@ pub(crate) fn remove_spans(src: &str, mut spans: Vec<Span>) -> String {
 
 /// A fresh id such as `rect3` that no node uses yet.
 pub(crate) fn free_id(scene: &Scene, base: &str) -> String {
-    (1..).map(|i| format!("{base}{i}")).find(|id| scene.doc.node(id).is_none() && scene.doc.parameter(id).is_none()).expect("ids are unbounded")
+    (1..).map(|i| format!("{base}{i}")).find(|id| id_free(scene, id)).expect("ids are unbounded")
+}
+
+/// Whether a new object may be written with id `id`: nothing has it. While a symbol is edited the
+/// new object may land in the symbol, so no object of the symbol has it either.
+fn id_free(scene: &Scene, id: &str) -> bool {
+    scene.doc.node(id).is_none()
+        && scene.doc.parameter(id).is_none()
+        && scene.editing.as_ref().is_none_or(|copy| scene.doc.node(&format!("{copy}-{id}")).is_none())
+}
+
+/// The id as the script writes it: an object of the copy whose symbol is edited is written in
+/// the symbol without the id of the copy (`coin1-body` is `body` there).
+fn written_id<'a>(scene: &Scene, id: &'a str) -> &'a str {
+    crate::symbol::edited_part(scene, id).unwrap_or(id)
+}
+
+/// The id that an object written as `written` has in the scene when its line lies in the block
+/// of `home` (see [`block_of`]) or of a group inside it: in the symbol being edited the id of the
+/// copy comes first.
+fn id_inside(scene: &Scene, home: &str, written: &str) -> String {
+    match scene.editing.as_deref() {
+        Some(copy) if home == copy || crate::symbol::edited_part(scene, home).is_some() => format!("{copy}-{written}"),
+        _ => written.to_string(),
+    }
+}
+
+/// `ids` and, while a symbol is edited, the same objects of every other copy of the symbol: an
+/// edit of the symbol moves or removes them all, and what the script says about them by id (keys,
+/// overrides) has to follow.
+fn in_every_copy(scene: &Scene, ids: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+    let Some(copy) = scene.editing.as_deref() else { return out };
+    let Some(symbol) = scene.instances.get(copy).map(|i| &i.symbol) else { return out };
+    let mut others: Vec<&String> = scene.instances.iter().filter(|(id, i)| id.as_str() != copy && i.symbol == *symbol).map(|(id, _)| id).collect();
+    others.sort();
+    for part in ids.iter().filter_map(|id| crate::symbol::edited_part(scene, id)) {
+        out.extend(others.iter().map(|other| format!("{other}-{part}")));
+    }
+    out
+}
+
+/// The block that holds the objects of group `id`, from its first word to its closing brace: the
+/// group's own, or, for the copy whose symbol is edited, the block of the symbol (a `use` line
+/// has none of its own). `None` for a group that comes from a loop or from a symbol not edited.
+pub(crate) fn block_of(scene: &Scene, id: &str) -> Option<Span> {
+    if scene.editing.as_deref() == Some(id) {
+        let symbol = &scene.instances.get(id)?.symbol;
+        return scene.symbols.iter().find(|s| s.name == *symbol).map(|s| s.span);
+    }
+    scene.sites.get(id).filter(|s| !s.generated).map(|s| s.span)
 }
 
 /// Returns the script with a new shape added on top of the others, and the new shape's id.
@@ -499,6 +556,8 @@ fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Vec<Span>> {
     }
     let ids: Vec<&str> =
         (0..doc.nodes.len()).filter(|&i| roots.iter().any(|&root| i == root || doc.is_inside(i, root))).map(|i| doc.nodes[i].id.as_str()).collect();
+    let ids = in_every_copy(scene, &ids);
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     for anim in scene.anims.values() {
         spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
@@ -848,10 +907,14 @@ pub fn copy_nodes(scene: &Scene, src: &str, ids: &[String]) -> Vec<Snippet> {
         let rel = |s: Span| Span::new(s.start - span.start, s.end - span.start);
         let inside = |s: Span| s.start >= span.start && s.end <= span.end;
         let mut names: Vec<(Span, String, bool)> = Vec::new();
-        for (nid, ns) in &scene.sites {
+        // The lines of a symbol being edited write an object of every copy: the one of the copy
+        // it is edited through, written by hand, comes first and gives the line its id.
+        let mut written: Vec<_> = scene.sites.iter().collect();
+        written.sort_by(|a, b| (a.1.generated, a.0).cmp(&(b.1.generated, b.0)));
+        for (nid, ns) in written {
             if inside(ns.span) && !names.iter().any(|(s, _, _)| *s == rel(ns.id_span)) {
                 let written = src[ns.id_span.start..ns.id_span.end].to_string();
-                names.push((rel(ns.id_span), if ns.generated { written } else { nid.clone() }, ns.generated));
+                names.push((rel(ns.id_span), if ns.generated { written } else { written_id(scene, nid).to_string() }, ns.generated));
             }
         }
         names.sort_by_key(|(s, _, _)| s.start);
@@ -874,6 +937,7 @@ pub fn paste_nodes(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64,
 /// [`paste_nodes`] with the copies written as the last children of group `into`, with the same
 /// numbers: a copy made inside a group stays in it, where its original stands. A group that
 /// cannot take them (it comes from a loop or a symbol) leaves them at the level of the artboard.
+/// The copy whose symbol is edited ([`Scene::editing`]) takes them into the symbol.
 pub fn paste_nodes_into(src: &str, scene: &Scene, snippets: &[Snippet], offset: (f64, f64), into: Option<&str>) -> (String, Vec<String>) {
     let mut taken: Vec<String> = scene.doc.nodes.iter().map(|n| n.id.clone()).collect();
     let mut block = String::new();
@@ -892,7 +956,8 @@ pub fn paste_nodes_into(src: &str, scene: &Scene, snippets: &[Snippet], offset: 
             } else {
                 let base = id.trim_end_matches(|c: char| c.is_ascii_digit());
                 let base = if base.is_empty() { "copy" } else { base };
-                let new = (1..).map(|k| format!("{base}{k}")).find(|c| !taken.contains(c)).expect("ids are unbounded");
+                let in_symbol = |c: &String| scene.editing.as_ref().is_some_and(|copy| taken.contains(&format!("{copy}-{c}")));
+                let new = (1..).map(|k| format!("{base}{k}")).find(|c| !taken.contains(c) && !in_symbol(c)).expect("ids are unbounded");
                 taken.push(new.clone());
                 new
             };
@@ -916,17 +981,19 @@ pub fn paste_nodes_into(src: &str, scene: &Scene, snippets: &[Snippet], offset: 
         block.push_str(&text);
         block.push('\n');
     }
-    let inside = into.and_then(|group| insert_into_group(src, scene, group, &block));
-    (inside.unwrap_or_else(|| insert_declaration(src, scene, &block)), roots)
+    match into.and_then(|group| Some((group, insert_into_group(src, scene, group, &block)?))) {
+        Some((group, out)) => (out, roots.iter().map(|id| id_inside(scene, group, id)).collect()),
+        None => (insert_declaration(src, scene, &block), roots),
+    }
 }
 
 /// The script with the lines of `block` written before the closing brace of group `group`.
 fn insert_into_group(src: &str, scene: &Scene, group: &str, block: &str) -> Option<String> {
     scene.doc.node(group).filter(|n| n.kind == ShapeKind::Group)?;
-    let site = scene.sites.get(group).filter(|s| !s.generated)?;
-    let close = site.span.end.checked_sub(1).filter(|&c| src[c..].starts_with('}'))?;
+    let home = block_of(scene, group)?;
+    let close = home.end.checked_sub(1).filter(|&c| src[c..].starts_with('}'))?;
     let line_start = |at: usize| src[..at].rfind('\n').map_or(0, |k| k + 1);
-    let indent: String = src[line_start(site.span.start)..].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+    let indent: String = src[line_start(home.start)..].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
     let mut text = String::new();
     for line in block.lines() {
         if !line.trim().is_empty() {
@@ -1175,12 +1242,14 @@ pub enum Place {
 /// or into the group `target`. Animation tracks stay where they are, they name the node by id.
 /// When the parent changes, `at` is rewritten so the node stays where it was on the artboard.
 /// `None` when either node comes from a loop, `node` would land inside itself, or `Into` names
-/// something other than a group.
+/// something other than a group. While a symbol is edited ([`Scene::editing`]), `Into` its copy
+/// writes the declaration as the last object of the symbol.
 pub fn move_node(src: &str, scene: &Scene, node: &str, target: &str, place: Place) -> Option<String> {
     let doc = &scene.doc;
     let (i, t) = (doc.index_of(node)?, doc.index_of(target)?);
     let site = scene.sites.get(node).filter(|s| !s.generated)?;
-    let tsite = scene.sites.get(target).filter(|s| !s.generated)?;
+    // Into a group is into its block; for the copy whose symbol is edited, into the symbol.
+    let tspan = if place == Place::Into { block_of(scene, target)? } else { scene.sites.get(target).filter(|s| !s.generated)?.span };
     if i == t || doc.is_inside(t, i) || (place == Place::Into && doc.nodes[t].kind != ShapeKind::Group) {
         return None;
     }
@@ -1190,7 +1259,7 @@ pub fn move_node(src: &str, scene: &Scene, node: &str, target: &str, place: Plac
         let after = src[span.end..l.end].trim();
         src[l.start..span.start].trim().is_empty() && (after.is_empty() || after.starts_with("//"))
     };
-    if !alone(site.span) || !alone(tsite.span) {
+    if !alone(site.span) || !alone(tspan) {
         return None;
     }
     // The comment lines right above a declaration describe it, so they move with it.
@@ -1243,7 +1312,7 @@ pub fn move_node(src: &str, scene: &Scene, node: &str, target: &str, place: Plac
         src[start..].chars().take_while(|c| *c == ' ' || *c == '\t').collect::<String>()
     };
     let old_indent = indent_of(site.span.start);
-    let new_indent = if place == Place::Into { format!("{}  ", indent_of(tsite.span.start)) } else { indent_of(tsite.span.start) };
+    let new_indent = if place == Place::Into { format!("{}  ", indent_of(tspan.start)) } else { indent_of(tspan.start) };
     let mut block = String::new();
     for line in text.lines() {
         let line = line.strip_prefix(old_indent.as_str()).unwrap_or(line.trim_start());
@@ -1255,10 +1324,10 @@ pub fn move_node(src: &str, scene: &Scene, node: &str, target: &str, place: Plac
     }
 
     let (at, block) = match place {
-        Place::Before => (with_comments(whole_lines(src, tsite.span).start), block),
-        Place::After => (whole_lines(src, tsite.span).end, block),
+        Place::Before => (with_comments(whole_lines(src, tspan).start), block),
+        Place::After => (whole_lines(src, tspan).end, block),
         Place::Into => {
-            let close = tsite.span.end - 1;
+            let close = tspan.end - 1;
             let line_start = src[..close].rfind('\n').map_or(0, |k| k + 1);
             if src[line_start..close].trim().is_empty() { (line_start, block) } else { (close, format!("\n{block}")) }
         }
@@ -1378,9 +1447,12 @@ fn movable(scene: &Scene, node: &str) -> Result<(), String> {
     if fixed { Err(format!("место «{node}» задано формулой")) } else { Ok(()) }
 }
 
-/// Re-reads the script after one step of an edit that takes several.
-fn reparse(src: &str, base: Option<&std::path::Path>) -> Result<Scene, String> {
-    crate::parse_in(src, base).map_err(|e| e.first().map_or_else(|| "скрипт не читается".to_string(), |e| e.message.clone()))
+/// Re-reads the script after one step of an edit that takes several, the way `like` was read:
+/// with the same symbol being edited ([`Scene::editing`]), so the next step finds the objects of
+/// the symbol where the first one did.
+fn reparse(src: &str, base: Option<&std::path::Path>, like: &Scene) -> Result<Scene, String> {
+    let reading = crate::Reading { theme: None, symbol_of: like.editing.as_deref() };
+    crate::parse_as(src, base, reading).map_err(|e| e.first().map_or_else(|| "скрипт не читается".to_string(), |e| e.message.clone()))
 }
 
 /// The whole lines of an `anim` block, from its header to its closing brace, and the span of
@@ -1439,7 +1511,7 @@ pub fn rename_anim(src: &str, scene: &Scene, anim: &str, new_name: &str, base: O
             .ok_or_else(|| format!("машина «{m}» не обновилась"))?,
         };
     }
-    reparse(&out, base)?;
+    reparse(&out, base, scene)?;
     Ok(out)
 }
 
@@ -1522,8 +1594,9 @@ pub fn delete_anim(src: &str, scene: &Scene, anim: &str) -> Result<String, Strin
 /// written as a formula.
 fn shift_position_keys(src: &str, scene: &Scene, nodes: &[&str], d: (f64, f64)) -> Result<Vec<(Span, String)>, String> {
     let mut edits = Vec::new();
+    let nodes = in_every_copy(scene, nodes);
     for anim in scene.anims.values() {
-        for track in anim.tracks.iter().filter(|t| nodes.contains(&t.node.as_str())) {
+        for track in anim.tracks.iter().filter(|t| nodes.contains(&t.node)) {
             let by = match track.prop {
                 Prop::X => d.0,
                 Prop::Y => d.1,
@@ -1570,20 +1643,25 @@ pub fn group_nodes(src: &str, scene: &Scene, ids: &[String], base: Option<&std::
     let names: Vec<&str> = outer.iter().map(|&i| doc.nodes[i].id.as_str()).collect();
     names.iter().try_for_each(|id| movable(scene, id))?;
     let src = splice_all(src, shift_position_keys(src, scene, &names, (-c.0, -c.1))?);
-    let scene = reparse(&src, base)?;
-    let group = free_id(&scene, "group");
+    let scene = &reparse(&src, base, scene)?;
+    let written = free_id(scene, "group");
+    // Beside objects of the symbol being edited the group is an object of the symbol too.
+    let group = match parent {
+        Some(p) => id_inside(scene, &doc.nodes[p].id, &written),
+        None => written.clone(),
+    };
     let site = scene.sites.get(&doc.nodes[last].id).ok_or("объект пропал")?;
     let line = whole_lines(&src, site.span);
     let indent: String = src[line.start..].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
-    let decl = format!("{indent}group {group} at {} {} {{\n{indent}}}\n", fmt_num(c.0), fmt_num(c.1));
+    let decl = format!("{indent}group {written} at {} {} {{\n{indent}}}\n", fmt_num(c.0), fmt_num(c.1));
     let at = line.end;
     let mut src = if at == src.len() && !src.ends_with('\n') { format!("{src}\n{decl}") } else { format!("{}{decl}{}", &src[..at], &src[at..]) };
     for id in names {
-        let scene = reparse(&src, base)?;
+        let scene = reparse(&src, base, scene)?;
         src =
             move_node(&src, &scene, id, &group, Place::Into).ok_or_else(|| format!("«{id}» не переносится в группу: его строка делится с другим объектом"))?;
     }
-    reparse(&src, base)?;
+    reparse(&src, base, scene)?;
     Ok((src, group))
 }
 
@@ -1626,13 +1704,13 @@ pub fn ungroup(src: &str, scene: &Scene, id: &str, base: Option<&std::path::Path
     let mut src = splice_all(src, shift_position_keys(src, scene, &names, (n.x, n.y))?);
     // The last child first: each lands right after the group, so the order stays.
     for child in children.iter().rev() {
-        let scene = reparse(&src, base)?;
+        let scene = reparse(&src, base, scene)?;
         src = move_node(&src, &scene, child, id, Place::After)
             .ok_or_else(|| format!("«{child}» не выносится из группы: его строка делится с другим объектом"))?;
     }
-    let scene = reparse(&src, base)?;
-    let src = delete_node(&src, &scene, id).ok_or("группа не удаляется")?;
-    reparse(&src, base)?;
+    let scene = &reparse(&src, base, scene)?;
+    let src = delete_node(&src, scene, id).ok_or("группа не удаляется")?;
+    reparse(&src, base, scene)?;
     Ok((src, children))
 }
 
@@ -1662,7 +1740,7 @@ pub fn delete_nodes(src: &str, scene: &Scene, ids: &[String], base: Option<&std:
     let refs: Vec<_> = editable.iter().map(String::as_str).collect();
     let spans = nodes_spans(src, scene, &refs).ok_or("не удалось найти все строки выбранных объектов")?;
     let out = remove_spans(src, spans);
-    reparse(&out, base)?;
+    reparse(&out, base, scene)?;
     Ok((out, editable.len(), skipped))
 }
 
@@ -1676,10 +1754,10 @@ pub fn style_nodes(src: &str, scene: &Scene, ids: &[String], flag: &str, on: boo
         if scene.doc.node(id).is_none() {
             return Err(format!("слой «{id}» не найден"));
         }
-        let current = reparse(&out, base)?;
+        let current = reparse(&out, base, scene)?;
         out = set_style(&out, &current, id, flag, on.then_some(flag)).ok_or_else(|| format!("«{id}» создан циклом: измените флаг в скрипте"))?;
     }
-    reparse(&out, base)?;
+    reparse(&out, base, scene)?;
     Ok(out)
 }
 
@@ -1690,7 +1768,7 @@ pub fn restack_nodes(src: &str, scene: &Scene, ids: &[String], up: bool, base: O
     }
     let mut out = src.to_string();
     for id in &roots {
-        let current = reparse(&out, base)?;
+        let current = reparse(&out, base, scene)?;
         let doc = &current.doc;
         let i = doc.index_of(id).ok_or("слой не найден")?;
         let siblings = |k: &usize| doc.nodes[*k].parent == doc.nodes[i].parent;
@@ -1702,7 +1780,7 @@ pub fn restack_nodes(src: &str, scene: &Scene, ids: &[String], up: bool, base: O
                 .ok_or("слой из цикла или общей строки не переставляется")?;
         }
     }
-    reparse(&out, base)?;
+    reparse(&out, base, scene)?;
     Ok(out)
 }
 
@@ -1794,15 +1872,25 @@ pub fn move_nodes(src: &str, scene: &Scene, ids: &[String], target: &str, place:
     let mut out = splice_all(src, key_edits);
     let order: Vec<_> = if place == Place::After { roots.iter().rev().collect() } else { roots.iter().collect() };
     for id in order {
-        let current = reparse(&out, base)?;
+        let current = reparse(&out, base, scene)?;
         out = move_node(&out, &current, id, target, place).ok_or_else(|| format!("«{id}» не переносится: общая строка, цикл или недопустимая цель"))?;
     }
+    // An object that came into the symbol being edited, or out of it, has another id now.
+    let home = if place == Place::Into { Some(target) } else { parent.map(|p| doc.nodes[p].id.as_str()) };
     for (id, values) in transforms {
+        let id = match home {
+            Some(home) => id_inside(scene, home, written_id(scene, &id)),
+            None => written_id(scene, &id).to_string(),
+        };
         for (prop, value) in values {
-            let current = reparse(&out, base)?;
+            let current = reparse(&out, base, scene)?;
+            // What is already so is not written: `rot 0 skew 0 0` on a new line says nothing.
+            if current.doc.node(&id).and_then(|n| n.get(prop).as_num()).is_some_and(|now| (now - value).abs() < 1e-9) {
+                continue;
+            }
             out = set_prop_formatted(&out, &current, &id, prop, Value::Num(value), true).ok_or("не удалось сохранить трансформацию")?;
         }
     }
-    reparse(&out, base)?;
+    reparse(&out, base, scene)?;
     Ok(out)
 }
