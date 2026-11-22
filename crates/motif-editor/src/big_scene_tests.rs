@@ -202,11 +202,34 @@ fn ten_times_the_objects_take_about_ten_times_the_time() {
     // A step that looks through the whole scene for every object takes 100 times longer on a
     // scene 10 times bigger; one pass takes 10 times. The limit lies between, far from both, so
     // the test does not depend on the speed of the machine.
-    let (small, big) = (measure(200, 5), measure(2000, 5));
-    for (&(name, a), &(_, b)) in small.iter().zip(&big) {
-        // Below a tenth of a millisecond the clock is too coarse to divide by.
-        let times = b / a.max(0.1);
-        println!("{name}: {a:.2} -> {b:.2} ms, {times:.1} times");
-        assert!(times < 35.0, "«{name}»: {a:.2} ms on 200 objects, {b:.2} ms on 2000: {times:.0} times longer");
+    //
+    // The other tests run at the same time and take the processor away at random moments, so one
+    // measurement can come out several times too long. The shortest time of a step is the one
+    // nothing interfered with: it is taken over up to three rounds. A step that really grows as
+    // the square stays over the limit in every round.
+    const LIMIT: f64 = 35.0;
+    let mut best: Vec<(&str, f64, f64)> = Vec::new();
+    for _ in 0..3 {
+        let (small, big) = (measure(200, 5), measure(2000, 5));
+        if best.is_empty() {
+            best = small.iter().map(|&(name, _)| (name, f64::INFINITY, f64::INFINITY)).collect();
+        }
+        for (row, (&(_, a), &(_, b))) in best.iter_mut().zip(small.iter().zip(&big)) {
+            (row.1, row.2) = (row.1.min(a), row.2.min(b));
+        }
+        if best.iter().all(|&(_, a, b)| growth(a, b) < LIMIT) {
+            break;
+        }
     }
+    for &(name, a, b) in &best {
+        let times = growth(a, b);
+        println!("{name}: {a:.2} -> {b:.2} ms, {times:.1} times");
+        assert!(times < LIMIT, "«{name}»: {a:.2} ms on 200 objects, {b:.2} ms on 2000: {times:.0} times longer");
+    }
+}
+
+/// How many times longer the big scene took. Below a tenth of a millisecond the clock is too
+/// coarse to divide by.
+fn growth(small: f64, big: f64) -> f64 {
+    big / small.max(0.1)
 }

@@ -335,6 +335,10 @@ impl Pool {
             corner(i, j).lerp(corner(i2, j2), t)
         };
         let mut next: HashMap<(usize, usize, u8), (usize, usize, u8)> = HashMap::new();
+        // The pieces in the order they are found, row by row: loops are traced from the first
+        // piece not yet taken. The order of a hash map changes from run to run, and with it
+        // changed where every loop began, which of its points were kept, and so the picture.
+        let mut found = Vec::new();
         for j in 0..rows - 1 {
             for i in 0..cols - 1 {
                 // Corners round the cell and the edges between them.
@@ -360,10 +364,11 @@ impl Pool {
                     let c = corner(inner.0, inner.1);
                     let (from, to) = if (pb - pa).cross(c - pa) > 0.0 { (ea, eb) } else { (eb, ea) };
                     next.insert(from, to);
+                    found.push(from);
                 }
             }
         }
-        while let Some(&start) = next.keys().next() {
+        for start in found {
             let mut ring = Vec::new();
             let mut e = start;
             while let Some(to) = next.remove(&e) {
@@ -469,6 +474,28 @@ mod tests {
         let mut plain = d.clone();
         plain.rig();
         assert_eq!(plain.nodes[0].deformed, None);
+    }
+
+    #[test]
+    fn the_same_water_is_drawn_the_same_every_time() {
+        // A splash in several pieces: every loop of the outline has to start at the same place.
+        let mut d = Document::new(Artboard::default());
+        let mut w = Node::new("water", ShapeKind::Rect);
+        (w.x, w.y, w.width, w.height) = (140.0, 200.0, 60.0, 120.0);
+        w.fluid = Some(Fluid::default());
+        d.nodes.push(w);
+        let mut s = Node::new("tap", ShapeKind::Rect);
+        (s.x, s.y, s.width, s.height) = (250.0, 60.0, 12.0, 12.0);
+        s.fluid = Some(Fluid { flow: 120.0, ..Fluid::default() });
+        d.nodes.push(s);
+        tank(&mut d);
+        for t in [0.4, 1.3] {
+            let first = at(&d, t);
+            assert!(!first.nodes[0].path().unwrap().is_empty());
+            for _ in 0..4 {
+                assert!(at(&d, t) == first, "the water at {t} s differs between two runs");
+            }
+        }
     }
 
     #[test]

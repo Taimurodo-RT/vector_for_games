@@ -2498,3 +2498,22 @@ fn the_content_of_a_group_follows_it_without_gaps() {
     }
     assert!(seen > 30, "{seen} examples read");
 }
+
+#[test]
+fn every_example_poses_the_same_twice() {
+    // The runtime must be deterministic: the same scene at the same time is the same picture,
+    // in this run and in the next. Nothing may depend on the order of a hash map.
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples"));
+    let mut posed = 0;
+    for path in std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "msc")) {
+        let src = std::fs::read_to_string(&path).unwrap();
+        let Ok(scene) = parse_in(&src, Some(dir)) else { continue };
+        for anim in &scene.doc.animations {
+            let t = anim.duration.min(0.7);
+            let first = anim.pose(&scene.doc, t);
+            assert!(anim.pose(&scene.doc, t) == first, "{}: «{}» at {t} s differs between two runs", path.display(), anim.name);
+            posed += 1;
+        }
+    }
+    assert!(posed > 40, "{posed} animations posed");
+}
