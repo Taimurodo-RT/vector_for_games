@@ -91,7 +91,8 @@ pub fn scene_fonts(scene: &Path, src: &str) -> Result<Vec<(String, PathBuf)>, St
 }
 
 /// Copies the scene `src` (saved at `scene`) into `dir` with the fonts it names, at the same
-/// paths relative to it. Returns the copied scene and how many fonts changed. When a font is
+/// paths relative to it. A scene that includes other files (`include "kit.msc"`) is copied as
+/// one file with their lines written into it: the game needs no other file beside it. Returns the copied scene and how many fonts changed. When a font is
 /// wrong or a file cannot be written, nothing changes: a scene copied there before stays as it was.
 pub fn copy_scene(scene: &Path, src: &str, dir: &Path) -> Result<(PathBuf, usize), String> {
     let mut plan = Plan::default();
@@ -111,6 +112,8 @@ pub fn copy_scene(scene: &Path, src: &str, dir: &Path) -> Result<(PathBuf, usize
 /// fonts change.
 fn stage_scene(plan: &mut Plan, scene: &Path, src: &str, dir: &Path) -> Result<(PathBuf, usize), String> {
     let name = scene.file_name().ok_or("у сцены нет имени файла")?;
+    let whole = motif_script::inline_includes(src, scene.parent())?;
+    let src = whole.as_str();
     let fonts = scene_fonts(scene, src)?;
     plan.dir(dir)?;
     let mut changed = 0;
@@ -454,6 +457,31 @@ mod tests {
         std::fs::write(d.join("a.msc"), src).unwrap();
         let (to, n) = copy_scene(&d.join("a.msc"), src, &d.join("game")).unwrap();
         assert_eq!((std::fs::read_to_string(to).unwrap().as_str(), n), (src, 0));
+        std::fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn a_scene_that_includes_files_goes_into_the_game_as_one_file() {
+        let d = dir("included");
+        let art = d.join("art");
+        std::fs::create_dir_all(art.join("kits/fonts")).unwrap();
+        std::fs::write(art.join("kits/fonts/Inter.ttf"), b"font").unwrap();
+        let kit = "let ink = #1b1d24\nsymbol Tag {\n  text t content \"Ok\" font \"fonts/Inter.ttf\" fill ink\n}\nartboard \"Набор\" 10x10\n";
+        std::fs::write(art.join("kits/kit.msc"), kit).unwrap();
+        let src = "motif 7\ninclude \"kits/kit.msc\"\nartboard \"Экран\" 100x40\nrect r size 4 4 fill ink\n";
+        std::fs::write(art.join("screen.msc"), src).unwrap();
+        let (to, fonts) = copy_scene(&art.join("screen.msc"), src, &d.join("game")).unwrap();
+        // The lines of the kit are in the copy, its font lies where the copy names it, and no
+        // other file is needed: the copy reads with nothing but its font beside it.
+        let copied = std::fs::read_to_string(&to).unwrap();
+        assert!(!copied.contains("include") && copied.contains("let ink = #1b1d24\nsymbol Tag {"), "{copied}");
+        assert!(copied.contains("font \"kits/fonts/Inter.ttf\"") && !copied.contains("Набор"), "{copied}");
+        assert_eq!((fonts, std::fs::read(d.join("game/kits/fonts/Inter.ttf")).unwrap()), (1, b"font".to_vec()));
+        assert!(!d.join("game/kits/kit.msc").exists());
+        // A kit that is not there: refused, nothing written.
+        let lost = src.replace("kits/kit.msc", "kits/none.msc");
+        assert!(copy_scene(&art.join("screen.msc"), &lost, &d.join("other")).unwrap_err().contains("не найден файл"));
+        assert!(!d.join("other").exists());
         std::fs::remove_dir_all(d).ok();
     }
 

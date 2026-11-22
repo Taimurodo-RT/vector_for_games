@@ -252,6 +252,8 @@ pub struct App {
     pub(crate) backdrop_img: crate::importer::BackdropCache,
     pub(crate) status: String,
     last_poll: Instant,
+    /// The files the scene includes, with the time each was changed when last looked at.
+    pub(crate) include_stamps: Vec<(PathBuf, Option<SystemTime>)>,
     pointer_doc: Option<Point>,
     frame_ms: f32,
     pub(crate) layers: crate::layers::Layers,
@@ -411,6 +413,7 @@ impl App {
             backdrop_img: Default::default(),
             status,
             last_poll: Instant::now(),
+            include_stamps: Vec::new(),
             pointer_doc: None,
             frame_ms: 16.0,
             sim: Default::default(),
@@ -505,6 +508,15 @@ impl App {
     pub(crate) fn apply(&mut self, kind: &str, new_src: Option<String>) -> bool {
         match new_src {
             Some(mut s) if s != self.src => {
+                // What an included file gives is written at its `include` line: an edit that
+                // reaches the line tried to change that file from here.
+                if !kind.starts_with("include")
+                    && let Some(site) = motif_script::include_touched(&self.src, &s, &self.scene.includes)
+                {
+                    self.status =
+                        format!("Эта правка меняет то, что записано в подключённом файле «{}»: его меняют в самом файле. Сцена не изменена", site.path);
+                    return false;
+                }
                 if let Some((clip, time)) = self.key_time()
                     && time > 0.0
                     && matches!(kind, "create" | "paste" | "duplicate" | "add-use")
@@ -559,6 +571,12 @@ impl App {
     /// edited stays the same.
     pub(crate) fn apply_file(&mut self, kind: &str, new_file: Option<String>) -> bool {
         let Some(file) = new_file.filter(|f| *f != self.file_text()) else { return false };
+        let base = self.base_dir();
+        let includes = motif_script::file_includes(&self.file_text(), base.as_deref());
+        if let Some(site) = motif_script::include_touched(&self.file_text(), &file, &includes) {
+            self.status = format!("Эта правка меняет то, что записано в подключённом файле «{}»: его меняют в самом файле. Сцена не изменена", site.path);
+            return false;
+        }
         if let Err(errors) = motif_script::parse_boards(&file, self.path.as_ref().and_then(|p| p.parent())) {
             self.status = errors.first().map(ToString::to_string).unwrap_or_default();
             return false;
@@ -1435,6 +1453,7 @@ impl App {
             return;
         }
         self.last_poll = Instant::now();
+        self.poll_includes();
         let Some(path) = self.path.clone() else { return };
         let now = mtime(&path);
         if now.is_none() || now == self.disk_mtime {
@@ -2564,6 +2583,7 @@ impl App {
             ui.label(RichText::new("Перетащите на окно SVG — он станет контурами, PNG или PSD — подложкой.").size(12.0).color(FAINT));
         });
         self.guides_section(ui);
+        self.includes_section(ui);
         self.palette_section(ui);
         self.styles_section(ui);
         if self.tool_profile() == Purpose::Ui {
@@ -4491,6 +4511,9 @@ mod combine_tests;
 #[cfg(test)]
 #[path = "frame_tests.rs"]
 mod frame_tests;
+#[cfg(test)]
+#[path = "include_tests.rs"]
+mod include_tests;
 #[cfg(test)]
 #[path = "isolate_tests.rs"]
 mod isolate_tests;

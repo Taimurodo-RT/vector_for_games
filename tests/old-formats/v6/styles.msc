@@ -1,0 +1,45 @@
+motif 4
+// Именованные стили: вид хранится под именем, объекты берут его словом style.
+// Поменяйте строку style — изменятся все объекты, которые её берут.
+let ink = #1b1d24
+let paper = #ffffff
+let accent = #3b5bff
+style card fill paper stroke ink 2 r 14 shadow 0 6 12 #00000033
+style button gradient linear 90 #5f7dff accent stroke ink 2 r 10 shadow 0 3 0 ink
+style title fill ink font bold font-size 22
+style note fill #5a5f6e font-size 13
+style chip fill #ffd23f stroke ink 2 r 9
+
+artboard "Стили" 520x300 bg #f4efe6
+
+// Три карточки одного стиля. У третьей своя заливка: своё свойство объекта главнее стиля.
+rect card1 "Карточка 1" at 100 110 size 150 160 style card
+rect card2 "Карточка 2" at 260 110 size 150 160 style card
+rect card3 "Карточка 3" at 420 110 size 150 160 style card fill #fff4c2
+
+text head1 at 100 60 content "Меч" style title
+text head2 at 260 60 content "Щит" style title
+text head3 at 420 60 content "Зелье" style title
+text note1 at 100 88 content "урон +4" style note
+text note2 at 260 88 content "защита +2" style note
+// Своя заливка поверх стиля note.
+text note3 at 420 88 content "редкое" style note fill #b3541e
+
+// Значки рисует цикл: стиль работает и в нём.
+for i in 0..3 {
+  ellipse dot{i} at {100 + i * 160} 132 size 44 44 style chip
+}
+
+// Кнопки одного стиля. Вторая отказывается от тени стиля: no shadow.
+rect buy1 "Купить 1" at 100 250 size 120 36 style button
+rect buy2 "Купить 2" at 260 250 size 120 36 style button no shadow
+rect buy3 "Купить 3" at 420 250 size 120 36 style button
+text buy1_text at 100 250 content "Купить" font-size 15 fill paper
+text buy2_text at 260 250 content "Продано" font-size 15 fill paper
+text buy3_text at 420 250 content "Купить" font-size 15 fill paper
+
+// Анимация идёт поверх стиля: стиль задаёт вид в покое.
+anim Pulse 1.2s loop id=p4st {
+  dot0.sx 0: 1 ease-in-out-sine | 0.6: 1.15 ease-in-out-sine | 1.2: 1
+  dot0.sy 0: 1 ease-in-out-sine | 0.6: 1.15 ease-in-out-sine | 1.2: 1
+}

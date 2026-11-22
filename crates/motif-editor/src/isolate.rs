@@ -77,7 +77,8 @@ impl App {
         if self.copy_only || self.workspace() != crate::workspace::Workspace::Drawing {
             return None;
         }
-        self.copy_around().map(|(copy, _)| copy)
+        // A symbol of an included file is changed in that file: here edits stay with the copy.
+        self.copy_around().filter(|(_, symbol)| self.symbol_from(symbol).is_none()).map(|(copy, _)| copy)
     }
 
     /// How many copies symbol `symbol` has on this artboard.
@@ -169,7 +170,13 @@ impl App {
             self.status = format!("Внутри группы «{name}»: остальное приглушено и не выделяется. Esc — выйти");
         }
         self.sync_symbol();
-        if let Some((copy, symbol)) = self.copy_around().filter(|(copy, _)| self.scene.editing.as_ref() == Some(copy)) {
+        if let Some((copy, symbol)) = self.copy_around()
+            && let Some(file) = self.symbol_from(&symbol)
+        {
+            self.status = format!(
+                "Внутри копии «{copy}»: символ {symbol} записан в подключённом файле «{file}», поэтому правки остаются у этой копии. Сам символ меняют в «{file}». Esc — выйти"
+            );
+        } else if let Some((copy, symbol)) = self.copy_around().filter(|(copy, _)| self.scene.editing.as_ref() == Some(copy)) {
             self.status = format!("Внутри копии «{copy}»: правки меняют символ {symbol} и все его копии ({}). Esc — выйти", self.copies_of(&symbol));
         }
     }
@@ -320,7 +327,7 @@ impl App {
         let whose = self
             .copy_around()
             .filter(|_| self.workspace() == crate::workspace::Workspace::Drawing)
-            .map(|(_, symbol)| (self.copies_of(&symbol), symbol, self.copy_only));
+            .map(|(_, symbol)| (self.copies_of(&symbol), self.symbol_from(&symbol), symbol, self.copy_only));
         let mut only: Option<bool> = None;
 
         let at = rect.min + vec2(ruler + 12.0, ruler + 10.0 + below);
@@ -351,7 +358,11 @@ impl App {
                         go = Some(Some(id.clone()));
                     }
                 }
-                if let Some((copies, symbol, copy_only)) = &whose {
+                if let Some((_, Some(file), symbol, _)) = &whose {
+                    ui.add_space(6.0);
+                    ui.label(text(&format!("Правки остаются у этой копии: символ {symbol} записан в «{file}»"), ACCENT))
+                        .on_hover_text("Символ подключённого файла меняют в самом файле. Здесь правки пишутся в блок override этой сцены");
+                } else if let Some((copies, None, symbol, copy_only)) = &whose {
                     ui.add_space(6.0);
                     ui.label(text("Правки меняют:", FAINT));
                     let all = ui

@@ -1,0 +1,19 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Лист набора",
+      "width": 520.0,
+      "height": 340.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "themes": [
+        "night"
+      ]
+    }
+  ]
+}

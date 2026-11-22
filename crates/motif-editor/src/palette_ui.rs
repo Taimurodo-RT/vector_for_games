@@ -135,6 +135,15 @@ impl App {
         let mut act: Option<Act> = None;
         let themes = self.scene.doc.themes.clone();
         let shown = self.scene.theme.clone().unwrap_or_default();
+        // The names an included file gives: shown here, changed in that file.
+        let given: Vec<(String, String)> = palette
+            .iter()
+            .map(|s| &s.name)
+            .chain(gradients.iter().map(|s| &s.name))
+            .filter_map(|name| self.swatch_from(name).map(|file| (name.clone(), file)))
+            .collect();
+        let from = |name: &str| given.iter().find(|(n, _)| n == name).map(|(_, file)| file.as_str());
+        let there = |file: &str| format!("Записан в подключённом файле «{file}»: меняют его там");
         fold(ui, "Палитра", |ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             // The theme the scene is shown in: what is edited below is edited in it.
@@ -212,7 +221,9 @@ impl App {
                         }
                     });
                     theme::color_popup(&resp).show(|ui| {
-                        if s.literal {
+                        if let Some(file) = from(&s.name) {
+                            ui.label(RichText::new(there(file)).size(11.5).color(MUTED));
+                        } else if s.literal {
                             let mut c = c32(s.color);
                             if egui::color_picker::color_picker_color32(ui, &mut c, egui::color_picker::Alpha::OnlyBlend) {
                                 act = Some(Act::Set(s.name.clone(), Color { r: c.r(), g: c.g(), b: c.b(), a: c.a() }));
@@ -261,6 +272,10 @@ impl App {
                     });
                     theme::color_popup(&resp).show(|ui| {
                         ui.set_max_width(260.0);
+                        if let Some(file) = from(&s.name) {
+                            ui.label(RichText::new(there(file)).size(11.5).color(MUTED));
+                            return;
+                        }
                         let mut next: Option<Gradient> = None;
                         if let Some(k) = theme::segmented(ui, &["Линейный", "Радиальный"], s.gradient.radial as usize, false)
                             && (k == 1) != s.gradient.radial
@@ -410,7 +425,7 @@ impl App {
                 };
             }
             Act::AddTheme => {
-                let name = motif_script::free_theme_name(&file);
+                let name = motif_script::free_theme_name(&self.names_text());
                 match motif_script::add_theme(&file, base, &name) {
                     Some(out) => {
                         if self.apply_file("theme-add", Some(out)) {
@@ -421,6 +436,10 @@ impl App {
                     }
                     None => self.status = refused("Тему добавить не получилось".into()),
                 }
+            }
+            Act::RenameTheme(old, _) if self.theme_from(&old).is_some() => {
+                let from = self.theme_from(&old).unwrap_or_default();
+                self.status = format!("Тему «{old}» пишет и подключённый файл «{from}»: там она осталась бы под старым именем. Переименуйте её в «{from}»");
             }
             Act::RenameTheme(old, new) => {
                 let new = new.trim().to_string();
@@ -443,21 +462,34 @@ impl App {
             }
             Act::DeleteTheme(name) => match motif_script::delete_theme(&file, base, &name) {
                 Some(out) => {
+                    let from = self.theme_from(&name);
                     self.theme.clear();
                     self.forget_other_boards();
                     if self.apply_file("theme-delete", Some(out)) {
-                        self.status = format!("Тема «{name}» удалена. Показана исходная сцена: она не изменилась");
+                        self.status = match from {
+                            Some(from) => format!("Строки темы «{name}» из этой сцены удалены. Сама тема осталась: её пишет подключённый файл «{from}»"),
+                            None => format!("Тема «{name}» удалена. Показана исходная сцена: она не изменилась"),
+                        };
                     } else {
                         self.show_theme(&name);
                     }
                 }
-                None => self.status = refused(format!("Тему «{name}» удалить не получилось")),
+                None => {
+                    self.status = match self.theme_from(&name) {
+                        Some(from) => format!("Тему «{name}» пишет подключённый файл «{from}»: в этой сцене её строк нет, удалять нечего"),
+                        None => refused(format!("Тему «{name}» удалить не получилось")),
+                    }
+                }
             },
             Act::Reset(name) => {
                 let out = motif_script::reset_in_theme(&self.src, &self.scene, &name, false);
                 if self.apply_once("theme-reset", out) {
                     self.status = format!("«{name}» в теме «{}» снова как в исходной сцене", self.theme);
                 }
+            }
+            Act::Set(name, _) | Act::SetGradient(name, _) | Act::Rename(name, _) if self.swatch_from(&name).is_some() => {
+                let from = self.swatch_from(&name).unwrap_or_default();
+                self.refuse_included(&format!("«{name}» палитры"), &from);
             }
             Act::Set(name, c) => {
                 let out = motif_script::set_swatch(&self.src, &self.scene, &name, c);
@@ -468,7 +500,7 @@ impl App {
                 self.apply(&format!("swatch-{name}"), out);
             }
             Act::Add => {
-                let name = motif_script::free_swatch_name(&file);
+                let name = motif_script::free_swatch_name(&self.names_text());
                 let color = self.selected.as_ref().and_then(|s| self.scene.doc.node(s)).and_then(|n| n.fill).unwrap_or(Color::rgb(128, 128, 128));
                 let out = motif_script::add_swatch(&self.src, &self.scene, &name, color);
                 if self.apply("swatch-add", Some(out)) {
@@ -476,7 +508,7 @@ impl App {
                 }
             }
             Act::AddGradient => {
-                let name = motif_script::free_gradient_name(&file);
+                let name = motif_script::free_gradient_name(&self.names_text());
                 let from = self.scene.palette.first().map_or(Color::rgb(0x4f, 0xd3, 0x8c), |s| s.color);
                 let g = Gradient { radial: false, angle: 90.0, colors: vec![Color::rgb(255, 255, 255), from] };
                 let out = motif_script::add_gradient_swatch(&self.src, &self.scene, &name, &g);
@@ -518,7 +550,7 @@ impl App {
                 }
             },
             Act::Name(color) => {
-                let name = motif_script::free_swatch_name(&file);
+                let name = motif_script::free_swatch_name(&self.names_text());
                 match motif_script::name_color(&file, base, &name, color) {
                     Some(r) => {
                         if self.apply_file("color-name", Some(r.file)) {

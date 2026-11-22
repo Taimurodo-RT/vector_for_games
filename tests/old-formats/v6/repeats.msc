@@ -1,0 +1,54 @@
+motif 6
+// Живые повторы: одна заклёпка, одна прорезь, одно деление — остальное показывает группа.
+// repeat пишется в строке group. То, что лежит в блоке, — первый повтор: меняете его, меняются все.
+//   repeat grid 6 4 step 14 14      сетка: столбцы, строки и шаг вправо и вниз
+//   repeat circle 9 arc 120         по кругу вокруг опорной точки группы (pivot); arc — часть круга
+//   repeat along plate 20 offset 14 равномерно вдоль контура другой фигуры, offset — отступ внутрь
+// upright оставляет повторы круга и контура неповёрнутыми.
+// Остальные повторы получают id от группы: dots-2-1 (столбец, строка) в сетке, ticks-3 в круге.
+artboard "Пульт" 480x340 bg #20242c
+let ink = #1b1d24
+let steel = #39404d
+let light = #c9ced8
+let hot = #ff5a36
+let leaf = #7bd389
+
+rect plate "Панель" at 240 170 size 388 268 r 14 fill steel stroke ink 3
+
+// Вдоль контура. Заклёпки стоят по краю панели: поменяйте её размер, и они встанут заново.
+// У такой группы нет своего at: место ей даёт контур. На углу заклёпка встаёт между сторонами.
+group rivets "Заклёпки" repeat along plate 20 offset 14 {
+  ellipse rivet size 9 9 fill light stroke ink 2
+  rect slot size 6 1.5 fill ink
+}
+
+// Сеткой. Решётка динамика из одной прорези.
+group grille "Решётка" at 96 84 repeat grid 7 4 step 14 14 {
+  rect hole size 9 9 r 2 fill ink
+}
+
+// По кругу, целиком. Группу крутит анимация: всё кольцо поворачивается вокруг своей точки.
+ellipse hub_back at 138 214 size 92 92 fill ink
+group fan "Вентилятор" at 138 214 repeat circle 5 {
+  path blade at 0 -22 d "M -5 16 C -14 4 -10 -14 2 -18 C 12 -12 12 6 5 16 Z" fill leaf
+}
+ellipse hub at 138 214 size 14 14 fill light stroke ink 2
+
+// По кругу, без поворота: лампы стоят вокруг вентилятора, но каждая остаётся прямой.
+group lamps "Лампы" at 138 214 repeat circle 8 upright {
+  rect lamp at 0 -54 size 9 5 r 1 fill hot
+}
+
+// По кругу, дугой. Центр шкалы — опорная точка группы, а rot поворачивает всю дугу вокруг неё:
+// так первое деление уходит влево, а шкала становится симметричной.
+ellipse dial_back at 318 180 size 150 150 fill ink
+group ticks "Деления" at 318 118 pivot 0 62 rot -60 repeat circle 9 arc 120 {
+  rect tick size 3 12 r 1.5 fill light
+}
+rect needle "Стрелка" at 318 154 size 4 52 r 2 pivot 0 26 fill hot
+ellipse cap at 318 180 size 16 16 fill light stroke ink 2
+
+anim Idle 4s loop {
+  fan.rot 0: 0 linear | 4: 360
+  needle.rot 0: -48 ease-in-out | 2: 40 ease-in-out | 4: -48
+}

@@ -12,9 +12,10 @@
 //!   line — variants of a symbol; `title.content = "Купить"` in `override` — words of a text
 //!   for one copy.
 //! - 6: `group … repeat grid 4 2 step 40 30` — live repeats of what is in a group.
+//! - 7: `include "kit.msc"` — the colors, styles, themes and symbols of another file.
 
 /// The newest format this Motif reads.
-pub const VERSION: u32 = 6;
+pub const VERSION: u32 = 7;
 
 /// The lowest format version that reads `src`: the first one that has everything it uses.
 pub fn needed(src: &str) -> u32 {
@@ -56,7 +57,11 @@ pub fn needed(src: &str) -> u32 {
         let mut words = code.split_whitespace();
         words.next() == Some("group") && words.skip(1).any(|w| w == "repeat")
     });
-    if repeat {
+    // A statement starts its line; `include` came with version 7.
+    let include = src.lines().any(|l| l.split_whitespace().next() == Some("include"));
+    if include {
+        7
+    } else if repeat {
         6
     } else if variant || own_text {
         5
@@ -138,6 +143,12 @@ mod tests {
         let rivets = "artboard \"a\" 10x10\ngroup rivets repeat grid 4 1 step 8 0 {\n  ellipse rivet size 2 2\n}\n";
         assert_eq!(needed(rivets), 6);
         assert_eq!(stamp(rivets), format!("motif 6\n{rivets}"));
+        // The lines of another file came with version 7.
+        let screen = "include \"kit.msc\"\nartboard \"a\" 10x10\n";
+        assert_eq!(needed(screen), 7);
+        assert_eq!(stamp(&format!("motif 1\n{screen}")), format!("motif 7\n{screen}"));
+        // An object called `include` and a comment with the word are not the line.
+        assert_eq!(needed("artboard \"a\" 10x10\nrect include at 0 0 size 4 4 // include \"kit.msc\"\n"), 1);
         // A group called `repeat`, a name and a comment with the word are not a repeat.
         assert_eq!(needed("artboard \"a\" 10x10\ngroup repeat \"we repeat it\" { // repeat\n}\n"), 1);
         // A copy called `variant`, a name and a comment with the word are not a variant.

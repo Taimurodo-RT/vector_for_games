@@ -8,7 +8,7 @@ use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
 use motif_core::{Color, Node, ShapeKind};
 
 /// What a click in the style rows asks for.
-enum Act {
+pub(crate) enum Act {
     Make,
     Assign(String),
     Detach,
@@ -263,7 +263,9 @@ impl App {
                     // the count moves into the hint: «↺» needs the room.
                     let count = format!("объектов: {}", users.len());
                     let counted = shown.is_empty();
-                    let hint = if counted {
+                    let hint = if let Some(file) = self.style_from(name) {
+                        format!("Выбрать объекты этого стиля ({count}). Стиль записан в подключённом файле «{file}»: меняют его там")
+                    } else if counted {
                         "Выбрать объекты этого стиля".to_string()
                     } else {
                         format!("Выбрать объекты этого стиля ({count})")
@@ -311,7 +313,7 @@ impl App {
         }
     }
 
-    fn style_act(&mut self, act: Act, ids: &[String]) {
+    pub(crate) fn style_act(&mut self, act: Act, ids: &[String]) {
         if let Act::Select(name) = &act {
             let users = self.styled_with(name);
             self.status = format!("Выбраны объекты стиля «{name}»: {}", users.len());
@@ -321,11 +323,23 @@ impl App {
         if !self.can_edit() {
             return;
         }
-        let (src, scene) = (&self.src, &self.scene);
         let first = ids.first().map(String::as_str).unwrap_or_default();
+        // A style of an included file is a line of that file.
+        let changed = match &act {
+            Act::WriteInto => self.scene.styled.get(first).cloned(),
+            Act::Unthemed(name) | Act::Rename(name, _) | Act::Delete(name) => Some(name.clone()),
+            _ => None,
+        };
+        if let Some(name) = changed
+            && let Some(file) = self.style_from(&name)
+        {
+            self.refuse_included(&format!("Стиль «{name}»"), &file);
+            return;
+        }
+        let (src, scene) = (&self.src, &self.scene);
         match act {
             Act::Make => {
-                let name = motif_script::free_style_name(&self.file_text());
+                let name = motif_script::free_style_name(&self.names_text());
                 let out = motif_script::make_style(src, scene, first, &name);
                 if self.apply("style-make", out) {
                     self.status =

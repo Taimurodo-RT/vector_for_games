@@ -1,0 +1,39 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Привал",
+      "width": 360.0,
+      "height": 420.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "themes": [
+        "night"
+      ],
+      "includes": [
+        "kit.msc"
+      ]
+    },
+    {
+      "name": "Настройки",
+      "width": 360.0,
+      "height": 420.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "themes": [
+        "night"
+      ],
+      "includes": [
+        "kit.msc"
+      ]
+    }
+  ]
+}

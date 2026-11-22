@@ -199,6 +199,13 @@ pub fn detach_copy(src: &str, scene: &Scene, copy: &str, base: Option<&std::path
     if scene.editing.is_some() {
         return Err("Сначала выйдите из правки символа (Esc)".into());
     }
+    // The lines of a symbol of another file are not in this script.
+    if let Some(site) = scene.symbols.iter().find(|s| s.name == inst.symbol).and_then(|s| scene.included(s.span)) {
+        return Err(format!(
+            "Символ «{}» записан в подключённом файле «{}»: его копию отцепить нельзя, строк символа в этой сцене нет",
+            inst.symbol, site.path
+        ));
+    }
     let unreadable = || "не удалось прочитать скрипт".to_string();
     let toks = crate::lexer::lex(src).map_err(|_| unreadable())?;
     let stmts = crate::parser::Parser::new(src, toks).block(false);

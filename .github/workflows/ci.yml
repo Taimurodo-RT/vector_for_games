@@ -64,6 +64,9 @@ jobs:
       - run: cargo run -p motif-cli -- render examples/variation.msc --anim Idle --time 1 -o target/variation.png
       - run: cargo run -p motif-cli -- check examples/inventory.msc
       - run: cargo run -p motif-cli -- render examples/inventory.msc --theme frost -o target/inventory.png
+      - run: cargo run -p motif-cli -- check examples/kit.msc
+      - run: cargo run -p motif-cli -- check examples/kit-screens.msc
+      - run: cargo run -p motif-cli -- render examples/kit-screens.msc --theme night -o target/kit-screens
       - run: cargo run -p motif-cli -- check examples/character-side.msc
       - run: cargo run -p motif-cli -- check examples/character-platformer.msc
       - run: cargo run -p motif-cli -- check examples/character-portrait.msc

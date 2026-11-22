@@ -60,7 +60,7 @@ pub fn css_sans_notices(data: &[u8]) -> Option<[(&'static str, &'static str); 2]
     ])
 }
 
-fn builtin_name(name: &str) -> bool {
+pub(crate) fn builtin_name(name: &str) -> bool {
     matches!(name, "" | "regular" | "bold" | CSS_SANS_REGULAR | CSS_SANS_BOLD | CSS_SERIF_REGULAR | CSS_SERIF_BOLD | CSS_MONO_REGULAR | CSS_MONO_BOLD)
 }
 

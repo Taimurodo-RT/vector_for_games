@@ -33,6 +33,8 @@ impl App {
             let mut detach = false;
             let copies = self.copies_of(&inst.symbol);
             let inside = self.scene.editing.as_deref() == Some(node.id.as_str());
+            // A symbol of an included file: the copy is set here, the symbol is changed there.
+            let from = self.symbol_from(&inst.symbol);
             fold(ui, &format!("Символ {}", inst.symbol), |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 if inst.params.is_empty() {
@@ -57,11 +59,18 @@ impl App {
                     }
                 }
                 let note = if generated {
-                    "Копия создана циклом: параметры правятся в её строке use в скрипте."
+                    "Копия создана циклом: параметры правятся в её строке use в скрипте.".to_string()
+                } else if let Some(file) = &from {
+                    format!(
+                        "Параметры и вариант меняют только эту копию. Сам символ записан в подключённом файле «{file}»: его меняют там, и копия изменится сама."
+                    )
                 } else {
-                    "Параметры меняют только эту копию. Сам символ правится на холсте: «Править символ» или двойной щелчок по копии."
+                    "Параметры меняют только эту копию. Сам символ правится на холсте: «Править символ» или двойной щелчок по копии.".to_string()
                 };
                 ui.label(RichText::new(note).size(11.5).color(FAINT));
+                if from.is_some() {
+                    return;
+                }
                 if inside {
                     ui.label(RichText::new(format!("Сейчас правится сам символ: правки меняют все его копии ({copies}).")).size(11.5).color(ACCENT));
                 } else {
@@ -83,7 +92,9 @@ impl App {
                 self.detach_copy(&node.id);
                 return;
             }
-            self.variant_section(ui, &node.id);
+            if from.is_none() {
+                self.variant_section(ui, &node.id);
+            }
             self.copy_changes_section(ui, &node.id);
             if let Some(act) = variant_act {
                 self.variant_act(&node.id, act);
@@ -179,7 +190,8 @@ impl App {
                 let copies = self.scene.instances.values().filter(|i| i.symbol == s.name).count();
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&s.name).font(theme::semibold(13.0)).color(ACCENT));
-                    ui.label(RichText::new(format!("копий: {copies}")).size(11.5).color(FAINT));
+                    let from = self.scene.included(s.span).map(|i| format!(", из «{}»", i.path)).unwrap_or_default();
+                    ui.label(RichText::new(format!("копий: {copies}{from}")).size(11.5).color(FAINT));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if theme::button(ui, "Вставить", ButtonKind::Normal).clicked() {
                             place = Some(s.name.clone());
