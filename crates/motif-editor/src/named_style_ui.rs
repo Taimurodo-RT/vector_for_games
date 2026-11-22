@@ -104,6 +104,9 @@ fn sample(ui: &mut egui::Ui, like: Option<&Node>) -> egui::Response {
     resp
 }
 
+/// Said when an edit of the whole file cannot read one of its boards.
+const OTHER_BOARD_ERRORS: &str = "Стиль общий для холстов файла, а на одном из них ошибка в скрипте: сначала исправьте её";
+
 impl App {
     /// The objects that take style `name`, in the order they are drawn.
     fn styled_with(&self, name: &str) -> Vec<String> {
@@ -285,7 +288,7 @@ impl App {
         let first = ids.first().map(String::as_str).unwrap_or_default();
         match act {
             Act::Make => {
-                let name = motif_script::free_style_name(scene);
+                let name = motif_script::free_style_name(&self.file_text());
                 let out = motif_script::make_style(src, scene, first, &name);
                 if self.apply("style-make", out) {
                     self.status =
@@ -328,15 +331,25 @@ impl App {
                         format!("Имя «{new}» не подходит: нужно одно слово из букв, цифр, «_» и «-», не занятое другим стилем и не название свойства");
                     return;
                 }
-                let out = motif_script::rename_style(src, scene, &old, &new);
-                if self.apply("style-rename", out) {
+                // A style of the shared head is taken on other boards too: they follow.
+                let (file, base) = (self.file_text(), self.path.as_ref().and_then(|p| p.parent()));
+                let out = motif_script::rename_style_in_file(&file, base, self.boards.active, &old, &new);
+                if out.is_none() {
+                    self.status = match motif_script::parse_boards(&file, base) {
+                        Ok(_) => format!("Имя «{new}» занято стилем на другом холсте этого файла"),
+                        Err(_) => OTHER_BOARD_ERRORS.into(),
+                    };
+                } else if self.apply_file("style-rename", out) {
                     self.status = format!("Стиль «{old}» теперь «{new}»");
                 }
             }
             Act::Delete(name) => {
                 let users = self.styled_with(&name).len();
-                let out = motif_script::delete_style(src, scene, &name);
-                if self.apply("style-delete", out) {
+                let (file, base) = (self.file_text(), self.path.as_ref().and_then(|p| p.parent()));
+                let out = motif_script::delete_style_in_file(&file, base, self.boards.active, &name);
+                if out.is_none() {
+                    self.status = OTHER_BOARD_ERRORS.into();
+                } else if self.apply_file("style-delete", out) {
                     self.status = format!("Стиль «{name}» удалён. Объекты сохранили вид: {users}");
                 }
             }
@@ -473,5 +486,39 @@ group g at 0 0 {
         // Deleting the style writes the look into the line of the loop.
         app.style_act(Act::Delete("dots".into()), &[]);
         assert!(app.src.contains("ellipse dot{i} at {200 + i * 20} 140 size 10 10 fill #ff5a36\n"), "{}", app.src);
+    }
+
+    #[test]
+    fn renaming_and_deleting_a_shared_style_reaches_the_other_boards() {
+        let file = "let ink = #1b1d24
+style card fill #ffffff stroke ink 2
+artboard \"one\" 100x100
+rect a at 50 50 size 40 40 style card
+artboard \"two\" 100x100 cell 1 0
+rect b at 50 50 size 40 40 style card r 4
+";
+        let docs = |app: &App| -> Vec<motif_core::Document> {
+            motif_script::parse_boards(&app.file_text(), None).unwrap_or_else(|e| panic!("{e:?}\n{}", app.file_text())).into_iter().map(|s| s.doc).collect()
+        };
+        let mut app = fixture(file);
+        let before = docs(&app);
+        app.style_act(Act::Rename("card".into(), "plate".into()), &[]);
+        assert!(app.status.contains("теперь «plate»"), "{}", app.status);
+        assert!(app.file_text().contains("rect b at 50 50 size 40 40 style plate r 4\n"), "{}", app.file_text());
+        assert_eq!(docs(&app), before);
+        assert_eq!(app.boards.active, 0);
+        app.undo();
+        assert_eq!(app.file_text(), file);
+
+        // From the second board: the first keeps its look when the style goes.
+        app.switch_board(1);
+        app.style_act(Act::Delete("card".into()), &[]);
+        assert!(app.status.contains("удалён"), "{}", app.status);
+        assert!(app.file_text().contains("rect a at 50 50 size 40 40 fill #ffffff stroke ink 2\n"), "{}", app.file_text());
+        assert!(!app.file_text().contains("style"), "{}", app.file_text());
+        assert_eq!(docs(&app), before);
+        assert_eq!(app.boards.active, 1);
+        app.undo();
+        assert_eq!(app.file_text(), file);
     }
 }

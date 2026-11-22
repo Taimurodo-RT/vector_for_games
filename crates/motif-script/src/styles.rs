@@ -93,9 +93,11 @@ pub fn style_name_ok(scene: &Scene, name: &str) -> bool {
         && site(scene, name).is_none()
 }
 
-/// A style name not used yet: `style1`, `style2`…
-pub fn free_style_name(scene: &Scene) -> String {
-    (1..).map(|n| format!("style{n}")).find(|n| site(scene, n).is_none()).expect("some number is free")
+/// A style name not used yet: `style1`, `style2`… `file` is the whole file: a new style of the
+/// shared head must not meet a style that another board keeps for itself.
+pub fn free_style_name(file: &str) -> String {
+    let taken: Vec<&str> = file.lines().filter_map(|l| l.trim_start().strip_prefix("style")?.split_whitespace().next()).collect();
+    (1..).map(|n| format!("style{n}")).find(|n| !taken.contains(&n.as_str())).expect("some number is free")
 }
 
 /// What the style gives to the line of `u`, written out as properties.
@@ -239,28 +241,78 @@ pub fn write_into_style(src: &str, scene: &Scene, node: &str) -> Option<String> 
     Some(splice_all(src, edits))
 }
 
-/// Returns the script without the style `name`: every line that took it gets what the style
-/// gave written out, so nothing changes its look. `None` when there is no such style.
-pub fn delete_style(src: &str, scene: &Scene, name: &str) -> Option<String> {
+/// What removing the style `name` changes in the script: every line that took it gets what the
+/// style gave written out, and the line of the style goes.
+fn delete_edits(src: &str, scene: &Scene, name: &str) -> Option<Vec<(Span, String)>> {
     let style = site(scene, name)?;
     let mut edits: Vec<(Span, String)> = scene.style_uses.iter().filter(|u| u.style == name).flat_map(|u| bake(src, scene, u)).collect();
     // The whole line of the style, with its line break.
     let start = src[..style.span.start].rfind('\n').map_or(0, |i| i + 1);
     let end = src[style.span.end..].find('\n').map_or(src.len(), |i| style.span.end + i + 1);
     edits.push((Span::new(start, end), String::new()));
-    Some(splice_all(src, edits))
+    Some(edits)
 }
 
-/// Returns the script with the style `old` called `new`, on its line and on every line that
-/// takes it. `None` when there is no such style or the new name cannot be used.
-pub fn rename_style(src: &str, scene: &Scene, old: &str, new: &str) -> Option<String> {
+/// What calling the style `old` by the name `new` changes: its line and every line that takes it.
+fn rename_edits(scene: &Scene, old: &str, new: &str) -> Option<Vec<(Span, String)>> {
     let style = site(scene, old)?;
     if !style_name_ok(scene, new) {
         return None;
     }
     let mut edits = vec![(style.name_span, new.to_string())];
     edits.extend(scene.style_uses.iter().filter(|u| u.style == old).map(|u| (u.name_span, new.to_string())));
-    Some(splice_all(src, edits))
+    Some(edits)
+}
+
+/// Returns the script without the style `name`: every line that took it gets what the style
+/// gave written out, so nothing changes its look. `None` when there is no such style.
+pub fn delete_style(src: &str, scene: &Scene, name: &str) -> Option<String> {
+    Some(splice_all(src, delete_edits(src, scene, name)?))
+}
+
+/// Returns the script with the style `old` called `new`, on its line and on every line that
+/// takes it. `None` when there is no such style or the new name cannot be used.
+pub fn rename_style(src: &str, scene: &Scene, old: &str, new: &str) -> Option<String> {
+    Some(splice_all(src, rename_edits(scene, old, new)?))
+}
+
+/// An edit of the style `name` of board `board` made in the whole file: a style of the shared
+/// head is taken by objects of every board, and each of them is read to find its lines. `edits`
+/// gives the changes of one board's script. `None` when a board has errors, the board has no
+/// such style, or the edit cannot be made on one of the boards.
+fn in_file(
+    file: &str,
+    base: Option<&std::path::Path>,
+    board: usize,
+    name: &str,
+    edits: impl Fn(&str, &Scene) -> Option<Vec<(Span, String)>>,
+) -> Option<String> {
+    let views = crate::boards::board_views(file, base)?;
+    let line = |v: &crate::boards::BoardView| site(&v.scene, name).map(|s| v.in_file(s.span));
+    let which = line(views.get(board)?)?;
+    let mut all: Vec<(Span, String)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    // A board with a style of its own under the same name is another style: it stays.
+    for v in views.iter().filter(|v| line(v) == Some(which)) {
+        for (span, text) in edits(&v.text, &v.scene)? {
+            let span = v.in_file(span);
+            // What is written in the head is found on every board.
+            if seen.insert((span.start, span.end)) {
+                all.push((span, text));
+            }
+        }
+    }
+    Some(splice_all(file, all))
+}
+
+/// [`delete_style`] in a file of several boards: the objects of every board keep their look.
+pub fn delete_style_in_file(file: &str, base: Option<&std::path::Path>, board: usize, name: &str) -> Option<String> {
+    in_file(file, base, board, name, |src, scene| delete_edits(src, scene, name))
+}
+
+/// [`rename_style`] in a file of several boards: every board that takes the style follows.
+pub fn rename_style_in_file(file: &str, base: Option<&std::path::Path>, board: usize, old: &str, new: &str) -> Option<String> {
+    in_file(file, base, board, old, |_, scene| rename_edits(scene, old, new))
 }
 
 #[cfg(test)]
@@ -429,7 +481,9 @@ anim Idle 1s {
 }
 ";
         let s = scene(src);
-        assert_eq!(free_style_name(&s), "style1");
+        assert_eq!(free_style_name(src), "style1");
+        // A name kept by another board of the file is not free either.
+        assert_eq!(free_style_name("style style1 r 2\nartboard \"a\" 9x9\nartboard \"b\" 9x9\n  style style2 r 4\n"), "style3");
         let out = make_style(src, &s, "a", "card").unwrap();
         // The look leaves the line, the place and the turn stay. The style goes to the top.
         assert!(out.starts_with("motif 1\nstyle card r 8 fill #ffffff stroke #1b1d24 2\n\n// Экран\nartboard"), "{out}");
@@ -617,6 +671,65 @@ rect b at 150 50 size 80 40 style card
         let err = |src: &str| parse(src).unwrap_err().iter().map(|e| e.message.clone()).collect::<Vec<_>>();
         assert!(err("artboard \"a\" 10x10\nrect a size 4 4 no at\n")[0].contains("после no"));
         assert!(err("artboard \"a\" 10x10\nstyle s fill #fff no glow\n")[0].contains("no пишется на строке объекта"));
+    }
+
+    #[test]
+    fn a_style_of_the_shared_head_is_renamed_and_deleted_on_every_board() {
+        // `card` is shared. The second and the third board each have a style `note` of their
+        // own: two styles that happen to share a name.
+        let file = "// set
+let ink = #1b1d24
+style card fill #ffffff stroke ink 2
+symbol Chip {
+  rect body size 20 10 style card no stroke
+}
+artboard \"one\" 100x100
+rect a at 50 50 size 40 40 style card
+artboard \"two\" 100x100 cell 1 0
+style note fill #fff4c2
+rect b at 50 50 size 40 40 style card r 4
+rect n at 50 80 size 40 10 style note
+use Chip c at 20 20
+artboard \"three\" 100x100 cell 2 0
+style note fill #000000
+rect d at 50 50 size 40 40 style note
+";
+        let docs = |text: &str| -> Vec<motif_core::Document> {
+            crate::parse_boards(text, None).unwrap_or_else(|e| panic!("{e:?}\n{text}")).into_iter().map(|s| s.doc).collect()
+        };
+        let before = docs(file);
+        // Renamed from the first board: the second follows, in the symbol of the head too.
+        let out = rename_style_in_file(file, None, 0, "card", "plate").unwrap();
+        assert!(out.contains("style plate fill #ffffff stroke ink 2\n"), "{out}");
+        assert!(out.contains("rect body size 20 10 style plate no stroke\n"), "{out}");
+        assert!(out.contains("rect a at 50 50 size 40 40 style plate\n"), "{out}");
+        assert!(out.contains("rect b at 50 50 size 40 40 style plate r 4\n"), "{out}");
+        assert!(!out.contains("card"), "{out}");
+        assert_eq!(docs(&out), before);
+        // The same from the second board; a name taken on one of the boards is refused.
+        assert_eq!(rename_style_in_file(file, None, 1, "card", "plate").unwrap(), out);
+        assert_eq!(rename_style_in_file(file, None, 0, "card", "note"), None);
+        // A board's own style is renamed on that board only.
+        let own = rename_style_in_file(file, None, 2, "note", "dark").unwrap();
+        assert!(own.contains("style dark fill #000000\nrect d at 50 50 size 40 40 style dark\n"), "{own}");
+        assert!(own.contains("style note fill #fff4c2\n") && own.contains("rect n at 50 80 size 40 10 style note\n"), "{own}");
+        assert_eq!(rename_style_in_file(file, None, 0, "note", "dark"), None);
+
+        // Deleted: every board keeps its look.
+        let out = delete_style_in_file(file, None, 1, "card").unwrap();
+        assert!(!out.contains("card"), "{out}");
+        assert!(out.contains("rect body size 20 10 fill #ffffff\n"), "{out}");
+        assert!(out.contains("rect a at 50 50 size 40 40 fill #ffffff stroke ink 2\n"), "{out}");
+        assert!(out.contains("rect b at 50 50 size 40 40 fill #ffffff stroke ink 2 r 4\n"), "{out}");
+        assert_eq!(docs(&out), before);
+        let own = delete_style_in_file(file, None, 2, "note").unwrap();
+        assert!(own.contains("rect d at 50 50 size 40 40 fill #000000\n") && own.contains("style note fill #fff4c2\n"), "{own}");
+        assert_eq!(docs(&own), before);
+        // A file of one board is its script.
+        let one = "artboard \"a\" 100x100\nstyle card fill #ffffff\nrect a size 4 4 style card\n";
+        assert_eq!(rename_style_in_file(one, None, 0, "card", "plate"), rename_style(one, &scene(one), "card", "plate"));
+        assert_eq!(delete_style_in_file(one, None, 0, "card"), delete_style(one, &scene(one), "card"));
+        assert_eq!(delete_style_in_file(one, None, 0, "none"), None);
     }
 
     #[test]

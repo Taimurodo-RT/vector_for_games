@@ -78,7 +78,8 @@ pub use parser::prop_arity;
 use std::collections::HashMap;
 use std::fmt;
 pub use styles::{
-    assign_style, delete_style, detach_style, free_style_name, make_style, own_look, rename_style, reset_to_style, style_name_ok, write_into_style,
+    assign_style, delete_style, delete_style_in_file, detach_style, free_style_name, make_style, own_look, rename_style, rename_style_in_file, reset_to_style,
+    style_name_ok, write_into_style,
 };
 pub use svg::import_svg;
 pub use symbol::{add_use, free_symbol_name, make_symbol, set_param};
