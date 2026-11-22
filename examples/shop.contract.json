@@ -1,0 +1,47 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Витрина",
+      "width": 640.0,
+      "height": 330.0,
+      "animations": [
+        {
+          "name": "Idle",
+          "duration": 1.6,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "themes": [
+        "night"
+      ]
+    },
+    {
+      "name": "Покупка",
+      "width": 420.0,
+      "height": 260.0,
+      "animations": [
+        {
+          "name": "Appear",
+          "duration": 0.4,
+          "loop": false,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "themes": [
+        "night"
+      ]
+    }
+  ]
+}
