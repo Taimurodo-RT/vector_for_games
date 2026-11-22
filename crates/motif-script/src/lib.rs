@@ -47,12 +47,13 @@ pub mod reyvec;
 mod styles;
 mod svg;
 mod symbol;
+mod themes;
 
 mod palette;
 pub mod parameters;
 pub use boards::{
-    BOARD_GAP, BoardGrid, BoardSize, board_file_name, board_layout, boards, head_end, new_board, parse_boards, rename_artboard, set_artboard_size,
-    set_board_cell,
+    BOARD_GAP, BoardGrid, BoardSize, board_file_name, board_layout, boards, head_end, new_board, parse_boards, parse_boards_themed, rename_artboard,
+    set_artboard_size, set_board_cell,
 };
 pub use bone::{add_bone, add_ik_target, add_weight_stroke, attach_to_bone, clear_weights, fmt_stroke, set_ik, set_skin};
 pub mod character;
@@ -87,6 +88,7 @@ pub use styles::{
 };
 pub use svg::import_svg;
 pub use symbol::{add_use, free_symbol_name, make_symbol, set_param};
+pub use themes::{add_theme, delete_theme, free_theme_name, rename_theme, reset_in_theme, theme_name_ok, theme_names};
 
 /// Byte range in the script text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -223,6 +225,10 @@ pub struct Scene {
     pub colors: Vec<ColorSite>,
     /// Every gradient written after `gradient` or `stroke-gradient`, in the same way.
     pub gradient_sites: Vec<GradientSite>,
+    /// The themes of the scene (`theme dark { … }`), block by block as written.
+    pub themes: Vec<ThemeSite>,
+    /// The theme the scene was read in; `None` is the scene as it is written.
+    pub theme: Option<String>,
 }
 
 /// A place of the script where a color is written.
@@ -256,6 +262,34 @@ pub struct GradientSwatch {
     pub span: Span,
     /// The palette color each of its colors is written by, when it is a name.
     pub stops: Vec<Option<String>>,
+    /// The gradient is the one the theme being shown gives the name: `span` is in the theme.
+    pub themed: bool,
+    /// The value after `=` on the `let` line, whatever theme is shown.
+    pub decl: Span,
+}
+
+/// A theme: `theme dark { … }`. A theme written in several blocks is here once for each.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThemeSite {
+    pub name: String,
+    pub name_span: Span,
+    /// From `theme` to the closing brace.
+    pub span: Span,
+    /// Byte offset of the closing brace: a new line is written before it.
+    pub close: usize,
+    pub entries: Vec<ThemeEntrySite>,
+}
+
+/// One line of a theme: `paper = #1b1d24` or `style card fill paper`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThemeEntrySite {
+    /// The name of the palette or the style the line changes.
+    pub name: String,
+    pub name_span: Span,
+    /// From the first word of the line to its last value.
+    pub span: Span,
+    /// The line is `style NAME …`.
+    pub style: bool,
 }
 
 /// A named look: `style card fill #ffffff stroke ink 2 r 10`.
@@ -269,6 +303,12 @@ pub struct StyleSite {
     pub insert_at: usize,
     /// Each property of the style: its key and where it is written with its values.
     pub props: Vec<(String, Span)>,
+    /// The line is the one the theme being shown gives the style: it is written in the theme.
+    pub themed: bool,
+    /// The style's own line, from `style` to its last value, whatever theme is shown.
+    pub decl: Span,
+    /// The name on the style's own line.
+    pub decl_name: Span,
 }
 
 /// `style card` on the line of an object.
@@ -293,6 +333,10 @@ pub struct Swatch {
     /// The value after `=`; rewritten when the color is edited, if it is a plain color.
     pub span: Span,
     pub literal: bool,
+    /// The value is the one the theme being shown gives the name: `span` is in the theme.
+    pub themed: bool,
+    /// The value after `=` on the `let` line, whatever theme is shown.
+    pub decl: Span,
 }
 
 /// A `weights` block: the strokes match the shape's `skin.paint` one to one.
@@ -471,20 +515,54 @@ pub fn parse(src: &str) -> Result<Scene, Vec<ScriptError>> {
 
 /// [`parse`] for a script saved in `base`: font files are looked up there.
 pub fn parse_in(src: &str, base: Option<&std::path::Path>) -> Result<Scene, Vec<ScriptError>> {
+    parse_themed(src, base, None)
+}
+
+/// [`parse_in`] with the scene shown in `theme` (`theme dark { … }`): the values the theme gives
+/// to names of the palette and to styles stand in for the written ones. A theme the script does
+/// not have changes nothing, and [`Scene::theme`] says which theme was read.
+///
+/// A script with themes is read once more for every other theme and for the scene as written:
+/// a mistake in any theme is an error of the script whichever theme is shown, and the places of
+/// colors, gradients and styles that only another theme reads are known too.
+pub fn parse_themed(src: &str, base: Option<&std::path::Path>, theme: Option<&str>) -> Result<Scene, Vec<ScriptError>> {
     let toks = lexer::lex(src).map_err(|e| vec![e])?;
     let mut parser = parser::Parser::new(src, toks);
     let stmts = parser.block(false);
-    let mut ev = eval::Evaluator::new(src, base);
-    ev.run(&stmts);
-    ev.read_unused();
+    let read = |theme: Option<&str>| {
+        let mut ev = eval::Evaluator::new(src, base);
+        ev.theme = theme.map(str::to_string);
+        ev.run(&stmts);
+        ev.read_unused();
+        (ev.scene, ev.errors)
+    };
+    let (mut scene, found) = read(theme);
     let mut errors = parser.errors;
-    errors.extend(ev.errors);
+    errors.extend(found);
+    if !scene.doc.themes.is_empty() {
+        let others: Vec<Option<String>> = std::iter::once(None).chain(scene.doc.themes.iter().cloned().map(Some)).filter(|t| *t != scene.theme).collect();
+        let mut colors: std::collections::HashSet<usize> = scene.colors.iter().map(|c| c.span.start).collect();
+        let mut gradients: std::collections::HashSet<usize> = scene.gradient_sites.iter().map(|g| g.span.start).collect();
+        let mut uses: std::collections::HashSet<usize> = scene.style_uses.iter().map(|u| u.span.start).collect();
+        for other in others {
+            let (seen, found) = read(other.as_deref());
+            errors.extend(found);
+            scene.colors.extend(seen.colors.into_iter().filter(|c| colors.insert(c.span.start)));
+            scene.gradient_sites.extend(seen.gradient_sites.into_iter().filter(|g| gradients.insert(g.span.start)));
+            scene.style_uses.extend(seen.style_uses.into_iter().filter(|u| uses.insert(u.span.start)));
+        }
+    }
     if errors.is_empty() {
-        Ok(ev.scene)
+        Ok(scene)
     } else {
         errors.sort_by_key(|e| e.offset);
-        errors.dedup();
-        Err(errors)
+        let mut told: Vec<ScriptError> = Vec::new();
+        for e in errors {
+            if !told.contains(&e) {
+                told.push(e);
+            }
+        }
+        Err(told)
     }
 }
 

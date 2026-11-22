@@ -85,6 +85,22 @@ fn a_palette_color_given_by_a_style_is_exported_as_its_variable() {
 }
 
 #[test]
+fn the_themes_of_the_script_become_themes_of_the_package() {
+    let src = "let ink = #234567\nlet paper = #ffffff\nlet r = 4\ntheme dark {\n  ink = #eeeeee\n  paper = #101010\n  r = 2\n}\ntheme sepia {\n  ink = #5b4636\n}\nartboard \"test\" 24x24 bg paper\nrect a at 12 12 size 20 fill ink r r\n";
+    let mut c = Config::default();
+    c.tokens.insert("ink".into(), "--ink".into());
+    // What the config says about a theme stays; the script fills in the rest.
+    c.themes.insert("sepia".into(), [("ink".into(), "#000000".into())].into());
+    let c = motif_web::with_script_themes(&c, src, None);
+    // `paper` is not bound to a token and `r` is not a color: neither is a token of a theme.
+    assert_eq!(c.themes["dark"], [("ink".to_string(), "#eeeeee".to_string())].into());
+    assert_eq!(c.themes["sepia"]["ink"], "#000000");
+    let package = motif_web::build(&motif_script::parse_boards(src, None).unwrap(), &c, None).unwrap();
+    let tokens = &package.files["tokens.css"];
+    assert!(tokens.contains("[data-theme=\"default\"]{--ink:#234567;}") && tokens.contains("[data-theme=\"dark\"]{--ink:#eeeeee;}"), "{tokens}");
+}
+
+#[test]
 fn hierarchy_classes_ids_and_clip_references_are_valid() {
     let s = scene("artboard \"test\" 24x24\ngroup parent at 12 12 clip {\nellipse mask size 20\ngroup child \"base\" {\nrect box size 24 fill #123456\n}\n}\n");
     let mut c = Config::default();

@@ -100,7 +100,7 @@ impl App {
             if theme::button(ui, "Web-пакет…", ButtonKind::Normal).clicked() {
                 let result = (|| {
                     let src = if self.export.all_boards { self.file_text() } else { self.src.clone() };
-                    let config = motif_web::read(&src)?;
+                    let config = motif_web::with_script_themes(&motif_web::read(&src)?, &src, self.path.as_deref().and_then(|p| p.parent()));
                     let scenes = motif_script::parse_boards(&src, self.path.as_deref().and_then(|p| p.parent()))
                         .map_err(|e| e.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"))?;
                     let package = motif_web::build(&scenes, &config, None)?;
@@ -128,7 +128,7 @@ impl App {
             }
         }
         if let Ok(config) = motif_web::read(&self.src) {
-            egui::ComboBox::from_label("Тема холста (просмотр)")
+            egui::ComboBox::from_label("Тема web-пакета (просмотр)")
                 .selected_text(if self.web.preview_theme.is_empty() { "Исходная" } else { &self.web.preview_theme })
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.web.preview_theme, String::new(), "Исходная");

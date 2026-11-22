@@ -111,6 +111,9 @@ pub struct App {
     pub(crate) eyedrop: Option<crate::palette_ui::Eyedrop>,
     /// How often each color of the file is used, counted for the scene it was counted in.
     pub(crate) color_uses: Option<(u64, Vec<motif_script::ColorUse>)>,
+    /// The theme the scene is shown in (`theme dark { … }`); empty is the scene as written.
+    /// It is a way to look at the file and is not saved with it.
+    pub(crate) theme: String,
     /// The «Растяжение 9-slice» window, when open.
     pub(crate) stretch: Option<crate::stretch_ui::Stretch>,
     /// The «Новое…» library of templates, when open.
@@ -310,6 +313,7 @@ impl App {
             library: None,
             eyedrop: None,
             color_uses: None,
+            theme: String::new(),
             hovered: None,
             view: None,
             anim: None,
@@ -412,13 +416,30 @@ impl App {
     pub(crate) fn reparse(&mut self) {
         self.draft_pose.clear();
         self.split_active();
-        match motif_script::parse_in(&self.src, self.path.as_ref().and_then(|p| p.parent())) {
+        match self.parse_shown(&self.src) {
             Ok(scene) => self.accept_scene(scene),
             Err(errors) => self.errors = errors,
         }
     }
 
+    /// `src` read the way the scene is shown: in the theme chosen in the palette panel.
+    pub(crate) fn parse_shown(&self, src: &str) -> Result<Scene, Vec<motif_script::ScriptError>> {
+        let theme = (!self.theme.is_empty()).then_some(self.theme.as_str());
+        motif_script::parse_themed(src, self.path.as_ref().and_then(|p| p.parent()), theme)
+    }
+
+    /// Shows the scene in the theme `name`, or as it is written for an empty name.
+    pub(crate) fn show_theme(&mut self, name: &str) {
+        self.theme = name.to_string();
+        self.forget_other_boards();
+        self.reparse();
+    }
+
     fn accept_scene(&mut self, scene: Scene) {
+        // A theme that the file no longer has (renamed in the script, undone) is not shown.
+        if scene.theme.is_none() && self.board_count() < 2 {
+            self.theme.clear();
+        }
         self.scene = scene;
         self.scene_rev += 1;
         self.errors.clear();
@@ -493,7 +514,7 @@ impl App {
                         }
                     }
                 }
-                let parsed = match motif_script::parse_in(&s, self.path.as_ref().and_then(|p| p.parent())) {
+                let parsed = match self.parse_shown(&s) {
                     Ok(scene) => scene,
                     Err(errors) => {
                         self.status = errors.first().map(ToString::to_string).unwrap_or_default();
@@ -1412,8 +1433,16 @@ impl App {
         }
     }
 
+    /// The name the files of an export start with: the file's name, and the theme shown after
+    /// it, so that the same set saved in two themes is two sets of files.
     pub(crate) fn file_stem(&self) -> String {
-        self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned())
+        let stem = self.path.as_ref().and_then(|p| p.file_stem()).map_or("scene".to_string(), |s| s.to_string_lossy().into_owned());
+        format!("{stem}{}", self.theme_suffix())
+    }
+
+    /// `-dark` while the scene is shown in the theme `dark`, for the names of exported files.
+    pub(crate) fn theme_suffix(&self) -> String {
+        self.scene.theme.as_ref().map(|t| format!("-{t}")).unwrap_or_default()
     }
 
     /// The boards an export covers, each with the name its files get: the open board, or every
@@ -1427,7 +1456,7 @@ impl App {
         let mut out: Vec<(String, Document)> = Vec::new();
         for k in ks {
             let doc = self.board_doc(k).ok_or_else(|| format!("в скрипте холста {} ошибки", k + 1))?;
-            let base = motif_script::board_file_name(&doc.artboard.name);
+            let base = format!("{}{}", motif_script::board_file_name(&doc.artboard.name), self.theme_suffix());
             let name = (1..).map(|i| if i == 1 { base.clone() } else { format!("{base}_{i}") }).find(|c| out.iter().all(|o| o.0 != *c)).expect("free");
             out.push((name, doc));
         }
@@ -1445,10 +1474,10 @@ impl App {
                 let anim = self.anim.as_deref().filter(|a| doc.animation(a).is_some());
                 let name = match (anim, several) {
                     (Some(a), true) => format!("{board}_{a}"),
-                    (Some(a), false) => a.to_string(),
+                    (Some(a), false) => format!("{a}{}", self.theme_suffix()),
                     (None, true) => board.clone(),
                     (None, false) if self.board_count() > 1 => board.clone(),
-                    (None, false) => "scene".to_string(),
+                    (None, false) => format!("scene{}", self.theme_suffix()),
                 };
                 for (i, px) in self.export_render(doc, anim)?.iter().enumerate() {
                     let path = dir.join(format!("{name}_{i:04}.png"));
@@ -2981,6 +3010,7 @@ impl App {
             .default_width(380.0)
             .anchor(Align2::RIGHT_TOP, vec2(-280.0, 56.0))
             .show(ctx, |ui| {
+                self.export_theme_choice(ui);
                 self.export_boards_choice(ui);
                 self.web_export(ui);
                 // An interface scene is exported as a kit first of all; game art has no kit.
@@ -3049,6 +3079,36 @@ impl App {
                 self.pixatool_section(ui);
             });
         self.show_export = open;
+    }
+
+    /// The theme every export below is made in: the one the scene is shown in.
+    fn export_theme_choice(&mut self, ui: &mut egui::Ui) {
+        if self.scene.doc.themes.is_empty() {
+            return;
+        }
+        theme::caption(ui, "Тема");
+        let mut chosen = self.scene.theme.clone().unwrap_or_default();
+        let before = chosen.clone();
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("export-theme").selected_text(if chosen.is_empty() { "Исходная" } else { chosen.as_str() }).show_ui(ui, |ui| {
+                ui.selectable_value(&mut chosen, String::new(), "Исходная");
+                for name in &self.scene.doc.themes {
+                    ui.selectable_value(&mut chosen, name.clone(), name);
+                }
+            });
+        });
+        let note = if chosen.is_empty() {
+            "Выгружается сцена как записана. Выберите тему, чтобы выгрузить тот же набор в ней.".to_string()
+        } else {
+            format!("Выгружается то, что на холсте: сцена в теме «{chosen}». К именам файлов добавляется «-{chosen}».")
+        };
+        ui.label(RichText::new(note).size(12.0).color(FAINT));
+        ui.add_space(6.0);
+        theme::rule(ui);
+        ui.add_space(4.0);
+        if chosen != before {
+            self.show_theme(&chosen);
+        }
     }
 
     /// Like Illustrator's «Use Artboards»: the open board or all of them, for every export below.

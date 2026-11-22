@@ -32,6 +32,9 @@ pub struct Document {
     /// lines), so two copies of one character differ and a replay repeats. 0 is the scene as
     /// Motif shows it.
     pub seed: u64,
+    /// The themes the scene can be shown in (`theme dark { … }`), in the order written. The
+    /// document itself is one of them, or the scene as it is written.
+    pub themes: Vec<String>,
 }
 
 /// What a scene is made for. The editor hides what the other kind of work needs.
@@ -1080,6 +1083,7 @@ impl Document {
             directions: None,
             ids: crate::Ids::default(),
             seed: 0,
+            themes: Vec::new(),
         }
     }
 

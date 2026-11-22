@@ -83,6 +83,12 @@ pub struct Player {
     shown: Arc<Document>,
     /// Counts the changes of the pose shown: a frame that did not change is not drawn again.
     pose: u64,
+    /// The script the scene was read from and the folder of its fonts: another theme of the
+    /// scene is read from them.
+    src: String,
+    dir: Option<std::path::PathBuf>,
+    /// The theme shown (`theme dark { … }`); empty is the scene as it is written.
+    theme: String,
 }
 
 /// One pose to draw, apart from the player: it can be drawn on another thread while the game
@@ -289,7 +295,8 @@ impl Player {
         let side = doc.directions.as_ref().map(|_| 0);
         let plain = machine.clone();
         let shown = Arc::new(doc.clone());
-        let mut p = Player { doc, board, alone, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0 };
+        let (src, dir, theme) = (src.to_string(), base.map(std::path::Path::to_path_buf), String::new());
+        let mut p = Player { doc, board, alone, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0, src, dir, theme };
         p.turn(side);
         Ok(p)
     }
@@ -299,9 +306,53 @@ impl Player {
     /// and its time, the inputs, springs, ropes, particles, the side and the seed go on, so a
     /// tweak shows at once without starting the scene again. A state, input or animation renamed
     /// in Motif is found by its hidden id. When the new scene has errors, or its board or
-    /// machine is gone, the player plays on unchanged and the errors are returned.
+    /// machine is gone, the player plays on unchanged and the errors are returned. The theme
+    /// shown stays; a theme the new scene no longer has gives way to the scene as written.
     pub fn reload(&mut self, src: &str, base: Option<&std::path::Path>) -> Result<(), String> {
-        let boards = motif_script::parse_boards(src, base).map_err(|errs| errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n"))?;
+        let theme = self.theme.clone();
+        self.read(src, base, &theme)?;
+        self.src = src.to_string();
+        self.dir = base.map(std::path::Path::to_path_buf);
+        if !self.doc.themes.contains(&self.theme) {
+            self.theme.clear();
+        }
+        Ok(())
+    }
+
+    /// The themes the board can be shown in, as the script names them (`theme dark { … }`).
+    pub fn themes(&self) -> Vec<String> {
+        self.doc.themes.clone()
+    }
+
+    /// The theme shown; empty for the scene as it is written.
+    pub fn theme(&self) -> &str {
+        &self.theme
+    }
+
+    /// Shows the scene in the theme `name`, or as it is written for an empty name. Only the
+    /// look changes: the state and its time, the inputs, springs, ropes, particles, the side
+    /// and the seed go on, and no time passes. Returns whether the look changed; a theme the
+    /// board does not have is an error and changes nothing. The theme is the game's choice and
+    /// is not a part of [`PlayerState`].
+    pub fn set_theme(&mut self, name: &str) -> Result<bool, String> {
+        if name == self.theme {
+            return Ok(false);
+        }
+        if !name.is_empty() && !self.doc.themes.iter().any(|t| t == name) {
+            let all =
+                if self.doc.themes.is_empty() { "у холста нет тем".to_string() } else { format!("темы: {}", self.doc.themes.join(", ")) };
+            return Err(format!("нет темы «{name}»; {all}"));
+        }
+        let (src, dir) = (self.src.clone(), self.dir.clone());
+        self.read(&src, dir.as_deref(), name)?;
+        self.theme = name.to_string();
+        Ok(true)
+    }
+
+    /// Plays on in scene `src` shown in `theme`. See [`reload`](Self::reload).
+    fn read(&mut self, src: &str, base: Option<&std::path::Path>, theme: &str) -> Result<(), String> {
+        let theme = (!theme.is_empty()).then_some(theme);
+        let boards = motif_script::parse_boards_themed(src, base, theme).map_err(|errs| errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n"))?;
         let name = &self.doc.artboard.name;
         let doc = boards.iter().find(|s| s.doc.artboard.name == *name).or_else(|| boards.get(self.board)).map(|s| s.doc.clone());
         let doc = doc.ok_or_else(|| format!("в сцене больше нет холста «{name}»"))?;
@@ -1223,6 +1274,72 @@ machine M {
         p.reload(&gone, None).unwrap();
         assert_eq!(p.state(), "Idle");
         assert!(p.time() < TICK, "{}", p.time());
+    }
+
+    /// [`RELOADED`] with its ball painted by a name of the palette that a theme changes.
+    fn themed() -> String {
+        format!("let skin = #5ee0a0\ntheme night {{\n  skin = #203040\n}}\ntheme empty {{\n}}{}", RELOADED.replace("fill #5ee0a0", "fill skin"))
+    }
+
+    #[test]
+    fn a_theme_changes_the_look_and_nothing_that_plays() {
+        let color = |p: &Player| p.frame().doc.nodes.iter().find(|n| n.id == "ball").unwrap().fill.map(|c| (c.r, c.g, c.b));
+        let src = themed();
+        let play = |switch: bool| {
+            let mut p = Player::load(&src, None, "", "", "").unwrap();
+            p.set_seed(5);
+            p.set("power", 0.7).unwrap();
+            p.fire("hurt").unwrap();
+            let mut events = Vec::new();
+            for step in 0..30 {
+                // The theme is switched in the middle of a clip, with sparks in the air.
+                if switch && step == 12 {
+                    let pose = p.pose();
+                    let (state, time, at) = (p.state(), p.time(), ball(&p));
+                    assert_eq!(p.set_theme("night"), Ok(true));
+                    assert_eq!((p.state(), p.time(), ball(&p), p.get("power")), (state, time, at, Some(0.7)));
+                    assert_ne!(p.pose(), pose, "the new look is drawn");
+                    assert_eq!((p.theme(), color(&p)), ("night", Some((0x20, 0x30, 0x40))));
+                    assert_eq!(p.set_theme("night"), Ok(false));
+                }
+                events.extend(p.advance(1.0 / 60.0).events.into_iter().map(|e| e.name));
+            }
+            (p, events)
+        };
+        let (plain, plain_events) = play(false);
+        let (mut night, night_events) = play(true);
+        assert_eq!(plain.themes(), ["night", "empty"]);
+        assert_eq!((plain.theme(), color(&plain)), ("", Some((0x5e, 0xe0, 0xa0))));
+        // The same states, events, places and sparks: only the color differs.
+        assert_eq!((night.state(), night.time(), night_events), (plain.state(), plain.time(), plain_events));
+        let places = |p: &Player| p.frame().doc.nodes.iter().map(|n| (n.id.clone(), n.x, n.y, n.particles.clone())).collect::<Vec<_>>();
+        assert!(places(&night) == places(&plain));
+        // Back to the scene as written, the frame is the one of a player that never switched.
+        assert_eq!(night.set_theme(""), Ok(true));
+        assert!(*night.frame().doc == *plain.frame().doc);
+        // A theme the board does not have is refused and changes nothing.
+        let pose = night.pose();
+        let err = night.set_theme("sepia").unwrap_err();
+        assert!(err.contains("нет темы «sepia»; темы: night, empty"), "{err}");
+        assert_eq!((night.pose(), night.theme()), (pose, ""));
+        let mut bare = Player::load(RELOADED, None, "", "", "").unwrap();
+        assert!(bare.themes().is_empty());
+        assert!(bare.set_theme("night").unwrap_err().contains("у холста нет тем"));
+
+        // A reload keeps the theme shown; a theme that is gone gives way to the scene as written.
+        night.set_theme("night").unwrap();
+        night.reload(&src.replace("#203040", "#102030"), None).unwrap();
+        assert_eq!((night.theme(), color(&night)), ("night", Some((0x10, 0x20, 0x30))));
+        night.reload(&src.replace("theme night {\n  skin = #203040\n}\n", ""), None).unwrap();
+        assert_eq!((night.theme(), color(&night), night.themes()), ("", Some((0x5e, 0xe0, 0xa0)), vec!["empty".to_string()]));
+        // The theme is not a part of a saved state: the state of one theme loads into another.
+        let mut a = Player::load(&src, None, "", "", "").unwrap();
+        a.advance(0.1);
+        let saved = a.save_state();
+        let mut b = Player::load(&src, None, "", "", "").unwrap();
+        b.set_theme("night").unwrap();
+        b.load_state(&saved).unwrap();
+        assert_eq!((b.theme(), b.time(), ball(&b)), ("night", a.time(), ball(&a)));
     }
 
     #[test]

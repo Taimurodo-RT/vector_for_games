@@ -40,6 +40,11 @@ motif — скрипты сцен Motif без окна редактора
 сценой ХОЛСТ.tscn в одну папку, palette собирает цвета всех холстов; frames и pixel берут холст,
 где есть анимация --anim (video тоже).
 
+Темы: в сцене с блоками theme ИМЯ { … } параметр --theme ИМЯ у любой команды берёт сцену в этой теме:
+render, frames, video, kit, screen, godot и svg рисуют её цветами. Имя темы добавляется к имени файла
+(СЦЕНА-ИМЯ.png), чтобы две темы не писали один файл. Без --theme сцена берётся как записана. check
+проверяет все темы и называет их, contract перечисляет темы холста в поле themes.
+
 Параметры рендера:
   --scale N        пикселей на единицу артборда (по умолчанию 1)
   --width W        итоговая ширина в пикселях вместо --scale
@@ -105,6 +110,7 @@ struct Args {
     take: Option<String>,
     length: Option<f64>,
     side: Option<String>,
+    theme: Option<String>,
     web_profile: Option<motif_web::Profile>,
     strict: bool,
     css: Option<PathBuf>,
@@ -141,6 +147,7 @@ fn parse_args() -> Result<Args, String> {
         take: None,
         length: None,
         side: None,
+        theme: None,
         web_profile: None,
         strict: false,
         css: None,
@@ -167,6 +174,7 @@ fn parse_args() -> Result<Args, String> {
             "--take" => a.take = Some(it.next().ok_or("после --take нужны моменты: \"1 speed=1, 2.5 jump\"")?),
             "--length" => a.length = Some(num(it.next(), "--length")?),
             "--side" => a.side = Some(it.next().ok_or("после --side нужна сторона: down, right, up…")?),
+            "--theme" => a.theme = Some(it.next().ok_or("после --theme нужно имя темы из сцены (theme dark { … })")?),
             "--machine" => a.machine = Some(it.next().ok_or("после --machine нужно имя машины")?),
             "--pivot" => a.pivot = Some((num(it.next(), "--pivot")?, num(it.next(), "--pivot")?)),
             "--no-aa" => a.antialias = false,
@@ -203,9 +211,22 @@ fn run() -> Result<(), String> {
     if a.cmd == "import-html" {
         return html_import::run(&a, &src);
     }
-    let scenes = motif_script::parse_boards(&src, a.scene.parent())
+    let scenes = motif_script::parse_boards_themed(&src, a.scene.parent(), a.theme.as_deref())
         .map_err(|errs| errs.iter().map(|e| format!("{}: {e}", a.scene.display())).collect::<Vec<_>>().join("\n"))?;
     let total = scenes.len();
+    // The themes of the file, of any board, in the order written.
+    let mut themes: Vec<String> = Vec::new();
+    for t in scenes.iter().flat_map(|s| &s.doc.themes) {
+        if !themes.contains(t) {
+            themes.push(t.clone());
+        }
+    }
+    if let Some(theme) = &a.theme
+        && !themes.contains(theme)
+    {
+        let all = if themes.is_empty() { "в сцене нет тем".to_string() } else { format!("темы сцены: {}", themes.join(", ")) };
+        return Err(format!("нет темы «{theme}»; {all}"));
+    }
     if a.cmd == "inspect" {
         return inspect::run(&a, &src, &scenes);
     }
@@ -244,6 +265,11 @@ fn run() -> Result<(), String> {
     }
     let several = boards.len() > 1;
     let stem = a.scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene").to_string();
+    // What is made in a theme is named after it, so that two themes do not write one file.
+    let stem = match &a.theme {
+        Some(theme) => format!("{stem}-{theme}"),
+        None => stem,
+    };
     let render_for = |doc: &Document| {
         let scale = match (a.width, a.scale) {
             (Some(w), _) => w / doc.artboard.width,
@@ -259,6 +285,9 @@ fn run() -> Result<(), String> {
         "check" => {
             if total > 1 {
                 println!("{}: ок — холстов {total}", a.scene.display());
+            }
+            if !themes.is_empty() {
+                println!("темы: {}", themes.join(", "));
             }
             for doc in &boards {
                 if total > 1 {
@@ -479,7 +508,7 @@ fn export_web(a: &Args, src: &str, mut scenes: Vec<motif_script::Scene>) -> Resu
             .ok_or_else(|| format!("Нет холста {board}"))?;
         scenes = vec![scenes.remove(index)];
     }
-    let config = motif_web::read(src)?;
+    let config = motif_web::with_script_themes(&motif_web::read(src)?, src, a.scene.parent());
     let package = motif_web::build(&scenes, &config, a.web_profile)?;
     for warning in &package.warnings {
         eprintln!("Внимание: {warning}");

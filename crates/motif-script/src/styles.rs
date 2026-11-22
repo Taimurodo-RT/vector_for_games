@@ -119,7 +119,7 @@ fn bake(src: &str, scene: &Scene, u: &StyleUse) -> Vec<(Span, String)> {
 /// Where a new `style` line goes and what is put there: after the last style, else after the
 /// palette, else at the top of the file.
 fn new_line(src: &str, scene: &Scene, line: &str) -> (Span, String) {
-    let last = scene.styles.iter().map(|s| s.span.end).max().or(scene.palette.iter().map(|s| s.span.end).max());
+    let last = scene.styles.iter().map(|s| s.decl.end).max().or(scene.palette.iter().map(|s| s.decl.end).max());
     match last {
         Some(end) => match src[end..].find('\n') {
             Some(i) => (Span::new(end + i + 1, end + i + 1), format!("{line}\n")),
@@ -204,6 +204,9 @@ pub fn reset_to_style(src: &str, scene: &Scene, node: &str, key: Option<&str>) -
 /// Returns the script with the own look properties of `node` moved into its style: every object
 /// that takes the style changes with it. `None` when the object has no style or nothing of its
 /// own to give.
+///
+/// While a theme is shown the look goes into the style's line of that theme and the object keeps
+/// its own properties: the scene as written and the other themes stay as they were.
 pub fn write_into_style(src: &str, scene: &Scene, node: &str) -> Option<String> {
     let style = site(scene, &use_of(scene, node)?.style)?;
     let own = own_spans(scene, node);
@@ -212,8 +215,14 @@ pub fn write_into_style(src: &str, scene: &Scene, node: &str) -> Option<String> 
     }
     let mut edits = Vec::new();
     let mut added = String::new();
+    // The line of an object is one for every theme. While a theme is shown the object keeps
+    // what it has of its own: without it the object would change in the scene as written and
+    // in the other themes, which nobody is looking at.
+    let keeps_own = scene.theme.is_some();
     for (key, span) in &own {
-        edits.push((with_space_before(src, *span), String::new()));
+        if !keeps_own {
+            edits.push((with_space_before(src, *span), String::new()));
+        }
         let at = |key: &str| style.props.iter().find(|(k, _)| k == key).map(|(_, s)| *s);
         // What the object refuses leaves the style.
         if let Some(gone) = refused(key) {
@@ -238,7 +247,20 @@ pub fn write_into_style(src: &str, scene: &Scene, node: &str) -> Option<String> 
     // A gradient may leave the style for two reasons at once: a plain fill and `no gradient`.
     edits.sort_by_key(|(s, _)| (s.start, s.end));
     edits.dedup_by(|a, b| a.0 == b.0);
-    Some(splice_all(src, edits))
+    if scene.theme.is_some() && !style.themed {
+        // The theme being shown gets the line of the style with the object's look written
+        // into it; the style's own line stays as it is for the other themes.
+        let line = Span::new(style.span.start, style.span.end.max(style.insert_at));
+        let (mut changes, mut edits): (Vec<_>, Vec<_>) = edits.into_iter().partition(|(s, _)| s.start >= line.start && s.end <= line.end);
+        for (s, _) in &mut changes {
+            *s = Span::new(s.start - line.start, s.end - line.start);
+        }
+        let text = splice_all(&src[line.start..line.end], changes);
+        edits.push(crate::themes::new_entry(src, scene, style.decl, text.trim_end())?);
+        return Some(splice_all(src, edits));
+    }
+    // Under a theme the style may already say all the object has.
+    Some(splice_all(src, edits)).filter(|out| out != src)
 }
 
 /// What removing the style `name` changes in the script: every line that took it gets what the
@@ -246,10 +268,11 @@ pub fn write_into_style(src: &str, scene: &Scene, node: &str) -> Option<String> 
 fn delete_edits(src: &str, scene: &Scene, name: &str) -> Option<Vec<(Span, String)>> {
     let style = site(scene, name)?;
     let mut edits: Vec<(Span, String)> = scene.style_uses.iter().filter(|u| u.style == name).flat_map(|u| bake(src, scene, u)).collect();
-    // The whole line of the style, with its line break.
-    let start = src[..style.span.start].rfind('\n').map_or(0, |i| i + 1);
-    let end = src[style.span.end..].find('\n').map_or(src.len(), |i| style.span.end + i + 1);
-    edits.push((Span::new(start, end), String::new()));
+    // The whole line of the style, with its line break, and its lines in the themes.
+    let lines = scene.themes.iter().flat_map(|t| &t.entries).filter(|e| e.style && e.name == name).map(|e| e.span);
+    for line in lines.chain([style.decl]) {
+        edits.push((crate::themes::whole_line(src, line), String::new()));
+    }
     Some(edits)
 }
 
@@ -259,8 +282,10 @@ fn rename_edits(scene: &Scene, old: &str, new: &str) -> Option<Vec<(Span, String
     if !style_name_ok(scene, new) {
         return None;
     }
-    let mut edits = vec![(style.name_span, new.to_string())];
+    let mut edits = vec![(style.decl_name, new.to_string())];
     edits.extend(scene.style_uses.iter().filter(|u| u.style == old).map(|u| (u.name_span, new.to_string())));
+    // The lines the themes give the style follow its name.
+    edits.extend(scene.themes.iter().flat_map(|t| &t.entries).filter(|e| e.style && e.name == old).map(|e| (e.name_span, new.to_string())));
     Some(edits)
 }
 

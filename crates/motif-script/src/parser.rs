@@ -30,6 +30,27 @@ impl ValueAst {
     }
 }
 
+/// One line of a theme: `paper = #1b1d24`, `sunset = linear 90 #33205e #1b1d24` or
+/// `style card fill paper stroke ink 2`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ThemeEntryAst {
+    pub name: String,
+    pub name_span: Span,
+    /// From the first word of the line to its last value.
+    pub span: Span,
+    pub value: ThemeValueAst,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ThemeValueAst {
+    /// A color or a number, as after `let name =`.
+    Value(ValueAst),
+    /// A gradient of the palette, as after `let name =`.
+    Gradient(Vec<ValueAst>),
+    /// The whole line of a style.
+    Style { props: Vec<PropAst>, insert_at: usize },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PropAst {
     pub key: String,
@@ -251,6 +272,17 @@ pub enum Stmt {
         insert_at: usize,
         /// From `style` to the last value of the line.
         span: Span,
+    },
+    /// `theme dark { … }`: other values for names of the palette and for styles. The scene is
+    /// read with one theme, or with none.
+    Theme {
+        name: String,
+        name_span: Span,
+        entries: Vec<ThemeEntryAst>,
+        /// From `theme` to the closing brace.
+        span: Span,
+        /// Byte offset of the closing brace: a new entry is written before it.
+        close: usize,
     },
     /// `symbol Coin size=16 color=#ffd23f { … }`: a reusable piece, drawn only through `use`.
     Symbol {
@@ -554,7 +586,7 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
         let first = !std::mem::replace(&mut self.started, true);
         let (word, span) = self.ident(
-            "команда: artboard, world, directions, backdrop, let, style, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
+            "команда: artboard, world, directions, backdrop, let, style, theme, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
         )?;
         match word.as_str() {
             "motif" => {
@@ -585,18 +617,14 @@ impl<'a> Parser<'a> {
                 let (name, name_span) = self.ident("имя переменной")?;
                 self.vars.insert(name.clone());
                 self.expect(Tok::Eq, "«=»")?;
-                // A gradient of the palette starts with its kind, like the property does.
-                if matches!(self.peek(), Some(Tok::Ident(k)) if (k == "linear" || k == "radial") && !self.vars.contains(k)) {
-                    let mut values = vec![self.value()?];
-                    while values.len() < 10 && self.is_value_start() {
-                        values.push(self.value()?);
-                    }
+                if let Some(values) = self.palette_gradient()? {
                     return Ok(Stmt::LetGradient { name, name_span, values });
                 }
                 let value = self.value()?;
                 Ok(Stmt::Let { name, name_span, value })
             }
             "style" => self.style(span.start),
+            "theme" => self.theme(span),
             "for" => {
                 let (var, _) = self.ident("имя переменной цикла")?;
                 self.vars.insert(var.clone());
@@ -995,6 +1023,61 @@ impl<'a> Parser<'a> {
         self.expect(Tok::Dot, "«.» между объектом и свойством")?;
         let (prop, b) = self.ident("свойство")?;
         Ok((node, prop, Span::new(a.start, b.end)))
+    }
+
+    /// The values of a gradient of the palette after `=`, if one is written there: it starts
+    /// with its kind, like the property does.
+    fn palette_gradient(&mut self) -> Result<Option<Vec<ValueAst>>, ScriptError> {
+        if !matches!(self.peek(), Some(Tok::Ident(k)) if (k == "linear" || k == "radial") && !self.vars.contains(k)) {
+            return Ok(None);
+        }
+        let mut values = vec![self.value()?];
+        while values.len() < 10 && self.is_value_start() {
+            values.push(self.value()?);
+        }
+        Ok(Some(values))
+    }
+
+    fn theme(&mut self, start: Span) -> Result<Stmt, ScriptError> {
+        let (name, name_span) = self.ident("имя темы и «{»: theme dark {")?;
+        self.expect(Tok::BlockOpen, "«{» в конце строки: theme dark {")?;
+        let mut entries = Vec::new();
+        loop {
+            match self.peek() {
+                Some(Tok::Newline) => self.pos += 1,
+                Some(Tok::BlockClose) | None => break,
+                Some(_) => match self.theme_entry() {
+                    Ok(e) => entries.push(e),
+                    Err(e) => {
+                        self.errors.push(e);
+                        self.skip_line();
+                    }
+                },
+            }
+        }
+        let close = self.close_block()?;
+        Ok(Stmt::Theme { name, name_span, entries, span: Span::new(start.start, close + 1), close })
+    }
+
+    fn theme_entry(&mut self) -> Result<ThemeEntryAst, ScriptError> {
+        const HINT: &str = "в теме пишут другие значения имён палитры и стилей: paper = #1b1d24, sunset = linear 90 #33205e #1b1d24 или style card fill paper";
+        let (name, name_span) = self.ident(HINT)?;
+        if name == "style" && self.peek() != Some(&Tok::Eq) {
+            let Stmt::Style { name, name_span: style_name, props, insert_at, span } = self.style(name_span.start)? else {
+                unreachable!("style() makes a style")
+            };
+            return Ok(ThemeEntryAst { name, name_span: style_name, span, value: ThemeValueAst::Style { props, insert_at } });
+        }
+        if self.peek() != Some(&Tok::Eq) {
+            return Err(self.err(self.peek_span(), HINT));
+        }
+        self.pos += 1;
+        if let Some(values) = self.palette_gradient()? {
+            let end = values.last().map_or(name_span.end, |v| v.span.end);
+            return Ok(ThemeEntryAst { name, name_span, span: Span::new(name_span.start, end), value: ThemeValueAst::Gradient(values) });
+        }
+        let value = self.value()?;
+        Ok(ThemeEntryAst { name, name_span, span: Span::new(name_span.start, value.span.end), value: ThemeValueAst::Value(value) })
     }
 
     fn override_entry(&mut self) -> Result<OverrideAst, ScriptError> {

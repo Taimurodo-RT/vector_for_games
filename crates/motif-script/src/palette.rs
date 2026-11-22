@@ -9,16 +9,23 @@ use std::path::Path;
 
 /// The script with the palette color `name` set to `color`, or `None` when there is no such
 /// color or it is not written as a plain color.
+///
+/// While a theme is shown, the color changes in the theme: a name the theme did not change yet
+/// gets a line there, and the palette keeps its own value.
 pub fn set_swatch(src: &str, scene: &Scene, name: &str, color: Color) -> Option<String> {
-    let s = scene.palette.iter().find(|s| s.name == name && s.literal)?;
-    Some(splice(src, s.span, &color.to_hex()))
+    let s = scene.palette.iter().find(|s| s.name == name)?;
+    if scene.theme.is_some() && !s.themed {
+        let (at, text) = crate::themes::new_entry(src, scene, s.decl, &format!("{name} = {}", color.to_hex()))?;
+        return Some(splice(src, at, &text));
+    }
+    s.literal.then(|| splice(src, s.span, &color.to_hex()))
 }
 
 /// The script with a new palette color: a `let` line after the last one, or after the comments
 /// at the top of the file (in the head that every artboard shares).
 pub fn add_swatch(src: &str, scene: &Scene, name: &str, color: Color) -> String {
     let line = format!("let {name} = {}\n", color.to_hex());
-    match scene.palette.iter().map(|s| s.span.end).max() {
+    match scene.palette.iter().map(|s| s.decl.end).max() {
         Some(end) => {
             let at = src[end..].find('\n').map_or(src.len(), |i| end + i + 1);
             if at == src.len() && !src.ends_with('\n') {
@@ -251,7 +258,9 @@ pub fn rename_swatch(file: &str, base: Option<&Path>, board: usize, old: &str, n
         // The value of another `let` may name the color too (`let paper = ink`): it follows.
         let colors = v.scene.colors.iter().filter(|s| s.name.as_deref() == Some(old)).map(|s| s.span);
         let gradients = v.scene.gradient_sites.iter().filter(|s| s.name.as_deref() == Some(old)).map(|s| s.span);
-        for span in colors.chain(gradients).map(|s| v.in_file(s)) {
+        // A theme that gives the name another value names it too.
+        let themes = v.scene.themes.iter().flat_map(|t| &t.entries).filter(|e| !e.style && e.name == old).map(|e| e.name_span);
+        for span in colors.chain(gradients).chain(themes).map(|s| v.in_file(s)) {
             if seen.insert(span.start) {
                 edits.push((span, new.to_string()));
             }
@@ -464,6 +473,11 @@ pub fn set_gradient_swatch(src: &str, scene: &Scene, name: &str, gradient: &Grad
     // A name stays where the color it stands for is still the one meant.
     let stops: Vec<Option<String>> =
         gradient.colors.iter().enumerate().map(|(i, c)| s.stops.get(i).cloned().flatten().filter(|_| s.gradient.colors.get(i) == Some(c))).collect();
+    // While a theme is shown, the gradient changes in the theme and the palette keeps its own.
+    if scene.theme.is_some() && !s.themed {
+        let (at, text) = crate::themes::new_entry(src, scene, s.decl, &format!("{name} = {}", gradient_text(gradient, &stops)))?;
+        return Some(splice(src, at, &text));
+    }
     Some(splice(src, s.span, &gradient_text(gradient, &stops)))
 }
 
@@ -476,7 +490,7 @@ pub fn free_gradient_name(file: &str) -> String {
 /// the palette, or at the top of the file.
 pub fn add_gradient_swatch(src: &str, scene: &Scene, name: &str, gradient: &Gradient) -> String {
     let line = format!("let {name} = {}\n", gradient_text(gradient, &[]));
-    let last = scene.gradients.iter().map(|s| s.span.end).chain(scene.palette.iter().map(|s| s.span.end)).max();
+    let last = scene.gradients.iter().map(|s| s.decl.end).chain(scene.palette.iter().map(|s| s.decl.end)).max();
     match last {
         Some(end) if line_end(src, end) == src.len() && !src.ends_with('\n') => format!("{src}\n{line}"),
         Some(end) => {
@@ -502,7 +516,7 @@ pub fn gradient_to_palette(src: &str, scene: &Scene, node: &str, stroke: bool, n
     let key = if stroke { "stroke-gradient" } else { "gradient" };
     let span = *scene.prop_spans.get(&(node.to_string(), key.to_string()))?;
     let text = written(src[span.start..span.end].strip_prefix(key)?);
-    let last = scene.gradients.iter().map(|s| s.span.end).chain(scene.palette.iter().map(|s| s.span.end)).max();
+    let last = scene.gradients.iter().map(|s| s.decl.end).chain(scene.palette.iter().map(|s| s.decl.end)).max();
     let at = palette_end(src, last);
     if span.start < at {
         return None;
