@@ -303,3 +303,32 @@ fn a_selected_object_is_moved_by_its_middle_until_the_pivot_mode_is_on() {
     assert_box(&app, "box", (90.0, 86.0, 150.0, 126.0));
     assert!(!app.src.contains("pivot"), "{}", app.src);
 }
+
+#[test]
+fn a_group_is_framed_with_the_groups_inside_it_and_without_what_is_hidden() {
+    // The objects of the copy `tag` sit in a group of the symbol, as they do under a `stack`
+    // layout: the copy itself has no shape of its own. `extra` is shown by no variant here.
+    const TAGS: &str = "artboard \"a\" 400x300\nsymbol Tag {\n  group row {\n    rect a at -20 0 size 20 10 fill #888888\n    rect b at 30 0 size 40 20 fill #888888\n    group extra at 0 -40 hidden {\n      rect c size 10 10 fill #888888\n    }\n  }\n}\nuse Tag tag at 100 100\ngroup outer at 300 200 {\n  rect own size 10 10 fill #888888\n  group inner at 40 0 {\n    rect deep size 20 30 fill #888888\n  }\n}\n";
+    let app = started(TAGS, &["tag"]);
+    assert_box(&app, "tag", (70.0, 90.0, 150.0, 110.0));
+    assert_box(&app, "tag-row", (70.0, 90.0, 150.0, 110.0));
+    assert!(app.transform_frame(&app.scene.doc).is_some(), "the copy has its frame");
+    // A group with a shape of its own and a group: the frame is around both.
+    assert_box(&app, "outer", (295.0, 185.0, 350.0, 215.0));
+    // Only hidden things inside: the frame is still there, around them.
+    assert_box(&app, "tag-extra", (95.0, 55.0, 105.0, 65.0));
+
+    // The frame is a working one: its corner scales the copy and the group, the far corner stays.
+    let mut app = started(TAGS, &["tag"]);
+    let from = screen(&mut app, 150.0, 110.0);
+    let to = screen(&mut app, 190.0, 120.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_box(&app, "tag", (70.0, 90.0, 190.0, 120.0));
+    assert!(app.src.contains("scale 1.5 1.5"), "{}", app.src);
+    let mut app = started(TAGS, &["outer"]);
+    let from = screen(&mut app, 350.0, 215.0);
+    let to = screen(&mut app, 361.0, 221.0);
+    drag(&mut app, from, to, Modifiers::NONE);
+    assert_box(&app, "outer", (295.0, 185.0, 361.0, 221.0));
+    assert!(app.src.contains("scale 1.2 1.2"), "{}", app.src);
+}
