@@ -10,6 +10,11 @@
 //! (its own point until `pivot` moves it), with `arc DEGREES` for a part of the circle;
 //! `along ID COUNT` evenly along the outline of another object, with `offset D` inwards.
 //! `upright` keeps the repeats of a circle or of an outline unturned.
+//!
+//! Symmetry is a repeat too. `mirror x` shows the content once more, reflected left to right in
+//! the upright line through the pivot of the group; `mirror y` reflects it top to bottom, and
+//! `mirror x y` fills all four quarters. `circle COUNT mirror` gives every repeat of the circle
+//! its reflection in that line, turned with it: half a petal makes a whole flower.
 
 use motif_core::kurbo::{BezPath, PathEl, Point, Vec2};
 
@@ -23,10 +28,14 @@ pub const MAX: u32 = 2000;
 pub enum RepeatKind {
     /// Columns to the right and rows down, `step` apart.
     Grid { cols: u32, rows: u32, step: (f64, f64) },
-    /// Around the pivot of the group, over `arc` degrees (360 is the whole circle).
-    Circle { count: u32, arc: f64, upright: bool },
+    /// Around the pivot of the group, over `arc` degrees (360 is the whole circle). With
+    /// `mirror` every repeat has its reflection beside it, the first one included.
+    Circle { count: u32, arc: f64, upright: bool, mirror: bool },
     /// Evenly along the outline of the object `path`, `offset` inwards from it.
     Along { path: String, count: u32, offset: f64, upright: bool },
+    /// Reflected in the lines through the pivot of the group: `x` left to right, `y` top to
+    /// bottom, both for the four quarters.
+    Mirror { x: bool, y: bool },
 }
 
 /// A group with `repeat` on its line.
@@ -44,19 +53,30 @@ impl RepeatKind {
     pub fn count(&self) -> u32 {
         match *self {
             RepeatKind::Grid { cols, rows, .. } => cols * rows,
-            RepeatKind::Circle { count, .. } | RepeatKind::Along { count, .. } => count,
+            RepeatKind::Circle { count, mirror, .. } => count * if mirror { 2 } else { 1 },
+            RepeatKind::Along { count, .. } => count,
+            RepeatKind::Mirror { x, y } => {
+                if x && y {
+                    4
+                } else {
+                    2
+                }
+            }
         }
     }
 
     /// What follows the id of the group in the id of each repeat but the first: `2-1` (column,
-    /// row) in a grid, the number of the repeat otherwise. A cell keeps its id when columns or
-    /// rows are added.
+    /// row) in a grid, the number of the repeat in a circle and along an outline, with `m` for
+    /// its reflection (`1m`, `2m`); `x`, `y` and `xy` for the reflections of a mirror. A repeat
+    /// keeps its id when others are added.
     pub fn suffixes(&self) -> Vec<String> {
         match *self {
             RepeatKind::Grid { cols, rows, .. } => {
                 (1..=rows).flat_map(|r| (1..=cols).map(move |c| (c, r))).filter(|&cell| cell != (1, 1)).map(|(c, r)| format!("{c}-{r}")).collect()
             }
+            RepeatKind::Circle { count, mirror: true, .. } => (1..=count).flat_map(|k| [k.to_string(), format!("{k}m")]).skip(1).collect(),
             RepeatKind::Circle { count, .. } | RepeatKind::Along { count, .. } => (2..=count).map(|k| k.to_string()).collect(),
+            RepeatKind::Mirror { x, y } => [("x", x), ("y", y), ("xy", x && y)].iter().filter(|(_, on)| *on).map(|(name, _)| (*name).to_string()).collect(),
         }
     }
 
@@ -65,14 +85,15 @@ impl RepeatKind {
         let n = crate::fmt_num;
         match self {
             RepeatKind::Grid { cols, rows, step } => format!("repeat grid {cols} {rows} step {} {}", n(step.0), n(step.1)),
-            RepeatKind::Circle { count, arc, upright } => {
+            RepeatKind::Circle { count, arc, upright, mirror } => {
                 let arc = if *arc == 360.0 { String::new() } else { format!(" arc {}", n(*arc)) };
-                format!("repeat circle {count}{arc}{}", if *upright { " upright" } else { "" })
+                format!("repeat circle {count}{arc}{}{}", if *upright { " upright" } else { "" }, if *mirror { " mirror" } else { "" })
             }
             RepeatKind::Along { path, count, offset, upright } => {
                 let offset = if *offset == 0.0 { String::new() } else { format!(" offset {}", n(*offset)) };
                 format!("repeat along {path} {count}{offset}{}", if *upright { " upright" } else { "" })
             }
+            RepeatKind::Mirror { x, y } => format!("repeat mirror{}{}", if *x { " x" } else { "" }, if *y { " y" } else { "" }),
         }
     }
 
@@ -90,14 +111,16 @@ impl RepeatKind {
     /// Where each repeat but the first stands inside the group: x, y and the turn in degrees.
     /// A repeat of a circle turns around `pivot`, the pivot of the group. `anchor` is the middle
     /// of the written content: an upright repeat carries it around the pivot without turning.
-    /// The repeats along an outline are placed when the outline is known ([`along`]).
+    /// The repeats along an outline are placed when the outline is known ([`along`]). A
+    /// reflection stands where what it reflects stands: [`Self::flips`] says which they are.
     pub fn places(&self, anchor: Vec2, pivot: Vec2) -> Vec<(f64, f64, f64)> {
         match *self {
             RepeatKind::Grid { cols, rows, step } => {
                 (0..rows).flat_map(|r| (0..cols).map(move |c| (c, r))).skip(1).map(|(c, r)| (f64::from(c) * step.0, f64::from(r) * step.1, 0.0)).collect()
             }
-            RepeatKind::Circle { count, arc, upright } => Self::angles(count, arc)
+            RepeatKind::Circle { count, arc, upright, mirror } => Self::angles(count, arc)
                 .into_iter()
+                .flat_map(|deg| std::iter::repeat_n(deg, if mirror { 2 } else { 1 }))
                 .skip(1)
                 .map(|deg| {
                     if upright {
@@ -111,8 +134,80 @@ impl RepeatKind {
                 })
                 .collect(),
             RepeatKind::Along { count, .. } => vec![(0.0, 0.0, 0.0); count.saturating_sub(1) as usize],
+            RepeatKind::Mirror { .. } => vec![(0.0, 0.0, 0.0); self.count() as usize - 1],
         }
     }
+
+    /// Whether each repeat but the first is reflected left to right and top to bottom, in the
+    /// order of [`Self::places`]. A reflection is made around the pivot of the group, before
+    /// the turn of its repeat.
+    pub fn flips(&self) -> Vec<(bool, bool)> {
+        match *self {
+            RepeatKind::Circle { count, mirror: true, .. } => (0..count).flat_map(|_| [(false, false), (true, false)]).skip(1).collect(),
+            RepeatKind::Mirror { x, y } => [(true, false, x), (false, true, y), (true, true, x && y)].iter().filter(|f| f.2).map(|f| (f.0, f.1)).collect(),
+            _ => vec![(false, false); self.count() as usize - 1],
+        }
+    }
+}
+
+/// How far a reflection reaches over the line of its mirror: the lowest outline that ends on
+/// the line. Each one drawn over it reaches this much further, up to [`LAPS`] times: where two
+/// edges of a reflection lie on one line, the lower one shows through the upper one as a
+/// hairline too.
+pub const LAP: f64 = 1.0;
+/// The most steps of [`LAP`] an outline reaches over the line.
+pub const LAPS: usize = 4;
+
+/// An open outline that ends on a line of a mirror, made to reach `by` past that line: the
+/// outline of a reflection, so that the two halves lie over each other there. Two fills that
+/// only touch show a hairline of what is behind them, and so do two strokes that meet end to end.
+///
+/// `to_group` takes the outline into the space the mirror works in, `pivot` is where its lines
+/// cross and `axes` says which there are: the upright one (reflects left to right) and the level
+/// one. `None` when the outline is closed, in several pieces, or ends on no line.
+pub(crate) fn lap(path: &BezPath, to_group: motif_core::kurbo::Affine, pivot: Point, axes: (bool, bool), by: f64) -> Option<BezPath> {
+    use motif_core::kurbo::Shape;
+    const ON: f64 = 0.01;
+    let els = path.elements();
+    let &PathEl::MoveTo(start) = els.first()? else { return None };
+    if els.len() < 2 || els[1..].iter().any(|el| matches!(el, PathEl::MoveTo(_) | PathEl::ClosePath)) {
+        return None;
+    }
+    let end = match *els.last()? {
+        PathEl::LineTo(p) | PathEl::QuadTo(_, p) | PathEl::CurveTo(_, _, p) => p,
+        _ => return None,
+    };
+    // The side of each line the outline lies on: its ends go to the other one.
+    let middle = (to_group * path.clone()).bounding_box().center();
+    let back = to_group.inverse();
+    let past = |end: Point| {
+        let q = to_group * end;
+        let mut over = Vec2::ZERO;
+        if axes.0 && (q.x - pivot.x).abs() < ON && (middle.x - pivot.x).abs() > ON {
+            over.x = -(middle.x - pivot.x).signum() * by;
+        }
+        if axes.1 && (q.y - pivot.y).abs() < ON && (middle.y - pivot.y).abs() > ON {
+            over.y = -(middle.y - pivot.y).signum() * by;
+        }
+        (over != Vec2::ZERO).then(|| back * (q + over))
+    };
+    let (before, after) = (past(start), past(end));
+    if before.is_none() && after.is_none() {
+        return None;
+    }
+    let mut out = BezPath::new();
+    match before {
+        Some(p) => {
+            out.move_to(p);
+            out.line_to(start);
+        }
+        None => out.move_to(start),
+    }
+    els[1..].iter().for_each(|&el| out.push(el));
+    if let Some(p) = after {
+        out.line_to(p);
+    }
+    Some(out)
 }
 
 /// Where two straight pieces cross, when they do.
@@ -383,7 +478,7 @@ fn rewrite(src: &str, scene: &Scene, id: &str, kind: Option<&RepeatKind>, pivot:
 /// Returns the script with `ids` put into a new group that repeats them, and the id of the
 /// group. Everything written stays where it was, except along an outline, which gives the
 /// group its place. A circle goes around `centre`, a point measured from the middle of the
-/// objects: it becomes the pivot of the group.
+/// objects, and a mirror reflects in the lines through it: it becomes the pivot of the group.
 pub fn repeat_nodes(
     src: &str,
     scene: &Scene,
@@ -396,7 +491,9 @@ pub fn repeat_nodes(
     let scene = crate::edit::reparse(&grouped, base, scene)?;
     let site = scene.sites.get(&group).ok_or("группа не создалась")?;
     let pivot = match kind {
-        RepeatKind::Circle { .. } if centre != Vec2::ZERO => format!(" pivot {} {}", crate::fmt_num(centre.x), crate::fmt_num(centre.y)),
+        RepeatKind::Circle { .. } | RepeatKind::Mirror { .. } if centre != Vec2::ZERO => {
+            format!(" pivot {} {}", crate::fmt_num(centre.x), crate::fmt_num(centre.y))
+        }
         _ => String::new(),
     };
     let with_pivot = crate::edit::splice_all(&grouped, vec![(Span::new(site.insert_at, site.insert_at), pivot)]);
@@ -458,18 +555,18 @@ mod tests {
         // A part of the circle has a repeat at each end.
         assert_eq!(RepeatKind::angles(3, 90.0), [0.0, 45.0, 90.0]);
         assert_eq!(RepeatKind::angles(1, 90.0), [0.0]);
-        let turned = RepeatKind::Circle { count: 4, arc: 360.0, upright: false };
+        let turned = RepeatKind::Circle { count: 4, arc: 360.0, upright: false, mirror: false };
         assert_eq!(turned.suffixes(), ["2", "3", "4"]);
         assert_eq!(turned.places(Vec2::new(0.0, -40.0), Vec2::ZERO), [(0.0, 0.0, 90.0), (0.0, 0.0, 180.0), (0.0, 0.0, 270.0)]);
         assert_eq!(turned.words(), "repeat circle 4");
         // Upright: the middle of the content (0, -40) goes to (40, 0), and nothing turns.
-        let upright = RepeatKind::Circle { count: 4, arc: 360.0, upright: true };
+        let upright = RepeatKind::Circle { count: 4, arc: 360.0, upright: true, mirror: false };
         let (x, y, rot) = upright.places(Vec2::new(0.0, -40.0), Vec2::ZERO)[0];
         assert!(near(x, 40.0) && near(y, 40.0) && rot == 0.0, "{x} {y} {rot}");
         // Around a pivot 10 below the content: a quarter turn puts it 10 to the right of the pivot.
         let (x, y, _) = upright.places(Vec2::new(0.0, -40.0), Vec2::new(0.0, -30.0))[0];
         assert!(near(x, 10.0) && near(y, 10.0), "{x} {y}");
-        assert_eq!(RepeatKind::Circle { count: 5, arc: 60.0, upright: true }.words(), "repeat circle 5 arc 60 upright");
+        assert_eq!(RepeatKind::Circle { count: 5, arc: 60.0, upright: true, mirror: false }.words(), "repeat circle 5 arc 60 upright");
     }
 
     #[test]
@@ -568,6 +665,131 @@ mod tests {
         assert_eq!(stands(&scene, "spokes-2-spoke"), (210.0, 120.0, 0.0));
     }
 
+    /// Where the corner (1, 1) of the object lands on the board, to a tenth: it tells a
+    /// reflection from a turn.
+    fn corner(scene: &Scene, id: &str) -> (f64, f64) {
+        let p = scene.doc.world_transform(scene.doc.index_of(id).unwrap_or_else(|| panic!("no {id}"))) * Point::new(1.0, 1.0);
+        ((p.x * 10.0).round() / 10.0 + 0.0, (p.y * 10.0).round() / 10.0 + 0.0)
+    }
+
+    #[test]
+    fn a_mirror_shows_the_content_reflected_in_the_lines_through_the_pivot() {
+        let mirror = RepeatKind::Mirror { x: true, y: true };
+        assert_eq!((mirror.count(), mirror.suffixes()), (4, vec!["x".to_string(), "y".into(), "xy".into()]));
+        assert_eq!(mirror.flips(), [(true, false), (false, true), (true, true)]);
+        assert_eq!(mirror.words(), "repeat mirror x y");
+        assert_eq!(RepeatKind::Mirror { x: false, y: true }.suffixes(), ["y"]);
+        // Left to right: the half stands left of the point of the group, its reflection right.
+        let src = format!(
+            "{BOARD}group crest at 200 150 repeat mirror x {{
+  rect half at -20 10 size 30 60
+}}
+"
+        );
+        let scene = scene(&src);
+        assert_eq!(scene.repeats["crest"].clones, ["crest-x"]);
+        assert_eq!((corner(&scene, "half"), corner(&scene, "crest-x-half")), ((181.0, 161.0), (219.0, 161.0)));
+        assert_eq!(scene.repeats["crest"].kind.words(), "repeat mirror x");
+        // The word alone reflects left to right too.
+        assert_eq!(crate::parse(&src.replace("mirror x", "mirror")).unwrap().repeats["crest"].kind, RepeatKind::Mirror { x: true, y: false });
+        // Top to bottom, and all four quarters.
+        let down = crate::parse(&src.replace("mirror x", "mirror y")).unwrap();
+        assert_eq!(corner(&down, "crest-y-half"), (181.0, 139.0));
+        let four = crate::parse(&src.replace("mirror x", "mirror x y")).unwrap();
+        assert_eq!(four.repeats["crest"].clones, ["crest-x", "crest-y", "crest-xy"]);
+        assert_eq!(corner(&four, "crest-xy-half"), (219.0, 139.0));
+        // The pivot moves the line: 10 to the right of the point of the group.
+        let off = crate::parse(&src.replace("at 200 150", "at 200 150 pivot 10 0")).unwrap();
+        assert_eq!((corner(&off, "half"), corner(&off, "crest-x-half")), ((181.0, 161.0), (239.0, 161.0)));
+        // A turn of the group turns the line with everything on both sides of it.
+        let turned = crate::parse(&src.replace("at 200 150", "at 200 150 rot 90")).unwrap();
+        assert_eq!((corner(&turned, "half"), corner(&turned, "crest-x-half")), ((189.0, 131.0), (189.0, 169.0)));
+        // A `let` called like a word of the mirror does not make the line a formula.
+        let named = crate::parse(&format!(
+            "let x = 5
+{src}"
+        ))
+        .unwrap();
+        assert!(named.repeats["crest"].editable);
+    }
+
+    #[test]
+    fn a_reflection_reaches_over_the_line_where_an_open_outline_ends_on_it() {
+        // Half a shield left of the line, both ends on it: the reflection is drawn one unit
+        // past the line at both ends, the written half is left as it is.
+        let src = format!(
+            "{BOARD}group crest at 200 150 repeat mirror x {{\n  path half d \"M 0 -40 L -30 -40 L -30 20 L 0 40\" fill #c8423b\n  path closed d \"M 0 -10 L -10 -10 L -10 10 L 0 10 Z\"\n  path away d \"M -5 0 L -20 0\"\n}}\n"
+        );
+        let scene = scene(&src);
+        let d = |id: &str| scene.doc.nodes[scene.doc.index_of(id).unwrap()].geometry.to_svg();
+        assert_eq!(d("half"), "M0,-40 L-30,-40 L-30,20 L0,40");
+        assert_eq!(d("crest-x-half"), "M1,-40 L0,-40 L-30,-40 L-30,20 L0,40 L1,40");
+        // A closed outline and one that ends away from the line stay as they are written.
+        assert_eq!(d("crest-x-closed"), d("closed"));
+        assert_eq!(d("crest-x-away"), d("away"));
+        // An outline drawn over another that ends on the line reaches further than it, so that
+        // the lower one does not show at the edge of the upper one; no further than four steps.
+        let layers: String = (0..6).map(|k| format!("  path band{k} d \"M 0 {k} L -20 {k} L -20 9 L 0 9\"\n")).collect();
+        let stack = crate::parse(&format!("{BOARD}group crest at 200 150 repeat mirror x {{\n{layers}}}\n")).unwrap();
+        let reach = |k: usize| match stack.doc.nodes[stack.doc.index_of(&format!("crest-x-band{k}")).unwrap()].geometry.elements()[0] {
+            PathEl::MoveTo(p) => p.x,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!((0..6).map(reach).collect::<Vec<_>>(), [1.0, 2.0, 3.0, 4.0, 4.0, 4.0]);
+        // The line is where the pivot is, and an object's own place and turn are counted.
+        let moved =
+            format!("{BOARD}group crest at 200 150 pivot 10 0 repeat mirror x {{\n  path half at 10 5 rot 90 d \"M -5 0 L -5 30 L 20 30 L 20 0\"\n}}\n");
+        let scene = crate::parse(&moved).unwrap_or_else(|e| panic!("{e:#?}"));
+        let half = &scene.doc.nodes[scene.doc.index_of("crest-x-half").unwrap()];
+        let ends: Vec<Point> = [half.geometry.elements().first(), half.geometry.elements().last()]
+            .iter()
+            .map(|el| match el {
+                Some(PathEl::MoveTo(p) | PathEl::LineTo(p)) => half.local_transform() * *p,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert!(near(ends[0].x, 11.0) && near(ends[0].y, 0.0) && near(ends[1].x, 11.0) && near(ends[1].y, 25.0), "{ends:?}");
+        // Four quarters: an end goes over the line it lies on, in every reflection.
+        let four = format!("{BOARD}group frame at 200 150 repeat mirror x y {{\n  path corner d \"M -40 0 L -40 -30 L 0 -30\"\n}}\n");
+        let scene = crate::parse(&four).unwrap();
+        let d = |id: &str| scene.doc.nodes[scene.doc.index_of(id).unwrap()].geometry.to_svg();
+        assert_eq!(d("corner"), "M-40,0 L-40,-30 L0,-30");
+        for twin in ["frame-x-corner", "frame-y-corner", "frame-xy-corner"] {
+            assert_eq!(d(twin), "M-40,1 L-40,0 L-40,-30 L0,-30 L1,-30", "{twin}");
+        }
+        // In a circle the reflection of each repeat does, the turned repeats do not.
+        let ring = format!("{BOARD}group flower at 200 150 repeat circle 3 mirror {{\n  path petal d \"M 0 -10 L 12 -30 L 0 -50\"\n}}\n");
+        let scene = crate::parse(&ring).unwrap();
+        let d = |id: &str| scene.doc.nodes[scene.doc.index_of(id).unwrap()].geometry.to_svg();
+        assert_eq!((d("flower-2-petal"), d("flower-2m-petal")), ("M0,-10 L12,-30 L0,-50".to_string(), "M-1,-10 L0,-10 L12,-30 L0,-50 L-1,-50".to_string()));
+    }
+
+    #[test]
+    fn a_circle_with_mirror_gives_every_repeat_its_reflection() {
+        let petals = RepeatKind::Circle { count: 3, arc: 360.0, upright: false, mirror: true };
+        assert_eq!(petals.count(), 6);
+        assert_eq!(petals.suffixes(), ["1m", "2", "2m", "3", "3m"]);
+        assert_eq!(petals.flips(), [(true, false), (false, false), (true, false), (false, false), (true, false)]);
+        assert_eq!(petals.places(Vec2::ZERO, Vec2::ZERO), [(0.0, 0.0, 0.0), (0.0, 0.0, 120.0), (0.0, 0.0, 120.0), (0.0, 0.0, 240.0), (0.0, 0.0, 240.0)]);
+        assert_eq!(petals.words(), "repeat circle 3 mirror");
+        // Half a petal right of the line through the centre: its reflection left of it, and
+        // both turned together a quarter of the circle on.
+        let src = format!(
+            "{BOARD}group flower at 200 150 repeat circle 4 mirror {{
+  rect half at 10 -40 size 20 30
+}}
+"
+        );
+        let scene = scene(&src);
+        assert_eq!(scene.repeats["flower"].clones, ["flower-1m", "flower-2", "flower-2m", "flower-3", "flower-3m", "flower-4", "flower-4m"]);
+        assert_eq!((corner(&scene, "half"), corner(&scene, "flower-1m-half")), ((211.0, 111.0), (189.0, 111.0)));
+        assert_eq!((corner(&scene, "flower-2-half"), corner(&scene, "flower-2m-half")), ((239.0, 161.0), (239.0, 139.0)));
+        // The numbered repeats keep their ids when the reflections go.
+        let plain = set_repeat(&src, &scene, "flower", Some(&RepeatKind::Circle { count: 4, arc: 360.0, upright: false, mirror: false })).unwrap();
+        assert!(plain.contains("group flower at 200 150 repeat circle 4 {"), "{plain}");
+        assert_eq!(crate::parse(&plain).unwrap().repeats["flower"].clones, ["flower-2", "flower-3", "flower-4"]);
+    }
+
     #[test]
     fn chosen_objects_go_into_a_new_group_that_repeats_them() {
         let src = format!(
@@ -587,7 +809,7 @@ anim Blink 1s {{
         let after = scene(&out);
         assert_eq!((group.as_str(), stands(&after, "rivet"), stands(&after, "group1-3-1-rivet")), ("group1", (60.0, 40.0, 0.0), (80.0, 40.0, 0.0)));
         // A ring around a point 20 below the rivet: that point is the pivot of the group.
-        let circle = RepeatKind::Circle { count: 4, arc: 360.0, upright: false };
+        let circle = RepeatKind::Circle { count: 4, arc: 360.0, upright: false, mirror: false };
         let (out, _) = repeat_nodes(&src, &before, &ids, &circle, Vec2::new(0.0, 20.0), None).unwrap();
         assert!(out.contains("group group1 at 60 40 pivot 0 20 repeat circle 4 {"), "{out}");
         let after = scene(&out);
@@ -698,10 +920,16 @@ anim Blink 1s {{
             (group("group g repeat grid 0 2 step 4"), "число повторов — целое от 1 до 2000"),
             (group("group g repeat grid 2.5 2 step 4"), "число повторов — целое от 1 до 2000"),
             (group("group g repeat grid 100 100 step 4"), "выходит 10000 повторов"),
-            (group("group g repeat grid 2 2 step 4 upright"), "в сетке они и так не поворачиваются"),
+            (group("group g repeat grid 2 2 step 4 upright"), "в сетке и в зеркале они и так не поворачиваются"),
             (group("group g repeat circle 4 step 3"), "step — шаг сетки"),
             (group("group g repeat circle 4 arc 0"), "от -360 до 360 и не 0"),
             (group("group g repeat circle 4 offset 3"), "offset — отступ от контура"),
+            (group("group g repeat circle 4 upright mirror"), "upright и mirror вместе не пишутся"),
+            (group("group g repeat circle 1500 mirror"), "с mirror выходит 3000 повторов"),
+            (group("group g repeat grid 2 2 step 4 mirror"), "слово mirror после числа бывает у repeat circle"),
+            (group("group g repeat mirror x upright"), "в сетке и в зеркале они и так не поворачиваются"),
+            (group("group g repeat mirror x step 3"), "step — шаг сетки"),
+            (group("group g repeat mirror 2"), "у зеркала нет числа"),
             (group("group g repeat along frame 4 arc 90"), "arc — часть круга"),
             (group("group g repeat along 4"), "после repeat along нужен id контура"),
             (group("group g repeat along nothing 4"), "нет объекта «nothing»"),
@@ -735,7 +963,7 @@ anim Blink 1s {{
         let after = scene(&out);
         assert_eq!(after.repeats["dots"].kind, narrow);
         // Another kind keeps the place of the words; nothing changes when nothing is new.
-        let circle = RepeatKind::Circle { count: 5, arc: 360.0, upright: false };
+        let circle = RepeatKind::Circle { count: 5, arc: 360.0, upright: false, mirror: false };
         let round = set_repeat(&out, &after, "dots", Some(&circle)).unwrap();
         assert!(round.contains("group dots at 100 50 repeat circle 5 {"), "{round}");
         // `dots-2-1` of the grid is not a repeat of the circle (they are `dots-2` … `dots-5`).

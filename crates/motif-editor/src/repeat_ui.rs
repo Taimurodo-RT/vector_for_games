@@ -145,7 +145,9 @@ impl App {
     }
 
     /// A repeat to start with for the object `id`: `which` is 1 for a grid, 2 for a circle, 3
-    /// for an outline. With it, where the centre of a circle is from the middle of the object.
+    /// for an outline, 4 for a mirror. With it, where the centre of a circle or the lines of a
+    /// mirror are from the middle of the object: a circle has its centre below the object, a
+    /// mirror reflects in its right and its lower side.
     fn first_kind(&self, id: &str, which: usize) -> Result<(RepeatKind, Vec2), String> {
         let doc = &self.scene.doc;
         // The size of what is repeated: of a group that repeats already, its first repeat.
@@ -157,11 +159,12 @@ impl App {
         let room = |v: f64| (v * 1.25).ceil().max(4.0);
         Ok(match which {
             1 => (RepeatKind::Grid { cols: 3, rows: 1, step: (room(size.0), room(size.1)) }, Vec2::ZERO),
-            2 => (RepeatKind::Circle { count: 6, arc: 360.0, upright: false }, Vec2::new(0.0, (size.0.max(size.1) * 1.5).ceil().max(8.0))),
-            _ => {
+            2 => (RepeatKind::Circle { count: 6, arc: 360.0, upright: false, mirror: false }, Vec2::new(0.0, (size.0.max(size.1) * 1.5).ceil().max(8.0))),
+            3 => {
                 let path = self.nearest_outline(id).ok_or("нет фигуры, вдоль которой идти: нарисуйте прямоугольник, круг или контур")?;
                 (RepeatKind::Along { path, count: 8, offset: 0.0, upright: false }, Vec2::ZERO)
             }
+            _ => (RepeatKind::Mirror { x: true, y: false }, Vec2::new(size.0 / 2.0, size.1 / 2.0)),
         })
     }
 
@@ -185,7 +188,8 @@ impl App {
                             "Повтор сеткой «{group}»: шаг и число — в панели и ручками у группы. Первый объект остался вашим: меняете его — меняются все"
                         ),
                         2 => format!("Повтор по кругу «{group}»: центр — опорная точка группы (клавиша Y и перетащите метку), число — в панели"),
-                        _ => format!("Повтор вдоль контура «{group}»: меняете контур — повторы идут следом. Число и отступ — в панели"),
+                        3 => format!("Повтор вдоль контура «{group}»: меняете контур — повторы идут следом. Число и отступ — в панели"),
+                        _ => format!("Зеркало «{group}»: ось идёт по правому краю объекта. Сдвинуть её — клавиша Y и перетащите метку; вторая ось — в панели"),
                     };
                 }
             }
@@ -226,7 +230,7 @@ impl App {
     }
 
     /// Another kind of repeat for the group `id`, with numbers to start with: `which` is 0 for
-    /// none, 1 for a grid, 2 for a circle, 3 for an outline.
+    /// none, 1 for a grid, 2 for a circle, 3 for an outline, 4 for a mirror.
     pub(crate) fn switch_repeat(&mut self, id: &str, which: usize) {
         if which == 0 {
             self.set_repeat(id, None, false);
@@ -236,14 +240,15 @@ impl App {
             Ok((kind, centre)) => {
                 // A group keeps its pivot: the circle goes around it. A group without one, with
                 // its objects on its own point, would turn them in place: the centre goes below
-                // them, as for an object that is repeated by a button.
+                // them, as for an object that is repeated by a button. The same for a mirror:
+                // a line through the middle of the objects would lay the reflection over them.
                 let doc = &self.scene.doc;
                 let clones = self.scene.repeats.get(id).map_or(&[][..], |s| &s.clones);
                 let pivot = doc
                     .index_of(id)
-                    .filter(|&i| which == 2 && doc.nodes[i].pivot == Vec2::ZERO)
+                    .filter(|&i| matches!(which, 2 | 4) && doc.nodes[i].pivot == Vec2::ZERO)
                     .and_then(|i| first_repeat(doc, i, clones))
-                    .filter(|b| b.inflate(0.5, 0.5).contains(Point::ZERO))
+                    .filter(|b| if which == 2 { b.inflate(0.5, 0.5).contains(Point::ZERO) } else { b.x0 < -0.5 && b.x1 > 0.5 })
                     .map(|b| b.center().to_vec2() + centre);
                 self.write_repeat(id, Some(kind), pivot, false);
             }
@@ -292,6 +297,7 @@ impl App {
                         (1, "Сеткой", "Ряды и столбцы с шагом: заклёпки в ряд, плитки, точки"),
                         (2, "По кругу", "Вокруг точки: спицы, лепестки, деления шкалы"),
                         (3, "Вдоль контура", "Равномерно по краю другой фигуры: заклёпки по рамке панели"),
+                        (4, "Зеркально", "Вторая половина отражением: герб, лицо, крылья. Рисуете одну сторону"),
                     ] {
                         if theme::button(ui, text, theme::ButtonKind::Normal).on_hover_text(tip).clicked() {
                             ask = Some(Ask::Wrap(which));
@@ -308,6 +314,7 @@ impl App {
                 Some(RepeatKind::Grid { .. }) => 1,
                 Some(RepeatKind::Circle { .. }) => 2,
                 Some(RepeatKind::Along { .. }) => 3,
+                Some(RepeatKind::Mirror { .. }) => 4,
             };
             if site.as_ref().is_some_and(|s| !s.editable) {
                 ui.label(
@@ -320,10 +327,14 @@ impl App {
                 );
                 return;
             }
+            // Five kinds do not fit the panel in one row: the mirror stands under the others.
             if let Some(k) = theme::segmented(ui, &["Нет", "Сетка", "Круг", "Контур"], now, false)
                 && k != now
             {
                 ask = Some(Ask::Kind(k));
+            }
+            if theme::segmented(ui, &["Зеркало"], if now == 4 { 0 } else { usize::MAX }, false).is_some() && now != 4 {
+                ask = Some(Ask::Kind(4));
             }
             // A whole number in a field that scrubs.
             let whole = |ui: &mut egui::Ui, label: &str, v: u32, most: f64| {
@@ -332,9 +343,11 @@ impl App {
             match site.as_ref().map(|s| s.kind.clone()) {
                 None => {
                     ui.label(
-                        RichText::new("Группа покажет то, что в ней лежит, несколько раз: сеткой, по кругу или вдоль контура другой фигуры.")
-                            .size(11.5)
-                            .color(FAINT),
+                        RichText::new(
+                            "Группа покажет то, что в ней лежит, несколько раз: сеткой, по кругу, вдоль контура другой фигуры или отражением в зеркале.",
+                        )
+                        .size(11.5)
+                        .color(FAINT),
                     );
                 }
                 Some(RepeatKind::Grid { cols, rows, step }) => {
@@ -360,20 +373,30 @@ impl App {
                             .color(FAINT),
                     );
                 }
-                Some(RepeatKind::Circle { count, arc, upright }) => {
+                Some(RepeatKind::Circle { count, arc, upright, mirror }) => {
                     ui.horizontal(|ui| {
-                        if let Some(n) = whole(ui, "Число", count, MOST) {
-                            ask = Some(Ask::Set(Some(RepeatKind::Circle { count: n, arc, upright })));
+                        if let Some(n) = whole(ui, "Число", count, if mirror { MOST / 2.0 } else { MOST }) {
+                            ask = Some(Ask::Set(Some(RepeatKind::Circle { count: n, arc, upright, mirror })));
                         }
                         if let Some(v) = theme::num_field(ui, half, "Дуга °", arc, 1.0, -360.0..=360.0, 1, KeyState::Hidden).changed
                             && v != 0.0
                         {
-                            ask = Some(Ask::Set(Some(RepeatKind::Circle { count, arc: v, upright })));
+                            ask = Some(Ask::Set(Some(RepeatKind::Circle { count, arc: v, upright, mirror })));
                         }
                     });
+                    // A reflection turns with its repeat: the two do not go together.
                     let mut keep = upright;
                     if ui.checkbox(&mut keep, RichText::new("Не поворачивать повторы").size(12.5).color(FG)).changed() {
-                        ask = Some(Ask::Set(Some(RepeatKind::Circle { count, arc, upright: keep })));
+                        ask = Some(Ask::Set(Some(RepeatKind::Circle { count, arc, upright: keep, mirror: mirror && !keep })));
+                    }
+                    let mut both = mirror;
+                    if ui
+                        .checkbox(&mut both, RichText::new("Отражать каждый повтор").size(12.5).color(FG))
+                        .on_hover_text("Рядом с каждым повтором встаёт его отражение в оси через центр: из половины лепестка выходит целый цветок")
+                        .changed()
+                        && (!both || count <= (MOST / 2.0) as u32)
+                    {
+                        ask = Some(Ask::Set(Some(RepeatKind::Circle { count, arc, upright: upright && !both, mirror: both })));
                     }
                     ui.label(RichText::new("Центр круга — опорная точка группы: нажмите Y и перетащите метку. 360° — весь круг; у дуги меньше повторы стоят на обоих её концах.").size(11.5).color(FAINT));
                 }
@@ -404,6 +427,26 @@ impl App {
                     }
                     ui.label(RichText::new(format!("Повторы стоят равномерно по контуру «{path}», первый — в его начале. Место группы задаёт контур: двигайте и меняйте его, повторы пойдут следом.")).size(11.5).color(FAINT));
                 }
+                Some(RepeatKind::Mirror { .. }) => {}
+            }
+            if let Some(RepeatKind::Mirror { x, y }) = site.as_ref().map(|s| s.kind.clone()) {
+                // One line at least: the last one cannot be taken away, «Нет» removes the mirror.
+                let (mut across, mut down) = (x, y);
+                if ui.checkbox(&mut across, RichText::new("Слева направо").size(12.5).color(FG)).on_hover_text("Отражение в вертикальной оси").changed()
+                    && (across || y)
+                {
+                    ask = Some(Ask::Set(Some(RepeatKind::Mirror { x: across, y })));
+                }
+                if ui.checkbox(&mut down, RichText::new("Сверху вниз").size(12.5).color(FG)).on_hover_text("Отражение в горизонтальной оси").changed()
+                    && (down || x)
+                {
+                    ask = Some(Ask::Set(Some(RepeatKind::Mirror { x, y: down })));
+                }
+                ui.label(
+                    RichText::new("Оси зеркала идут через опорную точку группы: нажмите Y и перетащите метку. Рисуйте по одну сторону от оси, с двумя осями — в одной четверти.")
+                        .size(11.5)
+                        .color(FAINT),
+                );
             }
             if site.is_some() {
                 ui.label(
@@ -419,6 +462,7 @@ impl App {
                     (Some(RepeatKind::Grid { .. }), Some(RepeatKind::Grid { .. }))
                         | (Some(RepeatKind::Circle { .. }), Some(RepeatKind::Circle { .. }))
                         | (Some(RepeatKind::Along { .. }), Some(RepeatKind::Along { .. }))
+                        | (Some(RepeatKind::Mirror { .. }), Some(RepeatKind::Mirror { .. }))
                 );
                 self.set_repeat(&node.id, kind, same);
             }
@@ -552,9 +596,49 @@ impl App {
         true
     }
 
+    /// The group with a mirror that the selection is, or lies in: its lines are shown while the
+    /// group or anything written in it is worked on.
+    fn mirror_around(&self, doc: &Document) -> Option<(usize, RepeatKind)> {
+        let from = self.selected.as_deref().and_then(|id| doc.index_of(id)).or_else(|| self.scope(doc))?;
+        std::iter::successors(Some(from), |&i| doc.nodes[i].parent).find_map(|i| {
+            let kind = &self.scene.repeats.get(&doc.nodes[i].id)?.kind;
+            matches!(kind, RepeatKind::Mirror { .. } | RepeatKind::Circle { mirror: true, .. }).then(|| (i, kind.clone()))
+        })
+    }
+
+    /// The lines a mirror reflects in, dashed, through the pivot of its group and a little past
+    /// everything the group shows. A circle with reflections has one, from its centre.
+    fn paint_axes(&self, painter: &egui::Painter, rect: Rect, view: View, doc: &Document) {
+        let Some((i, kind)) = self.mirror_around(doc) else { return };
+        let Some(b) = crate::app::node_bounds(doc, i) else { return };
+        let (world, p) = (doc.world_transform(i), doc.nodes[i].pivot.to_point());
+        let stroke = Stroke::new(1.0, SEL.gamma_multiply(0.85));
+        let line = |from: Point, to: Point| {
+            let (a, z) = (view.to_screen(rect, world * from), view.to_screen(rect, world * to));
+            let d = z - a;
+            if d.length() > 1e-3 {
+                // Past the drawing by a few points of the screen, so that the line is seen at its ends.
+                let more = d / d.length() * 14.0;
+                painter.extend(egui::Shape::dashed_line(&[a - more, z + more], stroke, 5.0, 4.0));
+            }
+        };
+        match kind {
+            RepeatKind::Mirror { x, y } => {
+                if x {
+                    line(Point::new(p.x, b.y0.min(p.y)), Point::new(p.x, b.y1.max(p.y)));
+                }
+                if y {
+                    line(Point::new(b.x0.min(p.x), p.y), Point::new(b.x1.max(p.x), p.y));
+                }
+            }
+            _ => line(Point::new(p.x, b.y0.min(p.y)), p),
+        }
+    }
+
     /// The grips of the selected grid: a line from the first repeat, a diamond for the step and a
     /// ring for the number of columns or rows.
     pub(crate) fn paint_repeat(&self, painter: &egui::Painter, rect: Rect, view: View, doc: &Document) {
+        self.paint_axes(painter, rect, view, doc);
         let Some(g) = self.grips(doc, rect, view) else { return };
         let line = Stroke::new(1.0, SEL.gamma_multiply(0.7));
         for (across, stem) in [(true, g.stems[0]), (false, g.stems[1])] {

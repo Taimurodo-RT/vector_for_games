@@ -2195,7 +2195,13 @@ impl<'a> Evaluator<'a> {
                         self.err(p.key_span, "repeat бывает у group: группа показывает то, что в ней лежит, несколько раз — group row repeat grid 4 1 step 40 0 { … }");
                         continue;
                     }
-                    let plain = p.values.iter().all(|v| !matches!(v.kind, ValueKind::Expr(_)) && !matches!(&v.kind, ValueKind::Ref(name) if self.vars.contains_key(name)));
+                    // Written with plain numbers: the words of the repeat are not names, even
+                    // when a `let` is called the same.
+                    let mirror = matches!(p.values.first().map(|v| &v.kind), Some(ValueKind::Ref(k)) if k == "mirror");
+                    let word = |name: &str| crate::parser::REPEAT_WORDS.contains(&name) || (mirror && matches!(name, "x" | "y"));
+                    let plain = p.values.iter().skip(1).all(|v| {
+                        !matches!(v.kind, ValueKind::Expr(_)) && !matches!(&v.kind, ValueKind::Ref(name) if !word(name) && self.vars.contains_key(name))
+                    });
                     repeat = self.repeat_kind(p).map(|kind| (kind, plain && !generated, p.key_span));
                 }
                 "clip" => {
@@ -2560,8 +2566,25 @@ impl<'a> Evaluator<'a> {
             path.clone_from(id);
             at = 2;
         }
+        // A mirror: the lines it reflects in, left to right when none is named.
+        let mut axes = (false, false);
+        if kind == "mirror" {
+            while let Some(ValueKind::Ref(axis)) = p.values.get(at).map(|v| &v.kind) {
+                match axis.as_str() {
+                    "x" => axes.0 = true,
+                    "y" => axes.1 = true,
+                    _ => break,
+                }
+                at += 1;
+            }
+        }
         let mut counts: Vec<u32> = Vec::new();
-        for _ in 0..if kind == "grid" { 2 } else { 1 } {
+        let wanted = match kind.as_str() {
+            "grid" => 2,
+            "mirror" => 0,
+            _ => 1,
+        };
+        for _ in 0..wanted {
             let v = p.values.get(at)?;
             at += 1;
             match self.value(v)?.as_num() {
@@ -2572,13 +2595,13 @@ impl<'a> Evaluator<'a> {
                 }
             }
         }
-        let (mut step, mut arc, mut offset, mut upright) = (None, None, None, false);
+        let (mut step, mut arc, mut offset, mut upright, mut mirror) = (None, None, None, false, false);
         while let Some(word) = p.values.get(at) {
             at += 1;
             let ValueKind::Ref(name) = &word.kind else { return None };
             let (least, most) = match name.as_str() {
                 "step" => (1, 2),
-                "upright" => (0, 0),
+                "upright" | "mirror" => (0, 0),
                 _ => (1, 1),
             };
             let mut nums: Vec<f64> = Vec::new();
@@ -2601,14 +2624,18 @@ impl<'a> Evaluator<'a> {
                 "step" => kind == "grid",
                 "arc" => kind == "circle",
                 "offset" => kind == "along",
-                _ => kind != "grid",
+                "mirror" => kind == "circle",
+                _ => kind == "circle" || kind == "along",
             };
             if !fits {
                 let why = match name.as_str() {
                     "step" => "step — шаг сетки, он бывает у repeat grid: repeat grid 4 2 step 40 30",
                     "arc" => "arc — часть круга, она бывает у repeat circle: repeat circle 5 arc 90",
                     "offset" => "offset — отступ от контура внутрь, он бывает у repeat along: repeat along frame 12 offset 8",
-                    _ => "upright держит прямо повторы по кругу и вдоль контура: в сетке они и так не поворачиваются",
+                    "mirror" => {
+                        "слово mirror после числа бывает у repeat circle: repeat circle 6 mirror отражает каждый повтор круга. Зеркало само по себе — repeat mirror x"
+                    }
+                    _ => "upright держит прямо повторы по кругу и вдоль контура: в сетке и в зеркале они и так не поворачиваются",
                 };
                 self.err(word.span, why);
                 return None;
@@ -2617,6 +2644,7 @@ impl<'a> Evaluator<'a> {
                 "step" => step = Some((nums[0], nums.get(1).copied().unwrap_or(nums[0]))),
                 "arc" => arc = Some((nums[0], word.span)),
                 "offset" => offset = Some(nums[0]),
+                "mirror" => mirror = true,
                 _ => upright = true,
             }
         }
@@ -2645,8 +2673,20 @@ impl<'a> Evaluator<'a> {
                     Some((a, _)) => a,
                     None => 360.0,
                 };
-                Some(RepeatKind::Circle { count: counts[0], arc, upright })
+                if upright && mirror {
+                    self.err(p.key_span, "upright и mirror вместе не пишутся: отражённый повтор поворачивается вместе со своим, уберите одно из слов");
+                    return None;
+                }
+                if mirror && counts[0] * 2 > MAX {
+                    self.err(p.key_span, format!("с mirror выходит {} повторов, а в одной группе их не больше {MAX}", counts[0] * 2));
+                    return None;
+                }
+                Some(RepeatKind::Circle { count: counts[0], arc, upright, mirror })
             }
+            "mirror" => Some(match axes {
+                (false, false) => RepeatKind::Mirror { x: true, y: false },
+                (x, y) => RepeatKind::Mirror { x, y },
+            }),
             _ => Some(RepeatKind::Along { path, count: counts[0], offset: offset.unwrap_or(0.0), upright }),
         }
     }
@@ -2668,7 +2708,7 @@ impl<'a> Evaluator<'a> {
         // A circle goes around the pivot of the group: each repeat turns around the same point.
         let pivot = self.scene.doc.nodes[index].pivot;
         let mut clones = Vec::new();
-        for (suffix, (x, y, rot)) in kind.suffixes().into_iter().zip(kind.places(anchor, pivot)) {
+        for ((suffix, (x, y, rot)), flip) in kind.suffixes().into_iter().zip(kind.places(anchor, pivot)).zip(kind.flips()) {
             let clone = format!("{id}-{suffix}");
             if self.scene.sites.contains_key(&clone) {
                 self.err(n.id_span, format!("id «{clone}» уже занят, а его берёт повтор группы «{id}»: назовите тот объект иначе"));
@@ -2681,7 +2721,9 @@ impl<'a> Evaluator<'a> {
             let mut group = Node::new(clone.clone(), ShapeKind::Group);
             group.parent = Some(index);
             (group.x, group.y, group.rotation) = (x, y, rot);
-            if rot != 0.0 {
+            // A reflection is a scale of -1 around the pivot of the group, turned after it.
+            (group.scale_x, group.scale_y) = (if flip.0 { -1.0 } else { 1.0 }, if flip.1 { -1.0 } else { 1.0 });
+            if rot != 0.0 || flip != (false, false) {
                 group.pivot = pivot;
             }
             let at = self.scene.doc.nodes.len();
@@ -2692,12 +2734,50 @@ impl<'a> Evaluator<'a> {
             let outer = std::mem::replace(&mut self.prefix, format!("{clone}-"));
             self.stmts(&n.children, Some(at), true);
             self.prefix = outer;
+            // A reflection reaches a little over the line of the mirror, so that the halves do
+            // not show a hairline between them. Every reflection of a mirror does; in a circle,
+            // the reflection of each repeat.
+            let axes = match kind {
+                RepeatKind::Mirror { x, y } => Some((x, y)),
+                RepeatKind::Circle { mirror: true, .. } if flip.0 => Some((true, false)),
+                _ => None,
+            };
+            if let Some(axes) = axes {
+                self.lap_over(at, pivot, axes);
+            }
             clones.push(clone);
         }
         if let RepeatKind::Along { path, .. } = &kind {
             self.along_refs.push((id.clone(), path.clone(), self.prefix.clone(), span));
         }
         self.scene.repeats.insert(id, RepeatSite { kind, clones, editable });
+    }
+
+    /// The open outlines inside the reflection `clone` that end on a line of its mirror are
+    /// drawn past that line ([`crate::repeat::lap`]), each a step further than the one under it.
+    /// What bones or a morph shape is left as it is: its points are counted.
+    fn lap_over(&mut self, clone: usize, pivot: Vec2, axes: (bool, bool)) {
+        use crate::repeat::{LAP, LAPS};
+        let doc = &mut self.scene.doc;
+        let mut lapped = 0;
+        for k in clone + 1..doc.nodes.len() {
+            let node = &doc.nodes[k];
+            if node.kind != ShapeKind::Path || node.skin.is_some() || node.forms.is_some() || node.morph.is_some() {
+                continue;
+            }
+            // Into the space of the reflection, where its content stands as the written one does.
+            let mut to_group = node.local_transform();
+            let mut up = node.parent;
+            while let Some(p) = up.filter(|&p| p != clone) {
+                to_group = doc.nodes[p].local_transform() * to_group;
+                up = doc.nodes[p].parent;
+            }
+            let by = LAP * (lapped + 1).min(LAPS) as f64;
+            if let Some(path) = crate::repeat::lap(&node.geometry, to_group, pivot.to_point(), axes, by) {
+                doc.nodes[k].geometry = path;
+                lapped += 1;
+            }
+        }
     }
 
     /// Puts the repeats that go along an outline in their places, once every object exists and

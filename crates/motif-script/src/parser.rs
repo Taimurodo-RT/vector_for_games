@@ -375,7 +375,7 @@ pub enum Stmt {
 }
 
 /// The words of a repeat that follow its numbers: `repeat grid 4 2 step 40 30`.
-pub const REPEAT_WORDS: [&str; 4] = ["step", "arc", "offset", "upright"];
+pub const REPEAT_WORDS: [&str; 5] = ["step", "arc", "offset", "upright", "mirror"];
 
 /// Properties a node line accepts, with their minimum and maximum number of values.
 pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
@@ -1031,9 +1031,9 @@ impl<'a> Parser<'a> {
                         self.err(key_span, "копия символа сама не повторяется: положите её в группу с повтором — group row repeat grid 4 1 step 40 0 { … }")
                     );
                 }
-                const HINT: &str = "после repeat нужен вид повтора: grid (сетка), circle (по кругу) или along (вдоль контура) — repeat grid 4 2 step 40 30, repeat circle 8, repeat along frame 12";
+                const HINT: &str = "после repeat нужен вид повтора: grid (сетка), circle (по кругу), along (вдоль контура) или mirror (зеркало) — repeat grid 4 2 step 40 30, repeat circle 8, repeat along frame 12, repeat mirror x";
                 let kind = match self.next() {
-                    Some(Token { tok: Tok::Ident(s), span }) if matches!(s.as_str(), "grid" | "circle" | "along") => {
+                    Some(Token { tok: Tok::Ident(s), span }) if matches!(s.as_str(), "grid" | "circle" | "along" | "mirror") => {
                         values.push(ValueAst { kind: ValueKind::Ref(s.clone()), span });
                         s
                     }
@@ -1049,7 +1049,24 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                for _ in 0..if kind == "grid" { 2 } else { 1 } {
+                // A mirror has no number: the lines it reflects in, `x`, `y` or both.
+                while kind == "mirror" && matches!(self.peek(), Some(Tok::Ident(s)) if s == "x" || s == "y") {
+                    let t = self.next().unwrap();
+                    let Tok::Ident(axis) = t.tok else { unreachable!() };
+                    values.push(ValueAst { kind: ValueKind::Ref(axis), span: t.span });
+                }
+                if kind == "mirror" && matches!(self.peek(), Some(Tok::Num(_) | Tok::Expr(_))) {
+                    return Err(self.err(
+                        key_span,
+                        "у зеркала нет числа: repeat mirror x отражает слева направо, repeat mirror y сверху вниз, repeat mirror x y — во все четыре стороны. Несколько секторов — repeat circle 6 mirror",
+                    ));
+                }
+                let counts = match kind.as_str() {
+                    "grid" => 2,
+                    "mirror" => 0,
+                    _ => 1,
+                };
+                for _ in 0..counts {
                     if !self.is_value_start() {
                         let hint = match kind.as_str() {
                             "grid" => "сетке нужны число столбцов и число строк: repeat grid 4 2 step 40 30",
@@ -1066,7 +1083,7 @@ impl<'a> Parser<'a> {
                     let Tok::Ident(name) = t.tok else { unreachable!() };
                     let (least, most) = match name.as_str() {
                         "step" => (1, 2),
-                        "upright" => (0, 0),
+                        "upright" | "mirror" => (0, 0),
                         _ => (1, 1),
                     };
                     values.push(ValueAst { kind: ValueKind::Ref(name.clone()), span: t.span });
