@@ -42,6 +42,7 @@ impl App {
                 _ => known_tags.join(", "),
             };
             let (mut tags_focus, mut tags_done) = (false, false);
+            let mut save_out = false;
             fold(ui, &format!("Символ {}", inst.symbol), |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 if inst.params.is_empty() {
@@ -75,6 +76,11 @@ impl App {
                     "Параметры меняют только эту копию. Сам символ правится на холсте: «Править символ» или двойной щелчок по копии.".to_string()
                 };
                 ui.label(RichText::new(note).size(11.5).color(FAINT));
+                save_out = theme::button(ui, "Сохранить в файл…", ButtonKind::Normal)
+                    .on_hover_text(
+                        "Записать символ отдельным файлом со всем, что ему нужно: цветами, стилями, вложенными символами, шрифтами. Такой файл кладут в папку другого проекта",
+                    )
+                    .clicked();
                 if from.is_some() {
                     return;
                 }
@@ -111,6 +117,10 @@ impl App {
                     self.set_symbol_tags(&inst.symbol, &tags);
                     return;
                 }
+            }
+            if save_out {
+                self.extract_dialog(None, &inst.symbol);
+                return;
             }
             if detach {
                 self.detach_copy(&node.id);

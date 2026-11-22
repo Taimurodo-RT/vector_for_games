@@ -56,6 +56,9 @@ fn the_library_lists_the_symbols_of_the_project_folder() {
     let (mut app, dir) = open("list");
     app.shelf.open = true;
     panel(&mut app);
+    while app.shelf_unread() > 0 {
+        panel(&mut app);
+    }
     // The scene itself is not a file of its library; the kit is, by its path from the scene.
     let files: Vec<(&str, Vec<&str>, bool)> =
         app.shelf.files.iter().map(|(f, name)| (name.as_str(), f.symbols.iter().map(|s| s.name.as_str()).collect(), f.error.is_some())).collect();
@@ -132,4 +135,45 @@ fn the_tags_of_a_symbol_are_written_from_its_panel() {
     let before = app.file_text();
     app.set_symbol_tags("Coin", &["монета".to_string()]);
     assert!(app.status.contains("в подключённом файле «kits/kit.msc»") && app.file_text() == before, "{}", app.status);
+}
+
+#[test]
+fn a_folder_of_many_files_is_read_a_few_a_frame() {
+    use std::time::{Duration, SystemTime};
+    let (mut app, dir) = open("queue");
+    // Screens with no symbol of their own, one of them with a mistake: the library passes them by.
+    for k in 0..4 {
+        std::fs::write(dir.join(format!("level{k}.msc")), "artboard \"Уровень\" 200x100\nrect a size 10 10\n").unwrap();
+    }
+    std::fs::write(dir.join("level4.msc"), "artboard \"Уровень\" 200x100\nfrobnicate\n").unwrap();
+    let names = |app: &App| -> Vec<String> { app.shelf.files.iter().map(|(_, name)| name.clone()).collect() };
+    // A call with no time to spend reads one file and leaves the rest for the next frames.
+    app.shelf_scan(0.0, Duration::ZERO);
+    assert_eq!((names(&app), app.shelf_unread()), (vec!["broken.msc".to_string()], 6));
+    let mut calls = 1;
+    while app.shelf_unread() > 0 {
+        app.shelf_scan(0.1, Duration::ZERO);
+        calls += 1;
+    }
+    assert_eq!(calls, 7);
+    assert_eq!(names(&app), ["broken.msc", "kits/kit.msc", "level0.msc", "level1.msc", "level2.msc", "level3.msc", "level4.msc"]);
+    let errors: Vec<bool> = app.shelf.files.iter().map(|(f, _)| f.error.is_some()).collect();
+    assert_eq!(errors, [true, false, false, false, false, false, false]);
+    // Nothing changed: the next look into the folder reads nothing.
+    app.shelf_scan(10.0, Duration::ZERO);
+    assert_eq!(app.shelf_unread(), 0);
+    // The kit changed: what it gave stays listed until the file is read again.
+    let kit = dir.join("kits/kit.msc");
+    std::fs::write(&kit, "symbol Star {\n  star body size 20 20 fill #ffd23f\n}\n").unwrap();
+    std::fs::File::options().write(true).open(&kit).unwrap().set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
+    let gives = |app: &App| -> Vec<String> { app.shelf.files[1].0.symbols.iter().map(|s| s.name.clone()).collect() };
+    app.shelf_scan(20.0, Duration::ZERO);
+    assert_eq!((gives(&app), app.shelf_unread()), (vec!["Button".to_string(), "Coin".to_string()], 6));
+    app.shelf_scan(20.1, Duration::from_secs(60));
+    assert_eq!((gives(&app), app.shelf_unread()), (vec!["Star".to_string()], 0));
+    // A file that went away leaves the list at once.
+    std::fs::remove_file(dir.join("broken.msc")).unwrap();
+    app.shelf_scan(30.0, Duration::ZERO);
+    assert_eq!(names(&app)[0], "kits/kit.msc");
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -9,6 +9,7 @@ use std::path::PathBuf;
 /// What the section asked for.
 enum Act {
     Add,
+    Bundle,
     Remove(usize),
     Open(PathBuf),
 }
@@ -93,9 +94,15 @@ impl App {
                 ui.label(RichText::new(format!("{gives}.{more}")).size(11.5).color(MUTED));
             }
             let hint = "Строка include \"файл.msc\" в начале скрипта: сцена получает цвета, градиенты, стили, темы и символы этого файла";
-            if theme::button(ui, "Подключить файл…", ButtonKind::Normal).on_hover_text(hint).clicked() {
-                act = Some(Act::Add);
-            }
+            ui.horizontal_wrapped(|ui| {
+                if theme::button(ui, "Подключить файл…", ButtonKind::Normal).on_hover_text(hint).clicked() {
+                    act = Some(Act::Add);
+                }
+                let hint = "Записать копию сцены, в которую вставлены строки подключённых файлов: её можно отдать без набора. Открытая сцена не меняется";
+                if !rows.is_empty() && theme::button(ui, "Собрать в один файл…", ButtonKind::Normal).on_hover_text(hint).clicked() {
+                    act = Some(Act::Bundle);
+                }
+            });
             let text = if rows.is_empty() {
                 "Набор в отдельном файле: его цвета, стили, темы и символы берут все экраны проекта. Поменяли кнопку в наборе, и она поменялась везде."
             } else {
@@ -110,6 +117,7 @@ impl App {
 
     fn include_act(&mut self, act: Act) {
         match act {
+            Act::Bundle => self.bundle_dialog(),
             Act::Add => {
                 let Some(folder) = self.base_dir() else {
                     self.status = "Сначала сохраните сцену в файл: путь к подключаемому файлу пишется от её папки".into();

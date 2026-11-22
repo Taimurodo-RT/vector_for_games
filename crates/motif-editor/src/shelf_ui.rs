@@ -10,7 +10,7 @@ use motif_render::{CpuOptions, render_cpu};
 use motif_script::LibraryFile;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 const ROW: f32 = 48.0;
 /// The box of a picture in a row: wide, since buttons and bars are.
@@ -20,6 +20,8 @@ const PIC: f32 = 40.0;
 const PIC_PX: f64 = 192.0;
 /// How often the folders are looked into again, in seconds.
 const SCAN_EVERY: f64 = 1.5;
+/// How long one frame reads the files of the project for: the rest waits for the next frame.
+const READ_FOR: Duration = Duration::from_millis(8);
 
 /// A symbol of the library: of `file`, or of the scene itself.
 #[derive(Clone, Debug, PartialEq)]
@@ -40,6 +42,9 @@ pub(crate) struct Shelf {
     stamps: Vec<(PathBuf, Option<SystemTime>)>,
     /// What each file gives, with its path as an `include` line of this scene writes it.
     pub files: Vec<(LibraryFile, String)>,
+    /// The files to read after a change, the next one last: a few are read each frame, and
+    /// what a file gave before stays listed until it is read again.
+    queue: Vec<PathBuf>,
     checked: Option<f64>,
     thumbs: HashMap<(PathBuf, String), Option<TextureHandle>>,
     own: HashMap<String, Option<TextureHandle>>,
@@ -115,35 +120,53 @@ impl App {
         out
     }
 
-    /// Reads the files of the project again when one of them appeared, went away or changed.
-    pub(crate) fn shelf_scan(&mut self, now: f64) {
-        if self.shelf.checked.is_some_and(|t| (now - t).abs() < SCAN_EVERY) {
-            return;
-        }
-        self.shelf.checked = Some(now);
-        let me = self.path.as_deref().and_then(|p| std::fs::canonicalize(p).ok());
-        let mut stamps: Vec<(PathBuf, Option<SystemTime>)> = Vec::new();
-        for folder in self.shelf_folders() {
-            for f in motif_script::library_files(&folder) {
-                if Some(&f) != me.as_ref() && !stamps.iter().any(|(g, _)| g == &f) {
-                    let t = mtime(&f);
-                    stamps.push((f, t));
+    /// Looks into the folders of the project, and reads its files again when one of them
+    /// appeared, went away or changed. `spend` is the time one call may read files for.
+    pub(crate) fn shelf_scan(&mut self, now: f64, spend: Duration) {
+        if self.shelf.checked.is_none_or(|t| (now - t).abs() >= SCAN_EVERY) {
+            self.shelf.checked = Some(now);
+            let me = self.path.as_deref().and_then(|p| std::fs::canonicalize(p).ok());
+            let mut stamps: Vec<(PathBuf, Option<SystemTime>)> = Vec::new();
+            for folder in self.shelf_folders() {
+                for f in motif_script::library_files(&folder) {
+                    if Some(&f) != me.as_ref() && !stamps.iter().any(|(g, _)| g == &f) {
+                        let t = mtime(&f);
+                        stamps.push((f, t));
+                    }
                 }
             }
+            if stamps != self.shelf.stamps {
+                // Every file is read again: a file may stop reading because of one it includes.
+                self.shelf.files.retain(|(f, _)| stamps.iter().any(|(g, _)| g == &f.file));
+                self.shelf.queue = stamps.iter().rev().map(|(f, _)| f.clone()).collect();
+                self.shelf.stamps = stamps;
+                self.shelf.thumbs.clear();
+            }
         }
-        if stamps == self.shelf.stamps {
+        if self.shelf.queue.is_empty() {
             return;
         }
         let base = self.base_dir();
-        self.shelf.files = stamps
-            .iter()
-            .map(|(f, _)| {
-                let name = base.as_deref().and_then(|b| motif_script::include_path(b, f)).unwrap_or_else(|| f.display().to_string());
-                (motif_script::library_file(f), name)
-            })
-            .collect();
-        self.shelf.stamps = stamps;
-        self.shelf.thumbs.clear();
+        let started = Instant::now();
+        while let Some(f) = self.shelf.queue.pop() {
+            let name = base.as_deref().and_then(|b| motif_script::include_path(b, &f)).unwrap_or_else(|| f.display().to_string());
+            let read = (motif_script::library_file(&f), name);
+            match self.shelf.files.iter_mut().find(|(g, _)| g.file == f) {
+                Some(old) => *old = read,
+                None => self.shelf.files.push(read),
+            }
+            if started.elapsed() >= spend {
+                break;
+            }
+        }
+        // The order of the folders, whatever order the files were read in.
+        let place: HashMap<&PathBuf, usize> = self.shelf.stamps.iter().enumerate().map(|(k, (f, _))| (f, k)).collect();
+        self.shelf.files.sort_by_key(|(f, _)| place.get(&f.file).copied().unwrap_or(usize::MAX));
+    }
+
+    /// How many files of the project are not read yet.
+    pub(crate) fn shelf_unread(&self) -> usize {
+        self.shelf.queue.len()
     }
 
     /// Draws the pictures of the scene's own symbols again after the script changed.
@@ -224,7 +247,10 @@ impl App {
     /// The library tab of the left panel.
     pub(crate) fn shelf_panel(&mut self, ui: &mut egui::Ui) {
         let now = ui.input(|i| i.time);
-        self.shelf_scan(now);
+        self.shelf_scan(now, READ_FOR);
+        if self.shelf_unread() > 0 {
+            ui.ctx().request_repaint();
+        }
         self.shelf_own_pictures(ui.ctx(), now);
         let total = self.scene.symbols.iter().filter(|s| self.scene.included(s.span).is_none()).count()
             + self.shelf.files.iter().map(|(f, _)| f.symbols.len()).sum::<usize>();
@@ -258,6 +284,7 @@ impl App {
         let mut thumbs = std::mem::take(&mut self.shelf.thumbs);
         let mut drag = self.shelf.drag.take();
         let mut place: Option<(Item, Option<Pos2>)> = None;
+        let mut save: Option<Item> = None;
         // A few new pictures a frame: a big library does not stall the editor.
         let mut budget = 3;
         let foot_h = 58.0;
@@ -342,6 +369,18 @@ impl App {
                     {
                         place = Some((item, Some(at)));
                     }
+                    resp.context_menu(|ui| {
+                        ui.set_min_width(190.0);
+                        if ui.button("Вставить в середину холста").clicked() {
+                            place = Some((item.clone(), None));
+                            ui.close();
+                        }
+                        if ui.button("Сохранить в отдельный файл…").on_hover_text("Символ со всем, что ему нужно: файл для другого проекта").clicked()
+                        {
+                            save = Some(item.clone());
+                            ui.close();
+                        }
+                    });
                     let whole = tex.clone();
                     resp.on_hover_ui(|ui| {
                         ui.set_max_width(260.0);
@@ -362,7 +401,10 @@ impl App {
         ui.separator();
         ui.horizontal_wrapped(|ui| {
             ui.add_space(8.0);
-            let text = "Перетащите на холст или дважды щёлкните.";
+            let text = match self.shelf_unread() {
+                0 => "Перетащите на холст или дважды щёлкните.".to_string(),
+                n => format!("Читаю файлы папки, осталось: {n}"),
+            };
             ui.label(RichText::new(text).size(11.0).color(FAINT));
         });
         // The symbol follows the pointer while it is dragged.
@@ -379,6 +421,9 @@ impl App {
         }
         self.shelf.thumbs = thumbs;
         self.shelf.drag = drag;
+        if let Some(item) = save {
+            self.extract_dialog(item.file.as_deref(), &item.symbol);
+        }
         if let Some((item, at)) = place {
             match at {
                 None => self.shelf_place(&item, None),

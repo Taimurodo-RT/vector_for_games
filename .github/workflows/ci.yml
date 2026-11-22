@@ -67,6 +67,10 @@ jobs:
       - run: cargo run -p motif-cli -- check examples/kit.msc
       - run: cargo run -p motif-cli -- check examples/kit-screens.msc
       - run: cargo run -p motif-cli -- render examples/kit-screens.msc --theme night -o target/kit-screens
+      - run: cargo run -p motif-cli -- bundle examples/kit-screens.msc -o target/kit-one/screens.msc
+      - run: cargo run -p motif-cli -- check target/kit-one/screens.msc
+      - run: cargo run -p motif-cli -- extract examples/kit-screens.msc --symbol Toggle -o target/kit-one/toggle.msc
+      - run: cargo run -p motif-cli -- check target/kit-one/toggle.msc
       - run: cargo run -p motif-cli -- check examples/character-side.msc
       - run: cargo run -p motif-cli -- check examples/character-platformer.msc
       - run: cargo run -p motif-cli -- check examples/character-portrait.msc

@@ -63,9 +63,16 @@ fn beside(file: &Path) -> Option<(String, &Path)> {
     (!name.contains('"') && !name.contains('\n')).then(|| (format!("include \"{name}\"\n"), file.parent().unwrap_or(Path::new("."))))
 }
 
-/// The symbols `file` gives: the library reads the file as a scene that includes it would.
+/// The symbols `file` gives: the library reads the file as a scene that includes it would. A
+/// file with no `symbol` line gives nothing and is not checked for mistakes.
 pub fn library_file(file: &Path) -> LibraryFile {
     let told = |error: String| LibraryFile { file: file.to_path_buf(), symbols: Vec::new(), error: Some(error) };
+    // Most files of a project are screens with no symbol of their own: those are not read as
+    // scenes at all, so a folder of many files is looked through quickly.
+    if std::fs::read_to_string(file).is_ok_and(|text| !text.lines().any(|l| l.trim_start().strip_prefix("symbol").is_some_and(|r| r.starts_with([' ', '\t']))))
+    {
+        return LibraryFile { file: file.to_path_buf(), symbols: Vec::new(), error: None };
+    }
     let loaded = match crate::include::load(file) {
         Ok(l) => l,
         Err(e) => return told(e),
