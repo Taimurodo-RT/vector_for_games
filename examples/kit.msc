@@ -1,4 +1,4 @@
-motif 5
+motif 7
 // Набор интерфейса «Привал». Его берут другие сцены строкой  include "kit.msc"
 // (пример — kit-screens.msc): им достаются цвета, градиент, стили, тема и символы,
 // записанные здесь на верхнем уровне. Холст ниже — лист набора, он остаётся в этом файле.
@@ -25,6 +25,7 @@ theme night {
 
 // Кнопка: варианты берут цвет из палитры, подпись каждая копия получает в override.
 symbol Button face=#e2573b w=150 {
+  tags кнопка меню
   variant main face=accent
   variant go face=leaf
   variant quiet face=muted
@@ -36,12 +37,14 @@ symbol Button face=#e2573b w=150 {
 
 // Полоса: value от 0 до 1.
 symbol Bar value=0.6 w=160 tint=#5a9a6b {
+  tags полоса настройки
   rect track size {w} 14 r 7 fill well stroke ink 3
   rect fill at {(value - 1) * (w - 6) / 2} 0 size {(w - 6) * value} 8 r 4 fill tint
 }
 
 // Переключатель: вариант on сдвигает ручку и красит дорожку.
 symbol Toggle x=-11 tint=#b9ab95 {
+  tags переключатель настройки
   variant on x=11 tint=leaf
   rect track size 48 26 r 13 fill tint stroke ink 3
   ellipse knob at {x} 0 size 16 16 fill paper stroke ink 3
@@ -49,6 +52,7 @@ symbol Toggle x=-11 tint=#b9ab95 {
 
 // Значок-костёр для заголовков.
 symbol Fire size=28 {
+  tags значок
   path flame d "M 0 -14 C 9 -4 12 2 8 9 C 5 14 -5 14 -8 9 C -12 2 -6 0 -5 -6 C -2 -3 0 -8 0 -14 Z" scale {size / 28} gradient sun stroke ink 3 join round
   rect log at 0 {size / 2} size {size} 5 r 2.5 fill ink
 }

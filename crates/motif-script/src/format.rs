@@ -58,7 +58,8 @@ pub fn needed(src: &str) -> u32 {
         words.next() == Some("group") && words.skip(1).any(|w| w == "repeat")
     });
     // A statement starts its line; `include` came with version 7.
-    let include = src.lines().any(|l| l.split_whitespace().next() == Some("include"));
+    // The words the library finds a symbol by (`tags кнопка меню`) came with version 7 too.
+    let include = src.lines().any(|l| matches!(l.split_whitespace().next(), Some("include" | "tags")));
     if include {
         7
     } else if repeat {

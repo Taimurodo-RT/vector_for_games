@@ -134,7 +134,7 @@ pub struct App {
     draft_pose: crate::workspace::DraftPose,
     play_needs_record: bool,
     floating: Option<canvas_menu::FloatingInspector>,
-    canvas_bounds: Rect,
+    pub(crate) canvas_bounds: Rect,
     preview: crate::preview::Preview,
     preview_canvas: preview_ui::PreviewCanvas,
     preview_tab: bool,
@@ -257,6 +257,10 @@ pub struct App {
     pointer_doc: Option<Point>,
     frame_ms: f32,
     pub(crate) layers: crate::layers::Layers,
+    /// «Библиотека»: the symbols of the project in the left panel.
+    pub(crate) shelf: crate::shelf_ui::Shelf,
+    /// The tags of a symbol while they are typed in its panel: the symbol and the text.
+    pub(crate) tags_edit: Option<(String, String)>,
     /// Soft-body frames already simulated, for the script and animation they were simulated for.
     sim: std::cell::RefCell<(u64, motif_core::SimCache)>,
     /// The live link with a game (Forge), when it is on.
@@ -420,6 +424,8 @@ impl App {
             link: Default::default(),
             tryon: Vec::new(),
             layers: Default::default(),
+            shelf: Default::default(),
+            tags_edit: None,
         };
         app.set_file(&src_file, 0);
         app.reparse();
@@ -4526,6 +4532,9 @@ mod point_tests;
 #[cfg(test)]
 #[path = "repeat_tests.rs"]
 mod repeat_tests;
+#[cfg(test)]
+#[path = "shelf_tests.rs"]
+mod shelf_tests;
 #[cfg(test)]
 #[path = "snap_tests.rs"]
 mod snap_tests;

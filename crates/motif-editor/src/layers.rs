@@ -127,6 +127,10 @@ enum Action {
 
 impl App {
     pub(crate) fn layers_panel(&mut self, ui: &mut egui::Ui) {
+        if self.shelf_tabs(ui) {
+            self.shelf_panel(ui);
+            return;
+        }
         let doc = self.scene.doc.clone();
         crate::app::panel_header(ui, "Слои", &doc.nodes.len().to_string());
         let mut action = None;

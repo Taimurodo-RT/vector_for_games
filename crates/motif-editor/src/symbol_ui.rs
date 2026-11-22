@@ -35,6 +35,13 @@ impl App {
             let inside = self.scene.editing.as_deref() == Some(node.id.as_str());
             // A symbol of an included file: the copy is set here, the symbol is changed there.
             let from = self.symbol_from(&inst.symbol);
+            // The words the library finds the symbol by, typed with commas between them.
+            let known_tags: Vec<String> = self.scene.symbols.iter().find(|s| s.name == inst.symbol).map(|s| s.tags.clone()).unwrap_or_default();
+            let mut tags_text = match &self.tags_edit {
+                Some((symbol, text)) if symbol == &inst.symbol => text.clone(),
+                _ => known_tags.join(", "),
+            };
+            let (mut tags_focus, mut tags_done) = (false, false);
             fold(ui, &format!("Символ {}", inst.symbol), |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 if inst.params.is_empty() {
@@ -71,6 +78,14 @@ impl App {
                 if from.is_some() {
                     return;
                 }
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Теги").size(11.5).color(MUTED));
+                    let field = ui
+                        .add(egui::TextEdit::singleline(&mut tags_text).hint_text("кнопка, меню").desired_width(ui.available_width()))
+                        .on_hover_text("Слова через запятую, по которым символ находят в «Библиотеке». В скрипте это строка tags внутри символа");
+                    tags_focus = field.has_focus();
+                    tags_done = field.lost_focus();
+                });
                 if inside {
                     ui.label(RichText::new(format!("Сейчас правится сам символ: правки меняют все его копии ({copies}).")).size(11.5).color(ACCENT));
                 } else {
@@ -88,6 +103,15 @@ impl App {
                         .clicked();
                 }
             });
+            self.tags_edit = (tags_focus || tags_done).then(|| (inst.symbol.clone(), tags_text.clone()));
+            if tags_done {
+                self.tags_edit = None;
+                let tags: Vec<String> = tags_text.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
+                if tags != known_tags {
+                    self.set_symbol_tags(&inst.symbol, &tags);
+                    return;
+                }
+            }
             if detach {
                 self.detach_copy(&node.id);
                 return;
