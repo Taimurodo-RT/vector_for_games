@@ -407,6 +407,23 @@ anim Blink 1s loop {
     }
 
     #[test]
+    fn colors_are_collected_without_a_change_in_any_theme() {
+        // `#fff8ea` is the paper as written, but in the dark theme the paper is another color:
+        // what is written by value keeps its own name. `#ffd23f` is gold in every theme.
+        let src = "let paper = #fff8ea\nlet gold = #ffd23f\nlet glowing = linear 90 gold #ff5a36\nlet plain = linear 0 gold paper\ntheme dark {\n  paper = #1b1d24\n  glowing = radial #6f93ff gold\n  style card fill #fff8ea stroke #ffd23f 2\n}\nstyle card fill paper\nartboard \"a\" 200x100 bg paper\nrect a at 0 0 size 10 10 fill #fff8ea stroke #ffd23f 2\nrect b at 20 0 size 10 10 style card\nrect c at 40 0 size 10 10 gradient linear 90 gold #ff5a36\nrect d at 60 0 size 10 10 gradient linear 90 gold #ff5a36\nrect e at 80 0 size 10 10 gradient linear 0 gold paper\n";
+        let c = crate::collect_palette(src, None).unwrap();
+        assert!(c.file.contains("let color1 = #ff5a36\nlet color2 = #fff8ea\n"), "{}", c.file);
+        assert!(c.file.contains("  style card fill color2 stroke gold 2\n"), "{}", c.file);
+        assert!(c.file.contains("rect a at 0 0 size 10 10 fill color2 stroke gold 2\n"), "{}", c.file);
+        // A gradient the theme changes is not taken for one written alike; one it leaves is.
+        assert!(c.file.contains("let glowing = linear 90 gold color1\n") && c.file.contains("let grad1 = linear 90 gold color1\n"), "{}", c.file);
+        assert!(c.file.contains("rect c at 40 0 size 10 10 gradient grad1\n") && c.file.contains("rect e at 80 0 size 10 10 gradient plain\n"), "{}", c.file);
+        for theme in [None, Some("dark")] {
+            assert_eq!(parse_themed(src, None, theme).unwrap().doc, parse_themed(&c.file, None, theme).unwrap().doc, "{theme:?}");
+        }
+    }
+
+    #[test]
     fn themes_are_added_renamed_and_removed_in_the_whole_file() {
         let file = "// набор\nlet paper = #ffffff\nstyle card fill paper\n\nartboard \"A\" 100x100 bg paper\nrect a at 0 0 size 10 10 style card\nartboard \"B\" 100x100\nlet local = #ff0000\ntheme dark {\n  local = #00ff00\n}\nrect b at 0 0 size 10 10 fill local\n";
         assert_eq!(theme_names(file), ["dark"]);

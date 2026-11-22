@@ -113,6 +113,12 @@ fn shared_swatches(views: &[BoardView]) -> Vec<(String, Color, Span)> {
     first.scene.palette.iter().map(|s| (s.name.clone(), s.color, first.in_file(s.name_span))).filter(|(name, _, at)| all(name, *at)).collect()
 }
 
+/// The names of the palette that a theme of the file gives another value. A value written out
+/// is not the same as such a name: in that theme the name is another color or gradient.
+fn themed_names(views: &[BoardView]) -> HashSet<String> {
+    views.iter().flat_map(|v| &v.scene.themes).flat_map(|t| &t.entries).filter(|e| !e.style).map(|e| e.name.clone()).collect()
+}
+
 /// Where the line that holds `at` ends in `file`, its line break included.
 fn line_end(file: &str, at: usize) -> usize {
     file[at..].find('\n').map_or(file.len(), |i| at + i + 1)
@@ -326,7 +332,8 @@ fn palette_end(file: &str, last: Option<usize>) -> usize {
 /// names: a color written by value in two places or more becomes a new palette color, and a
 /// value equal to a color of the palette is written by that color's name. Gradients written
 /// alike in two places or more become gradients of the palette the same way. Nothing changes
-/// its look. Places above the palette keep their values. `None` when a board has errors or
+/// its look, in the scene as written and in every theme: a name that a theme gives another value
+/// is not taken for a value written out. Places above the palette keep their values. `None` when a board has errors or
 /// there is nothing to collect.
 pub fn collect_palette(file: &str, base: Option<&Path>) -> Option<Collected> {
     let (with_colors, mut names, mut places) = match collect_colors(file, base)? {
@@ -354,6 +361,7 @@ fn collect_colors(file: &str, base: Option<&Path>) -> Option<Gathered> {
     let views = board_views(file, base)?;
     let shared = shared_swatches(&views);
     let at = palette_end(file, shared.iter().map(|(_, _, span)| span.end).max());
+    let themed = themed_names(&views);
     let sites = color_places(&views);
     let literal: Vec<(Span, Color)> = sites.iter().filter(|(_, site, _)| site.name.is_none()).map(|(span, site, _)| (*span, site.color)).collect();
     let mut names: Vec<String> = Vec::new();
@@ -365,7 +373,8 @@ fn collect_colors(file: &str, base: Option<&Path>) -> Option<Gathered> {
             continue;
         }
         done.push(color);
-        let (name, below) = match shared.iter().find(|(_, c, _)| *c == color) {
+        // A name that a theme changes is not taken: the look would change in that theme.
+        let (name, below) = match shared.iter().find(|(name, c, _)| *c == color && !themed.contains(name)) {
             // A name is written only below its own line.
             Some((name, _, span)) => (name.clone(), line_end(file, span.start)),
             None => {
@@ -406,6 +415,7 @@ fn collect_gradients(file: &str, base: Option<&Path>) -> Option<Gathered> {
         .filter(|(name, _, at)| views.iter().all(|v| v.scene.gradients.iter().any(|g| g.name == *name && v.in_file(g.name_span) == *at)))
         .collect();
     let colors = shared_swatches(&views);
+    let themed = themed_names(&views);
     let last = shared.iter().map(|(_, _, span)| span.end).chain(colors.iter().map(|(_, _, span)| span.end)).max();
     let at = palette_end(file, last);
     let mut seen = HashSet::new();
@@ -428,7 +438,7 @@ fn collect_gradients(file: &str, base: Option<&Path>) -> Option<Gathered> {
             continue;
         }
         done.push(text);
-        let (name, below) = match shared.iter().find(|(_, t, _)| t == text) {
+        let (name, below) = match shared.iter().find(|(name, t, _)| t == text && !themed.contains(name)) {
             Some((name, _, span)) => (name.clone(), line_end(file, span.start)),
             None => {
                 if sites.iter().filter(|(span, t)| t == text && span.start >= at).count() < 2 {
