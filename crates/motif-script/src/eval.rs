@@ -990,14 +990,15 @@ impl<'a> Evaluator<'a> {
         let styled_count = style_props.len();
         let errors_before = self.errors.len();
         // Whether the property being read comes from the style: such a value is not written on
-        // the object's line, so nothing is recorded for it and an edit adds the object's own.
+        // the object's line, so no place is recorded for it and an edit adds the object's own.
+        // The palette name it uses is still the object's: the web export and the panels show it.
         let from_style = std::cell::Cell::new(false);
         let record = |scene: &mut Scene, prop: Prop, v: &ValueAst, paired: Option<Prop>| {
-            if from_style.get() {
-                return;
-            }
             if let ValueKind::Ref(name) = &v.kind {
                 scene.refs.insert((id.clone(), prop), name.clone());
+            }
+            if from_style.get() {
+                return;
             }
             scene.sources.insert((id.clone(), prop), Source { span: v.span, editable: v.is_literal() && !generated, paired, from_override: false });
         };
@@ -1791,9 +1792,7 @@ impl<'a> Evaluator<'a> {
                         if !matches!(v, Some(Value::Color(_))) { return None; }
                         Some(match &ast.kind { ValueKind::Ref(name) => Some(name.clone()), _ => None })
                     }).collect();
-                    if !from_style.get() {
-                        self.scene.gradient_refs.insert((id.clone(), p.key == "stroke-gradient"), refs);
-                    }
+                    self.scene.gradient_refs.insert((id.clone(), p.key == "stroke-gradient"), refs);
                     if p.key == "gradient" {
                         node.gradient = g;
                     } else {

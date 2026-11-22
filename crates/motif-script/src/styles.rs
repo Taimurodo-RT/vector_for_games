@@ -639,5 +639,15 @@ override {
         assert_eq!(anim.pose(&s.doc, 0.0).node("a").unwrap().opacity, 1.0);
         let s = scene(&src.replace("  a.fill = #ff5a36\n", "").replace("#2a6fdb", "#4fd38c"));
         assert_eq!(s.doc.node("a").unwrap().fill, Some(hex("#4fd38c")));
+        // The palette name stays known for the object (the web export writes it as a variable),
+        // but the value has no place on the object's line.
+        assert_eq!(s.refs.get(&("a".to_string(), Prop::Fill)).map(String::as_str), Some("main"));
+        assert!(!s.sources.contains_key(&("a".to_string(), Prop::Fill)));
+        let g = scene("artboard \"a\" 10x10\nlet main = #2a6fdb\nstyle sky gradient linear 90 main #ffffff\nrect a size 4 4 style sky\n");
+        assert_eq!(g.gradient_refs.get(&("a".to_string(), false)), Some(&vec![Some("main".to_string()), None]));
+        // Picking the same palette colour for a styled object writes its own property by name.
+        let plain = src.replace("override {\n  a.fill = #ff5a36\n}\n", "");
+        let out = crate::set_ref(&plain, &scene(&plain), "a", Prop::Fill, "main").unwrap();
+        assert!(out.contains("rect a at 50 50 size 20 20 style chip fill main\n"), "{out}");
     }
 }

@@ -69,6 +69,22 @@ fn gradient_refs_and_theme_preview_preserve_literal_stops() {
 }
 
 #[test]
+fn a_palette_color_given_by_a_style_is_exported_as_its_variable() {
+    let s = scene(
+        "let ink = #234567\nstyle card fill ink gradient linear 30 ink #ffffff\nartboard \"test\" 24x24\nrect a at 12 12 size 20 style card\nrect b at 12 12 size 10 style card no gradient\n",
+    );
+    let mut c = Config::default();
+    c.tokens.insert("ink".into(), "--ink".into());
+    c.themes.insert("dark".into(), [("ink".into(), "#eeeeee".into())].into());
+    let svg = motif_web::render(&s, &c, None).unwrap();
+    // The gradient stop of `a` and the plain fill of `b`.
+    assert_eq!(svg.text.matches("var(--ink,#234567)").count(), 2, "{}", svg.text);
+    let mut doc = s.doc.clone();
+    motif_web::preview_theme(&s, &mut doc, &c, "dark");
+    assert_eq!(doc.nodes[1].fill.unwrap().to_hex(), "#eeeeee");
+}
+
+#[test]
 fn hierarchy_classes_ids_and_clip_references_are_valid() {
     let s = scene("artboard \"test\" 24x24\ngroup parent at 12 12 clip {\nellipse mask size 20\ngroup child \"base\" {\nrect box size 24 fill #123456\n}\n}\n");
     let mut c = Config::default();
