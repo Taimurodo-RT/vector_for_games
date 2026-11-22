@@ -109,6 +109,8 @@ pub struct App {
     pub(crate) edit_group: Option<String>,
     /// Where the next click on the canvas puts the color under it.
     pub(crate) eyedrop: Option<crate::palette_ui::Eyedrop>,
+    /// How often each color of the file is used, counted for the scene it was counted in.
+    pub(crate) color_uses: Option<(u64, Vec<motif_script::ColorUse>)>,
     /// The «Растяжение 9-slice» window, when open.
     pub(crate) stretch: Option<crate::stretch_ui::Stretch>,
     /// The «Новое…» library of templates, when open.
@@ -307,6 +309,7 @@ impl App {
             stretch: None,
             library: None,
             eyedrop: None,
+            color_uses: None,
             hovered: None,
             view: None,
             anim: None,

@@ -204,7 +204,15 @@ pub enum Stmt {
     },
     Let {
         name: String,
+        name_span: Span,
         value: ValueAst,
+    },
+    /// `let sky = linear 90 #6fb8ff #ffffff`: a gradient of the palette. `values` are what a
+    /// `gradient` property takes: the kind word, the angle of a linear one, the colors.
+    LetGradient {
+        name: String,
+        name_span: Span,
+        values: Vec<ValueAst>,
     },
     /// `backdrop "ref.png" at 0 0 scale 1 opacity 0.5 hidden`: a reference picture for the editor.
     Backdrop {
@@ -324,7 +332,8 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "font" | "font-size" | "letter-spacing" | "line-height" | "align" | "reveal" | "wave" | "phase" => (1, 1),
         "blur" | "elevation" => (1, 1),
         "outline" => (2, 8),
-        "gradient" | "stroke-gradient" => (2, 10),
+        // `gradient linear 90 #a #b`, or a gradient of the palette by its name: `gradient sky`.
+        "gradient" | "stroke-gradient" => (1, 10),
         "len" | "chain" | "skin-sharp" | "ik" => (1, 1),
         "flip" | "solid" | "socket" | "area" => (0, 0),
         "soft" => (0, 1),
@@ -573,11 +582,19 @@ impl<'a> Parser<'a> {
             "world" => self.world(span.start),
             "directions" => self.directions(span.start),
             "let" => {
-                let (name, _) = self.ident("имя переменной")?;
+                let (name, name_span) = self.ident("имя переменной")?;
                 self.vars.insert(name.clone());
                 self.expect(Tok::Eq, "«=»")?;
+                // A gradient of the palette starts with its kind, like the property does.
+                if matches!(self.peek(), Some(Tok::Ident(k)) if (k == "linear" || k == "radial") && !self.vars.contains(k)) {
+                    let mut values = vec![self.value()?];
+                    while values.len() < 10 && self.is_value_start() {
+                        values.push(self.value()?);
+                    }
+                    return Ok(Stmt::LetGradient { name, name_span, values });
+                }
                 let value = self.value()?;
-                Ok(Stmt::Let { name, value })
+                Ok(Stmt::Let { name, name_span, value })
             }
             "style" => self.style(span.start),
             "for" => {

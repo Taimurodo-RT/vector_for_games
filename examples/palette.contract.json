@@ -1,0 +1,24 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Палитра",
+      "width": 520.0,
+      "height": 280.0,
+      "animations": [
+        {
+          "id": "g7pl",
+          "name": "Glow",
+          "duration": 1.6,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": []
+    }
+  ]
+}

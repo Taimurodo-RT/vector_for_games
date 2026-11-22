@@ -10,6 +10,8 @@ use std::collections::HashMap;
 enum Var {
     Num(f64),
     Color(Color),
+    /// A color of the palette: a `let` of the top level, while nothing nearer has its name.
+    Swatch(Color),
 }
 
 pub struct Evaluator<'a> {
@@ -28,6 +30,10 @@ pub struct Evaluator<'a> {
     styles_told: std::collections::HashSet<String>,
     /// Where the `style card` properties noted so far start: a line in a loop is noted once.
     style_uses_seen: std::collections::HashSet<usize>,
+    /// Gradients of the palette by name, each with the palette names of its colors.
+    gradients: HashMap<String, (motif_core::Gradient, Vec<Option<String>>)>,
+    /// Where the colors and gradients noted so far start: a line in a loop is noted once.
+    paint_seen: std::collections::HashSet<usize>,
     /// Put before every id while a symbol is being copied: `coin1-`.
     prefix: String,
     /// How many symbols are being copied one inside another (to stop a symbol using itself).
@@ -60,6 +66,8 @@ impl<'a> Evaluator<'a> {
             styles: HashMap::new(),
             styles_told: Default::default(),
             style_uses_seen: Default::default(),
+            gradients: HashMap::new(),
+            paint_seen: Default::default(),
             prefix: String::new(),
             depth: 0,
             rig_refs: Vec::new(),
@@ -98,6 +106,10 @@ impl<'a> Evaluator<'a> {
                 styles: Vec::new(),
                 style_uses: Vec::new(),
                 styled: HashMap::new(),
+                gradients: Vec::new(),
+                gradient_names: HashMap::new(),
+                colors: Vec::new(),
+                gradient_sites: Vec::new(),
             },
             errors: Vec::new(),
         }
@@ -105,6 +117,72 @@ impl<'a> Evaluator<'a> {
 
     fn err(&mut self, span: Span, msg: impl Into<String>) {
         self.errors.push(ScriptError::at(self.src, span.start, msg));
+    }
+
+    /// Reads what [`Evaluator::run`] had no reason to read: what a style holds and no object
+    /// takes, and a symbol that is never placed. Only the places of their colors, gradients and
+    /// styles are kept, so that an edit of the whole scene (a color replaced everywhere, a name
+    /// changed) reaches them too. Nothing they make stays, and their mistakes stay untold until
+    /// they are used.
+    pub fn read_unused(&mut self) {
+        let errors = self.errors.len();
+        let styles: Vec<Vec<crate::parser::PropAst>> = self.scene.styles.iter().filter_map(|s| self.styles.get(&s.name).cloned()).collect();
+        for p in styles.iter().flatten() {
+            if matches!(p.key.as_str(), "gradient" | "stroke-gradient") {
+                let span = Span::new(p.values[0].span.start, p.values[p.values.len() - 1].span.end);
+                let found = match &p.values[..] {
+                    [ValueAst { kind: ValueKind::Ref(name), .. }] if name != "linear" && name != "radial" => {
+                        self.gradients.get(name).map(|(g, _)| (g.clone(), Some(name.clone())))
+                    }
+                    _ => self.gradient_of(&p.values, p.key_span, &p.key).map(|(g, _)| (g, None)),
+                };
+                if let Some((gradient, name)) = found
+                    && self.paint_seen.insert(span.start)
+                {
+                    self.scene.gradient_sites.push(crate::GradientSite { span, gradient, name });
+                }
+                continue;
+            }
+            for v in &p.values {
+                match &v.kind {
+                    ValueKind::Color(c) => self.note_color(v.span, *c, None),
+                    ValueKind::Ref(name) => {
+                        if let Some(Var::Swatch(c)) = self.vars.get(name).copied() {
+                            self.note_color(v.span, c, Some(name));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.errors.truncate(errors);
+
+        let placed: std::collections::HashSet<&str> = self.scene.instances.values().map(|i| i.symbol.as_str()).collect();
+        let symbols: Vec<String> = self.scene.symbols.iter().filter(|s| !placed.contains(s.name.as_str())).map(|s| s.name.clone()).collect();
+        if symbols.is_empty() {
+            return;
+        }
+        let (scene, vars) = (self.scene.clone(), self.vars.clone());
+        self.depth += 1;
+        for name in symbols {
+            let Some((_, params, body)) = self.symbols.get(&name).cloned() else { continue };
+            for p in &params {
+                match self.param_value(&p.value) {
+                    Some(Value::Num(n)) => self.vars.insert(p.name.clone(), Var::Num(n)),
+                    Some(Value::Color(c)) => self.vars.insert(p.name.clone(), Var::Color(c)),
+                    _ => None,
+                };
+            }
+            self.prefix = format!("unused-{name}-");
+            self.stmts(&body, None, true);
+            self.vars.clone_from(&vars);
+        }
+        let found = (std::mem::take(&mut self.scene.colors), std::mem::take(&mut self.scene.gradient_sites), std::mem::take(&mut self.scene.style_uses));
+        self.scene = scene;
+        (self.scene.colors, self.scene.gradient_sites, self.scene.style_uses) = found;
+        self.errors.truncate(errors);
+        self.prefix.clear();
+        self.depth -= 1;
     }
 
     pub fn run(&mut self, stmts: &[Stmt]) {
@@ -122,6 +200,11 @@ impl<'a> Evaluator<'a> {
                     }
                     if let Some(v) = self.param_value(&p.value) {
                         defaults.push((p.name.clone(), v));
+                    }
+                    // A default is read before any `let`, so it cannot be a palette name: the
+                    // color is made here, like after `let`.
+                    if let Some(site) = self.scene.colors.last_mut().filter(|s| s.span == p.value.span) {
+                        site.decl = true;
                     }
                 }
                 self.symbols.insert(name.clone(), (*clip, params.clone(), body.clone()));
@@ -674,13 +757,19 @@ impl<'a> Evaluator<'a> {
                         self.err(*name_span, "стиль пишется на верхнем уровне сцены, не внутри группы, цикла или символа");
                     }
                 }
-                Stmt::Let { name, value } => {
+                Stmt::Let { name, name_span, value } => {
                     let v = self.value(value);
-                    if parent.is_none()
-                        && !generated
-                        && let Some(Value::Color(color)) = v
-                    {
-                        let swatch = crate::Swatch { name: name.clone(), color, span: value.span, literal: value.is_literal() };
+                    // After `=` the color is made, not used: replacing a color leaves it alone.
+                    if let Some(site) = self.scene.colors.last_mut().filter(|s| s.span == value.span) {
+                        site.decl = true;
+                    }
+                    let top = parent.is_none() && !generated;
+                    if top && self.gradients.contains_key(name) {
+                        self.err(*name_span, format!("имя «{name}» уже у градиента палитры: цвету нужно другое"));
+                        continue;
+                    }
+                    if top && let Some(Value::Color(color)) = v {
+                        let swatch = crate::Swatch { name: name.clone(), name_span: *name_span, color, span: value.span, literal: value.is_literal() };
                         match self.scene.palette.iter_mut().find(|s| s.name == *name) {
                             Some(s) => *s = swatch,
                             None => self.scene.palette.push(swatch),
@@ -689,10 +778,28 @@ impl<'a> Evaluator<'a> {
                     if let Some(v) = v {
                         match v {
                             Value::Num(n) => self.vars.insert(name.clone(), Var::Num(n)),
-                            Value::Color(c) => self.vars.insert(name.clone(), Var::Color(c)),
+                            Value::Color(c) => self.vars.insert(name.clone(), if top { Var::Swatch(c) } else { Var::Color(c) }),
                             Value::None => None,
                         };
                     }
+                }
+                Stmt::LetGradient { name, name_span, values } => {
+                    if parent.is_some() || generated || self.depth > 0 {
+                        self.err(*name_span, "градиент палитры пишется на верхнем уровне сцены, не внутри группы, цикла или символа");
+                        continue;
+                    }
+                    if self.vars.contains_key(name) {
+                        self.err(*name_span, format!("имя «{name}» уже у цвета или числа: градиенту палитры нужно другое"));
+                        continue;
+                    }
+                    let Some((gradient, stops)) = self.gradient_of(values, *name_span, &format!("let {name} =")) else { continue };
+                    let span = Span::new(values[0].span.start, values[values.len() - 1].span.end);
+                    let swatch = crate::GradientSwatch { name: name.clone(), name_span: *name_span, gradient: gradient.clone(), span, stops: stops.clone() };
+                    match self.scene.gradients.iter_mut().find(|s| s.name == *name) {
+                        Some(s) => *s = swatch,
+                        None => self.scene.gradients.push(swatch),
+                    }
+                    self.gradients.insert(name.clone(), (gradient, stops));
                 }
                 Stmt::World { props, span } => {
                     if parent.is_some() || self.scene.world.is_some() {
@@ -1052,7 +1159,8 @@ impl<'a> Evaluator<'a> {
             let vals: Vec<Option<Value>> = match p.key.as_str() {
                 "forms" | "match" | "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
-                "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
+                // A gradient reads its own values: its kind word, or the name of a palette one.
+                "gradient" | "stroke-gradient" => Vec::new(),
                 // Keywords, not names: `cap round`, `blend multiply`.
                 "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" | "combine" | "style" | "no" => Vec::new(),
                 // `dial turn 300`: the way is a word, the arc a number (or `{arc}`).
@@ -1765,34 +1873,41 @@ impl<'a> Evaluator<'a> {
                     }
                 }
                 "gradient" | "stroke-gradient" => {
-                    let radial = match &p.values[0].kind {
-                        ValueKind::Ref(k) if k == "linear" => false,
-                        ValueKind::Ref(k) if k == "radial" => true,
-                        _ => {
-                            self.err(p.values[0].span, format!("после {} укажите linear или radial", p.key));
-                            continue;
-                        }
+                    let stroke = p.key == "stroke-gradient";
+                    let span = Span::new(p.values[0].span.start, p.values[p.values.len() - 1].span.end);
+                    // One word that is not a kind is the name of a gradient of the palette.
+                    let named = match &p.values[..] {
+                        [ValueAst { kind: ValueKind::Ref(name), .. }] if name != "linear" && name != "radial" => Some(name.clone()),
+                        _ => None,
                     };
-                    let mut angle = 0.0;
-                    let mut colors = Vec::new();
-                    let mut ok = true;
-                    for (i, v) in vals.iter().enumerate().skip(1) {
-                        match v {
-                            Some(Value::Num(a)) if i == 1 && !radial => angle = *a,
-                            Some(Value::Color(c)) => colors.push(*c),
-                            _ => ok = false,
-                        }
+                    let (gradient, stops) = match &named {
+                        Some(name) => match self.gradients.get(name) {
+                            Some(found) => found.clone(),
+                            None => {
+                                let known: Vec<&str> = self.scene.gradients.iter().map(|g| g.name.as_str()).collect();
+                                let hint = if known.is_empty() {
+                                    format!("градиент палитры пишется выше объекта: let {name} = linear 90 #6fb8ff #ffffff")
+                                } else {
+                                    format!("есть: {}", known.join(", "))
+                                };
+                                self.err(p.values[0].span, format!("нет градиента «{name}» в палитре: {hint}"));
+                                continue;
+                            }
+                        },
+                        None => match self.gradient_of(&p.values, p.key_span, &p.key) {
+                            Some(found) => found,
+                            None => continue,
+                        },
+                    };
+                    if self.paint_seen.insert(span.start) {
+                        self.scene.gradient_sites.push(crate::GradientSite { span, gradient: gradient.clone(), name: named.clone() });
                     }
-                    if !ok || colors.len() < 2 {
-                        self.err(p.key_span, format!("градиент: {0} linear 90 #цвет #цвет или {0} radial #цвет #цвет (от двух цветов)", p.key));
-                        continue;
-                    }
-                    let g = Some(motif_core::Gradient { radial, angle, colors });
-                    let refs = vals.iter().zip(&p.values).filter_map(|(v, ast)| {
-                        if !matches!(v, Some(Value::Color(_))) { return None; }
-                        Some(match &ast.kind { ValueKind::Ref(name) => Some(name.clone()), _ => None })
-                    }).collect();
-                    self.scene.gradient_refs.insert((id.clone(), p.key == "stroke-gradient"), refs);
+                    match named {
+                        Some(name) => self.scene.gradient_names.insert((id.clone(), stroke), name),
+                        None => self.scene.gradient_names.remove(&(id.clone(), stroke)),
+                    };
+                    self.scene.gradient_refs.insert((id.clone(), stroke), stops);
+                    let g = Some(gradient);
                     if p.key == "gradient" {
                         node.gradient = g;
                     } else {
@@ -2092,14 +2207,64 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    /// Notes a place where a color is written: a line of a loop or a symbol is read many times
+    /// and noted once.
+    fn note_color(&mut self, span: Span, color: Color, name: Option<&str>) {
+        if self.paint_seen.insert(span.start) {
+            self.scene.colors.push(crate::ColorSite { span, color, name: name.map(str::to_string), decl: false });
+        }
+    }
+
+    /// The gradient written as `linear 90 #a #b` or `radial #a #b`, and the palette name of
+    /// each of its colors. `word` is what the values follow, for the message.
+    fn gradient_of(&mut self, values: &[ValueAst], at: Span, word: &str) -> Option<(motif_core::Gradient, Vec<Option<String>>)> {
+        let radial = match &values[0].kind {
+            ValueKind::Ref(k) if k == "linear" => false,
+            ValueKind::Ref(k) if k == "radial" => true,
+            _ => {
+                self.err(values[0].span, format!("после {word} укажите linear или radial"));
+                return None;
+            }
+        };
+        let mut angle = 0.0;
+        let mut colors = Vec::new();
+        let mut stops = Vec::new();
+        let mut ok = true;
+        for (i, v) in values.iter().enumerate().skip(1) {
+            match self.value(v) {
+                Some(Value::Num(a)) if i == 1 && !radial => angle = a,
+                Some(Value::Color(c)) => {
+                    colors.push(c);
+                    stops.push(match &v.kind {
+                        ValueKind::Ref(name) => Some(name.clone()),
+                        _ => None,
+                    });
+                }
+                _ => ok = false,
+            }
+        }
+        if !ok || colors.len() < 2 {
+            self.err(at, format!("градиент: {word} linear 90 #цвет #цвет или {word} radial #цвет #цвет (от двух цветов)"));
+            return None;
+        }
+        Some((motif_core::Gradient { radial, angle, colors }, stops))
+    }
+
     fn value(&mut self, v: &ValueAst) -> Option<Value> {
         match &v.kind {
             ValueKind::Num(n) => Some(Value::Num(*n)),
-            ValueKind::Color(c) => Some(Value::Color(*c)),
+            ValueKind::Color(c) => {
+                self.note_color(v.span, *c, None);
+                Some(Value::Color(*c))
+            }
             ValueKind::None => Some(Value::None),
-            ValueKind::Ref(name) => match self.vars.get(name) {
-                Some(Var::Num(n)) => Some(Value::Num(*n)),
-                Some(Var::Color(c)) => Some(Value::Color(*c)),
+            ValueKind::Ref(name) => match self.vars.get(name).copied() {
+                Some(Var::Num(n)) => Some(Value::Num(n)),
+                Some(Var::Color(c)) => Some(Value::Color(c)),
+                Some(Var::Swatch(c)) => {
+                    self.note_color(v.span, c, Some(name));
+                    Some(Value::Color(c))
+                }
                 None => {
                     self.err(v.span, format!("неизвестное имя «{name}»"));
                     None

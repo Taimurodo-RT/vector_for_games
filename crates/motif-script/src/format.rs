@@ -6,7 +6,8 @@
 //!
 //! - 2: `guide x 120` — guide lines of the editor.
 //! - 3: `group … combine subtract` — live boolean operations.
-//! - 4: `style card fill #ffffff` — named styles.
+//! - 4: `style card fill #ffffff` — named styles; `let sky = linear 90 #a #b` — gradients of
+//!   the palette.
 
 /// The newest format this Motif reads.
 pub const VERSION: u32 = 4;
@@ -24,7 +25,12 @@ pub fn needed(src: &str) -> u32 {
     });
     // A statement starts its line; `style` came with version 4.
     let style = src.lines().any(|l| l.split_whitespace().next() == Some("style"));
-    if style {
+    // A gradient of the palette (`let sky = linear 90 #a #b`) came with version 4 too.
+    let gradient = src.lines().any(|l| {
+        l.split_whitespace().next() == Some("let")
+            && l.split_once('=').is_some_and(|(_, value)| matches!(value.split_whitespace().next(), Some("linear" | "radial")))
+    });
+    if style || gradient {
         4
     } else if combine {
         3

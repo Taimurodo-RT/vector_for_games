@@ -67,6 +67,7 @@
   <tr><td>Лист спрайтов</td><td><code>backdrop "run.png" sheet 8 2 frames 14 fps 12 frame 3</code></td><td>Подложка — сетка кадров: колонки и ряды, сколько кадров занято (по умолчанию все), кадров в секунду (12) и кадр в Design (с 0). В Animate кадры идут по времени таймлайна. См. <a href="tools.html#sheet">«Лист спрайтов»</a>.</td></tr>
   <tr><td>Слои PSD</td><td><code>backdrop "герой.psd" hide "Цвет" "Заметки" show "Сетка"</code></td><td>Подложка из файла Photoshop: слои и группы, спрятанные (<code>hide</code>) и показанные (<code>show</code>) вопреки файлу, по имени; кавычка внутри имени пишется как <code>\"</code>. Остальные — как в PSD. См. <a href="tools.html#psd">«PSD слоями»</a>.</td></tr>
   <tr><td>Переменная</td><td><code>let gap = 28</code>, <code>let ink = #1b1d24</code></td><td>Число или цвет, используется дальше по имени.</td></tr>
+  <tr><td>Градиент палитры</td><td><code>let sunset = linear 90 gold ember</code>, <code>let halo = radial #fff gold</code></td><td>Градиент под именем: <a href="#palette-gradients">ниже</a>.</td></tr>
   <tr><td>Стиль</td><td><code>style card fill #ffffff stroke ink 2 r 14</code>, <code>rect a … style card</code></td><td>Вид под именем: объект берёт его словом <code>style</code>. Своё свойство объекта главнее стиля. См. <a href="#styles">«Стили»</a>.</td></tr>
   <tr><td>Выражение</td><td><code>{i * gap + 4}</code></td><td>Считается в фигурных скобках в значениях и в id.</td></tr>
   <tr><td>Цикл</td><td><code>for i in 0..5 { … }</code></td><td>Повторяет строки внутри, <code>i</code> от 0 до 4.</td></tr>
@@ -135,6 +136,22 @@
   <tr><td>Отказ от свойства</td><td><code>… style card no shadow</code></td><td>Объект не берёт это свойство из стиля: тени у него нет, даже если она есть в стиле.</td></tr>
 </table></div>
 <p>Стиль применяется, когда скрипт читается: в документе, в картинке и в игре это обычные объекты, поэтому анимация, <code>override</code> и экспорт работают как раньше. Стиль не берёт другой стиль. Работа со стилями в редакторе — на странице <a href="properties.html#styles">«Панель свойств»</a>.</p>
+
+<h2 id="palette-gradients">Градиенты палитры</h2>
+<p>Цвета, названные строками <code>let</code> на верхнем уровне, составляют палитру. Градиент хранится в ней так же, под именем, а объект берёт его словом <code>gradient</code> или <code>stroke-gradient</code>. Поменяли строку <code>let</code> — изменились все объекты, которые берут градиент. Пример — <code>examples/palette.msc</code>.</p>
+<pre><code><span class="k">let</span> gold = <span class="n">#ffd23f</span>
+<span class="k">let</span> ember = <span class="n">#ff5a36</span>
+<span class="k">let</span> sunset = linear <span class="n">90</span> gold ember
+<span class="k">let</span> halo = radial <span class="n">#fff8ea</span> gold ember
+<span class="k">style</span> badge <span class="p">gradient</span> sunset <span class="p">r</span> <span class="n">12</span>
+<span class="k">ellipse</span> sun <span class="p">at</span> <span class="n">110 190</span> <span class="p">size</span> <span class="n">90 90</span> <span class="p">gradient</span> halo
+<span class="k">rect</span> frame <span class="p">at</span> <span class="n">260 190</span> <span class="p">size</span> <span class="n">120 80</span> <span class="p">stroke</span> <span class="n">#1b1d24 6</span> <span class="p">stroke-gradient</span> sunset</code></pre>
+<div class="table-wrap"><table>
+  <tr><th>Что</th><th>Запись</th><th>Пояснение</th></tr>
+  <tr><td>Градиент палитры</td><td><code>let имя = linear угол цвет цвет…</code>, <code>let имя = radial цвет цвет…</code></td><td>То же, что пишется после <code>gradient</code>: вид, угол линейного и от двух цветов. Цвета могут быть именами палитры. Строка стоит на верхнем уровне и выше объектов, которые берут градиент. Имя не совпадает с именем цвета.</td></tr>
+  <tr><td>Объект берёт градиент</td><td><code>gradient sunset</code>, <code>stroke-gradient sunset</code></td><td>Одно слово после свойства — имя градиента палитры. Работает на строке объекта и в стиле.</td></tr>
+</table></div>
+<p>Файл с градиентом палитры сохраняется как <code>motif 4</code>. В редакторе градиенты палитры, «Заменить везде» и «Собрать в палитру» описаны в разделе <a href="properties.html#palette-gradients">«Свойства и оформление»</a>.</p>
 
 <h2 id="props">Свойства объектов</h2>
 <div class="table-wrap"><table>
