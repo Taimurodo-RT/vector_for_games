@@ -1,5 +1,5 @@
-//! Symbols in the panels: a copy's parameters, «Сделать символом» for a group, and the list of
-//! symbols to place copies from.
+//! Symbols in the panels: a copy's parameters, the way into its symbol, what the copy has of
+//! its own, «Сделать символом» for a group, and the list of symbols to place copies from.
 
 use crate::app::{App, fold};
 use crate::theme::{self, ACCENT, ButtonKind, FAINT, FG, KeyState, LINE, MUTED};
@@ -25,6 +25,9 @@ impl App {
         let generated = self.scene.sites.get(&node.id).is_some_and(|s| s.generated);
         if let Some(inst) = self.scene.instances.get(&node.id).cloned() {
             let mut change: Option<(String, Value)> = None;
+            let mut enter = false;
+            let copies = self.copies_of(&inst.symbol);
+            let inside = self.scene.editing.as_deref() == Some(node.id.as_str());
             fold(ui, &format!("Символ {}", inst.symbol), |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                 if inst.params.is_empty() {
@@ -65,10 +68,24 @@ impl App {
                 let note = if generated {
                     "Копия создана циклом: параметры правятся в её строке use в скрипте."
                 } else {
-                    "Параметры меняют только эту копию. Чтобы поменять все копии, правьте блок symbol в скрипте."
+                    "Параметры меняют только эту копию. Сам символ правится на холсте: «Править символ» или двойной щелчок по копии."
                 };
                 ui.label(RichText::new(note).size(11.5).color(FAINT));
+                if inside {
+                    ui.label(RichText::new(format!("Сейчас правится сам символ: правки меняют все его копии ({copies}).")).size(11.5).color(ACCENT));
+                } else {
+                    enter = theme::button(ui, "Править символ", ButtonKind::Normal)
+                        .on_hover_text(format!(
+                            "Войти в копию и править символ на холсте: что вы поменяете, нарисуете или удалите, поменяется во всех копиях ({copies}). То же делает двойной щелчок по копии в «Рисовании»"
+                        ))
+                        .clicked();
+                }
             });
+            self.copy_changes_section(ui, &node.id);
+            if enter {
+                self.edit_symbol(&node.id);
+                return;
+            }
             if let Some((name, value)) = change
                 && !generated
                 && self.can_edit()
@@ -93,6 +110,52 @@ impl App {
             let out = motif_script::make_symbol(&self.src, &self.scene, &node.id, &name);
             if self.apply("make-symbol", out) {
                 self.status = format!("Группа «{}» стала символом {name}. Новые копии вставляются из панели артборда", node.id);
+            }
+        }
+    }
+
+    /// «Правки этой копии»: what the copy has apart from its symbol (parameters written on its
+    /// `use` line, properties of its objects in `override { }`), each with a way back.
+    fn copy_changes_section(&mut self, ui: &mut egui::Ui, copy: &str) {
+        let changes = motif_script::copy_changes(&self.src, &self.scene, copy);
+        let mut reset: Option<Option<usize>> = None;
+        fold(ui, "Правки этой копии", |ui| {
+            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            if changes.is_empty() {
+                ui.label(RichText::new("Копия ничем не отличается от символа.").size(11.5).color(FAINT));
+                return;
+            }
+            for (k, c) in changes.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let what = match &c.part {
+                        Some(part) => format!("{part} · {}", c.name),
+                        None => format!("параметр {}", c.name),
+                    };
+                    ui.label(RichText::new(what).size(12.0).color(MUTED));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if theme::button(ui, "↺", ButtonKind::Normal).on_hover_text("Вернуть как в символе").clicked() {
+                            reset = Some(Some(k));
+                        }
+                        ui.add(egui::Label::new(RichText::new(&c.value).font(theme::mono(11.5)).color(FG)).truncate());
+                    });
+                });
+            }
+            if changes.len() > 1 && theme::button(ui, "Сбросить все", ButtonKind::Normal).on_hover_text("Копия снова рисуется так, как задаёт символ").clicked()
+            {
+                reset = Some(None);
+            }
+            let note = "Параметры копии и свойства её объектов, изменённые только для неё (блок override). ↺ возвращает значение символа.";
+            ui.label(RichText::new(note).size(11.5).color(FAINT));
+        });
+        if let Some(which) = reset
+            && self.can_edit()
+        {
+            let out = motif_script::reset_copy(&self.src, &self.scene, copy, which);
+            if self.apply_once("reset-copy", out) {
+                self.status = match which {
+                    Some(_) => "Правка копии снята: значение снова как в символе".into(),
+                    None => "Все правки копии сняты: она рисуется как символ".into(),
+                };
             }
         }
     }

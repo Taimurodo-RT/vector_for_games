@@ -87,7 +87,7 @@ pub use styles::{
     reset_to_style, style_name_ok, write_into_style,
 };
 pub use svg::import_svg;
-pub use symbol::{add_use, free_symbol_name, make_symbol, set_param};
+pub use symbol::{CopyChange, add_use, copy_changes, free_symbol_name, make_symbol, part_of, reset_copy, set_param};
 pub use themes::{add_theme, delete_theme, free_theme_name, rename_theme, reset_in_theme, theme_name_ok, theme_names};
 
 /// Byte range in the script text.
@@ -229,6 +229,23 @@ pub struct Scene {
     pub themes: Vec<ThemeSite>,
     /// The theme the scene was read in; `None` is the scene as it is written.
     pub theme: Option<String>,
+    /// The copy whose symbol the scene was read for editing ([`Reading::symbol_of`]): the
+    /// objects of this copy are written by the lines of the symbol, and an edit of them changes
+    /// every copy. `None` when no symbol is edited.
+    pub editing: Option<String>,
+}
+
+/// How a script is read. The script is the same; what differs is which values are shown and
+/// where an edit goes.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Reading<'a> {
+    /// The theme to show (`theme dark { … }`); `None` is the scene as it is written.
+    pub theme: Option<&'a str>,
+    /// The id of a copy (`use Coin c1`) whose symbol is being edited. The objects of that copy
+    /// are read as written by hand: their places in the script are the lines of the symbol, so
+    /// the functions that edit an object edit the symbol. What the copy changes for itself in
+    /// `override { }` is not applied meanwhile: the copy shows the symbol as it is.
+    pub symbol_of: Option<&'a str>,
 }
 
 /// A place of the script where a color is written.
@@ -526,12 +543,20 @@ pub fn parse_in(src: &str, base: Option<&std::path::Path>) -> Result<Scene, Vec<
 /// a mistake in any theme is an error of the script whichever theme is shown, and the places of
 /// colors, gradients and styles that only another theme reads are known too.
 pub fn parse_themed(src: &str, base: Option<&std::path::Path>, theme: Option<&str>) -> Result<Scene, Vec<ScriptError>> {
+    parse_as(src, base, Reading { theme, symbol_of: None })
+}
+
+/// [`parse_themed`] with the whole choice of how the script is read: the theme and the symbol
+/// being edited. A copy the script does not have changes nothing ([`Scene::editing`] is `None`).
+pub fn parse_as(src: &str, base: Option<&std::path::Path>, reading: Reading) -> Result<Scene, Vec<ScriptError>> {
+    let theme = reading.theme;
     let toks = lexer::lex(src).map_err(|e| vec![e])?;
     let mut parser = parser::Parser::new(src, toks);
     let stmts = parser.block(false);
     let read = |theme: Option<&str>| {
         let mut ev = eval::Evaluator::new(src, base);
         ev.theme = theme.map(str::to_string);
+        ev.editing = reading.symbol_of.map(str::to_string);
         ev.run(&stmts);
         ev.read_unused();
         (ev.scene, ev.errors)

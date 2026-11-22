@@ -103,6 +103,9 @@ pub struct App {
     pub(crate) also: Vec<String>,
     /// The group being worked in: everything outside it is dimmed on the canvas and out of reach.
     pub(crate) isolated: Option<String>,
+    /// «Только эта копия»: inside a copy of a symbol, edits stay with the copy (they are written
+    /// in `override { }`) instead of changing the symbol.
+    pub(crate) copy_only: bool,
     /// Last copy: its text on the system clipboard and the declarations to paste.
     pub(crate) clipboard: (String, Vec<motif_script::Snippet>),
     /// Undo-step name shared by a batch of edits (moving or aligning several objects).
@@ -365,6 +368,7 @@ impl App {
             key_clip: (String::new(), Vec::new()),
             key_marquee: None,
             isolated: None,
+            copy_only: false,
             event_drag: None,
             event_name: String::new(),
             event_data: Vec::new(),
@@ -422,10 +426,13 @@ impl App {
         }
     }
 
-    /// `src` read the way the scene is shown: in the theme chosen in the palette panel.
+    /// `src` read the way the scene is shown: in the theme chosen in the palette panel, and with
+    /// the symbol that is being edited through a copy open for edits.
     pub(crate) fn parse_shown(&self, src: &str) -> Result<Scene, Vec<motif_script::ScriptError>> {
         let theme = (!self.theme.is_empty()).then_some(self.theme.as_str());
-        motif_script::parse_themed(src, self.path.as_ref().and_then(|p| p.parent()), theme)
+        let copy = self.symbol_copy();
+        let reading = motif_script::Reading { theme, symbol_of: copy.as_deref() };
+        motif_script::parse_as(src, self.path.as_ref().and_then(|p| p.parent()), reading)
     }
 
     /// Shows the scene in the theme `name`, or as it is written for an empty name.
@@ -521,6 +528,9 @@ impl App {
                         return false;
                     }
                 };
+                if self.stays_with_copy(&parsed) || (parsed.editing.is_some() && self.breaks_another_board(&s)) {
+                    return false;
+                }
                 self.checkpoint(kind);
                 self.src = s;
                 self.draft_pose.clear();
@@ -791,6 +801,8 @@ impl App {
         self.live.clear();
         self.sel_keys.clear();
         self.tool = Tool::Select;
+        // A symbol is edited through a copy in «Рисование» only: keys belong to the copy.
+        self.sync_symbol();
         if self.anim.is_none() {
             self.anim = self
                 .last_anim
@@ -1116,8 +1128,10 @@ impl App {
         }
         match delete_node(&self.src, &self.scene, &id) {
             Some(out) => {
-                self.apply("delete", Some(out));
-                self.status = format!("Удалён «{id}» вместе с его ключами");
+                // A refused removal keeps the reason it was refused for in the status line.
+                if self.apply("delete", Some(out)) {
+                    self.status = format!("Удалён «{id}» вместе с его ключами");
+                }
             }
             None => self.status = format!("«{id}» создан циклом: удалите или измените цикл в скрипте"),
         }
@@ -4436,6 +4450,9 @@ mod point_tests;
 #[cfg(test)]
 #[path = "snap_tests.rs"]
 mod snap_tests;
+#[cfg(test)]
+#[path = "symbol_edit_tests.rs"]
+mod symbol_edit_tests;
 
 #[cfg(test)]
 #[path = "preview_tests.rs"]

@@ -37,6 +37,9 @@ pub struct Evaluator<'a> {
     /// The theme the scene is read in (`theme dark { … }`): its values stand in for the values
     /// of the palette and of the styles. `None` reads the scene as it is written.
     pub theme: Option<String>,
+    /// The copy whose symbol is being edited: the lines of the symbol are read for it as lines
+    /// written by hand, so that an edit of its objects changes the symbol.
+    pub editing: Option<String>,
     /// The lines of that theme.
     theme_entries: Vec<crate::parser::ThemeEntryAst>,
     /// The lines of the theme that found the name they change, by where each starts.
@@ -76,6 +79,7 @@ impl<'a> Evaluator<'a> {
             gradients: HashMap::new(),
             paint_seen: Default::default(),
             theme: None,
+            editing: None,
             theme_entries: Vec::new(),
             theme_used: Default::default(),
             prefix: String::new(),
@@ -122,6 +126,7 @@ impl<'a> Evaluator<'a> {
                 gradient_sites: Vec::new(),
                 themes: Vec::new(),
                 theme: None,
+                editing: None,
             },
             errors: Vec::new(),
         }
@@ -318,6 +323,11 @@ impl<'a> Evaluator<'a> {
                         continue;
                     };
                     self.scene.override_entries.push((e.node.clone(), Span::new(e.span.start, e.value.span.end)));
+                    // While a symbol is edited through a copy, the copy shows the symbol itself:
+                    // what the copy changes for itself waits in the script.
+                    if crate::symbol::edited_part(&self.scene, &e.node).is_some() {
+                        continue;
+                    }
                     let Some(value) = self.value(&e.value) else { continue };
                     self.scene.doc.nodes[index].set(prop, value);
                     self.scene
@@ -1178,9 +1188,15 @@ impl<'a> Evaluator<'a> {
             };
             self.vars.insert(p.name.clone(), var);
         }
+        // The copy the symbol is edited through: its objects are the lines of the symbol
+        // themselves. For every other copy the lines are shared, as the lines of a loop are.
+        let edited = self.editing.as_deref() == Some(id.as_str());
+        if edited {
+            self.scene.editing = Some(id.clone());
+        }
         self.scene.instances.insert(id, Instance { symbol: u.symbol.clone(), params: sites });
         self.depth += 1;
-        self.stmts(&body, Some(index), true);
+        self.stmts(&body, Some(index), !edited);
         self.depth -= 1;
         self.prefix = saved_prefix;
         self.vars = saved_vars;

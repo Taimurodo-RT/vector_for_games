@@ -302,7 +302,8 @@ impl App {
         }
         let (cx, cy) = (exact((from.x + to.x) / 2.0), exact((from.y + to.y) / 2.0));
         let (out, id) = add_node(&self.src, &self.scene, kind, (cx, cy), (w.max(1.0), h.max(1.0)));
-        let out = self.put_in_scope(out, std::slice::from_ref(&id));
+        let (out, ids) = self.put_in_scope(out, std::slice::from_ref(&id));
+        let id = ids.into_iter().next().unwrap_or(id);
         if self.apply("create", Some(out)) {
             self.selected = Some(id.clone());
             self.status = format!("Добавлен {} «{id}» — строка в скрипте перед блоками anim", kind.keyword());

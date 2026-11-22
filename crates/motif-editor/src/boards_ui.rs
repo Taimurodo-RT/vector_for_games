@@ -105,7 +105,10 @@ impl App {
             cache.resize(self.boards.texts.len(), (String::new(), None));
         }
         if cache[k].0 != text || (cache[k].1.is_none() && cache[k].0.is_empty()) {
-            let scene = self.parse_shown(&text).ok();
+            // In the theme shown, but as written otherwise: a symbol is edited through a copy of
+            // the open board only.
+            let theme = (!self.theme.is_empty()).then_some(self.theme.as_str());
+            let scene = motif_script::parse_themed(&text, self.path.as_ref().and_then(|p| p.parent()), theme).ok();
             cache[k] = (text, scene);
         }
         cache[k].1.as_ref().map(f)
