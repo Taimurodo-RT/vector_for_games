@@ -150,6 +150,7 @@ impl Subst<'_> {
                 }
                 // The variants stay with the symbol: the group is what its variant made it.
                 Stmt::Variant { span, .. } => self.edits.push((whole_lines(self.src, *span), String::new())),
+                Stmt::Tags { span, .. } => self.edits.push((whole_lines(self.src, *span), String::new())),
                 _ => {}
             }
         }

@@ -41,6 +41,7 @@ pub mod forms;
 pub mod ids;
 mod include;
 mod lexer;
+mod library;
 mod machine;
 pub mod marks;
 mod master;
@@ -75,6 +76,7 @@ pub use edit::{
 };
 pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
 pub use include::{IncludeSite, add_include, file_includes, include_path, inline_includes, remove_include, touched as include_touched, with_included_names};
+pub use library::{LibraryFile, LibrarySymbol, add_library_use, library_file, library_files, library_match, library_own_preview, library_preview, set_tags};
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
 };
@@ -424,6 +426,10 @@ pub struct SymbolSite {
     /// The objects written `hidden` in the symbol, by their ids inside it: a copy does not show
     /// them unless its variant does (`show badge`).
     pub hidden: Vec<String>,
+    /// The words of its `tags` line: what the library finds it by.
+    pub tags: Vec<String>,
+    /// The `tags` line, when it has one.
+    pub tags_span: Option<Span>,
 }
 
 /// A `variant` line of a symbol: a named set of parameter values, of objects that are not

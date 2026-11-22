@@ -51,6 +51,7 @@ mod runtime_ui;
 mod scriptui;
 mod selection;
 mod sheet;
+mod shelf_ui;
 mod sides_ui;
 mod snap;
 mod storage;

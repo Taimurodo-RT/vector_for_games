@@ -346,8 +346,32 @@ impl<'a> Evaluator<'a> {
                         show: show.clone(),
                     });
                 }
+                let mut tags: Vec<String> = Vec::new();
+                let mut tags_span = None;
+                for t in body {
+                    let Stmt::Tags { tags: words, span } = t else { continue };
+                    if tags_span.is_some() {
+                        self.err(*span, format!("у символа «{name}» уже есть строка tags: все слова пишутся в одной"));
+                        continue;
+                    }
+                    tags_span = Some(*span);
+                    for (w, _) in words {
+                        if !tags.iter().any(|t| t.to_lowercase() == w.to_lowercase()) {
+                            tags.push(w.clone());
+                        }
+                    }
+                }
                 self.symbols.insert(name.clone(), (*clip, params.clone(), body.clone()));
-                self.scene.symbols.push(SymbolSite { name: name.clone(), clip: *clip, params: defaults, span: *span, variants, hidden: hidden_parts(body) });
+                self.scene.symbols.push(SymbolSite {
+                    name: name.clone(),
+                    clip: *clip,
+                    params: defaults,
+                    span: *span,
+                    variants,
+                    hidden: hidden_parts(body),
+                    tags,
+                    tags_span,
+                });
             }
         }
         // Styles too: an object may take a style written below it.
@@ -1196,6 +1220,11 @@ impl<'a> Evaluator<'a> {
                 Stmt::Use(u) => self.use_symbol(u, parent, generated),
                 // Its lines are read in its place: see `include::spread`.
                 Stmt::Include { .. } => {}
+                Stmt::Tags { span, .. } => {
+                    if !symbol_top {
+                        self.err(*span, "tags пишется строкой внутри symbol: это слова, по которым символ ищут в библиотеке");
+                    }
+                }
                 Stmt::Variant { name_span, .. } => {
                     if !symbol_top {
                         self.err(

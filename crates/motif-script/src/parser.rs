@@ -337,6 +337,12 @@ pub enum Stmt {
         /// The whole line.
         span: Span,
     },
+    /// `tags кнопка меню` inside a `symbol` block: the words the library finds the symbol by.
+    Tags {
+        tags: Vec<(String, Span)>,
+        /// The whole line.
+        span: Span,
+    },
     For {
         var: String,
         from: ValueAst,
@@ -869,6 +875,25 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Ok(Stmt::Variant { name, name_span, values, hide, show, span: Span::new(span.start, end) })
+            }
+            "tags" => {
+                let mut tags = Vec::new();
+                let mut end = span.end;
+                while !self.at_line_end() {
+                    let hint = "после tags — слова, по которым символ ищут в библиотеке: tags кнопка меню (слово с пробелом пишется в кавычках)";
+                    match self.next() {
+                        Some(Token { tok: Tok::Ident(w) | Tok::Str(w), span: at }) if !w.trim().is_empty() => {
+                            end = at.end;
+                            tags.push((w.trim().to_string(), at));
+                        }
+                        Some(t) => return Err(self.err(t.span, hint)),
+                        None => break,
+                    }
+                }
+                if tags.is_empty() {
+                    return Err(self.err(span, "после tags — слова, по которым символ ищут в библиотеке: tags кнопка меню"));
+                }
+                Ok(Stmt::Tags { tags, span: Span::new(span.start, end) })
             }
             "override" => {
                 self.expect(Tok::BlockOpen, "«{» в конце строки")?;

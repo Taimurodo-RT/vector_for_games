@@ -54,6 +54,8 @@ pub struct Loaded {
     pub error: Option<String>,
     /// The file and every file it includes, each once.
     pub files: Vec<PathBuf>,
+    /// The symbols written in the file itself, by name.
+    pub symbols: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -195,6 +197,7 @@ fn read(file: &Path, key: &Path, text: String) -> (Loaded, bool) {
     let (head, ranges) = crate::boards(&text);
     let shared = if ranges.len() > 1 { &text[head] } else { &text[..] };
     let (mut parts, mut files, mut whole) = (Vec::new(), vec![file.to_path_buf()], true);
+    let mut symbols = Vec::new();
     if let Ok(all) = crate::lexer::lex(shared) {
         let mut parser = Parser::new(shared, all.clone()).in_folder(dir);
         let stmts = parser.block(false);
@@ -202,6 +205,9 @@ fn read(file: &Path, key: &Path, text: String) -> (Loaded, bool) {
         for (s, range) in stmts.iter().zip(&parser.top) {
             match s {
                 Stmt::Let { .. } | Stmt::LetGradient { .. } | Stmt::Style { .. } | Stmt::Theme { .. } | Stmt::Symbol { .. } => {
+                    if let Stmt::Symbol { name, .. } = s {
+                        symbols.push(name.clone());
+                    }
                     if !matches!(parts.last(), Some(Part::Lines { .. })) {
                         parts.push(Part::Lines { toks: Vec::new(), text: Vec::new() });
                     }
@@ -236,7 +242,7 @@ fn read(file: &Path, key: &Path, text: String) -> (Loaded, bool) {
         }
         whole = !parser.missing;
     }
-    (Loaded { file: file.to_path_buf(), key: key.to_path_buf(), text, parts, error, files }, whole)
+    (Loaded { file: file.to_path_buf(), key: key.to_path_buf(), text, parts, error, files, symbols }, whole)
 }
 
 /// The sites of the `include` lines among `stmts`, with the lines of each put in its place.
