@@ -30,6 +30,7 @@ impl App {
                 self.scene.symbols.iter().filter(|s| s.name == inst.symbol).flat_map(|s| s.variants.iter().map(|v| v.name.clone())).collect();
             let variant = inst.variant.as_ref().map(|(v, _)| v.clone());
             let mut enter = false;
+            let mut detach = false;
             let copies = self.copies_of(&inst.symbol);
             let inside = self.scene.editing.as_deref() == Some(node.id.as_str());
             fold(ui, &format!("Символ {}", inst.symbol), |ui| {
@@ -70,7 +71,18 @@ impl App {
                         ))
                         .clicked();
                 }
+                if !generated {
+                    detach = theme::button(ui, "Отцепить копию", ButtonKind::Normal)
+                        .on_hover_text(
+                            "Копия станет обычной группой с тем же рисунком: символ её больше не меняет, а её можно править как угодно. Ключи анимации и правки копии сохраняются. Остальные копии и сам символ не меняются",
+                        )
+                        .clicked();
+                }
             });
+            if detach {
+                self.detach_copy(&node.id);
+                return;
+            }
             self.variant_section(ui, &node.id);
             self.copy_changes_section(ui, &node.id);
             if let Some(act) = variant_act {

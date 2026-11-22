@@ -36,7 +36,7 @@ fn noun(op: BoolOp) -> &'static str {
 }
 
 impl App {
-    fn base_dir(&self) -> Option<std::path::PathBuf> {
+    pub(crate) fn base_dir(&self) -> Option<std::path::PathBuf> {
         self.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf())
     }
 

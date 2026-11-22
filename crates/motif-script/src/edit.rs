@@ -542,7 +542,7 @@ pub(crate) fn node_spans(src: &str, scene: &Scene, node: &str) -> Option<Vec<Spa
     nodes_spans(src, scene, &[node])
 }
 
-fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Vec<Span>> {
+pub(crate) fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Vec<Span>> {
     let doc = &scene.doc;
     let mut roots = Vec::new();
     let mut spans = Vec::new();

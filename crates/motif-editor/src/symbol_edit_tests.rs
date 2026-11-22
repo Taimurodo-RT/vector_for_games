@@ -154,11 +154,30 @@ fn objects_of_a_symbol_are_removed_grouped_and_restacked_for_every_copy() {
     assert!(doc.index_of("c2-shine").unwrap() < doc.index_of("c2-body").unwrap(), "{}", app.src);
     app.undo();
 
-    // With the object goes what a copy changed in it.
+    // A copy changed the object for itself, so the removal first shows what goes with it.
     app.select_only(Some("c1-shine".into()));
     app.delete_selection();
+    assert_eq!(app.src, COINS, "nothing is removed before the answer");
+    let asked = app.symbol_delete.as_ref().expect("the removal waits for an answer");
+    assert_eq!((asked.uses.copies(), asked.uses.boards[0].edits), (2, 1));
+    frame(&mut app, vec![], Modifiers::NONE);
+    // «Отмена» leaves the symbol as it was.
+    app.answer_symbol_delete(false);
+    assert!(app.symbol_delete.is_none() && app.src == COINS && app.status.contains("отменено"), "{}", app.status);
+    // «Удалить во всех копиях»: with the object goes what the copy changed in it.
+    app.delete_selection();
+    app.answer_symbol_delete(true);
     assert!(!app.src.contains("shine"), "{}", app.src);
     assert!(app.scene.doc.node("c2-shine").is_none() && app.scene.doc.node("c2-body").is_some());
+    assert_eq!(app.scene.editing.as_deref(), Some("c1"), "the symbol stays open");
+    // One step back returns the object and the edit of the copy.
+    app.undo();
+    assert_eq!(app.src, COINS);
+
+    // An object nothing refers to is removed at once, as before.
+    app.select_only(Some("c1-body".into()));
+    app.delete_selection();
+    assert!(app.symbol_delete.is_none() && !app.src.contains("body"), "{}", app.src);
 }
 
 #[test]
@@ -179,7 +198,7 @@ fn a_symbol_is_edited_in_drawing_only_and_the_panel_button_leads_into_it() {
 }
 
 #[test]
-fn a_symbol_shared_by_the_boards_is_not_left_broken_on_another_board() {
+fn an_object_of_a_shared_symbol_is_removed_on_every_board_after_the_question() {
     // The symbol is written above the first artboard: both boards place copies of it, and the
     // second one animates the shine of its copy.
     let file = "symbol Coin {
@@ -201,10 +220,48 @@ anim Blink 1s {
     // A change of the shared symbol reaches the other board.
     app.edit("c1-shine", Prop::X, Value::Num(-6.0));
     assert!(app.file_text().starts_with("symbol Coin {\n  ellipse body size 40 40 fill #ffd23f\n  rect shine at -6 -8"), "{}", app.file_text());
-    // Removing the object the other board animates would leave that board unreadable.
+    // The other board animates the object: the removal shows that board too and, once
+    // answered, takes the track with the object, so no board is left unreadable.
     let before = app.file_text();
     app.select_only(Some("c1-shine".into()));
     app.delete_selection();
     assert_eq!(app.file_text(), before);
-    assert!(app.status.contains("холст №2"), "{}", app.status);
+    let asked = app.symbol_delete.as_ref().expect("the removal waits for an answer");
+    assert_eq!(asked.uses.boards.iter().map(|b| (b.name.as_str(), b.copies, b.tracks.len())).collect::<Vec<_>>(), [("a", 1, 0), ("b", 1, 1)]);
+    app.answer_symbol_delete(true);
+    assert!(!app.file_text().contains("shine"), "{}", app.file_text());
+    assert!(app.file_text().contains("anim Blink 1s {\n}\n"), "{}", app.file_text());
+    assert!(motif_script::parse_boards(&app.file_text(), None).is_ok());
+    app.undo();
+    assert_eq!(app.file_text(), before);
+}
+
+#[test]
+fn a_detached_copy_is_a_group_of_its_own_with_the_same_picture() {
+    let mut app = fixture(COINS);
+    let before = app.scene.doc.clone();
+    app.select_only(Some("c2".into()));
+    frame(&mut app, vec![], Modifiers::NONE);
+    app.detach_copy("c2");
+    assert!(
+        app.src.contains("group c2 at 300 150 {\n  ellipse c2-body size 60 60 fill #ffd23f\n  rect c2-shine at -8 -8 size 10 10 fill #ffffff\n}\n"),
+        "{}",
+        app.src
+    );
+    assert_eq!(app.scene.doc, before, "the picture and the edit of the copy are the same");
+    assert!(!app.scene.instances.contains_key("c2") && app.scene.instances.contains_key("c1"));
+    assert!(app.status.contains("отцеплена") && app.selected.as_deref() == Some("c2"), "{}", app.status);
+    // The symbol no longer changes the group.
+    app.isolate(Some("c1".into()));
+    app.edit("c1-shine", Prop::X, Value::Num(0.0));
+    assert_eq!((x(&app, "c1-shine"), x(&app, "c2-shine")), (0.0, -8.0));
+    app.undo();
+    app.undo();
+    assert_eq!(app.src, COINS);
+
+    // From inside the symbol: the symbol is left first, then the copy is detached.
+    app.edit_symbol("c1");
+    app.detach_copy("c1");
+    assert_eq!((app.scene.editing.as_deref(), app.isolated.as_deref()), (None, None));
+    assert!(app.src.contains("group c1 at 100 150 {\n  ellipse c1-body size 40 40 fill #ffd23f\n"), "{}", app.src);
 }

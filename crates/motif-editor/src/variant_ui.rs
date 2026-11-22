@@ -56,29 +56,32 @@ pub(crate) fn variant_row(ui: &mut egui::Ui, copy: &str, variants: &[String], cu
     let mut act = None;
     ui.horizontal(|ui| {
         ui.label(RichText::new("Вариант").size(12.0).color(MUTED));
-        // The button keeps its place at the right edge; the choice takes the room between.
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if theme::button(ui, "+ Вариант", ButtonKind::Normal)
-                .on_hover_text(
-                    "Новый вариант символа из этой копии: её параметры переходят в вариант, а копия становится этим вариантом и выглядит как раньше. Тот же вид потом выбирают у других копий",
-                )
-                .clicked()
-            {
-                act = Some(VariantAct::New);
-            }
-            let mut chosen = current.unwrap_or_default().to_string();
-            let width = (ui.available_width() - 8.0).max(60.0);
-            egui::ComboBox::from_id_salt(("copy-variant", copy)).width(width).selected_text(if chosen.is_empty() { "как в символе" } else { chosen.as_str() }).show_ui(ui, |ui| {
+        // The choice takes the rest of the row and cuts a long name: a row wider than the panel
+        // would widen every fold below it.
+        let mut chosen = current.unwrap_or_default().to_string();
+        let width = (ui.available_width() - 8.0).max(60.0);
+        egui::ComboBox::from_id_salt(("copy-variant", copy))
+            .width(width)
+            .truncate()
+            .selected_text(if chosen.is_empty() { "как в символе" } else { chosen.as_str() })
+            .show_ui(ui, |ui| {
                 ui.selectable_value(&mut chosen, String::new(), "как в символе");
                 for name in variants {
                     ui.selectable_value(&mut chosen, name.clone(), name);
                 }
             });
-            if chosen != current.unwrap_or_default() {
-                act = Some(VariantAct::Take((!chosen.is_empty()).then_some(chosen)));
-            }
-        });
+        if chosen != current.unwrap_or_default() {
+            act = Some(VariantAct::Take((!chosen.is_empty()).then_some(chosen)));
+        }
     });
+    if theme::button(ui, "+ Вариант", ButtonKind::Normal)
+        .on_hover_text(
+            "Новый вариант символа из этой копии: её параметры переходят в вариант, а копия становится этим вариантом и выглядит как раньше. Тот же вид потом выбирают у других копий",
+        )
+        .clicked()
+    {
+        act = Some(VariantAct::New);
+    }
     act
 }
 

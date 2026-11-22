@@ -233,6 +233,8 @@ pub struct App {
     pub(crate) show_game: bool,
     /// A file action waiting for an answer about unsaved changes.
     pending_file: Option<FileAction>,
+    /// A removal of objects of a symbol waiting for an answer about what refers to them.
+    pub(crate) symbol_delete: Option<crate::master_ui::SymbolDelete>,
     show_help: bool,
     pub(crate) show_syntax: bool,
     pub(crate) space_used_for_pan: bool,
@@ -303,6 +305,7 @@ impl App {
             web: crate::web_ui::WebState::default(),
             disk_mtime: path.as_ref().and_then(|p| mtime(p)),
             pending_file: None,
+            symbol_delete: None,
             path,
             saved_src: src.clone(),
             src,
@@ -1121,6 +1124,10 @@ impl App {
         }
         let Some(id) = self.selected.clone() else { return };
         if !self.can_edit() {
+            return;
+        }
+        // An object of a symbol that animation or copies refer to: first show what goes with it.
+        if self.ask_symbol_delete() {
             return;
         }
         if !self.also.is_empty() {
@@ -3538,7 +3545,10 @@ impl App {
             }
         }
         if plain(Key::Escape) {
-            if let Some(m) = self.marking.as_mut() {
+            if self.symbol_delete.is_some() {
+                // The question about a removal is answered first: Esc is «Отмена».
+                self.answer_symbol_delete(false);
+            } else if let Some(m) = self.marking.as_mut() {
                 if m.pending.is_some() {
                     m.pending = None;
                 } else {
@@ -3860,6 +3870,7 @@ impl eframe::App for App {
         self.web_window(&ctx);
         self.help_window(&ctx);
         self.unsaved_window(&ctx);
+        self.symbol_delete_window(&ctx);
         self.recovery_window(&ctx);
         self.syntax_window(&ctx);
         self.stretch_window(&ctx);
