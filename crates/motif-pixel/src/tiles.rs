@@ -121,8 +121,14 @@ pub struct TileSet {
 /// row by row, and empty columns and rows before the first tile are left out. The atlas file
 /// will be `stem.png`, and the description `stem.json`.
 pub fn tile_set(boards: &[TileBoard<'_>], opts: TileSetOptions, stem: &str) -> Result<TileSet, String> {
-    let first = boards.first().ok_or("в файле нет холстов: набор тайлов собирается из холстов одного размера")?.doc;
-    let (unit_w, unit_h) = (first.artboard.width, first.artboard.height);
+    if boards.is_empty() {
+        return Err("в файле нет холстов: набор тайлов собирается из холстов одного размера".into());
+    }
+    // The size of the set is the one most of its boards have (the earlier one of two equally
+    // common), so that one odd board is named, not all the others.
+    let size_of = |b: &TileBoard<'_>| (b.doc.artboard.width, b.doc.artboard.height);
+    let count = |size: (f64, f64)| boards.iter().filter(|b| size_of(b) == size).count();
+    let (unit_w, unit_h) = boards.iter().map(size_of).fold(size_of(&boards[0]), |best, size| if count(size) > count(best) { size } else { best });
     let odd: Vec<String> = boards
         .iter()
         .map(|b| &b.doc.artboard)
@@ -131,10 +137,7 @@ pub fn tile_set(boards: &[TileBoard<'_>], opts: TileSetOptions, stem: &str) -> R
         .collect();
     if !odd.is_empty() {
         return Err(format!(
-            "тайлы набора одного размера, а в файле холсты разные: «{}» {}×{}, но {}. Оставьте в файле набора только тайлы одного размера",
-            first.artboard.name,
-            unit_w,
-            unit_h,
+            "тайлы набора одного размера: в файле это {unit_w}×{unit_h}, а {} другого размера. Оставьте в файле набора только тайлы одного размера",
             odd.join(", ")
         ));
     }
@@ -363,7 +366,11 @@ ellipse stump at 8 8 size 10 8 fill #a9744f stroke ink 1
     fn a_set_says_what_keeps_it_from_being_one() {
         let other_size = format!("{SET}\nartboard \"Дом\" 32x16\nrect wall size 8 8\n");
         let e = set_of(&boards(&other_size), 1.0, 0).err().unwrap();
-        assert!(e.contains("«Дом» 32×16") && e.contains("«Трава» 16×16"), "{e}");
+        assert!(e.contains("в файле это 16×16, а «Дом» 32×16 другого размера"), "{e}");
+        // The odd board is named even when it is the first of the file.
+        let first_odd = format!("artboard \"Дом\" 32x16\nrect wall size 8 8\n\n{}", SET.replacen("let ink = #2f2a26\n", "", 1).replace("stroke ink 1", ""));
+        let e = set_of(&boards(&first_odd), 1.0, 0).err().unwrap();
+        assert!(e.contains("в файле это 16×16, а «Дом» 32×16 другого размера"), "{e}");
         let same_name = format!("{SET}\nartboard \"Трава\" 16x16\nrect wall size 8 8\n");
         let e = set_of(&boards(&same_name), 1.0, 0).err().unwrap();
         assert!(e.contains("два тайла с именем «Трава»"), "{e}");
