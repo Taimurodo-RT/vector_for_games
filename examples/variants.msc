@@ -51,6 +51,13 @@ for i in 0..3 {
 text t7 at 90 280 content "variant fresh" font-size 12 fill ink
 use Button fresh "Новая" at 90 320 variant fresh
 
+// Свой текст у копии: строка символа одна на все копии, слова одной копии пишутся в override.
+// Фон кнопки в раскладке stack сам подстраивается под новые слова.
+override {
+  buy-label.content = "Купить"
+  back-label.content = "Назад"
+}
+
 anim Idle 1.6s loop {
   play.sx 0: 1 ease-in-out-sine | 0.8: 1.06 ease-in-out-sine | 1.6: 1
   play.sy 0: 1 ease-in-out-sine | 0.8: 1.06 ease-in-out-sine | 1.6: 1

@@ -387,4 +387,56 @@ use Leaf l2 at 150 40
         let after = parse(&out).unwrap();
         assert!(after.doc.index_of("c2-shine").unwrap() < after.doc.index_of("c2-body").unwrap());
     }
+
+    const LABELS: &str = "\
+artboard \"Кнопки\" 300x200 bg #ffffff
+symbol Button {
+  group row stack row center gap 6 pad 10 {
+    rect bg fit r 8 fill #2d6cdf
+    text label content \"Играть\" font-size 16 fill #ffffff
+  }
+}
+use Button play at 80 60
+use Button buy at 80 140
+override {
+  buy-label.content = \"Купить всё\"
+}
+";
+
+    #[test]
+    fn a_copy_says_words_of_its_own() {
+        let words = |s: &Scene, id: &str| s.doc.node(id).unwrap().text.as_ref().unwrap().content.clone();
+        let scene = parse(LABELS).unwrap();
+        assert_eq!((words(&scene, "play-label").as_str(), words(&scene, "buy-label").as_str()), ("Играть", "Купить всё"));
+        assert!(scene.doc.node("buy-label").unwrap().width > scene.doc.node("play-label").unwrap().width + 20.0, "the longer words are wider");
+        // The symbol itself, while it is edited through the copy.
+        let edited = parse_as(LABELS, None, Reading { theme: None, symbol_of: Some("buy") }).unwrap();
+        assert_eq!(words(&edited, "buy-label"), "Играть");
+
+        // The words are one of the changes of the copy and are taken back like the others.
+        let changes = copy_changes(LABELS, &scene, "buy");
+        assert_eq!(changes.len(), 1);
+        assert_eq!((changes[0].part.as_deref(), changes[0].name.as_str(), changes[0].value.as_str()), (Some("label"), "content", "\"Купить всё\""));
+        let back = reset_copy(LABELS, &scene, "buy", Some(0)).unwrap();
+        assert_eq!(words(&parse(&back).unwrap(), "buy-label"), "Играть");
+
+        // New words are written over the old ones; another copy gets an entry of its own.
+        let said = "Взять \"всё\"\nсразу";
+        let out = crate::set_own_text(LABELS, &scene, "buy-label", said).unwrap();
+        assert_eq!(out.matches("buy-label.content").count(), 1, "{out}");
+        assert_eq!(words(&parse(&out).unwrap(), "buy-label"), said);
+        let out = crate::set_own_text(LABELS, &scene, "play-label", "Старт").unwrap();
+        assert!(out.contains("  buy-label.content = \"Купить всё\"\n  play-label.content = \"Старт\"\n}"), "{out}");
+        assert_eq!(crate::set_own_text(LABELS, &scene, "buy-bg", "нет"), None);
+        // A scene without the block gets one.
+        let plain = LABELS.replace("override {\n  buy-label.content = \"Купить всё\"\n}\n", "");
+        let out = crate::set_own_text(&plain, &parse(&plain).unwrap(), "buy-label", "Купить").unwrap();
+        assert!(out.ends_with("override {\n  buy-label.content = \"Купить\"\n}\n"), "{out}");
+
+        let told = |src: &str| parse(src).unwrap_err().iter().map(ToString::to_string).collect::<Vec<_>>().join("\n");
+        assert!(told(&LABELS.replace("buy-label.content", "buy-bg.content")).contains("«buy-bg» не текст"));
+        assert!(told(&LABELS.replace("= \"Купить всё\"", "= 5")).contains("нужен текст в кавычках"));
+        // Older Motif does not read such an entry.
+        assert_eq!((crate::format::needed(LABELS), crate::format::needed(&plain)), (5, 1));
+    }
 }

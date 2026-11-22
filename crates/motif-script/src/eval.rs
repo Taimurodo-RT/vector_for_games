@@ -112,6 +112,7 @@ impl<'a> Evaluator<'a> {
                 corrective_sites: HashMap::new(),
                 blocks_start: None,
                 override_entries: Vec::new(),
+                own_texts: HashMap::new(),
                 path_sources: HashMap::new(),
                 prop_spans: HashMap::new(),
                 backdrop: None,
@@ -371,6 +372,10 @@ impl<'a> Evaluator<'a> {
                 self.note_block(*start);
                 self.scene.override_close = Some(*close);
                 for e in entries {
+                    if e.prop == "content" {
+                        self.own_text(e);
+                        continue;
+                    }
                     let Some(prop) = self.prop_path(&e.prop, e.span) else { continue };
                     let Some(index) = self.scene.doc.index_of(&e.node) else {
                         self.err(e.span, format!("нет объекта «{}»", e.node));
@@ -1325,6 +1330,42 @@ impl<'a> Evaluator<'a> {
         }
         self.prefix = saved_prefix;
         self.vars = saved_vars;
+    }
+
+    /// `title.content = "Купить"` in `override`: the words of one text, set over what its line
+    /// says. A text of a symbol or of a loop has one line for every copy; this is how one copy
+    /// gets words of its own.
+    fn own_text(&mut self, e: &crate::parser::OverrideAst) {
+        let Some(index) = self.scene.doc.index_of(&e.node) else {
+            self.err(e.span, format!("нет объекта «{}»", e.node));
+            return;
+        };
+        let ValueKind::Path(words) = &e.value.kind else { return };
+        let Some(old) = self.scene.doc.nodes[index].text.clone() else {
+            self.err(e.span, format!("«{}» не текст: content бывает только у text", e.node));
+            return;
+        };
+        self.scene.override_entries.push((e.node.clone(), Span::new(e.span.start, e.value.span.end)));
+        // While a symbol is edited through a copy, the copy shows the symbol itself.
+        if crate::symbol::edited_part(&self.scene, &e.node).is_some() {
+            return;
+        }
+        let content = crate::content::decode_content(words);
+        let made = match &old.font {
+            Some(font) => motif_core::TextShape::new(&content, &font.data),
+            None => Err("у текста нет шрифта".to_string()),
+        };
+        match made {
+            Ok(mut shape) => {
+                shape.font.clone_from(&old.font);
+                let node = &mut self.scene.doc.nodes[index];
+                let b = shape.bounds(&node.text_style);
+                (node.width, node.height) = (b.width(), b.height());
+                node.text = Some(std::sync::Arc::new(shape));
+                self.scene.own_texts.insert(e.node.clone(), e.value.span);
+            }
+            Err(message) => self.err(e.value.span, message),
+        }
     }
 
     fn node(&mut self, n: &NodeAst, parent: Option<usize>, generated: bool) -> Option<usize> {

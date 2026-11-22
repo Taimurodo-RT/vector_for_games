@@ -1171,6 +1171,14 @@ impl<'a> Parser<'a> {
     fn override_entry(&mut self) -> Result<OverrideAst, ScriptError> {
         let (node, prop, span) = self.path()?;
         self.expect(Tok::Eq, "«=»")?;
+        // The words of a text are written as they are in its line: `title.content = "Купить"`.
+        if prop == "content" {
+            return match self.next() {
+                Some(Token { tok: Tok::Str(s), span: at }) => Ok(OverrideAst { node, prop, span, value: ValueAst { kind: ValueKind::Path(s), span: at } }),
+                Some(t) => Err(self.err(t.span, "после content = нужен текст в кавычках: title.content = \"Купить\"")),
+                None => Err(self.err(self.peek_span(), "после content = нужен текст в кавычках: title.content = \"Купить\"")),
+            };
+        }
         let value = self.value()?;
         Ok(OverrideAst { node, prop, span, value })
     }

@@ -20,6 +20,21 @@ pub fn content_row(ui: &mut egui::Ui, node: &Node, edits: &mut Vec<StyleEdit>) {
     }
 }
 
+/// The words of a text that a symbol or a loop made: its line is shared by every copy, so the
+/// new words are kept for this one object. Returns them when they change.
+pub fn own_content_row(ui: &mut egui::Ui, node: &Node, written: bool) -> Option<String> {
+    let mut text = node.text.as_ref().map(|t| t.content.clone()).unwrap_or_default();
+    let edit = egui::TextEdit::multiline(&mut text).desired_rows(2).desired_width(ui.available_width()).hint_text("Текст");
+    let changed = ui.add(edit).changed();
+    let note = if written {
+        "Свой текст этого объекта. Остальные копии говорят то, что написано в символе или цикле."
+    } else {
+        "Текст создан символом или циклом. Что вы напишете здесь, останется только у этого объекта."
+    };
+    ui.label(RichText::new(note).size(11.5).color(FAINT));
+    changed.then_some(text)
+}
+
 /// Font, alignment and line height. Returns true when a font file should be picked.
 pub fn layout_rows(ui: &mut egui::Ui, node: &Node, font: Option<&str>, edits: &mut Vec<StyleEdit>) -> bool {
     let mut pick = false;

@@ -68,8 +68,8 @@ pub use edit::{
     KeyAt, KeyCopy, KeyText, Place, Snippet, add_anim, add_guide, add_node, add_path, add_states, backdrop_text, copy_keys, copy_nodes, delete_anim,
     delete_key, delete_keys, delete_node, directions_text, duplicate_anim, fmt_value, gradient_text, group_nodes, guide_text, move_key, move_node, paste_keys,
     paste_nodes, paste_nodes_into, path_to_d, remove_guides, rename_anim, rename_node, restack, retime_keys, reverse_anim, set_anim_duration, set_anim_loop,
-    set_backdrop, set_clip, set_directions, set_gradient, set_guide, set_key, set_key_ease, set_keys_ease, set_light, set_path, set_prop, set_purpose,
-    set_stroke_gradient, set_style, set_world, ungroup, world_text, write_event, write_event_data, write_tracks,
+    set_backdrop, set_clip, set_directions, set_gradient, set_guide, set_key, set_key_ease, set_keys_ease, set_light, set_own_text, set_path, set_prop,
+    set_purpose, set_stroke_gradient, set_style, set_world, ungroup, world_text, write_event, write_event_data, write_tracks,
 };
 pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
 pub use machine::{
@@ -184,6 +184,9 @@ pub struct Scene {
     pub blocks_start: Option<usize>,
     /// Every `override` entry: the node it changes and the span of the whole entry.
     pub override_entries: Vec<(String, Span)>,
+    /// The texts whose words an entry of `override` gives (`title.content = "Купить"`), by id:
+    /// where the quoted words are written.
+    pub own_texts: HashMap<String, Span>,
     /// The quoted `d "…"` outline of each path node (not for nodes made by loops).
     pub path_sources: HashMap<String, Span>,
     /// Each property as written on a node line, key and values (`shadow 0 4 8 #0006`), by node id
