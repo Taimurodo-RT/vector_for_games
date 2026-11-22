@@ -25,6 +25,8 @@ const KEYWORDS: &[&str] = &[
     "loop",
     "symbol",
     "use",
+    "variant",
+    "hide",
     "machine",
     "input",
     "listen",

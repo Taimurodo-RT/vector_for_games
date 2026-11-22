@@ -48,6 +48,7 @@ mod styles;
 mod svg;
 mod symbol;
 mod themes;
+mod variants;
 
 mod palette;
 pub mod parameters;
@@ -89,6 +90,9 @@ pub use styles::{
 pub use svg::import_svg;
 pub use symbol::{CopyChange, add_use, copy_changes, free_symbol_name, make_symbol, part_of, reset_copy, set_param};
 pub use themes::{add_theme, delete_theme, free_theme_name, rename_theme, reset_in_theme, theme_name_ok, theme_names};
+pub use variants::{
+    add_variant, delete_variant, free_variant_name, rename_variant, set_variant, set_variant_hidden, set_variant_value, variant_from_copy, variant_name_ok,
+};
 
 /// Byte range in the script text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -392,6 +396,32 @@ pub struct SymbolSite {
     pub params: Vec<(String, motif_core::Value)>,
     /// From `symbol` to the closing brace.
     pub span: Span,
+    /// Its variants, in the order written.
+    pub variants: Vec<VariantSite>,
+}
+
+/// A `variant` line of a symbol: a named set of parameter values and of objects that are not
+/// shown. A copy takes it with `variant main` on its `use` line.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VariantSite {
+    pub name: String,
+    pub name_span: Span,
+    /// The whole line, from `variant` to its last word.
+    pub span: Span,
+    /// The parameters it sets, in the order written.
+    pub values: Vec<VariantValue>,
+    /// The objects it hides, by their ids inside the symbol, and where each is written.
+    pub hide: Vec<(String, Span)>,
+}
+
+/// A parameter a variant sets: `face=accent`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VariantValue {
+    pub name: String,
+    /// Where the value is written.
+    pub span: Span,
+    /// The value, once a copy of the symbol has read it (a symbol never placed reads none).
+    pub value: Option<motif_core::Value>,
 }
 
 /// A `use` line: one copy of a symbol, drawn as a group with the symbol's objects inside.
@@ -401,6 +431,9 @@ pub struct Instance {
     pub symbol: String,
     /// Every parameter of the symbol with the value this copy uses.
     pub params: Vec<ParamSite>,
+    /// The variant of the symbol the copy is (`variant main` on its line), and where both
+    /// words are written.
+    pub variant: Option<(String, Span)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -411,6 +444,8 @@ pub struct ParamSite {
     pub span: Option<Span>,
     /// The written value is a plain literal of this copy only and can be rewritten in place.
     pub editable: bool,
+    /// The value is the one the copy's variant gives, not the default of the symbol.
+    pub variant: bool,
 }
 
 /// A guide line of the editor: objects and points stick to it. Never drawn in renders or exports

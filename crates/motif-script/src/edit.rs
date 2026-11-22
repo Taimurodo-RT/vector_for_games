@@ -572,6 +572,12 @@ fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Vec<Span>> {
         }
     }
     spans.extend(scene.override_entries.iter().filter(|(n, _)| ids.contains(&n.as_str())).map(|(_, s)| whole_lines(src, *s)));
+    // An object of the symbol being edited is no longer hidden by the variants of the symbol.
+    if let Some(copy) = scene.editing.as_deref()
+        && let Some(sym) = scene.instances.get(copy).and_then(|inst| scene.symbols.iter().find(|s| s.name == inst.symbol))
+    {
+        spans.extend(crate::variants::hide_spans(src, sym, |part| ids.contains(&format!("{copy}-{part}").as_str())));
+    }
     for m in &doc.machines {
         let Some(site) = scene.machines.get(&m.name) else { continue };
         spans.extend(m.listeners.iter().zip(&site.listeners).filter(|(l, _)| ids.contains(&l.node.as_str())).map(|(_, s)| whole_lines(src, *s)));

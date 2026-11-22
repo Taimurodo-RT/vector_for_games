@@ -130,7 +130,7 @@ pub struct CopyChange {
     /// The value as written.
     pub value: String,
     /// What leaves the script when the change is taken back.
-    span: Span,
+    pub(crate) span: Span,
 }
 
 /// What copy `copy` has of its own, in the order written: its parameters first. A copy made by a

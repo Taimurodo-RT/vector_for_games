@@ -1,0 +1,31 @@
+motif 4
+// Палитра: цвета и градиенты под именами. Поменяйте строку let — перекрасится всё, что берёт имя.
+let ink = #1b1d24
+let paper = #fff8ea
+let gold = #ffd23f
+let ember = #ff5a36
+// Градиент палитры: вид (linear или radial), угол для linear и цвета. Цвета можно брать из палитры по имени.
+let sunset = linear 90 gold ember
+let halo = radial paper gold ember
+// Стиль берёт градиент палитры так же, как объект.
+style badge gradient sunset stroke ink 2 r 12 shadow 0 4 0 ink
+
+artboard "Палитра" 520x280 bg paper
+
+// Три плашки берут градиент через стиль. У средней свой градиент поверх стиля.
+rect plate1 "Плашка 1" at 110 70 size 120 56 style badge
+rect plate2 "Плашка 2" at 260 70 size 120 56 style badge gradient linear 0 paper gold
+rect plate3 "Плашка 3" at 410 70 size 120 56 style badge
+text label1 at 110 70 content "Огонь" font bold font-size 18 fill ink
+text label2 at 260 70 content "Свет" font bold font-size 18 fill ink
+text label3 at 410 70 content "Огонь" font bold font-size 18 fill ink
+
+// Заливка и обводка берут градиент палитры по имени: gradient halo, stroke-gradient sunset.
+ellipse sun "Солнце" at 110 190 size 90 90 gradient halo stroke ink 2
+rect frame "Рамка" at 260 190 size 120 80 r 14 fill paper stroke ink 6 stroke-gradient sunset
+star medal "Медаль" at 410 190 size 96 96 points 5 inner 0.5 gradient sunset stroke ink 2
+
+anim Glow 1.6s loop id=g7pl {
+  sun.sx 0: 1 ease-in-out-sine | 0.8: 1.08 ease-in-out-sine | 1.6: 1
+  sun.sy 0: 1 ease-in-out-sine | 0.8: 1.08 ease-in-out-sine | 1.6: 1
+}

@@ -150,6 +150,24 @@ pub struct UseAst {
     pub symbol_span: Span,
     pub node: NodeAst,
     pub params: Vec<ParamAst>,
+    /// `variant main` on the line: the variant of the symbol this copy is.
+    pub variant: Option<VariantRef>,
+}
+
+/// `variant main` on a `use` line.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VariantRef {
+    pub name: String,
+    pub name_span: Span,
+    /// Both words.
+    pub span: Span,
+}
+
+/// What a `use` line has and other object lines do not.
+#[derive(Default)]
+struct UseExtras {
+    params: Vec<ParamAst>,
+    variant: Option<VariantRef>,
 }
 
 /// `speed > 0.5`, `hover`, `not hover` in a transition.
@@ -296,6 +314,17 @@ pub enum Stmt {
         span: Span,
     },
     Use(UseAst),
+    /// `variant main face=#ff5a36 hide icon` inside a `symbol` block: a named set of parameter
+    /// values and of objects that are not shown. A copy takes it with `variant main`.
+    Variant {
+        name: String,
+        name_span: Span,
+        values: Vec<ParamAst>,
+        /// The objects it hides, by their ids inside the symbol.
+        hide: Vec<(String, Span)>,
+        /// The whole line.
+        span: Span,
+    },
     For {
         var: String,
         from: ValueAst,
@@ -359,6 +388,8 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "shadow" | "inset" => (3, 4),
         "glow" => (2, 3),
         "noise" => (1, 2),
+        // The variant of a symbol, on a `use` line only: read apart from the properties.
+        "variant" => (1, 1),
         "hidden" | "clip" | "evenodd" => (0, 0),
         "d" | "content" => (1, 1),
         "font" | "font-size" | "letter-spacing" | "line-height" | "align" | "reveal" | "wave" | "phase" => (1, 1),
@@ -665,9 +696,39 @@ impl<'a> Parser<'a> {
             }
             "use" => {
                 let (symbol, symbol_span) = self.ident("имя символа после use")?;
-                let mut params = Vec::new();
-                let node = self.node_line(ShapeKind::Group, span.start, Some(&mut params))?;
-                Ok(Stmt::Use(UseAst { symbol, symbol_span, node, params }))
+                let mut extras = UseExtras::default();
+                let node = self.node_line(ShapeKind::Group, span.start, Some(&mut extras))?;
+                Ok(Stmt::Use(UseAst { symbol, symbol_span, node, params: extras.params, variant: extras.variant }))
+            }
+            "variant" => {
+                let (name, name_span) = self.ident("имя варианта: variant main face=#ff5a36 hide icon")?;
+                let mut values = Vec::new();
+                let mut hide = Vec::new();
+                let mut end = name_span.end;
+                while !self.at_line_end() {
+                    if matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq)) {
+                        let p = self.param()?;
+                        end = p.value.span.end;
+                        values.push(p);
+                        continue;
+                    }
+                    let (word, word_span) = self.ident("значение параметра (имя=значение) или hide и id скрытых объектов")?;
+                    if word != "hide" {
+                        return Err(
+                            self.err(word_span, format!("в варианте пишутся значения параметров (имя=значение) и hide с id скрытых объектов, а не «{word}»"))
+                        );
+                    }
+                    let before = hide.len();
+                    while matches!(self.peek(), Some(Tok::Ident(_))) && !matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq)) {
+                        let (id, id_span) = self.ident("id объекта")?;
+                        end = id_span.end;
+                        hide.push((id, id_span));
+                    }
+                    if hide.len() == before {
+                        return Err(self.err(word_span, "после hide нужны id объектов символа, которые вариант скрывает: hide icon"));
+                    }
+                }
+                Ok(Stmt::Variant { name, name_span, values, hide, span: Span::new(span.start, end) })
             }
             "override" => {
                 self.expect(Tok::BlockOpen, "«{» в конце строки")?;
@@ -847,7 +908,7 @@ impl<'a> Parser<'a> {
 
     /// A node line and, for a group, its block. A `use` line passes `params` and may have
     /// `name=value` parameters among its properties, but no block.
-    fn node_line(&mut self, kind: ShapeKind, start: usize, mut params: Option<&mut Vec<ParamAst>>) -> Result<NodeAst, ScriptError> {
+    fn node_line(&mut self, kind: ShapeKind, start: usize, mut params: Option<&mut UseExtras>) -> Result<NodeAst, ScriptError> {
         let (id, id_span) = self.ident("id объекта")?;
         // A property name is fine as an id (`ellipse shadow "Тень"`) unless values follow it,
         // which means the id was left out (`rect at 10 20`).
@@ -867,15 +928,27 @@ impl<'a> Parser<'a> {
         }
         let mut props = Vec::new();
         while !self.at_line_end() && self.peek() != Some(&Tok::BlockOpen) {
-            if let Some(params) = params.as_deref_mut()
+            if let Some(extras) = params.as_deref_mut()
                 && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq))
             {
                 let p = self.param()?;
                 insert_at = p.value.span.end;
-                params.push(p);
+                extras.params.push(p);
                 continue;
             }
             let (key, key_span) = self.ident("свойство")?;
+            if key == "variant" {
+                let Some(extras) = params.as_deref_mut() else {
+                    return Err(self.err(key_span, "variant пишется в строке use (какой вариант символа у копии) или строкой внутри symbol"));
+                };
+                let (name, name_span) = self.ident("имя варианта после variant")?;
+                if extras.variant.is_some() {
+                    return Err(self.err(key_span, "вариант у копии один"));
+                }
+                insert_at = name_span.end;
+                extras.variant = Some(VariantRef { name, name_span, span: Span::new(key_span.start, name_span.end) });
+                continue;
+            }
             let Some((min, max)) = prop_arity(&key) else {
                 return Err(self.err(key_span, format!("неизвестное свойство «{key}»")));
             };
@@ -956,7 +1029,8 @@ impl<'a> Parser<'a> {
             {
                 values.push(ValueAst { kind: ValueKind::Path(s), span });
             }
-            while values.len() < max && self.is_value_start() {
+            // `scale 1.2 color=#fff`: a name before `=` is a parameter of the copy, not a value.
+            while values.len() < max && self.is_value_start() && !(params.is_some() && matches!(self.toks.get(self.pos + 1).map(|t| &t.tok), Some(Tok::Eq))) {
                 values.push(self.value()?);
             }
             if values.len() < min {

@@ -528,7 +528,8 @@ impl App {
                         return false;
                     }
                 };
-                if self.stays_with_copy(&parsed) || (parsed.editing.is_some() && self.breaks_another_board(&s)) {
+                // A symbol of the shared head has copies on the other boards too.
+                if self.stays_with_copy(&parsed) || ((parsed.editing.is_some() || kind.starts_with("variant")) && self.breaks_another_board(&s)) {
                     return false;
                 }
                 self.checkpoint(kind);
@@ -4453,6 +4454,9 @@ mod snap_tests;
 #[cfg(test)]
 #[path = "symbol_edit_tests.rs"]
 mod symbol_edit_tests;
+#[cfg(test)]
+#[path = "variant_tests.rs"]
+mod variant_tests;
 
 #[cfg(test)]
 #[path = "preview_tests.rs"]
