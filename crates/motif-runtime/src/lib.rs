@@ -362,6 +362,13 @@ impl Player {
         self.doc.includes.clone()
     }
 
+    /// The sides the board repeats along as a tile (`artboard … tile`): `(across, down)`. Its
+    /// frame laid side by side along them shows no seam, since what reaches past an edge is
+    /// drawn again from the opposite one.
+    pub fn tile(&self) -> (bool, bool) {
+        (self.doc.tile.x, self.doc.tile.y)
+    }
+
     /// Whether some repeats of the board differ from each other by a seed (`repeat … vary-rot
     /// 15`), so that [`set_vary_seed`](Self::set_vary_seed) gives another variant of the drawing.
     pub fn varies(&self) -> bool {

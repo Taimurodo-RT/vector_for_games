@@ -934,6 +934,9 @@ impl<'a> Evaluator<'a> {
                         match p.key.as_str() {
                             "ui" => self.scene.doc.purpose = motif_core::Purpose::Ui,
                             "game" => self.scene.doc.purpose = motif_core::Purpose::Game,
+                            "tile" => self.scene.doc.tile = motif_core::Tile::BOTH,
+                            "tile-x" => self.scene.doc.tile.x = true,
+                            "tile-y" => self.scene.doc.tile.y = true,
                             _ => {}
                         }
                         if p.key == "cell" {

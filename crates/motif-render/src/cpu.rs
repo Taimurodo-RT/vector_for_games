@@ -28,18 +28,52 @@ pub fn render_cpu(doc: &Document, opts: CpuOptions) -> Option<Pixmap> {
 pub fn render_cpu_with(doc: &Document, opts: CpuOptions, backdrop: Option<BackdropView>) -> Option<Pixmap> {
     let w = (doc.artboard.width * opts.scale).round().max(1.0) as u32;
     let h = (doc.artboard.height * opts.scale).round().max(1.0) as u32;
-    let mut pixmap = Pixmap::new(w, h)?;
+    let ops = display_ops(doc);
+    // A tile is drawn with room around it for what reaches past its edges, and the room is cut
+    // off: a shape cut by the edge of the picture is smoothed a little differently from the same
+    // shape drawn whole, and the two halves of an object would not meet exactly at the seam.
+    let (left, top, right, bottom) = if doc.tile.on() { tile_room(&ops, opts.scale, w, h) } else { (0, 0, 0, 0) };
+    let mut pixmap = Pixmap::new(w + left + right, h + top + bottom)?;
     if opts.background {
         let c = doc.artboard.background;
         pixmap.fill(tiny_skia::Color::from_rgba8(c.r, c.g, c.b, c.a));
     }
-    let view = Affine::scale(opts.scale);
+    let view = Affine::translate((left as f64, top as f64)) * Affine::scale(opts.scale);
     if let Some(b) = backdrop {
         let paint = tiny_skia::PixmapPaint { opacity: b.opacity.clamp(0.0, 1.0) as f32, quality: tiny_skia::FilterQuality::Bilinear, ..Default::default() };
         pixmap.draw_pixmap(0, 0, b.image.pixmap.as_ref().as_ref(), &paint, to_transform(view * b.transform), None);
     }
-    draw_ops(&mut pixmap, &display_ops(doc), view, opts.antialias, None);
-    Some(pixmap)
+    draw_ops(&mut pixmap, &ops, view, opts.antialias, None);
+    if (left, top, right, bottom) == (0, 0, 0, 0) {
+        return Some(pixmap);
+    }
+    pixmap.clone_rect(tiny_skia::IntRect::from_xywh(left as i32, top as i32, w, h)?)
+}
+
+/// The pixels to draw around a tile of `w` by `h` pixels so that nothing of `ops` is cut by the
+/// edge of the picture: left, top, right, bottom. Not more than a tile on each side, and none
+/// when the picture would grow too big.
+fn tile_room(ops: &[Op], scale: f64, w: u32, h: u32) -> (u32, u32, u32, u32) {
+    let Some(b) = crate::ops_bounds(ops) else { return (0, 0, 0, 0) };
+    let room = |past: f64, size: u32| ((past * scale).ceil().max(0.0) as u32 + 1).min(size);
+    let (left, top) = (room(-b.x0, w), room(-b.y0, h));
+    let (right, bottom) = (room(b.x1 - w as f64 / scale, w), room(b.y1 - h as f64 / scale, h));
+    let pixels = (w + left + right) as u64 * (h + top + bottom) as u64;
+    if pixels > 64_000_000 { (0, 0, 0, 0) } else { (left, top, right, bottom) }
+}
+
+/// `tile` laid `cols` by `rows` times side by side: the picture a seam shows in, if there is one.
+pub fn lay_field(tile: &Pixmap, cols: u32, rows: u32) -> Option<Pixmap> {
+    let (w, h) = (tile.width(), tile.height());
+    let mut out = Pixmap::new(w.checked_mul(cols)?, h.checked_mul(rows)?)?;
+    let row = w as usize * 4;
+    for y in 0..(h * rows) as usize {
+        let from = &tile.data()[(y % h as usize) * row..][..row];
+        for c in 0..cols as usize {
+            out.data_mut()[y * row * cols as usize + c * row..][..row].copy_from_slice(from);
+        }
+    }
+    Some(out)
 }
 
 /// Renders `region` of the scene (artboard units, which may reach past the artboard) into a
@@ -377,6 +411,77 @@ mod tests {
         n.fill = Some(Color::rgb(0, 0, 0));
         doc.nodes.push(n);
         doc.nodes.last_mut().unwrap()
+    }
+
+    #[test]
+    fn a_tile_goes_on_from_its_opposite_edge() {
+        use motif_core::Tile;
+        let red = Color::rgb(255, 0, 0);
+        let (black, white) = (Color::rgb(0, 0, 0), Color::WHITE);
+        let at = |px: &Pixmap, x: u32, y: u32| {
+            let c = px.pixel(x, y).unwrap();
+            Color::rgb(c.red(), c.green(), c.blue())
+        };
+        let hard = CpuOptions { antialias: false, ..Default::default() };
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 64.0, height: 40.0, background: Color::WHITE });
+        // A black square over the right edge, and a red one over it at the left edge.
+        square(&mut doc, 64.0, 20.0, 20.0);
+        square(&mut doc, 4.0, 20.0, 8.0).fill = Some(red);
+        // Not a tile: the half past the edge is cut off.
+        let plain = render_cpu(&doc, hard).unwrap();
+        assert_eq!((at(&plain, 60, 20), at(&plain, 8, 20), at(&plain, 4, 20)), (black, white, red));
+        // A tile: the half comes in from the left, under the red square that lies above it.
+        doc.tile = Tile::BOTH;
+        let tile = render_cpu(&doc, hard).unwrap();
+        assert_eq!((at(&tile, 60, 20), at(&tile, 9, 20), at(&tile, 4, 20), at(&tile, 12, 20)), (black, black, red, white));
+        // Only across the edges the tile repeats along.
+        doc.tile = Tile { x: false, y: true };
+        assert_eq!(at(&render_cpu(&doc, hard).unwrap(), 9, 20), white);
+        // A corner shows in all four corners, a shadow and a blur go over the edge with their shape.
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 64.0, height: 40.0, background: Color::WHITE });
+        doc.tile = Tile::BOTH;
+        square(&mut doc, 0.0, 0.0, 12.0);
+        let px = render_cpu(&doc, hard).unwrap();
+        for (x, y) in [(2, 2), (61, 2), (2, 37), (61, 37)] {
+            assert_eq!(at(&px, x, y), black, "corner {x} {y}");
+        }
+        doc.nodes[0].blur = 6.0;
+        let soft = render_cpu(&doc, CpuOptions::default()).unwrap();
+        assert!(at(&soft, 61, 37).r < 120 && at(&soft, 32, 20) == white);
+        // A field of such tiles has no seam: the tile is, pixel for pixel, a piece of the
+        // picture where the same shapes are laid over a field whole.
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 64.0, height: 40.0, background: Color::WHITE });
+        doc.tile = Tile::BOTH;
+        let n = square(&mut doc, 60.0, 36.0, 30.0);
+        n.kind = ShapeKind::Ellipse;
+        n.stroke = Some(red);
+        n.stroke_width = 3.0;
+        let one = render_cpu(&doc, CpuOptions::default()).unwrap();
+        let mut field = Document::new(Artboard { name: "f".into(), width: 320.0, height: 160.0, background: Color::WHITE });
+        for ky in -1..=1 {
+            for kx in -1..=2 {
+                let mut copy = doc.nodes[0].clone();
+                copy.id = format!("c{kx}{ky}");
+                (copy.x, copy.y) = (copy.x + 64.0 * (kx + 1) as f64, copy.y + 40.0 * (ky + 1) as f64);
+                field.nodes.push(copy);
+            }
+        }
+        let field = render_cpu(&field, CpuOptions::default()).unwrap();
+        for y in 0..40 {
+            for x in 0..64 {
+                let (a, b, c) = (one.pixel(x, y).unwrap(), field.pixel(x + 64, y + 40).unwrap(), field.pixel(x + 128, y + 40).unwrap());
+                assert!(a == b && a == c, "pixel {x} {y}: {a:?} {b:?} {c:?}");
+            }
+        }
+        // So the right column of the tile goes on into its left one, and the bottom into the top.
+        assert!((0..40).any(|y| one.pixel(63, y).unwrap().green() < 250 && one.pixel(0, y).unwrap().green() < 250));
+        // An object several tiles long is laid as many times as it takes.
+        let mut doc = Document::new(Artboard { name: "t".into(), width: 20.0, height: 20.0, background: Color::WHITE });
+        doc.tile = Tile { x: true, y: false };
+        let n = square(&mut doc, 10.0, 10.0, 4.0);
+        n.width = 70.0;
+        let px = render_cpu(&doc, hard).unwrap();
+        assert!((0..20).all(|x| at(&px, x, 10) == black));
     }
 
     #[test]

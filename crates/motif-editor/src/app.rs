@@ -2587,6 +2587,7 @@ impl App {
             });
             ui.small("Сохраняется в сцене. Профиль сверху только фильтрует инструменты.");
         });
+        self.tile_section(ui);
         section(ui, |ui| {
             ui.label(RichText::new("Выберите объект на холсте, в слоях или кликом по его строке в скрипте.").size(12.0).color(FAINT));
             ui.label(RichText::new("Новые фигуры: R, O, S, N — тяните по холсту; P — перо.").size(12.0).color(FAINT));
@@ -2737,7 +2738,9 @@ impl App {
             v.pan += vec2((origin.x - old.x) as f32, (origin.y - old.y) as f32) * v.zoom;
         }
         self.boards.origin = Some(origin);
-        let others = self.other_boards(&grid);
+        // A tile shown as a field has its own copies around it in place of the other boards.
+        let field = self.field_moves();
+        let others = if self.field_shown() { Vec::new() } else { self.other_boards(&grid) };
         if std::mem::take(&mut self.boards.fit_all) {
             self.view = Some(View::fit_rect(rect, self.boards_bounds(&grid)));
         }
@@ -2768,7 +2771,7 @@ impl App {
             self.dim_outside(&mut shown);
             shown
         });
-        let stage = crate::canvas::Stage { doc: faint.as_ref().or(ghosts.as_ref()).unwrap_or(&doc), backdrop, others: &others, worn: &worn };
+        let stage = crate::canvas::Stage { doc: faint.as_ref().or(ghosts.as_ref()).unwrap_or(&doc), backdrop, others: &others, field: &field, worn: &worn };
         self.canvas.paint(ui, frame, rect, view, stage);
         if self.pixel.on {
             self.paint_pixel_preview(ui, rect, view, &doc);
@@ -2780,6 +2783,8 @@ impl App {
             let min = view.to_screen(rect, Point::new(o.offset.x, o.offset.y));
             Rect::from_min_size(min, vec2(o.doc.artboard.width as f32, o.doc.artboard.height as f32) * view.zoom)
         }));
+        // The neighbours of a tile shown as a field are artboards too: no dots of the stage on them.
+        boards.extend(field.iter().map(|by| board.translate(vec2(by.0 as f32, by.1 as f32) * view.zoom)));
         paint_dots(&painter, rect, &boards, view);
         if self.snap.grid {
             crate::guides::paint_grid(&painter, rect, view, &doc, self.snap.grid_size);
@@ -4548,6 +4553,9 @@ mod snap_tests;
 #[cfg(test)]
 #[path = "symbol_edit_tests.rs"]
 mod symbol_edit_tests;
+#[cfg(test)]
+#[path = "tile_tests.rs"]
+mod tile_tests;
 #[cfg(test)]
 #[path = "variant_tests.rs"]
 mod variant_tests;

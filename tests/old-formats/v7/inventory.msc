@@ -1,0 +1,91 @@
+motif 6
+// Набор инвентаря из повторов. Нарисованы одна заклёпка, одна царапина, одна ячейка,
+// один угол рамки, половина герба и половина луча. Остальное показывают группы с repeat.
+//   заклёпки   repeat along board … upright vary-rot — стоят по краю доски, шлиц у каждой повёрнут по-своему
+//   царапины   repeat grid … vary-at vary-rot vary-scale vary-fill — потёртость дерева из одной чёрточки
+//   ячейки     repeat grid — сетка из копии символа Slot
+//   углы       repeat mirror x y — рамка из одного угла
+//   герб       repeat mirror x и repeat circle 8 mirror — щит из половины, лучи из половины луча
+// Палитра, стиль и тема записаны один раз: в теме frost оттенки разброса меняются вместе с деревом.
+let wood = #7a5434
+let wood_dark = #4a321f
+let wood_light = #a67c52
+let iron = #9aa1b0
+let iron_dark = #3a3f4b
+let gold = #e9b949
+let gold_deep = #b07a1c
+let ink = #1b1512
+let well = #2a1f17
+let red = #b8402f
+style plank fill wood stroke ink 4 r 18
+
+theme frost {
+  wood = #4f6f8a
+  wood_dark = #2c4257
+  wood_light = #86a9c4
+  well = #1b2733
+  red = #3f7fc4
+}
+
+symbol Slot {
+  rect cell size 40 40 r 8 fill well stroke ink 3
+  rect shine at 0 -13 size 26 3 r 1.5 fill #ffffff22
+}
+
+artboard "Инвентарь" 520x380 bg #171210 ui
+rect board "Доска" at 260 206 size 452 316 style plank
+
+// Потёртость: одна чёрточка и 53 её повтора, каждый со своим местом, поворотом, длиной и оттенком.
+group wear "Потёртость" at 62 78 repeat grid 9 6 step 49 51 vary-at 20 20 vary-rot 70 vary-scale 0.6 vary-fill wood_dark 0.9 vary-seed 11 {
+  rect nick size 16 2 r 1 fill wood_light
+}
+
+// Заклёпки по краю доски. Стоят ровно (upright), а шлиц у каждой повёрнут по-своему.
+group screws "Заклёпки" repeat along board 28 offset 13 upright vary-rot 90 vary-seed 4 {
+  ellipse head size 11 11 fill iron stroke ink 2
+  rect slit size 7 1.6 fill iron_dark
+}
+
+// Рамка из одного угла: левый верхний, остальные три отражением.
+group corners "Углы" at 260 206 repeat mirror x y {
+  path curl d "M -206 -96 L -206 -124 C -206 -134 -198 -142 -188 -142 L -150 -142" fill none stroke gold 4 cap round join round
+  path leaf d "M -196 -132 C -182 -132 -172 -124 -170 -110 C -184 -110 -194 -118 -196 -132 Z" fill gold stroke ink 1.5
+}
+
+// Ячейки: копия символа в группе с сеткой.
+group slots "Ячейки" at 140 150 repeat grid 6 4 step 48 48 {
+  use Slot s
+}
+
+// Герб над доской: половина щита и крыло отражаются слева направо, лучи идут по кругу с отражением.
+group rays "Лучи" at 260 46 repeat circle 8 mirror {
+  path ray d "M 0 -24 L 6 -24 L 0 -46" fill gold stroke ink 1.5 join round
+}
+group crest "Герб" at 260 46 repeat mirror x {
+  path shield d "M 0 -22 L -19 -22 L -19 2 C -19 14 -10 21 0 25" fill red stroke ink 3 join round cap round
+  path wing d "M -24 -8 C -40 -16 -54 -10 -60 2 C -50 0 -44 4 -40 12 C -36 6 -30 4 -24 6 Z" fill wood_light stroke ink 2 join round
+}
+star gem at 260 46 size 16 16 points 4 inner 0.4 fill gold stroke ink 1.5
+
+// Шкала веса под ячейками: одно деление, остальные 22 показывает группа.
+rect bar at 260 336 size 236 8 r 4 fill well stroke ink 2
+group marks "Деления" at 150 336 repeat grid 23 1 step 10 0 {
+  rect mark size 1.5 5 fill iron
+}
+rect load at 212 336 size 132 4 r 2 fill gold
+
+// Вещи лежат в ячейках поверх сетки: это обычные объекты, не повторы.
+star ruby at 140 150 size 24 24 points 6 inner 0.55 fill red stroke ink 2
+ellipse pearl at 236 150 size 20 20 fill #f2efe6 stroke ink 2
+star coin at 188 198 size 24 24 points 12 inner 0.82 fill gold stroke ink 2
+
+anim Idle 4s loop {
+  rays.rot 0: 0 linear | 4: 40
+  gem.sx 0: 1 ease-in-out | 2: 1.15 ease-in-out | 4: 1
+  gem.sy 0: 1 ease-in-out | 2: 1.15 ease-in-out | 4: 1
+}
+
+// Выбранная ячейка: правка одного повтора. Остальные 23 остаются как первая.
+override {
+  slots-3-2-s-cell.stroke = #e9b949
+}

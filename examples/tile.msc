@@ -1,0 +1,47 @@
+motif 8
+// Тайлы: холст со словом tile повторяется в поле без швов. Всё, что выходит за край холста,
+// продолжается с противоположного края. Поэтому траву и камни можно класть прямо на край:
+// рисунок сойдётся сам, и в редакторе, и в выгруженном PNG.
+//   tile    — тайл повторяется во все стороны;
+//   tile-x  — только вправо и влево (забор, полоса земли);
+//   tile-y  — только вверх и вниз.
+// Проверка картинкой:  motif render examples/tile.msc --board 1 --field 3x3 -o field.png
+let ink = #2f2a26
+let grass = #7fb069
+let blade = #4f7a3c
+let stone = #b9a98c
+let mortar = #6f6558
+let wood = #a9744f
+
+artboard "Трава" 96x96 bg grass tile cell 0 0
+// Пучки травы сеткой с разбросом: крайние заходят за край и возвращаются с другой стороны.
+group tufts at 12 14 repeat grid 4 4 step 24 24 vary-at 9 9 vary-rot 25 vary-scale 0.35 vary-fill #2d4a26 0.4 vary-seed 4 {
+  path tuft d "M -6 4 C -5 -2 -4 -6 -7 -10 C -2 -7 -1 -3 0 4 C 1 -4 2 -9 0 -14 C 5 -9 5 -3 4 4 C 5 0 7 -3 10 -5 C 9 -1 8 2 8 4 Z" fill blade
+}
+// Цветок стоит на самом углу: его четверти видны во всех четырёх углах тайла.
+group flower at 0 0 repeat circle 6 {
+  ellipse petal at 0 -7 size 7 10 fill #fff4e4 stroke ink 1
+}
+ellipse heart at 0 0 size 7 7 fill #ffd23f stroke ink 1
+// Камень на правом краю: вторая половина приходит слева.
+ellipse rock at 96 58 size 30 20 fill stone stroke ink 2
+ellipse fleck at 91 54 size 9 5 fill #d8ccb4
+
+artboard "Кладка" 96x96 bg mortar tile cell 1 0
+// Два ряда кирпичей со сдвигом на полкирпича: второй ряд выходит за оба края.
+group low at 24 24 repeat grid 2 1 step 48 0 {
+  rect brick size 44 44 r 5 fill stone stroke ink 2
+  rect shine at 0 -14 size 32 5 r 2.5 fill #d8ccb4
+}
+group high at 0 72 repeat grid 3 1 step 48 0 {
+  rect brick2 size 44 44 r 5 fill #a89878 stroke ink 2
+  rect shine2 at 0 -14 size 32 5 r 2.5 fill #cfc2a6
+}
+
+artboard "Забор" 96x96 bg #00000000 tile-x cell 2 0
+// Только по горизонтали: перекладины уходят за оба края и сходятся за столбами.
+rect rail1 at 48 38 size 144 8 fill wood stroke ink 2
+rect rail2 at 48 70 size 144 8 fill wood stroke ink 2
+group posts at 24 52 repeat grid 2 1 step 48 0 {
+  path post d "M -9 40 L -9 -30 L 0 -42 L 9 -30 L 9 40 Z" fill #c08a5e stroke ink 2 join round
+}

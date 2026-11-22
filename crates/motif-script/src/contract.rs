@@ -52,6 +52,11 @@ pub struct Board {
     /// The field is left out of a scene that includes nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub includes: Vec<String>,
+    /// The board is a tile that repeats (`artboard … tile`): `"xy"`, `"x"` or `"y"`, the sides
+    /// its picture goes on across. Laid side by side along them it shows no seam. The field is
+    /// left out of a board that is not a tile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tile: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -250,6 +255,12 @@ fn board(doc: &Document) -> Board {
         themes: doc.themes.clone(),
         varies: doc.varies,
         includes: doc.includes.clone(),
+        tile: match (doc.tile.x, doc.tile.y) {
+            (true, true) => Some("xy".into()),
+            (true, false) => Some("x".into()),
+            (false, true) => Some("y".into()),
+            (false, false) => None,
+        },
     }
 }
 

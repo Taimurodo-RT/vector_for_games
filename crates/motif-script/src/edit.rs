@@ -1216,6 +1216,17 @@ pub fn set_purpose(src: &str, purpose: motif_core::Purpose) -> Option<String> {
     })
 }
 
+/// Says on the `artboard` line the sides the artboard repeats along as a tile, or takes the
+/// word away.
+pub fn set_tile(src: &str, tile: motif_core::Tile) -> Option<String> {
+    edit_artboard_line(src, |words| {
+        words.retain(|w| !matches!(w.as_str(), "tile" | "tile-x" | "tile-y"));
+        if let Some(word) = tile.word() {
+            words.push(word.into());
+        }
+    })
+}
+
 /// Rewrites the words of the `artboard` line before its comment. The name comes first and may
 /// hold spaces, so it is kept apart from the words.
 pub(crate) fn edit_artboard_line(src: &str, f: impl FnOnce(&mut Vec<String>)) -> Option<String> {

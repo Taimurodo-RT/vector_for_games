@@ -1,0 +1,80 @@
+motif 7
+// Набор интерфейса «Привал». Его берут другие сцены строкой  include "kit.msc"
+// (пример — kit-screens.msc): им достаются цвета, градиент, стили, тема и символы,
+// записанные здесь на верхнем уровне. Холст ниже — лист набора, он остаётся в этом файле.
+// Поменяйте здесь цвет accent или кнопку, и они поменяются во всех экранах.
+let paper = #f6ecd9
+let ink = #2a2230
+let accent = #e2573b
+let leaf = #5a9a6b
+let muted = #b9ab95
+let well = #e6d8bf
+let sun = linear 90 #ffd76a #f39a3d
+style card fill paper stroke ink 3 r 14 shadow 0 6 0 #2a223033
+style heading fill ink font bold font-size 22
+style note fill ink font-size 13 opacity 0.7
+
+theme night {
+  paper = #262335
+  ink = #f1e7d3
+  muted = #5b5672
+  well = #1c1a29
+  sun = linear 90 #7a8cff #4b3f8f
+  style card fill paper stroke ink 3 r 14 glow 12 #7a8cff55
+}
+
+// Кнопка: варианты берут цвет из палитры, подпись каждая копия получает в override.
+symbol Button face=#e2573b w=150 {
+  tags кнопка меню
+  variant main face=accent
+  variant go face=leaf
+  variant quiet face=muted
+  rect shade at 0 4 size {w} 40 r 12 fill ink
+  rect body size {w} 40 r 12 fill face stroke ink 3
+  rect shine at 0 -9 size {w - 24} 6 r 3 fill #ffffff opacity 0.35
+  text label content "Кнопка" font bold font-size 15 fill #ffffff
+}
+
+// Полоса: value от 0 до 1.
+symbol Bar value=0.6 w=160 tint=#5a9a6b {
+  tags полоса настройки
+  rect track size {w} 14 r 7 fill well stroke ink 3
+  rect fill at {(value - 1) * (w - 6) / 2} 0 size {(w - 6) * value} 8 r 4 fill tint
+}
+
+// Переключатель: вариант on сдвигает ручку и красит дорожку.
+symbol Toggle x=-11 tint=#b9ab95 {
+  tags переключатель настройки
+  variant on x=11 tint=leaf
+  rect track size 48 26 r 13 fill tint stroke ink 3
+  ellipse knob at {x} 0 size 16 16 fill paper stroke ink 3
+}
+
+// Значок-костёр для заголовков.
+symbol Fire size=28 {
+  tags значок
+  path flame d "M 0 -14 C 9 -4 12 2 8 9 C 5 14 -5 14 -8 9 C -12 2 -6 0 -5 -6 C -2 -3 0 -8 0 -14 Z" scale {size / 28} gradient sun stroke ink 3 join round
+  rect log at 0 {size / 2} size {size} 5 r 2.5 fill ink
+}
+
+artboard "Лист набора" 520x340 bg well
+rect sheet at 260 170 size 480 300 style card
+text title at 130 54 content "Набор «Привал»" style heading
+use Fire fire at 440 52
+text t1 at 96 100 content "Кнопки" style note
+use Button b1 at 120 140 variant main
+use Button b2 at 290 140 variant go
+use Button b3 at 430 140 variant quiet w=90
+text t2 at 100 196 content "Полосы" style note
+use Bar bar1 at 125 226 value=0.75
+use Bar bar2 at 125 256 value=0.35 tint=accent
+text t3 at 318 196 content "Переключатели" style note
+use Toggle sw1 at 290 232
+use Toggle sw2 at 356 232 variant on
+rect swatch1 at 420 232 size 22 22 r 6 fill accent stroke ink 3
+rect swatch2 at 450 232 size 22 22 r 6 fill leaf stroke ink 3
+rect swatch3 at 480 232 size 22 22 r 6 gradient sun stroke ink 3
+override {
+  b2-label.content = "Вперёд"
+  b3-label.content = "Назад"
+}

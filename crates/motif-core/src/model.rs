@@ -42,6 +42,36 @@ pub struct Document {
     /// folder of the scene, the files those include among them. A game that reloads a scene when
     /// its file changes watches these too.
     pub includes: Vec<String>,
+    /// The artboard is a tile that repeats (`artboard … tile`): what reaches past an edge goes
+    /// on from the opposite one.
+    pub tile: Tile,
+}
+
+/// The sides an artboard repeats along as a tile of a field (`tile`, `tile-x`, `tile-y`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tile {
+    /// Left and right neighbours are the same tile.
+    pub x: bool,
+    /// So are the ones above and below.
+    pub y: bool,
+}
+
+impl Tile {
+    pub const BOTH: Tile = Tile { x: true, y: true };
+
+    pub fn on(self) -> bool {
+        self.x || self.y
+    }
+
+    /// The word of the `artboard` line that says it.
+    pub fn word(self) -> Option<&'static str> {
+        match (self.x, self.y) {
+            (true, true) => Some("tile"),
+            (true, false) => Some("tile-x"),
+            (false, true) => Some("tile-y"),
+            (false, false) => None,
+        }
+    }
 }
 
 /// What a scene is made for. The editor hides what the other kind of work needs.
@@ -1093,6 +1123,7 @@ impl Document {
             themes: Vec::new(),
             varies: false,
             includes: Vec::new(),
+            tile: Tile::default(),
         }
     }
 
@@ -1174,7 +1205,17 @@ impl Document {
         bones
             .chain(others)
             .filter(|&i| scope.is_none_or(|s| self.is_inside(i, s)))
-            .find(|&i| self.is_visible(i) && !self.is_locked(i) && self.shape_hit(i, point))
+            .find(|&i| self.is_visible(i) && !self.is_locked(i) && self.tile_points(point).any(|p| self.shape_hit(i, p)))
+    }
+
+    /// Where a shape may lie to show at `point`: there, and on a tile one tile away, since what
+    /// reaches past an edge of a tile goes on from the opposite one.
+    fn tile_points(&self, point: Point) -> impl Iterator<Item = Point> {
+        let (w, h) = (self.artboard.width, self.artboard.height);
+        let inside = point.x >= 0.0 && point.x <= w && point.y >= 0.0 && point.y <= h;
+        let steps = |on: bool| if on && inside { [0.0, -1.0, 1.0].iter() } else { [0.0].iter() };
+        let (xs, ys) = (steps(self.tile.x), steps(self.tile.y));
+        ys.flat_map(move |ky| xs.clone().map(move |kx| Point::new(point.x + kx * w, point.y + ky * h)))
     }
 
     /// Whether an artboard-space point is on node `i` or on a visible shape inside it, whatever

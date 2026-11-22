@@ -6,7 +6,7 @@
 
 use crate::app::App;
 use crate::canvas::View;
-use crate::theme::{self, ACCENT, FG, MUTED, SEL};
+use crate::theme::{self, ACCENT, FAINT, FG, MUTED, SEL};
 use egui::{Align2, Color32, Pos2, Rect, RichText, Stroke, StrokeKind, vec2};
 use motif_core::Document;
 use motif_core::kurbo::Point;
@@ -36,6 +36,9 @@ pub(crate) struct Boards {
     pub fit_all: bool,
     /// The board name being typed in the board panel.
     name_edit: Option<String>,
+    /// «Показать полем»: a board that is a tile is drawn with its neighbours around it, to
+    /// look at the seams. A choice of the view, not of the file.
+    pub tile_field: bool,
 }
 
 pub(crate) enum BoardDrag {
@@ -161,6 +164,75 @@ impl App {
                 Some(OtherBoard { doc, offset: Point::new(o.x - here.x, o.y - here.y) })
             })
             .collect()
+    }
+
+    /// The open board is a tile and is shown with its neighbours around it.
+    pub(crate) fn field_shown(&self) -> bool {
+        self.boards.tile_field && self.scene.doc.tile.on()
+    }
+
+    /// Where the neighbours of the open tile lie, in artboard units: one tile away on every
+    /// side the tile repeats along. Nothing while the field is not shown.
+    pub(crate) fn field_moves(&self) -> Vec<(f64, f64)> {
+        if !self.field_shown() {
+            return Vec::new();
+        }
+        let doc = &self.scene.doc;
+        let steps = |on: bool| if on { -1..=1 } else { 0..=0 };
+        let mut out = Vec::new();
+        for ky in steps(doc.tile.y) {
+            for kx in steps(doc.tile.x) {
+                if (kx, ky) != (0, 0) {
+                    out.push((kx as f64 * doc.artboard.width, ky as f64 * doc.artboard.height));
+                }
+            }
+        }
+        out
+    }
+
+    /// Says on the `artboard` line the sides the board repeats along as a tile.
+    pub(crate) fn set_document_tile(&mut self, tile: motif_core::Tile) {
+        if !self.can_edit() || self.scene.doc.tile == tile {
+            return;
+        }
+        if self.apply_once("tile", motif_script::set_tile(&self.src, tile)) {
+            self.status = if tile.on() {
+                // Whoever makes a tile wants to see its seams.
+                self.boards.tile_field = true;
+                "Холст стал тайлом: что выходит за край, продолжается с другого края. Вокруг показаны соседние тайлы, другие холсты на это время скрыты".into()
+            } else {
+                "Холст больше не тайл: то, что выходит за край, обрезается".into()
+            };
+        }
+    }
+
+    /// The part of the board panel about tiles.
+    pub(crate) fn tile_section(&mut self, ui: &mut egui::Ui) {
+        let tile = self.scene.doc.tile;
+        crate::app::section(ui, |ui| {
+            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            ui.strong("Тайл");
+            let values = [motif_core::Tile::default(), motif_core::Tile::BOTH, motif_core::Tile { x: true, y: false }, motif_core::Tile { x: false, y: true }];
+            let selected = values.iter().position(|t| *t == tile).unwrap_or(0);
+            ui.add_enabled_ui(self.workspace() != crate::workspace::Workspace::Animate, |ui| {
+                if let Some(i) = theme::segmented(ui, &["Нет", "Весь", "По X", "По Y"], selected, false) {
+                    self.set_document_tile(values[i]);
+                }
+            });
+            if tile.on() {
+                let kind = if self.boards.tile_field { theme::ButtonKind::On } else { theme::ButtonKind::Normal };
+                let hint = "Соседние тайлы вокруг холста: шов виден сразу. Другие холсты файла на это время скрыты";
+                if theme::button(ui, "Показать полем", kind).on_hover_text(hint).clicked() {
+                    self.boards.tile_field = !self.boards.tile_field;
+                }
+            }
+            let text = if tile.on() {
+                "Что выходит за край холста, продолжается с противоположного края: так же в игре и в выгруженном PNG."
+            } else {
+                "Тайл повторяется в поле без швов: трава, кладка, земля. Объект на краю холста продолжится с другой стороны."
+            };
+            ui.label(RichText::new(text).size(11.5).color(FAINT));
+        });
     }
 
     /// Makes board `k` the one being edited.
@@ -368,8 +440,14 @@ impl App {
             let min = view.to_screen(rect, Point::new(o.x - here.x, o.y - here.y));
             Rect::from_min_size(min, vec2(specs[k].0.0 as f32, specs[k].0.1 as f32) * view.zoom)
         };
+        // A tile shown as a field stands alone: its neighbours lie where the other boards are.
+        let field = self.field_shown();
+        let tile = self.scene.doc.tile;
         let label = |k: usize| {
+            // The name of a tile in its field stands above the field, not over the neighbour.
             let r = screen(k);
+            let r =
+                if field && k == self.boards.active { r.expand2(vec2(if tile.x { r.width() } else { 0.0 }, if tile.y { r.height() } else { 0.0 })) } else { r };
             let shown = self.scene.theme.as_ref().map(|t| format!("  ·  тема {t}")).unwrap_or_default();
             let text = format!("{}  {}×{}{shown}", specs[k].1, fmt_num(specs[k].0.0), fmt_num(specs[k].0.1));
             let galley = ui.painter().layout_no_wrap(text, theme::ui_font(12.0), MUTED);
@@ -379,10 +457,13 @@ impl App {
         let pointer = resp.hover_pos().or(resp.interact_pointer_pos());
         let active = self.boards.active;
         let handle = Rect::from_center_size(screen(active).right_bottom() + vec2(5.0, 5.0), vec2(9.0, 9.0));
-        let many = specs.len() > 1;
+        let many = specs.len() > 1 && !field;
 
         // Labels and outlines.
         for k in 0..specs.len() {
+            if field && k != active {
+                continue;
+            }
             let (lr, galley) = label(k);
             let hot = many && self.drag.is_none() && pointer.is_some_and(|p| lr.expand(3.0).contains(p));
             let color = if k == active || hot { FG } else { MUTED };
@@ -390,6 +471,10 @@ impl App {
             if k == active && many {
                 painter.rect_stroke(screen(k).expand(1.5), 0.0, Stroke::new(1.5, ACCENT.gamma_multiply(0.7)), StrokeKind::Outside);
             }
+        }
+        if field {
+            // Among its neighbours the tile itself is the one in the frame.
+            painter.rect_stroke(screen(active), 0.0, Stroke::new(1.5, ACCENT.gamma_multiply(0.85)), StrokeKind::Outside);
         }
         let size_hot = self.drag.is_none() && pointer.is_some_and(|p| handle.expand(3.0).contains(p));
         painter.rect(handle, 1.5, if size_hot { ACCENT } else { Color32::WHITE }, Stroke::new(1.0, Color32::from_black_alpha(160)), StrokeKind::Middle);

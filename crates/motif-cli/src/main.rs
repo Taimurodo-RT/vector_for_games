@@ -25,7 +25,7 @@ motif — скрипты сцен Motif без окна редактора
   motif morph   <сцена.msc> [-o фигуры.json] [--board ИМЯ]
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
-  motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [параметры рендера]
+  motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [--field 3x3] [параметры рендера]
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [--side СТОРОНА] [-o папка] [параметры рендера]
   motif video   <сцена.msc> --anim ИМЯ [--fps 30] [--side СТОРОНА] [-o видео.mp4|.webm|.gif|.png] [--ffmpeg путь] [параметры рендера]
   motif video   <сцена.msc> --machine ИМЯ --take \"1 speed=1, 2.5 jump\" [--length СЕК] [-o видео.mp4] …
@@ -159,6 +159,8 @@ struct Args {
     pixatool: Option<PathBuf>,
     node: Option<String>,
     symbol: Option<String>,
+    /// `--field 3x2`: the picture laid this many times side by side, to look at the seams of a tile.
+    field: Option<(u32, u32)>,
     pivot: Option<(f64, f64)>,
     pixelize: bool,
     machine: Option<String>,
@@ -198,6 +200,7 @@ fn parse_args() -> Result<Args, String> {
         pixatool: None,
         node: None,
         symbol: None,
+        field: None,
         pivot: None,
         pixelize: false,
         machine: None,
@@ -230,6 +233,14 @@ fn parse_args() -> Result<Args, String> {
             "--pixatool" => a.pixatool = Some(it.next().ok_or("после --pixatool нужен путь к Pixatool.exe")?.into()),
             "--node" => a.node = Some(it.next().ok_or("после --node нужен id объекта")?),
             "--symbol" => a.symbol = Some(it.next().ok_or("после --symbol нужно имя символа")?),
+            "--field" => {
+                let said = it.next().ok_or("после --field нужно, сколько раз положить рисунок: 3x3 или 3")?;
+                let (c, r) = said.split_once(['x', 'х', '×']).unwrap_or((&said, &said));
+                a.field = match (c.parse::<u32>(), r.parse::<u32>()) {
+                    (Ok(c), Ok(r)) if (1..=16).contains(&c) && (1..=16).contains(&r) => Some((c, r)),
+                    _ => return Err(format!("--field {said}: нужно число раз по ширине и высоте от 1 до 16, например 3x3")),
+                };
+            }
             "--board" => a.board = Some(it.next().ok_or("после --board нужно имя холста или его номер")?),
             "--take" => a.take = Some(it.next().ok_or("после --take нужны моменты: \"1 speed=1, 2.5 jump\"")?),
             "--length" => a.length = Some(num(it.next(), "--length")?),
@@ -371,11 +382,17 @@ fn run() -> Result<(), String> {
                 println!("подключено: {}", included.join(", "));
             }
             for doc in &boards {
+                let tile = match (doc.tile.x, doc.tile.y) {
+                    (true, true) => ", тайл",
+                    (true, false) => ", тайл по горизонтали",
+                    (false, true) => ", тайл по вертикали",
+                    (false, false) => "",
+                };
                 if total > 1 {
                     let (w, h) = (motif_script::fmt_num(doc.artboard.width), motif_script::fmt_num(doc.artboard.height));
-                    println!("холст «{}» {w}×{h} — объектов {}, анимаций {}", doc.artboard.name, doc.nodes.len(), doc.animations.len());
+                    println!("холст «{}» {w}×{h}{tile} — объектов {}, анимаций {}", doc.artboard.name, doc.nodes.len(), doc.animations.len());
                 } else {
-                    println!("{}: ок — объектов {}, анимаций {}", a.scene.display(), doc.nodes.len(), doc.animations.len());
+                    println!("{}: ок{tile} — объектов {}, анимаций {}", a.scene.display(), doc.nodes.len(), doc.animations.len());
                 }
                 for anim in &doc.animations {
                     let events = anim.events.iter().map(|e| format!("{} {}", e.name, motif_script::fmt_num(e.time))).collect::<Vec<_>>();
@@ -417,9 +434,15 @@ fn run() -> Result<(), String> {
                 if let Some(dir) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
                     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
                 }
-                let px = render_cpu(&posed, render_for(doc)).ok_or("не удалось создать изображение")?;
+                let mut px = render_cpu(&posed, render_for(doc)).ok_or("не удалось создать изображение")?;
+                let mut laid = String::new();
+                if let Some((c, r)) = a.field {
+                    px = motif_render::lay_field(&px, c, r).ok_or("не удалось создать изображение поля")?;
+                    let seams = if doc.tile.on() { "" } else { "; у холста нет слова tile, края рисунка обрезаны" };
+                    laid = format!(" — поле {c}×{r}{seams}");
+                }
                 px.save_png(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-                println!("{} — {}×{}", out.display(), px.width(), px.height());
+                println!("{} — {}×{}{laid}", out.display(), px.width(), px.height());
             }
         }
         "frames" => {

@@ -48,7 +48,8 @@ pub use kurbo;
 pub use layout::{Stack, StackAlign, StackDir, anchor_text, anchor_word};
 pub use machine::{Cond, CondOp, Input, InputKind, Listener, Machine, MachinePlayer, PointerEvent, State, Transition};
 pub use model::{
-    AnimEvent, Animation, Artboard, Document, EventValue, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Track, Value, WeightStroke,
+    AnimEvent, Animation, Artboard, Document, EventValue, Gradient, Ik, Keyframe, Node, Prop, Purpose, ShapeKind, Skin, SkinBind, Tile, Track, Value,
+    WeightStroke,
 };
 pub use morph::{MatchEnd, Morph, MorphLink, blend_linked, check_links, nearest_place, piece_count, place_point};
 pub use parameters::{CorrectiveKey, CorrectiveTrack, PoseCorrective, PoseDriver, PoseParameter};
