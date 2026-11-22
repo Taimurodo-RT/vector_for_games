@@ -22,6 +22,12 @@ pub struct Evaluator<'a> {
     vars: HashMap<String, Var>,
     /// `symbol` blocks by name: their parameters and objects.
     symbols: HashMap<String, (bool, Vec<ParamAst>, Vec<Stmt>)>,
+    /// `style` lines by name: the properties each gives to the objects that take it.
+    styles: HashMap<String, Vec<crate::parser::PropAst>>,
+    /// Styles whose mistakes are already told: a style taken by ten objects is wrong once.
+    styles_told: std::collections::HashSet<String>,
+    /// Where the `style card` properties noted so far start: a line in a loop is noted once.
+    style_uses_seen: std::collections::HashSet<usize>,
     /// Put before every id while a symbol is being copied: `coin1-`.
     prefix: String,
     /// How many symbols are being copied one inside another (to stop a symbol using itself).
@@ -51,6 +57,9 @@ impl<'a> Evaluator<'a> {
             base: base.map(|b| b.to_path_buf()),
             vars: HashMap::new(),
             symbols: HashMap::new(),
+            styles: HashMap::new(),
+            styles_told: Default::default(),
+            style_uses_seen: Default::default(),
             prefix: String::new(),
             depth: 0,
             rig_refs: Vec::new(),
@@ -86,6 +95,9 @@ impl<'a> Evaluator<'a> {
                 palette: Vec::new(),
                 refs: HashMap::new(),
                 gradient_refs: HashMap::new(),
+                styles: Vec::new(),
+                style_uses: Vec::new(),
+                styled: HashMap::new(),
             },
             errors: Vec::new(),
         }
@@ -114,6 +126,23 @@ impl<'a> Evaluator<'a> {
                 }
                 self.symbols.insert(name.clone(), (*clip, params.clone(), body.clone()));
                 self.scene.symbols.push(SymbolSite { name: name.clone(), clip: *clip, params: defaults, span: *span });
+            }
+        }
+        // Styles too: an object may take a style written below it.
+        for s in stmts {
+            if let Stmt::Style { name, name_span, props, insert_at, span } = s {
+                if self.styles.contains_key(name) {
+                    self.err(*name_span, format!("стиль «{name}» уже есть"));
+                    continue;
+                }
+                self.styles.insert(name.clone(), props.clone());
+                self.scene.styles.push(crate::StyleSite {
+                    name: name.clone(),
+                    name_span: *name_span,
+                    span: *span,
+                    insert_at: *insert_at,
+                    props: props.iter().map(|p| (p.key.clone(), Span::new(p.key_span.start, p.values.last().map_or(p.key_span.end, |v| v.span.end)))).collect(),
+                });
             }
         }
         // Animations and overrides refer to nodes, so they run after the whole tree is built.
@@ -640,6 +669,11 @@ impl<'a> Evaluator<'a> {
                     }
                 }
                 Stmt::Format => {}
+                Stmt::Style { name_span, .. } => {
+                    if parent.is_some() || generated || self.depth > 0 {
+                        self.err(*name_span, "стиль пишется на верхнем уровне сцены, не внутри группы, цикла или символа");
+                    }
+                }
                 Stmt::Let { name, value } => {
                     let v = self.value(value);
                     if parent.is_none()
@@ -907,9 +941,64 @@ impl<'a> Evaluator<'a> {
         let mut node = Node::new(id.clone(), n.kind);
         node.name = n.name.clone();
         node.parent = parent;
+        // The style of the object: its properties come first, except the ones the object writes
+        // itself. The object's own word wins.
+        let mut style_props: Vec<crate::parser::PropAst> = Vec::new();
+        let mut style_name = None;
+        if let Some(p) = n.props.iter().find(|p| p.key == "style")
+            && let Some(ValueKind::Ref(name)) = p.values.first().map(|v| &v.kind)
+        {
+            match self.styles.get(name) {
+                Some(props) => {
+                    // `no shadow` is the object's own word too: it has none.
+                    let refused = |p: &crate::parser::PropAst| match p.values.first().map(|v| &v.kind) {
+                        Some(ValueKind::Ref(key)) if p.key == "no" => Some(key.clone()),
+                        _ => None,
+                    };
+                    let own: Vec<String> = n.props.iter().map(|p| refused(p).unwrap_or(p.key.clone())).collect();
+                    let own: Vec<&str> = own.iter().map(String::as_str).collect();
+                    style_props = props.iter().filter(|sp| crate::styles::taken(&sp.key, n.kind, &own)).cloned().collect();
+                    self.scene.styled.insert(id.clone(), name.clone());
+                    if self.style_uses_seen.insert(p.key_span.start) {
+                        let whole = |p: &crate::parser::PropAst| Span::new(p.key_span.start, p.values.last().map_or(p.key_span.end, |v| v.span.end));
+                        self.scene.style_uses.push(crate::StyleUse {
+                            style: name.clone(),
+                            span: whole(p),
+                            name_span: p.values[0].span,
+                            kind: n.kind,
+                            own: n
+                                .props
+                                .iter()
+                                .filter(|p| p.key == "no" || crate::parser::STYLE_KEYS.contains(&p.key.as_str()))
+                                .map(|p| (refused(p).map_or(p.key.clone(), |key| format!("no {key}")), whole(p)))
+                                .collect(),
+                        });
+                    }
+                    style_name = Some(name.clone());
+                }
+                None => {
+                    let known: Vec<&str> = self.scene.styles.iter().map(|s| s.name.as_str()).collect();
+                    let hint = if known.is_empty() {
+                        "добавьте строку style с этим именем".to_string()
+                    } else {
+                        format!("есть: {}", known.join(", "))
+                    };
+                    self.err(p.values[0].span, format!("нет стиля «{name}»: {hint}"));
+                }
+            }
+        }
+        let styled_count = style_props.len();
+        let errors_before = self.errors.len();
+        // Whether the property being read comes from the style: such a value is not written on
+        // the object's line, so no place is recorded for it and an edit adds the object's own.
+        // The palette name it uses is still the object's: the web export and the panels show it.
+        let from_style = std::cell::Cell::new(false);
         let record = |scene: &mut Scene, prop: Prop, v: &ValueAst, paired: Option<Prop>| {
             if let ValueKind::Ref(name) = &v.kind {
                 scene.refs.insert((id.clone(), prop), name.clone());
+            }
+            if from_style.get() {
+                return;
             }
             scene.sources.insert((id.clone(), prop), Source { span: v.span, editable: v.is_literal() && !generated, paired, from_override: false });
         };
@@ -942,17 +1031,30 @@ impl<'a> Evaluator<'a> {
         let mut flow: Option<(f64, Span)> = None;
         let mut roll: Option<(motif_core::Roll, Span)> = None;
         let mut warps = Vec::new();
-        for p in &n.props {
-            if !generated {
+        for (at, p) in style_props.iter().chain(&n.props).enumerate() {
+            from_style.set(at < styled_count);
+            if at == styled_count
+                && let Some(name) = &style_name
+                && !self.styles_told.insert(name.clone())
+            {
+                // What is wrong in a style is told once, not for every object that takes it.
+                self.errors.truncate(errors_before);
+            }
+            if !generated && !from_style.get() {
                 let end = p.values.last().map_or(p.key_span.end, |v| v.span.end);
-                self.scene.prop_spans.insert((id.clone(), p.key.clone()), Span::new(p.key_span.start, end));
+                // `no shadow` is kept under both words: an object may refuse several properties.
+                let key = match p.values.first().map(|v| &v.kind) {
+                    Some(ValueKind::Ref(refused)) if p.key == "no" => format!("no {refused}"),
+                    _ => p.key.clone(),
+                };
+                self.scene.prop_spans.insert((id.clone(), key), Span::new(p.key_span.start, end));
             }
             let vals: Vec<Option<Value>> = match p.key.as_str() {
                 "forms" | "match" | "d" | "content" | "font" | "align" | "ik" | "skin" | "on" | "pin" | "tie" | "hang" | "links" | "morph" => Vec::new(),
                 // The first value of a gradient is its kind word, not a name.
                 "gradient" | "stroke-gradient" => std::iter::once(None).chain(p.values.iter().skip(1).map(|v| self.value(v))).collect(),
                 // Keywords, not names: `cap round`, `blend multiply`.
-                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" | "combine" => Vec::new(),
+                "cap" | "join" | "blend" | "stack" | "anchor" | "ui" | "part" | "radio" | "combine" | "style" | "no" => Vec::new(),
                 // `dial turn 300`: the way is a word, the arc a number (or `{arc}`).
                 "dial" => p.values.iter().map(|v| if matches!(&v.kind, ValueKind::Ref(_)) { None } else { self.value(v) }).collect(),
                 // `cross` is a keyword of the hatching.
@@ -1587,6 +1689,8 @@ impl<'a> Evaluator<'a> {
                     (4, Some(l), Some(t), Some(r), Some(b)) if [l, t, r, b].iter().all(|v| *v >= 0.0) => node.slice = Some([l, t, r, b]),
                     _ => self.err(p.key_span, "slice — поля 9-slice, которые не растягиваются: slice 16, slice 16 12 (по бокам, сверху-снизу), slice 16 12 16 20 (слева, сверху, справа, снизу)"),
                 },
+                // Taken above, before the object's own properties.
+                "style" | "no" => {}
                 "hidden" => node.visible = false,
                 "evenodd" => node.even_odd = true,
                 "stack" | "gap" | "pad" if n.kind != ShapeKind::Group => {

@@ -44,6 +44,7 @@ pub mod marks;
 mod outline;
 mod parser;
 pub mod reyvec;
+mod styles;
 mod svg;
 mod symbol;
 
@@ -76,6 +77,10 @@ pub use palette::{add_swatch, free_swatch_name, set_ref, set_swatch};
 pub use parser::prop_arity;
 use std::collections::HashMap;
 use std::fmt;
+pub use styles::{
+    assign_style, delete_style, delete_style_in_file, detach_style, free_style_name, make_style, own_look, rename_style, rename_style_in_file, reset_to_style,
+    style_name_ok, write_into_style,
+};
 pub use svg::import_svg;
 pub use symbol::{add_use, free_symbol_name, make_symbol, set_param};
 
@@ -196,6 +201,39 @@ pub struct Scene {
     pub refs: HashMap<(String, Prop), String>,
     /// Original palette references at each gradient stop, for semantic SVG export.
     pub gradient_refs: HashMap<(String, bool), Vec<Option<String>>>,
+    /// Every `style` line, in the order written.
+    pub styles: Vec<StyleSite>,
+    /// Every `style card` written on an object's line, in the order written. A line inside a
+    /// loop or a symbol is here once, however many objects it makes.
+    pub style_uses: Vec<StyleUse>,
+    /// The style each object takes, by the object's id.
+    pub styled: HashMap<String, String>,
+}
+
+/// A named look: `style card fill #ffffff stroke ink 2 r 10`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StyleSite {
+    pub name: String,
+    pub name_span: Span,
+    /// From `style` to the last value of the line.
+    pub span: Span,
+    /// Byte offset where a new property can be appended on the line.
+    pub insert_at: usize,
+    /// Each property of the style: its key and where it is written with its values.
+    pub props: Vec<(String, Span)>,
+}
+
+/// `style card` on the line of an object.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StyleUse {
+    pub style: String,
+    /// The whole property: `style card`.
+    pub span: Span,
+    pub name_span: Span,
+    /// The kind of object the line makes.
+    pub kind: motif_core::ShapeKind,
+    /// The properties of a style that the line writes itself, each with where it is written.
+    pub own: Vec<(String, Span)>,
 }
 
 /// A named color of the palette: `let main = #3b6cff`.

@@ -233,6 +233,17 @@ pub enum Stmt {
         span: Span,
     },
     Node(NodeAst),
+    /// `style card fill #ffffff stroke ink 2 r 10`: a named look that objects take with
+    /// `style card` on their line.
+    Style {
+        name: String,
+        name_span: Span,
+        props: Vec<PropAst>,
+        /// Byte offset where a new property can be appended on the style's line.
+        insert_at: usize,
+        /// From `style` to the last value of the line.
+        span: Span,
+    },
     /// `symbol Coin size=16 color=#ffd23f { … }`: a reusable piece, drawn only through `use`.
     Symbol {
         name: String,
@@ -334,7 +345,7 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "extrude" => (1, 2),
         "locked" | "fit" => (0, 0),
         "ui" => (0, 1),
-        "part" => (1, 1),
+        "part" | "style" | "no" => (1, 1),
         "dial" => (0, 2),
         "value" => (1, 1),
         "radio" => (1, 1),
@@ -354,6 +365,39 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         _ => return None,
     })
 }
+
+/// What a `style` line may hold: how an object looks. Where it is, how big it is, what it is
+/// made of and how it behaves stay on the object's own line.
+pub const STYLE_KEYS: [&str; 28] = [
+    "fill",
+    "gradient",
+    "stroke",
+    "stroke-gradient",
+    "dash",
+    "cap",
+    "join",
+    "outline",
+    "opacity",
+    "blend",
+    "r",
+    "shadow",
+    "inset",
+    "glow",
+    "blur",
+    "noise",
+    "elevation",
+    "rough",
+    "boil",
+    "bands",
+    "hatch",
+    "grain",
+    "seed",
+    "font",
+    "font-size",
+    "letter-spacing",
+    "line-height",
+    "align",
+];
 
 pub struct Parser<'a> {
     src: &'a str,
@@ -501,7 +545,7 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
         let first = !std::mem::replace(&mut self.started, true);
         let (word, span) = self.ident(
-            "команда: artboard, world, directions, backdrop, let, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
+            "команда: artboard, world, directions, backdrop, let, style, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
         )?;
         match word.as_str() {
             "motif" => {
@@ -535,6 +579,7 @@ impl<'a> Parser<'a> {
                 let value = self.value()?;
                 Ok(Stmt::Let { name, value })
             }
+            "style" => self.style(span.start),
             "for" => {
                 let (var, _) = self.ident("имя переменной цикла")?;
                 self.vars.insert(var.clone());
@@ -845,6 +890,20 @@ impl<'a> Parser<'a> {
                     _ => return Err(self.err(key_span, "после part нужна роль детали, например part fill или part text")),
                 }
             }
+            // The name of a style: a plain word, even one that is also a property (`style shadow`).
+            if key == "style" {
+                match self.next() {
+                    Some(Token { tok: Tok::Ident(s), span }) => values.push(ValueAst { kind: ValueKind::Ref(s), span }),
+                    _ => return Err(self.err(key_span, "после style нужно имя стиля, например style card")),
+                }
+            }
+            // What the object does not take from its style: `no shadow`.
+            if key == "no" {
+                match self.next() {
+                    Some(Token { tok: Tok::Ident(s), span }) if STYLE_KEYS.contains(&s.as_str()) => values.push(ValueAst { kind: ValueKind::Ref(s), span }),
+                    _ => return Err(self.err(key_span, "после no — свойство, которое объект не берёт из стиля, например no shadow или no gradient")),
+                }
+            }
             // A font file in quotes, or `font bold`.
             if key == "font"
                 && let Some(Tok::Str(_)) = self.peek()
@@ -875,6 +934,43 @@ impl<'a> Parser<'a> {
             end = self.close_block()? + 1;
         }
         Ok(NodeAst { kind, id, id_span, name, name_span, props, insert_at, children, span: Span::new(start, end) })
+    }
+
+    /// `style card fill #ffffff stroke ink 2`: the name, then properties written as on an object's
+    /// line. Only the ones that say how an object looks.
+    fn style(&mut self, start: usize) -> Result<Stmt, ScriptError> {
+        const HINT: &str = "после style нужно имя стиля и его свойства, например style card fill #ffffff stroke #1b1d24 2";
+        if !matches!(self.peek(), Some(Tok::Ident(_))) {
+            return Err(self.err(self.peek_span(), HINT));
+        }
+        // The line is read like an object's, so its errors speak of an id and of nested objects.
+        let line = self.node_line(ShapeKind::Text, start, None).map_err(|e| {
+            let message = if e.message.contains("id объекта") {
+                HINT.to_string()
+            } else if e.message.contains("вложенные объекты") {
+                "стиль пишется одной строкой, без блока".to_string()
+            } else {
+                return e;
+            };
+            ScriptError { message, ..e }
+        })?;
+        if let Some(span) = line.name_span {
+            return Err(self.err(span, "у стиля одно имя, без кавычек: style card fill #ffffff"));
+        }
+        if let Some(p) = line.props.iter().find(|p| !STYLE_KEYS.contains(&p.key.as_str())) {
+            let why = if p.key == "style" {
+                "стиль не берёт другой стиль".to_string()
+            } else if p.key == "no" {
+                "no пишется на строке объекта: так объект отказывается от свойства своего стиля".to_string()
+            } else {
+                format!("«{}» остаётся на строке объекта: стиль хранит только вид (заливка, обводка, скругление, тени, кисти, шрифт)", p.key)
+            };
+            return Err(self.err(p.key_span, why));
+        }
+        if line.props.is_empty() {
+            return Err(self.err(line.id_span, HINT));
+        }
+        Ok(Stmt::Style { name: line.id, name_span: line.id_span, props: line.props, insert_at: line.insert_at, span: line.span })
     }
 
     fn path(&mut self) -> Result<(String, String, Span), ScriptError> {

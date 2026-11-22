@@ -1,0 +1,24 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Стили",
+      "width": 520.0,
+      "height": 300.0,
+      "animations": [
+        {
+          "id": "p4st",
+          "name": "Pulse",
+          "duration": 1.2,
+          "loop": true,
+          "events": []
+        }
+      ],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": []
+    }
+  ]
+}

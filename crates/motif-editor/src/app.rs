@@ -511,6 +511,23 @@ impl App {
         }
     }
 
+    /// Replaces the whole file with the result of an edit that reaches other boards too (a name
+    /// of the shared head changed where every board uses it), as one undo step. The board being
+    /// edited stays the same.
+    pub(crate) fn apply_file(&mut self, kind: &str, new_file: Option<String>) -> bool {
+        let Some(file) = new_file.filter(|f| *f != self.file_text()) else { return false };
+        if let Err(errors) = motif_script::parse_boards(&file, self.path.as_ref().and_then(|p| p.parent())) {
+            self.status = errors.first().map(ToString::to_string).unwrap_or_default();
+            return false;
+        }
+        self.last_checkpoint.0.clear();
+        self.checkpoint(kind);
+        self.last_checkpoint.0.clear();
+        self.set_file(&file, self.boards.active);
+        self.reparse();
+        true
+    }
+
     /// Discrete commands never merge with a previous or following command, however fast clicked.
     pub(crate) fn apply_once(&mut self, kind: &str, new_src: Option<String>) -> bool {
         self.last_checkpoint.0.clear();
@@ -854,7 +871,7 @@ impl App {
         self.anim = Some(name);
     }
 
-    fn undo(&mut self) {
+    pub(crate) fn undo(&mut self) {
         if let Some((board, prev)) = self.undo.pop() {
             self.redo.push((self.boards.active, self.file_text()));
             self.restore(board, &prev);
@@ -2267,6 +2284,9 @@ impl App {
                 self.game_section(ui, &node);
             }
         }
+        if show(Cat::Fill) {
+            self.style_row(ui, &node);
+        }
         if !node.kind.is_container() {
             if show(Cat::Fill) {
                 fold(ui, "Заливка", |ui| {
@@ -2465,6 +2485,7 @@ impl App {
         });
         self.guides_section(ui);
         self.palette_section(ui);
+        self.styles_section(ui);
         if self.tool_profile() == Purpose::Ui {
             self.symbols_library(ui);
             self.backdrop_section(ui);

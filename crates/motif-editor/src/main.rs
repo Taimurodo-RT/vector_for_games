@@ -30,6 +30,7 @@ mod marks_ui;
 mod measure;
 mod morph_ui;
 mod motion_ui;
+mod named_style_ui;
 mod orbit_ui;
 mod outline_ui;
 mod paint;

@@ -176,6 +176,11 @@ fn set_prop_formatted(src: &str, scene: &Scene, node: &str, prop: Prop, value: V
             if size == motif_core::Noise::DEFAULT.size { format!("noise {text}") } else { format!("noise {text} {}", fmt_num(size)) }
         }
     };
+    // A property the object refused from its style (`no shadow`) is written in that place.
+    let key = addition.split(' ').next().unwrap_or_default();
+    if let Some(span) = scene.prop_spans.get(&(node.to_string(), format!("no {key}"))) {
+        return Some(splice(src, *span, &addition));
+    }
     Some(splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {addition}")))
 }
 
@@ -405,16 +410,25 @@ pub fn set_style(src: &str, scene: &Scene, node: &str, key: &str, text: Option<&
     if site.generated {
         return None;
     }
+    // An object with a style: removing a property the style gives means refusing it (`no glow`),
+    // and writing one again takes the refusal back.
+    let refused = scene.prop_spans.get(&(node.to_string(), format!("no {key}"))).copied();
+    let from_style = refused.is_none() && crate::styles::gives(scene, node, key);
     Some(match (scene.prop_spans.get(&(node.to_string(), key.to_string())), text) {
         (Some(span), Some(t)) => splice(src, *span, t),
+        (Some(span), None) if from_style => splice(src, *span, &format!("no {key}")),
         (Some(span), None) => splice(src, with_space_before(src, *span), ""),
-        (None, Some(t)) => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {t}")),
+        (None, Some(t)) => match refused {
+            Some(span) => splice(src, span, t),
+            None => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" {t}")),
+        },
+        (None, None) if from_style => splice(src, Span::new(site.insert_at, site.insert_at), &format!(" no {key}")),
         (None, None) => src.to_string(),
     })
 }
 
 /// Widens `span` to take the spaces in front of it, so removing it leaves no double space.
-fn with_space_before(src: &str, span: Span) -> Span {
+pub(crate) fn with_space_before(src: &str, span: Span) -> Span {
     let start = src[..span.start].trim_end_matches([' ', '\t']).len();
     Span::new(start, span.end)
 }

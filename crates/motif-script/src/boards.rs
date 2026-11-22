@@ -204,6 +204,40 @@ pub fn parse_boards(src: &str, base: Option<&std::path::Path>) -> Result<Vec<cra
     if errors.is_empty() { Ok(scenes) } else { Err(errors) }
 }
 
+/// One board of a file read together with the shared head: an edit that spans the file reads
+/// every board this way and writes what it finds back into the file.
+pub(crate) struct BoardView {
+    /// The script of the board: the head followed by the board.
+    pub text: String,
+    pub scene: crate::Scene,
+    /// The length of the shared head.
+    head: usize,
+    /// Where the board is written in the file.
+    start: usize,
+}
+
+impl BoardView {
+    /// A place of this board's script as a place of the file. A place in the head is the same
+    /// in every board; an empty place right at the end of the head counts as the head.
+    pub(crate) fn in_file(&self, span: Span) -> Span {
+        if span.end <= self.head { span } else { Span::new(span.start - self.head + self.start, span.end - self.head + self.start) }
+    }
+}
+
+/// Every board of `file` with its scene. `None` when a board has errors.
+pub(crate) fn board_views(file: &str, base: Option<&std::path::Path>) -> Option<Vec<BoardView>> {
+    let (head, ranges) = boards(file);
+    let head_text = &file[head.clone()];
+    ranges
+        .into_iter()
+        .map(|r| {
+            let text = format!("{head_text}{}", &file[r.clone()]);
+            let scene = crate::parse_in(&text, base).ok()?;
+            Some(BoardView { text, scene, head: head.len(), start: r.start })
+        })
+        .collect()
+}
+
 /// A board name made safe for a file name: letters, digits, `-` and `_` stay, the rest is `_`.
 pub fn board_file_name(name: &str) -> String {
     let s: String = name.trim().chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();

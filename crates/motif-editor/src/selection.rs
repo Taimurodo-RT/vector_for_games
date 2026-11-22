@@ -323,6 +323,7 @@ impl App {
             let tips = ["Равные промежутки по горизонтали (от 3 объектов)", "Равные промежутки по вертикали (от 3 объектов)"];
             pick = align_buttons(ui, ids.len(), tips);
         });
+        self.style_row_many(ui, &ids);
         let mut bool_op = None;
         let mut group = false;
         crate::app::fold(ui, "Булевы операции", |ui| {
