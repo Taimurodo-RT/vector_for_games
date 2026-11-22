@@ -180,6 +180,9 @@ pub struct App {
     pub(crate) guide_drag: Option<crate::user_guides::GuideDrag>,
     /// The pivot of the selected object while its mark is dragged on the canvas.
     pub(crate) pivot_drag: Option<crate::pivot_ui::PivotDrag>,
+    /// A grip of a grid of repeats being dragged, and the grip under the pointer.
+    pub(crate) repeat_drag: Option<crate::repeat_ui::RepeatDrag>,
+    pub(crate) repeat_hover: Option<crate::repeat_ui::Grip>,
     /// The pointer is on the pivot mark.
     pub(crate) pivot_hover: bool,
     /// The pivot mark takes the mouse (Y): off by default, because the mark sits where an
@@ -395,6 +398,8 @@ impl App {
             snap_mark: None,
             guide_drag: None,
             pivot_drag: None,
+            repeat_drag: None,
+            repeat_hover: None,
             pivot_hover: false,
             pivot_mode: false,
             offset_by: 4.0,
@@ -595,6 +600,12 @@ impl App {
             if let Value::Num(value) = value {
                 self.parameter_preview(node, value);
             }
+            return;
+        }
+        if self.key_time().is_none()
+            && let Some(why) = self.placed_by_outline(node, prop)
+        {
+            self.status = why;
             return;
         }
         self.pose_preview.clear();
@@ -2323,6 +2334,9 @@ impl App {
         if show(Cat::Combine) {
             self.combine_ui(ui, &node);
         }
+        if show(Cat::Repeat) {
+            self.repeat_ui(ui, &node, half);
+        }
         if show(Cat::Symbol) {
             self.symbol_section(ui, &node);
         }
@@ -2480,6 +2494,10 @@ impl App {
                     None if generated && !self.scene.instances.contains_key(&id) && self.symbol_of(&id).is_some() => {
                         job.append("Часть символа", 0.0, fmt(FG));
                         job.append(": правки попадут в блок override { } и изменят только эту копию. Все копии меняются в блоке symbol.", 0.0, fmt(MUTED));
+                    }
+                    None if generated && self.repeat_of(&id).is_some() => {
+                        job.append("Сделан повтором", 0.0, fmt(FG));
+                        job.append(": правки попадут в блок override { } и изменят только этот повтор. Все повторы меняются через первый.", 0.0, fmt(MUTED));
                     }
                     None if generated => {
                         job.append("Создан циклом", 0.0, fmt(FG));
@@ -2783,11 +2801,14 @@ impl App {
         // The pivot mark of the selected object.
         let pivoting =
             !pan_gesture && !live && !board_ui && !guiding && self.eyedrop.is_none() && self.pivot_input(ui, &resp, rect, view, &doc, frame.as_ref());
+        // The grips of a grid of repeats.
+        let repeating = !pan_gesture && !live && !board_ui && !guiding && !pivoting && self.eyedrop.is_none() && self.repeat_input(ui, &resp, rect, view, &doc);
         // The pen and point editing take the pointer themselves.
-        let deforming = !pan_gesture && !live && !guiding && !pivoting && self.deformer_input(ui, &resp, rect, view, &doc);
+        let deforming = !pan_gesture && !live && !guiding && !pivoting && !repeating && self.deformer_input(ui, &resp, rect, view, &doc);
         let special = deforming
             || guiding
             || pivoting
+            || repeating
             || live
             || board_ui
             || (!pan_gesture
@@ -2920,11 +2941,15 @@ impl App {
         if let Some(i) = primary
             && self.point_edit.is_none()
         {
-            outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            if !self.outline_along(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL)) {
+                outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            }
             slice_guides(&painter, rect, view, &doc, i);
         }
         for &i in picked.iter().skip(usize::from(primary.is_some())) {
-            outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            if !self.outline_along(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL)) {
+                outline(&painter, rect, view, &doc, i, Stroke::new(1.25, SEL));
+            }
         }
         if let Some(h) = &handles {
             if !self.also.is_empty() {
@@ -2952,6 +2977,7 @@ impl App {
             painter.rect_stroke(r, 0.0, Stroke::new(1.0, SEL), StrokeKind::Middle);
         }
         self.paint_pivot(&painter, rect, view, &doc, frame.as_ref());
+        self.paint_repeat(&painter, rect, view, &doc);
         self.paint_user_guides(&painter, rect, view);
         if self.snap.labels {
             // Distances from what is being moved or resized to its neighbours.
@@ -4474,6 +4500,9 @@ mod outline_tests;
 #[cfg(test)]
 #[path = "point_tests.rs"]
 mod point_tests;
+#[cfg(test)]
+#[path = "repeat_tests.rs"]
+mod repeat_tests;
 #[cfg(test)]
 #[path = "snap_tests.rs"]
 mod snap_tests;

@@ -45,6 +45,7 @@ pub mod marks;
 mod master;
 mod outline;
 mod parser;
+mod repeat;
 pub mod reyvec;
 mod styles;
 mod svg;
@@ -85,6 +86,7 @@ pub use palette::{
 };
 /// Native node property names and their value arity, useful to avoid ambiguous generated IDs.
 pub use parser::prop_arity;
+pub use repeat::{RepeatKind, RepeatSite, repeat_nodes, set_repeat, set_repeat_around};
 use std::collections::HashMap;
 use std::fmt;
 pub use styles::{
@@ -244,6 +246,8 @@ pub struct Scene {
     /// objects of this copy are written by the lines of the symbol, and an edit of them changes
     /// every copy. `None` when no symbol is edited.
     pub editing: Option<String>,
+    /// Every group that repeats what is inside it (`repeat grid 4 2 step 40 30`), by its id.
+    pub repeats: HashMap<String, RepeatSite>,
 }
 
 /// How a script is read. The script is the same; what differs is which values are shown and

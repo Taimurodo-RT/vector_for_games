@@ -44,6 +44,7 @@ mod pixabridge;
 mod point_frame;
 mod preview;
 mod psd;
+mod repeat_ui;
 mod rope_ui;
 mod runtime_ui;
 mod scriptui;

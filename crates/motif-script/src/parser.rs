@@ -374,6 +374,9 @@ pub enum Stmt {
     },
 }
 
+/// The words of a repeat that follow its numbers: `repeat grid 4 2 step 40 30`.
+pub const REPEAT_WORDS: [&str; 4] = ["step", "arc", "offset", "upright"];
+
 /// Properties a node line accepts, with their minimum and maximum number of values.
 pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
     Some(match key {
@@ -436,6 +439,10 @@ pub fn prop_arity(key: &str) -> Option<(usize, usize)> {
         "roll" => (0, 2),
         "weight" | "sail" => (1, 1),
         "pull" | "fan" | "range" | "cone" => (1, 1),
+        // `repeat grid 4 2 step 40 30`, `repeat circle 8 arc 90 upright`, `repeat along frame 12
+        // offset 8`: the kind word, the id of the outline for `along`, how many, then the words
+        // of the repeat with their numbers. All of it is one property.
+        "repeat" => (2, 12),
         _ => return None,
     })
 }
@@ -1014,6 +1021,75 @@ impl<'a> Parser<'a> {
                     };
                     return Err(self.err(key_span, hint));
                 }
+            }
+            // A repeat is read whole: its kind, the id of the outline for `along`, how many, then
+            // its own words (`step`, `arc`, `offset`, `upright`) with their numbers. These words
+            // mean something only here, so an object may still be called `arc` or `step`.
+            if key == "repeat" {
+                if params.is_some() {
+                    return Err(
+                        self.err(key_span, "копия символа сама не повторяется: положите её в группу с повтором — group row repeat grid 4 1 step 40 0 { … }")
+                    );
+                }
+                const HINT: &str = "после repeat нужен вид повтора: grid (сетка), circle (по кругу) или along (вдоль контура) — repeat grid 4 2 step 40 30, repeat circle 8, repeat along frame 12";
+                let kind = match self.next() {
+                    Some(Token { tok: Tok::Ident(s), span }) if matches!(s.as_str(), "grid" | "circle" | "along") => {
+                        values.push(ValueAst { kind: ValueKind::Ref(s.clone()), span });
+                        s
+                    }
+                    _ => return Err(self.err(key_span, HINT)),
+                };
+                if kind == "along" {
+                    match self.next() {
+                        Some(Token { tok: Tok::Ident(s), span }) => values.push(ValueAst { kind: ValueKind::Path(s), span }),
+                        _ => {
+                            return Err(
+                                self.err(key_span, "после repeat along нужен id контура, вдоль которого идут повторы, и их число: repeat along frame 12")
+                            );
+                        }
+                    }
+                }
+                for _ in 0..if kind == "grid" { 2 } else { 1 } {
+                    if !self.is_value_start() {
+                        let hint = match kind.as_str() {
+                            "grid" => "сетке нужны число столбцов и число строк: repeat grid 4 2 step 40 30",
+                            "circle" => "после repeat circle нужно число повторов: repeat circle 8",
+                            _ => "после id контура нужно число повторов: repeat along frame 12",
+                        };
+                        return Err(self.err(key_span, hint));
+                    }
+                    values.push(self.value()?);
+                }
+                let word = |tok: Option<&Tok>| matches!(tok, Some(Tok::Ident(s)) if REPEAT_WORDS.contains(&s.as_str()));
+                while word(self.peek()) {
+                    let t = self.next().unwrap();
+                    let Tok::Ident(name) = t.tok else { unreachable!() };
+                    let (least, most) = match name.as_str() {
+                        "step" => (1, 2),
+                        "upright" => (0, 0),
+                        _ => (1, 1),
+                    };
+                    values.push(ValueAst { kind: ValueKind::Ref(name.clone()), span: t.span });
+                    for k in 0..most {
+                        // The number a word cannot do without is read whatever it is; the second
+                        // number of `step` only when the next thing is not a word of the repeat.
+                        if k >= least && (!self.is_value_start() || word(self.peek())) {
+                            break;
+                        }
+                        if !self.is_value_start() {
+                            let hint = match name.as_str() {
+                                "step" => "после step нужен шаг сетки: step 40 30 (вправо и вниз) или step 40",
+                                "arc" => "после arc нужна часть круга в градусах: arc 90",
+                                _ => "после offset нужно, на сколько отступить от контура внутрь: offset 8",
+                            };
+                            return Err(self.err(t.span, hint));
+                        }
+                        values.push(self.value()?);
+                    }
+                }
+                insert_at = values.last().map_or(key_span.end, |v| v.span.end);
+                props.push(PropAst { key, key_span, values });
+                continue;
             }
             // The part a piece plays in its control: a plain word, even one that is also a property (`part fill`).
             if key == "part" {

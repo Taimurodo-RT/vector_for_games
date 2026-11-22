@@ -572,8 +572,18 @@ pub(crate) fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Ve
     }
     let ids: Vec<&str> =
         (0..doc.nodes.len()).filter(|&i| roots.iter().any(|&root| i == root || doc.is_inside(i, root))).map(|i| doc.nodes[i].id.as_str()).collect();
-    let ids = in_every_copy(scene, &ids);
+    let ids = crate::repeat::in_every_repeat(scene, in_every_copy(scene, &ids));
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    spans.extend(reference_spans(src, scene, &ids));
+    Some(spans)
+}
+
+/// The whole lines of everything that refers to the objects `ids`: animation tracks, drivers,
+/// correctives, entries of `override`, pointer listeners, weights; and their words on the lines
+/// of variants and of `directions`.
+pub(crate) fn reference_spans(src: &str, scene: &Scene, ids: &[&str]) -> Vec<Span> {
+    let doc = &scene.doc;
+    let mut spans = Vec::new();
     for anim in scene.anims.values() {
         spans.extend(anim.tracks.iter().filter(|t| ids.contains(&t.node.as_str())).map(|t| whole_lines(src, t.span)));
     }
@@ -620,7 +630,7 @@ pub(crate) fn nodes_spans(src: &str, scene: &Scene, nodes: &[&str]) -> Option<Ve
             spans.extend(skin.paint.iter().zip(&w.strokes).filter(|(st, _)| ids.contains(&st.bone.as_str())).map(|(_, s)| whole_lines(src, *s)));
         }
     }
-    Some(spans)
+    spans
 }
 
 /// Returns the script with a new empty animation at the end, and its name.
@@ -1472,7 +1482,7 @@ fn movable(scene: &Scene, node: &str) -> Result<(), String> {
 /// Re-reads the script after one step of an edit that takes several, the way `like` was read:
 /// with the same symbol being edited ([`Scene::editing`]), so the next step finds the objects of
 /// the symbol where the first one did.
-fn reparse(src: &str, base: Option<&std::path::Path>, like: &Scene) -> Result<Scene, String> {
+pub(crate) fn reparse(src: &str, base: Option<&std::path::Path>, like: &Scene) -> Result<Scene, String> {
     let reading = crate::Reading { theme: None, symbol_of: like.editing.as_deref() };
     crate::parse_as(src, base, reading).map_err(|e| e.first().map_or_else(|| "скрипт не читается".to_string(), |e| e.message.clone()))
 }

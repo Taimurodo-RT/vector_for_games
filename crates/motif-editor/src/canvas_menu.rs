@@ -13,6 +13,7 @@ pub(super) enum InspectorCategory {
     Letters,
     Mask,
     Combine,
+    Repeat,
     Deformer,
     Parameter(String),
     Bones,
@@ -42,6 +43,7 @@ impl InspectorCategory {
             Self::Letters => "Анимация букв",
             Self::Mask => "Маска",
             Self::Combine => "Живая операция",
+            Self::Repeat => "Повтор",
             Self::Deformer => "Деформер группы",
             Self::Parameter(id) => doc.parameter(id).map_or(id, |p| p.name.as_str()),
             Self::Bones => "Кости и IK",
@@ -175,6 +177,9 @@ impl App {
         }
         if n.kind == ShapeKind::Text {
             categories.extend([Text, Letters]);
+        }
+        if n.kind != ShapeKind::Bone {
+            categories.push(Repeat);
         }
         if !n.kind.is_container() && self.scene.doc.index_of(id).is_some_and(|i| self.scene.doc.combined_in(i).is_some()) {
             categories.push(Combine);

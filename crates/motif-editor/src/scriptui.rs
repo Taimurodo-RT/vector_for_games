@@ -71,6 +71,12 @@ const SYNTAX: &[(&str, &[(&str, &str)])] = &[
             ("reveal 0..1 · wave 6 · phase 0..1", "анимация букв: появление, волна"),
             ("group g clip { маска … }", "первый объект группы — маска"),
             ("group g combine subtract { низ, верх … }", "живая операция: union, subtract, intersect, exclude; фигуры остаются и двигаются"),
+            ("group g at X Y repeat grid 6 4 step 14 14 { … }", "живой повтор сеткой: в блоке первый повтор, остальные показывает группа"),
+            (
+                "group g at X Y repeat circle 9 arc 120 upright { … }",
+                "повтор по кругу вокруг опорной точки группы; arc — часть круга, upright — не поворачивать",
+            ),
+            ("group g repeat along plate 20 offset 14 { … }", "повтор вдоль контура другой фигуры; место группе даёт контур"),
             ("group m stack column center gap 8 pad 12 {", "стек: ряд или столбик, как flex"),
             ("  rect bg fit · anchor right bottom", "фон во весь стек; at от края артборда"),
         ],
