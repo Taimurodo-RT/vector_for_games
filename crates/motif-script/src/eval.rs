@@ -133,6 +133,7 @@ impl<'a> Evaluator<'a> {
                 directions_turn: Vec::new(),
                 weights: HashMap::new(),
                 board_cell: None,
+                board_tags: None,
                 palette: Vec::new(),
                 refs: HashMap::new(),
                 gradient_refs: HashMap::new(),
@@ -924,6 +925,9 @@ impl<'a> Evaluator<'a> {
         for s in stmts {
             match s {
                 Stmt::Artboard { name, width, height, props } => {
+                    if let Some(span) = self.scene.board_tags {
+                        self.err(span, "метки холста пишутся под его строкой artboard, а не над ней");
+                    }
                     let ab = &mut self.scene.doc.artboard;
                     if let Some(n) = name {
                         ab.name = n.clone();
@@ -1223,9 +1227,23 @@ impl<'a> Evaluator<'a> {
                 Stmt::Use(u) => self.use_symbol(u, parent, generated),
                 // Its lines are read in its place: see `include::spread`.
                 Stmt::Include { .. } => {}
-                Stmt::Tags { span, .. } => {
-                    if !symbol_top {
-                        self.err(*span, "tags пишется строкой внутри symbol: это слова, по которым символ ищут в библиотеке");
+                Stmt::Tags { tags, span } => {
+                    if symbol_top {
+                        // The words the library finds the symbol by: read with the symbol.
+                    } else if parent.is_some() || generated || self.depth > 0 {
+                        self.err(
+                            *span,
+                            "tags пишется строкой внутри symbol (слова, по которым символ ищут в библиотеке) или под строкой artboard (метки холста для игры)",
+                        );
+                    } else if self.scene.board_tags.is_some() {
+                        self.err(*span, "у холста уже есть строка tags: все слова пишутся в одной");
+                    } else {
+                        self.scene.board_tags = Some(*span);
+                        for (w, _) in tags {
+                            if !self.scene.doc.tags.iter().any(|t| t.to_lowercase() == w.to_lowercase()) {
+                                self.scene.doc.tags.push(w.clone());
+                            }
+                        }
                     }
                 }
                 Stmt::Variant { name_span, .. } => {

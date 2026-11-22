@@ -78,6 +78,8 @@ pub struct ExportSettings {
     transparent: bool,
     /// Export every board of the file, not only the open one.
     pub(crate) all_boards: bool,
+    /// Pixels of its own continuation around each tile of an exported atlas.
+    pub(crate) tile_bleed: u32,
 }
 
 pub struct App {
@@ -395,7 +397,7 @@ impl App {
             space_used_for_pan: false,
             hex_edit: None,
             pixel: PixelPreview { on: false, width: 96, palette: None, texture: None },
-            export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true, all_boards: false },
+            export: ExportSettings { fps: 12.0, scale: 1.0, antialias: true, transparent: true, all_boards: false, tile_bleed: 0 },
             video: crate::video_ui::VideoExport::new(pixa.ffmpeg.clone()),
             pixa,
             ctx,
@@ -3102,6 +3104,8 @@ impl App {
             .anchor(Align2::RIGHT_TOP, vec2(-280.0, 56.0))
             .show(ctx, |ui| {
                 self.export_theme_choice(ui);
+                // A set of tiles is every board of the file: it stands above the choice of boards.
+                self.tiles_export(ui);
                 self.export_boards_choice(ui);
                 self.web_export(ui);
                 // An interface scene is exported as a kit first of all; game art has no kit.

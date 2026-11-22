@@ -11,6 +11,7 @@ pub mod kit;
 pub mod pixatool;
 pub mod runtime;
 pub mod screen;
+pub mod tiles;
 pub mod video;
 
 use motif_core::{Color, Document, Value};

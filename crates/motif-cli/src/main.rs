@@ -26,6 +26,7 @@ motif — скрипты сцен Motif без окна редактора
   motif svg     <сцена.msc> [-o рисунок.svg|папка] [--board ИМЯ] [--profile general|icon16|icon24|icon48|tile|illustration]
   motif web     <сцена.msc> [-o папка] [--board ИМЯ] [--profile ПРОФИЛЬ] [--strict]
   motif render  <сцена.msc> [-o кадр.png] [--anim ИМЯ --time СЕК] [--side СТОРОНА] [--field 3x3] [параметры рендера]
+  motif tiles   <набор.msc> [-o папка|атлас.png] [--bleed N] [параметры рендера]   (холсты одним атласом с описанием)
   motif frames  <сцена.msc> --anim ИМЯ [--fps 12] [--side СТОРОНА] [-o папка] [параметры рендера]
   motif video   <сцена.msc> --anim ИМЯ [--fps 30] [--side СТОРОНА] [-o видео.mp4|.webm|.gif|.png] [--ffmpeg путь] [параметры рендера]
   motif video   <сцена.msc> --machine ИМЯ --take \"1 speed=1, 2.5 jump\" [--length СЕК] [-o видео.mp4] …
@@ -51,6 +52,12 @@ render, frames, video, kit, screen, godot и svg рисуют её цветам�
 вариант того же рисунка: N прибавляется к каждому vary-seed. Без параметра (или с 0) сцена берётся как
 записана; одно и то же N всегда даёт одну и ту же картинку. В игре это set_vary_seed(N). contract
 отмечает такие холсты полем varies.
+
+Тайлы: холст со словом tile (tile-x, tile-y) повторяется без швов; render --field 3x3 кладёт его полем.
+tiles собирает все холсты файла (они одного размера) в один атлас НАБОР.png и пишет рядом описание
+НАБОР.json: имя каждого тайла, его место в атласе, метки (строка tags под строкой artboard) и стороны
+повтора. -o — папка или файл атласа .png; --bleed N кладёт вокруг каждого тайла N пикселей его же
+продолжения, чтобы игра при сглаживании не захватила край соседа.
 
 Параметры рендера:
   --scale N        пикселей на единицу артборда (по умолчанию 1)
@@ -92,6 +99,48 @@ Motif в addons/motif (из --addon, переменной MOTIF_GODOT_ADDON ил
 frames и video снимает одну сторону: down, down_right, right, up_right, up, up_left, left, down_left.
 pixel снимает кадры и сам прогоняет их через PixaTool с пресетом, сохранённым в PixaTool кнопкой
 «Save Preset». PixaTool ищется в --pixatool, в переменной MOTIF_PIXATOOL и в папке tools рядом с Motif.";
+
+/// `motif tiles`: every board of the file as one atlas picture, with the description a game reads
+/// it by (which tile is where, its name, its words, the sides it repeats along).
+fn tiles(a: &Args, scenes: &[motif_script::Scene]) -> Result<(), String> {
+    if a.board.is_some() {
+        return Err("tiles собирает набор из всех холстов файла: --board здесь не нужен".into());
+    }
+    let stem = a.scene.file_stem().and_then(|s| s.to_str()).unwrap_or("tiles").to_string();
+    let stem = match &a.theme {
+        Some(theme) => format!("{stem}-{theme}"),
+        None => stem,
+    };
+    // `-o атлас.png` names the picture (the description lies beside it), anything else is a folder.
+    let (dir, stem) = match &a.out {
+        Some(o) if o.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")) => {
+            let name = o.file_stem().and_then(|s| s.to_str()).ok_or("у файла атласа нет имени")?.to_string();
+            (o.parent().map(PathBuf::from).unwrap_or_default(), name)
+        }
+        Some(o) if o.extension().is_some_and(|e| e == "msc" || e == "json") => {
+            return Err("tiles: после -o — папка или файл атласа .png; описание .json ляжет рядом с ним".into());
+        }
+        Some(o) => (o.clone(), stem),
+        None => (PathBuf::new(), stem),
+    };
+    let first = &scenes.first().ok_or("в файле нет холстов")?.doc;
+    let scale = match (a.width, a.scale) {
+        (Some(w), _) => w / first.artboard.width,
+        (None, Some(s)) => s,
+        (None, None) => 1.0,
+    };
+    let render = CpuOptions { scale, antialias: a.antialias, background: a.background };
+    let boards: Vec<motif_pixel::tiles::TileBoard<'_>> = scenes.iter().map(|s| motif_pixel::tiles::TileBoard { doc: &s.doc, cell: s.board_cell }).collect();
+    let set = motif_pixel::tiles::tile_set(&boards, motif_pixel::tiles::TileSetOptions { render, bleed: a.bleed }, &stem)?;
+    let dir = if dir.as_os_str().is_empty() { PathBuf::from(".") } else { dir };
+    let (picture, text) = motif_pixel::tiles::write_tile_set(&set, &dir)?;
+    let d = &set.description;
+    let bleed = if d.bleed > 0 { format!(", запас вокруг тайла {} пикс.", d.bleed) } else { String::new() };
+    let show = |p: &PathBuf| p.strip_prefix(".").unwrap_or(p).display().to_string();
+    println!("{} — {}×{}, тайлов {} ({}×{} по {}×{}{bleed})", show(&picture), d.width, d.height, d.tiles.len(), d.columns, d.rows, d.tile_width, d.tile_height);
+    println!("{} — описание: имена, место в атласе, метки", show(&text));
+    Ok(())
+}
 
 /// `bundle`: the scene as one file. `extract`: a symbol with all it needs as a file of its own.
 /// The font files the new file names are copied beside it.
@@ -161,6 +210,8 @@ struct Args {
     symbol: Option<String>,
     /// `--field 3x2`: the picture laid this many times side by side, to look at the seams of a tile.
     field: Option<(u32, u32)>,
+    /// `--bleed 2`: pixels of its own continuation around each tile of an atlas.
+    bleed: u32,
     pivot: Option<(f64, f64)>,
     pixelize: bool,
     machine: Option<String>,
@@ -186,6 +237,7 @@ fn parse_args() -> Result<Args, String> {
         cmd,
         scene: PathBuf::new(),
         out: None,
+        bleed: 0,
         anim: None,
         time: 0.0,
         fps: 12.0,
@@ -240,6 +292,13 @@ fn parse_args() -> Result<Args, String> {
                     (Ok(c), Ok(r)) if (1..=16).contains(&c) && (1..=16).contains(&r) => Some((c, r)),
                     _ => return Err(format!("--field {said}: нужно число раз по ширине и высоте от 1 до 16, например 3x3")),
                 };
+            }
+            "--bleed" => {
+                let n = num(it.next(), "--bleed")?;
+                if n.fract() != 0.0 || !(0.0..=64.0).contains(&n) {
+                    return Err("после --bleed нужно целое число пикселей от 0 до 64: запас вокруг каждого тайла атласа".into());
+                }
+                a.bleed = n as u32;
             }
             "--board" => a.board = Some(it.next().ok_or("после --board нужно имя холста или его номер")?),
             "--take" => a.take = Some(it.next().ok_or("после --take нужны моменты: \"1 speed=1, 2.5 jump\"")?),
@@ -315,6 +374,9 @@ fn run() -> Result<(), String> {
     if a.cmd == "svg" || a.cmd == "web" {
         return export_web(&a, &src, scenes);
     }
+    if a.cmd == "tiles" {
+        return tiles(&a, &scenes);
+    }
     let boards = pick_boards(scenes.into_iter().map(|s| s.doc).collect(), a.board.as_deref())?;
     if a.cmd == "morph" {
         let (json, warnings) = motif_script::reyvec_morph_json(&boards);
@@ -388,6 +450,7 @@ fn run() -> Result<(), String> {
                     (false, true) => ", тайл по вертикали",
                     (false, false) => "",
                 };
+                let tile = if doc.tags.is_empty() { tile.to_string() } else { format!("{tile}, метки: {}", doc.tags.join(", ")) };
                 if total > 1 {
                     let (w, h) = (motif_script::fmt_num(doc.artboard.width), motif_script::fmt_num(doc.artboard.height));
                     println!("холст «{}» {w}×{h}{tile} — объектов {}, анимаций {}", doc.artboard.name, doc.nodes.len(), doc.animations.len());

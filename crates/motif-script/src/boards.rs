@@ -48,7 +48,8 @@ pub fn head_end(src: &str) -> usize {
 }
 
 /// The text of a new board: its `artboard` line, ready to be added to a script, with the
-/// background and purpose of `like` (the board it is made next to).
+/// background and purpose of `like` (the board it is made next to). Next to a tile it is a tile
+/// too, along the same sides: the boards of a set are made one after another.
 pub fn new_board(name: &str, width: f64, height: f64, cell: (u32, u32), like: Option<&motif_core::Document>) -> String {
     let name: String = name.chars().filter(|c| *c != '"' && *c != '\n' && *c != '\r').collect();
     let mut line = format!("artboard \"{}\" {}x{}", name.trim(), fmt_num(width), fmt_num(height));
@@ -58,6 +59,9 @@ pub fn new_board(name: &str, width: f64, height: f64, cell: (u32, u32), like: Op
             motif_core::Purpose::Ui => line.push_str(" ui"),
             motif_core::Purpose::Game => line.push_str(" game"),
             motif_core::Purpose::Any => {}
+        }
+        if let Some(word) = doc.tile.word() {
+            line.push_str(&format!(" {word}"));
         }
     }
     format!("{line} cell {} {}\n", cell.0, cell.1)

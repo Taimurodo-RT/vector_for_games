@@ -13,7 +13,8 @@
 //!   for one copy.
 //! - 6: `group … repeat grid 4 2 step 40 30` — live repeats of what is in a group.
 //! - 7: `include "kit.msc"` — the colors, styles, themes and symbols of another file.
-//! - 8: `artboard "Трава" 64x64 tile` — an artboard that repeats as a tile of a field.
+//! - 8: `artboard "Трава" 64x64 tile` — an artboard that repeats as a tile of a field;
+//!   `tags трава земля` under an `artboard` line — the words a game finds the board by.
 
 /// The newest format this Motif reads.
 pub const VERSION: u32 = 8;
@@ -67,7 +68,16 @@ pub fn needed(src: &str) -> u32 {
         let mut words = code.split_whitespace();
         words.next() == Some("artboard") && words.any(|w| matches!(w, "tile" | "tile-x" | "tile-y"))
     });
-    if tile {
+    // The words a game finds a board by came with version 8 as well: a `tags` line that stands
+    // in no block (inside a symbol it is the line of version 7).
+    let mut depth = 0i32;
+    let mut board_tags = false;
+    for l in src.lines() {
+        let code: String = l.split("//").next().unwrap_or("").split('"').step_by(2).collect::<Vec<_>>().join(" ");
+        board_tags |= depth == 0 && code.split_whitespace().next() == Some("tags");
+        depth += code.matches('{').count() as i32 - code.matches('}').count() as i32;
+    }
+    if tile || board_tags {
         8
     } else if include {
         7

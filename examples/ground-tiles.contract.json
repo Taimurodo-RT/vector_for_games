@@ -1,0 +1,289 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Трава",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "трава",
+        "проходимо"
+      ]
+    },
+    {
+      "name": "Трава с цветами",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "трава",
+        "проходимо",
+        "украшение"
+      ]
+    },
+    {
+      "name": "Высокая трава",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "трава",
+        "проходимо",
+        "укрытие"
+      ]
+    },
+    {
+      "name": "Трава с камнями",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "трава",
+        "проходимо",
+        "украшение"
+      ]
+    },
+    {
+      "name": "Земля",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "земля",
+        "проходимо"
+      ]
+    },
+    {
+      "name": "Земля с галькой",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "земля",
+        "проходимо",
+        "украшение"
+      ]
+    },
+    {
+      "name": "Пашня",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "земля",
+        "проходимо",
+        "посадка"
+      ]
+    },
+    {
+      "name": "Грязь",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "земля",
+        "проходимо",
+        "медленно"
+      ]
+    },
+    {
+      "name": "Песок",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "песок",
+        "проходимо"
+      ]
+    },
+    {
+      "name": "Песок с ракушками",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "песок",
+        "проходимо",
+        "украшение"
+      ]
+    },
+    {
+      "name": "Брусчатка",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "камень",
+        "проходимо",
+        "дорога"
+      ]
+    },
+    {
+      "name": "Плиты",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "камень",
+        "проходимо",
+        "дорога"
+      ]
+    },
+    {
+      "name": "Вода",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "вода",
+        "преграда"
+      ]
+    },
+    {
+      "name": "Вода с кувшинкой",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "вода",
+        "преграда",
+        "украшение"
+      ]
+    },
+    {
+      "name": "Тропа по горизонтали",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "трава",
+        "проходимо",
+        "дорога"
+      ]
+    },
+    {
+      "name": "Тропа по вертикали",
+      "width": 64.0,
+      "height": 64.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy",
+      "tags": [
+        "трава",
+        "проходимо",
+        "дорога"
+      ]
+    }
+  ]
+}

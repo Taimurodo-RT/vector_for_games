@@ -199,6 +199,34 @@ pub fn set_tags(src: &str, scene: &Scene, symbol: &str, tags: &[String]) -> Opti
     })
 }
 
+/// Returns the script of a board with `tags` as the words a game finds it by: its `tags` line is
+/// rewritten, written under the `artboard` line, or taken away when there are no words.
+pub fn set_board_tags(src: &str, scene: &Scene, tags: &[String]) -> String {
+    let mut words: Vec<String> = Vec::new();
+    for t in tags.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+        if !words.iter().any(|w| w.to_lowercase() == t.to_lowercase()) {
+            words.push(t.to_string());
+        }
+    }
+    let line = format!("tags {}", words.iter().map(|w| written(w)).collect::<Vec<_>>().join(" "));
+    match (scene.board_tags, words.is_empty()) {
+        (Some(span), true) => splice(src, whole_lines(src, span), ""),
+        (Some(span), false) => splice(src, span, &line),
+        (None, true) => src.to_string(),
+        (None, false) => {
+            // Under the `artboard` line; a scene without one gets it on top, under the version.
+            let board = src.match_indices("artboard").find(|(i, _)| *i == 0 || src.as_bytes()[i - 1] == b'\n').map(|(i, _)| i);
+            let from = board.or_else(|| crate::format::declared(src).map(|_| 0));
+            let at = match from {
+                Some(from) => src[from..].find('\n').map_or(src.len(), |i| from + i + 1),
+                None => 0,
+            };
+            let before = if at > 0 && !src[..at].ends_with('\n') { "\n" } else { "" };
+            splice(src, Span::new(at, at), &format!("{before}{line}\n"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,7 +293,10 @@ mod tests {
         assert_eq!(read("symbol A {\n  tags a_b \"два слова\" A_B\n  rect r size 4 4\n}\n").unwrap(), ["a_b", "два слова"]);
         assert!(read("symbol A {\n  tags\n  rect r size 4 4\n}\n").unwrap_err().contains("после tags"));
         assert!(read("symbol A {\n  tags a\n  tags b\n  rect r size 4 4\n}\n").unwrap_err().contains("уже есть строка tags"));
-        assert!(read("symbol A {\n  rect r size 4 4\n}\ntags a\n").unwrap_err().contains("внутри symbol"));
+        // Outside a symbol the line is the words of the board, not of a symbol; in a group it is neither.
+        assert!(read("symbol A {\n  rect r size 4 4\n}\ntags a\n").unwrap().is_empty());
+        assert_eq!(parse_in("symbol A {\n  rect r size 4 4\n}\ntags a\n", None).unwrap().doc.tags, ["a"]);
+        assert!(read("symbol A {\n  rect r size 4 4\n}\ngroup g {\n  tags a\n}\n").unwrap_err().contains("внутри symbol"));
         assert_eq!(crate::format::needed("symbol A {\n  tags a\n}\n"), 7);
     }
 

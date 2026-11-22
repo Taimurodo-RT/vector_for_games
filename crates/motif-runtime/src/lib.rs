@@ -369,6 +369,12 @@ impl Player {
         (self.doc.tile.x, self.doc.tile.y)
     }
 
+    /// The words the game finds the board by (`tags трава земля` under its `artboard` line), as
+    /// written. They do not change the drawing.
+    pub fn tags(&self) -> &[String] {
+        &self.doc.tags
+    }
+
     /// Whether some repeats of the board differ from each other by a seed (`repeat … vary-rot
     /// 15`), so that [`set_vary_seed`](Self::set_vary_seed) gives another variant of the drawing.
     pub fn varies(&self) -> bool {
