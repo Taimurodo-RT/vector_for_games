@@ -1,0 +1,42 @@
+{
+  "contract": 4,
+  "boards": [
+    {
+      "name": "Трава",
+      "width": 96.0,
+      "height": 96.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "varies": true,
+      "tile": "xy"
+    },
+    {
+      "name": "Кладка",
+      "width": 96.0,
+      "height": 96.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "tile": "xy"
+    },
+    {
+      "name": "Забор",
+      "width": 96.0,
+      "height": 96.0,
+      "animations": [],
+      "machines": [],
+      "parameters": [],
+      "events": [],
+      "sockets": [],
+      "areas": [],
+      "tile": "x"
+    }
+  ]
+}

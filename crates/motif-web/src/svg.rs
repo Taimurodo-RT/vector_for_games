@@ -315,7 +315,17 @@ pub fn render(scene: &Scene, config: &Config, override_profile: Option<Profile>)
     let mut body = String::new();
     for (i, n) in doc.nodes.iter().enumerate() {
         if n.parent.is_none() {
-            body.push_str(&w.node(i)?);
+            let written = w.node(i)?;
+            body.push_str(&written);
+            // On a tile, what reaches past an edge is shown again from the opposite one, in the
+            // same layer: the object is used once more, moved by a tile.
+            if !written.is_empty()
+                && let Some(b) = w.bounds(i)
+            {
+                for (dx, dy) in motif_render::tile_moves(doc, b) {
+                    body.push_str(&format!("<use href=\"#{}\" x=\"{}\" y=\"{}\"/>", w.ids[&n.id], num(dx), num(dy)));
+                }
+            }
         }
     }
     let defs = if w.defs.is_empty() { String::new() } else { format!("<defs>{}</defs>", w.defs) };

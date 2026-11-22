@@ -10,9 +10,9 @@ mod gpu;
 #[cfg(feature = "mesh")]
 pub mod mesh;
 
-pub use cpu::{CpuOptions, render_cpu, render_cpu_with, render_region};
+pub use cpu::{CpuOptions, lay_field, render_cpu, render_cpu_with, render_region};
 #[cfg(feature = "gpu")]
-pub use gpu::{build_scene, draw_pose, vello};
+pub use gpu::{build_scene, build_tile_field, draw_pose, vello};
 
 use motif_core::kurbo::{Affine, BezPath, Shape};
 use motif_core::{Blend, Cap, Color, Document, Gradient, Join, Shadow};
@@ -150,8 +150,88 @@ fn close(ops: &mut Vec<Op>, open: &mut Vec<Open>) {
 
 /// Flattens the node tree into paint order, skipping hidden nodes; masking groups become clip
 /// layers around their children, and their first child (the mask) is not drawn. Blurred objects
-/// and groups become blur layers.
+/// and groups become blur layers. On an artboard that repeats as a tile, what reaches past an
+/// edge is drawn again from the opposite one.
 pub fn display_ops(doc: &Document) -> Vec<Op> {
+    let ops = scene_ops(doc);
+    if doc.tile.on() { tiled(doc, ops) } else { ops }
+}
+
+/// How many tiles away a part of an object is still looked for: an object many times the size
+/// of its tile is not laid over itself without end.
+const TILE_REACH: i32 = 6;
+
+/// Where else an object with `bounds` shows on a tile: the moves, in artboard units, that bring
+/// a part of it lying past an edge back onto the artboard. Nothing for an artboard that is not
+/// a tile, and along the sides it does not repeat.
+pub fn tile_moves(doc: &Document, bounds: motif_core::kurbo::Rect) -> Vec<(f64, f64)> {
+    let (w, h) = (doc.artboard.width, doc.artboard.height);
+    if !doc.tile.on() || !(w > 0.0 && h > 0.0) {
+        return Vec::new();
+    }
+    // The whole numbers of tiles `k` that bring a span from `lo` to `hi` into the tile `size` wide.
+    let steps = |on: bool, lo: f64, hi: f64, size: f64| -> std::ops::RangeInclusive<i32> {
+        if !on {
+            return 0..=0;
+        }
+        let first = (-hi / size).floor() as i32 + 1;
+        let last = ((size - lo) / size).ceil() as i32 - 1;
+        first.max(-TILE_REACH)..=last.min(TILE_REACH)
+    };
+    let mut out = Vec::new();
+    for ky in steps(doc.tile.y, bounds.y0, bounds.y1, h) {
+        for kx in steps(doc.tile.x, bounds.x0, bounds.x1, w) {
+            if (kx, ky) != (0, 0) {
+                out.push((kx as f64 * w, ky as f64 * h));
+            }
+        }
+    }
+    out
+}
+
+/// The ops of a tile with every object going on from the opposite edge where it reaches past
+/// one. Each object keeps its layer: the part that came from the other side lies under what is
+/// above the object, so the tile is the same picture wherever a field is cut.
+fn tiled(doc: &Document, ops: Vec<Op>) -> Vec<Op> {
+    let mut out = Vec::with_capacity(ops.len());
+    let mut i = 0;
+    while i < ops.len() {
+        // One object: a shape, a blurred layer, or a clip with all it holds.
+        let mut end = i + 1;
+        if matches!(ops[i], Op::PushClip { .. }) {
+            let mut depth = 1;
+            while end < ops.len() && depth > 0 {
+                match ops[end] {
+                    Op::PushClip { .. } => depth += 1,
+                    Op::Pop => depth -= 1,
+                    _ => {}
+                }
+                end += 1;
+            }
+        }
+        let object = &ops[i..end];
+        i = end;
+        out.extend(object.iter().cloned());
+        let Some(b) = blur::bounds(object, Affine::IDENTITY) else { continue };
+        for by in tile_moves(doc, b) {
+            out.extend(object.iter().map(|op| moved(op, Affine::translate(by))));
+        }
+    }
+    out
+}
+
+/// `op` drawn after `by`.
+fn moved(op: &Op, by: Affine) -> Op {
+    match op {
+        Op::Draw(item) => Op::Draw(Item { transform: by * item.transform, ..item.clone() }),
+        Op::PushClip { path, transform, even_odd } => Op::PushClip { path: path.clone(), transform: by * *transform, even_odd: *even_odd },
+        Op::Pop => Op::Pop,
+        Op::Blur { ops, radius } => Op::Blur { ops: ops.iter().map(|op| moved(op, by)).collect(), radius: *radius },
+    }
+}
+
+/// The shapes of the scene in paint order, each where it is written.
+fn scene_ops(doc: &Document) -> Vec<Op> {
     let mut ops = Vec::new();
     let mut open: Vec<Open> = Vec::new();
     let inside = |i: usize, group: usize| {

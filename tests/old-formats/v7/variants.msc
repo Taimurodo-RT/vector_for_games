@@ -1,0 +1,67 @@
+motif 5
+// Варианты символа: одна кнопка, несколько видов.
+// Вариант — строка variant внутри символа: значения параметров, детали, которые он скрывает (hide),
+// и детали, скрытые в самом символе, которые он показывает (show).
+// Копия берёт вариант словом variant в своей строке use. Параметр, записанный у самой копии,
+// сильнее варианта. В редакторе вариант выбирают в панели копии.
+artboard "Варианты" 520x380 bg #f3efe6
+let ink = #1b1d24
+let paper = #ffffff
+let accent = #ff5a36
+let sand = #c9c2b4
+
+// Умолчания параметров — числа и цвета; в вариантах можно писать имена палитры.
+symbol Button face=#ffffff text=#1b1d24 edge=#1b1d24 {
+  variant main face=accent text=paper edge=accent
+  variant icon hide label
+  variant quiet face=#f3efe6 edge=sand hide glyph
+  variant fresh show badge
+  group row stack row center gap 8 pad 12 {
+    rect bg fit r 10 fill face stroke edge 2
+    star glyph size 16 points 5 inner 0.5 fill text
+    text label content "Играть" font-size 16 fill text
+  }
+  // Деталь, скрытая в символе: её нет ни в одной копии, пока вариант её не покажет.
+  ellipse badge at 50 -20 size 14 14 fill accent stroke paper 3 hidden
+}
+
+text t1 at 90 40 content "как в символе" font-size 12 fill ink
+use Button plain "Обычная" at 90 80
+
+text t2 at 260 40 content "variant main" font-size 12 fill ink
+use Button play "Главная" at 260 80 variant main
+
+text t3 at 420 40 content "variant icon" font-size 12 fill ink
+use Button star "С иконкой" at 420 80 variant icon
+
+text t4 at 90 160 content "variant quiet" font-size 12 fill ink
+use Button back "Тихая" at 90 200 variant quiet
+
+// Копия с вариантом и своим параметром: вид «главной», цвет свой.
+text t5 at 260 160 content "variant main face=…" font-size 12 fill ink
+use Button buy "Купить" at 260 200 variant main face=#2d6cdf edge=#2d6cdf
+
+// Вариант и в цикле: три значка в ряд.
+text t6 at 420 160 content "в цикле" font-size 12 fill ink
+for i in 0..3 {
+  use Button dot{i} at {372 + i * 48} 200 variant icon
+}
+
+// Вариант показывает деталь, которая в символе скрыта.
+text t7 at 90 280 content "variant fresh" font-size 12 fill ink
+use Button fresh "Новая" at 90 320 variant fresh
+
+// Свой текст у копии: строка символа одна на все копии, слова одной копии пишутся в override.
+// Фон кнопки в раскладке stack сам подстраивается под новые слова.
+override {
+  buy-label.content = "Купить"
+  back-label.content = "Назад"
+}
+
+anim Idle 1.6s loop {
+  play.sx 0: 1 ease-in-out-sine | 0.8: 1.06 ease-in-out-sine | 1.6: 1
+  play.sy 0: 1 ease-in-out-sine | 0.8: 1.06 ease-in-out-sine | 1.6: 1
+  star-glyph.rot 0: 0 linear | 1.6: 72
+  fresh-badge.sx 0: 1 ease-in-out-sine | 0.8: 1.25 ease-in-out-sine | 1.6: 1
+  fresh-badge.sy 0: 1 ease-in-out-sine | 0.8: 1.25 ease-in-out-sine | 1.6: 1
+}

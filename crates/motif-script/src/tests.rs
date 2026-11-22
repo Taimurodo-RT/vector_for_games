@@ -795,6 +795,36 @@ fn blur_elevation_and_light() {
 }
 
 #[test]
+fn an_artboard_is_a_tile() {
+    use motif_core::Tile;
+    let src = "artboard \"Трава\" 64x64 bg #7fb069 game // земля\nrect a at 64 10 size 8 8\n";
+    assert_eq!(scene(src).doc.tile, Tile::default());
+    // The word goes to the end of the line, before the comment, and reads back.
+    let both = set_tile(src, Tile::BOTH).unwrap();
+    assert!(both.starts_with("artboard \"Трава\" 64x64 bg #7fb069 game tile // земля\n"), "{both}");
+    assert_eq!(scene(&both).doc.tile, Tile::BOTH);
+    let across = set_tile(&both, Tile { x: true, y: false }).unwrap();
+    assert!(across.starts_with("artboard \"Трава\" 64x64 bg #7fb069 game tile-x // земля\n"), "{across}");
+    assert_eq!(scene(&across).doc.tile, Tile { x: true, y: false });
+    let down = set_tile(&across, Tile { x: false, y: true }).unwrap();
+    assert_eq!(scene(&down).doc.tile, Tile { x: false, y: true });
+    assert_eq!(set_tile(&down, Tile::default()).unwrap(), src);
+    // Both words together are the whole tile; the other words of the line stay where they were.
+    assert_eq!(scene("artboard 8x8 tile-x tile-y\n").doc.tile, Tile::BOTH);
+    assert!(set_purpose(&both, motif_core::Purpose::Ui).unwrap().starts_with("artboard \"Трава\" 64x64 bg #7fb069 tile ui // земля\n"));
+    // Each board of a file says it for itself, and a game reads it in the contract.
+    let two = format!("{both}\nartboard \"Камень\" 64x64\nrect b size 4 4\n");
+    let boards = parse_boards(&two, None).unwrap();
+    assert_eq!((boards[0].doc.tile, boards[1].doc.tile), (Tile::BOTH, Tile::default()));
+    let contract = crate::contract(boards.iter().map(|b| &b.doc));
+    assert_eq!((contract.boards[0].tile.as_deref(), contract.boards[1].tile.as_deref()), (Some("xy"), None));
+    // A file with a tile needs version 8; a word in a name or a comment is not the property.
+    assert_eq!(crate::format::needed(&both), 8);
+    assert_eq!(crate::format::needed("artboard \"tile\" 8x8 // tile\nrect tile size 2 2\n"), 1);
+    assert!(parse("artboard 8x8 tiles").unwrap_err()[0].message.contains("tile, tile-x, tile-y"));
+}
+
+#[test]
 fn artboard_purpose() {
     use motif_core::Purpose;
     let src = "artboard \"Меню игры\" 200x100 bg #fff light 45 // экран\nrect a\n";

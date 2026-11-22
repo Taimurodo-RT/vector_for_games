@@ -35,6 +35,24 @@ pub fn build_scene(scene: &mut Scene, doc: &Document, view: Affine, backdrop: Op
     scene.pop_layer();
 }
 
+/// Appends the neighbours of a tile to a Vello scene: the artboard again after each of `moves`
+/// (artboard units), under what is drawn next. Each neighbour reaches `bleed` target pixels past
+/// its edges, so that two of them leave no hairline of the backdrop between them where an edge
+/// falls inside a pixel; what lies in that strip is the same picture in both.
+pub fn build_tile_field(scene: &mut Scene, doc: &Document, view: Affine, moves: &[(f64, f64)], bleed: f64) {
+    let ops = display_ops(doc);
+    let grow = bleed / view.determinant().abs().sqrt().max(1e-6);
+    let bounds = Rect::new(0.0, 0.0, doc.artboard.width, doc.artboard.height).inflate(grow, grow);
+    CACHE.with_borrow_mut(|c| c.frame += 1);
+    for &by in moves {
+        let at = view * Affine::translate(by);
+        scene.fill(Fill::NonZero, at, color(doc.artboard.background), None, &bounds);
+        scene.push_clip_layer(Fill::NonZero, at, &bounds);
+        draw_ops(scene, &ops, at);
+        scene.pop_layer();
+    }
+}
+
 /// Appends one pose for a game: the shapes clipped to the artboard, over its background when
 /// `background` is set. `view` maps artboard space to target pixels, so many poses can share one
 /// scene. Blurred layers are kept while they are drawn again within the next few hundred poses.

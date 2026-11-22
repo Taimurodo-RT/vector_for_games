@@ -76,7 +76,7 @@ impl Canvas {
 
     /// Paints the stage into `rect` and returns nothing; overlays are drawn by the caller afterwards.
     pub fn paint(&mut self, ui: &mut egui::Ui, frame: Option<&eframe::Frame>, rect: Rect, view: View, stage: Stage) {
-        let Stage { doc, backdrop, others, .. } = stage;
+        let Stage { doc, backdrop, others, field, .. } = stage;
         #[cfg(test)]
         if self.no_raster {
             return;
@@ -100,7 +100,7 @@ impl Canvas {
                 }
             }
         }
-        self.paint_cpu(ui, rect, view, doc, backdrop);
+        self.paint_cpu(ui, rect, view, doc, backdrop, field);
         // Without the GPU only the active board is drawn; the others show as frames.
         let painter = ui.painter_at(rect);
         for o in others {
@@ -111,7 +111,7 @@ impl Canvas {
         }
     }
 
-    fn paint_cpu(&mut self, ui: &mut egui::Ui, rect: Rect, view: View, doc: &Document, backdrop: Option<BackdropView>) {
+    fn paint_cpu(&mut self, ui: &mut egui::Ui, rect: Rect, view: View, doc: &Document, backdrop: Option<BackdropView>, field: &[(f64, f64)]) {
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, STAGE);
         let ppp = ui.ctx().pixels_per_point();
@@ -132,7 +132,12 @@ impl Canvas {
             }
         };
         let board = artboard_rect(rect, view, doc);
-        painter.image(tex, board, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+        let whole = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        // The neighbours of a tile are the same picture one tile away.
+        for by in field {
+            painter.image(tex, board.translate(egui::vec2(by.0 as f32, by.1 as f32) * view.zoom), whole, Color32::WHITE);
+        }
+        painter.image(tex, board, whole, Color32::WHITE);
     }
 }
 
@@ -143,6 +148,8 @@ pub struct Stage<'a> {
     pub doc: &'a Document,
     pub backdrop: Option<BackdropView<'a>>,
     pub others: &'a [crate::boards_ui::OtherBoard],
+    /// The board is a tile shown as a field: where its neighbours lie, in artboard units.
+    pub field: &'a [(f64, f64)],
     /// Scenes tried on attachment points, each where it hangs in the board's space.
     pub worn: &'a [(&'a Document, Affine)],
 }
@@ -152,7 +159,7 @@ pub fn artboard_rect(canvas: Rect, view: View, doc: &Document) -> Rect {
 }
 
 fn paint_gpu(gpu: &mut Gpu, rs: &egui_wgpu::RenderState, ui: &mut egui::Ui, rect: Rect, view: View, stage: &Stage) -> Result<(), String> {
-    let Stage { doc, backdrop, others, worn } = *stage;
+    let Stage { doc, backdrop, others, field, worn } = *stage;
     let ppp = ui.ctx().pixels_per_point();
     let size = [((rect.width() * ppp).round() as u32).max(1), ((rect.height() * ppp).round() as u32).max(1)];
     let needs_new = gpu.texture.as_ref().is_none_or(|t| t.3 != size);
@@ -185,6 +192,7 @@ fn paint_gpu(gpu: &mut Gpu, rs: &egui_wgpu::RenderState, ui: &mut egui::Ui, rect
     for o in others {
         motif_render::build_scene(&mut scene, &o.doc, to_px * Affine::translate(Vec2::new(o.offset.x, o.offset.y)), None);
     }
+    motif_render::build_tile_field(&mut scene, doc, to_px, field, 0.75);
     motif_render::build_scene(&mut scene, doc, to_px, backdrop);
     for (worn, at) in worn {
         motif_render::draw_pose(&mut scene, worn, to_px * *at, false);

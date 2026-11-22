@@ -936,12 +936,12 @@ impl<'a> Parser<'a> {
         };
         let mut props = Vec::new();
         while !self.at_line_end() {
-            let (key, key_span) = self.ident("свойство артборда: bg, light, ui, game или cell")?;
+            let (key, key_span) = self.ident("свойство артборда: bg, light, ui, game, cell или tile")?;
             let values = match key.as_str() {
                 "bg" | "light" => vec![self.value()?],
-                "ui" | "game" => Vec::new(),
+                "ui" | "game" | "tile" | "tile-x" | "tile-y" => Vec::new(),
                 "cell" => vec![self.value()?, self.value()?],
-                _ => return Err(self.err(key_span, format!("у артборда нет свойства «{key}»: bg, light, ui, game, cell"))),
+                _ => return Err(self.err(key_span, format!("у артборда нет свойства «{key}»: bg, light, ui, game, cell, tile, tile-x, tile-y"))),
             };
             props.push(PropAst { key, key_span, values });
         }

@@ -32,6 +32,31 @@ fn config_rejects_typos_injection_duplicate_headers_and_escape_paths() {
 }
 
 #[test]
+fn a_tile_shows_what_is_past_an_edge_from_the_opposite_one() {
+    let src = "artboard \"grass\" 24x24 tile\nrect inside at 12 12 size 6 fill #234567\nellipse rock at 24 12 size 8 fill #888888\nrect corner at 0 24 size 4 fill #111111\n";
+    let svg = motif_web::render(&scene(src), &Config::default(), None).unwrap();
+    let doc = roxmltree::Document::parse(&svg.text).unwrap();
+    let uses: Vec<(String, String, String)> = doc
+        .descendants()
+        .filter(|n| n.has_tag_name("use"))
+        .map(|n| (n.attribute("href").unwrap().to_string(), n.attribute("x").unwrap().to_string(), n.attribute("y").unwrap().to_string()))
+        .collect();
+    let id = |name: &str| format!("#{}", doc.descendants().find(|n| n.attribute("id").is_some_and(|i| i.ends_with(name))).unwrap().attribute("id").unwrap());
+    // The rock on the right edge comes in from the left; the square on a corner shows in the
+    // other three; what lies inside is drawn once.
+    assert_eq!(uses.iter().filter(|u| u.0 == id("rock")).map(|u| (u.1.as_str(), u.2.as_str())).collect::<Vec<_>>(), [("-24", "0")]);
+    assert_eq!(uses.iter().filter(|u| u.0 == id("corner")).count(), 3);
+    assert!(uses.iter().all(|u| u.0 != id("inside")));
+    // The copy follows its object, under what is drawn above it.
+    let order: Vec<&str> = doc.root_element().children().filter(|n| n.is_element()).filter_map(|n| n.attribute("id").or(n.attribute("href"))).collect();
+    let rock = order.iter().position(|o| o.ends_with("rock")).unwrap();
+    assert!(order[rock + 1].ends_with("rock") && order[rock + 2].ends_with("corner"), "{order:?}");
+    // Not a tile: nothing is used twice.
+    let plain = motif_web::render(&scene(&src.replace(" tile", "")), &Config::default(), None).unwrap();
+    assert!(!plain.text.contains("<use"));
+}
+
+#[test]
 fn token_provenance_does_not_recolor_equal_literals() {
     let s = scene("let ink = #234567\nartboard \"test\" 24x24\nrect a at 6 12 size 8 fill ink\nrect b at 18 12 size 8 fill #234567\n");
     let mut c = Config::default();

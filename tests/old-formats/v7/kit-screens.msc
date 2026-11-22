@@ -1,0 +1,39 @@
+motif 7
+// Два экрана на наборе из kit.msc. Строка include стоит в общем начале файла, поэтому
+// цвета, стили, тема night и символы набора видны обоим холстам. Здесь записано только то,
+// что у экранов своё: расстановка, подписи и свой цвет полосы.
+// В этом файле набор не меняется: его правят в kit.msc, а экраны перечитывают его сами.
+include "kit.msc"
+let cold = #4b7bd1
+
+artboard "Привал" 360x420 bg well ui cell 0 0
+rect panel at 180 210 size 300 360 style card
+use Fire fire at 180 78 size=40
+text title at 180 130 content "Привал" style heading
+text hint at 180 156 content "Отряд отдыхает у костра" style note
+use Button resume at 180 210 variant go w=200
+use Button camp at 180 266 variant main w=200
+use Button leave at 180 322 variant quiet w=200
+override {
+  resume-label.content = "В путь"
+  camp-label.content = "Лагерь"
+  leave-label.content = "Выйти"
+}
+
+artboard "Настройки" 360x420 bg well ui cell 1 0
+rect panel at 180 210 size 300 360 style card
+text title at 180 68 content "Настройки" style heading
+text l1 at 104 124 content "Музыка" style note
+use Bar music at 232 124 value=0.8 w=140
+text l2 at 104 164 content "Звуки" style note
+use Bar sound at 232 164 value=0.45 w=140 tint=cold
+text l3 at 104 214 content "Подсказки" style note
+use Toggle tips at 278 214 variant on
+text l4 at 104 254 content "Вибрация" style note
+use Toggle shake at 278 254
+use Button back at 108 340 variant quiet w=110
+use Button save at 244 340 variant go w=130
+override {
+  back-label.content = "Назад"
+  save-label.content = "Сохранить"
+}

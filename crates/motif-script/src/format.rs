@@ -13,9 +13,10 @@
 //!   for one copy.
 //! - 6: `group … repeat grid 4 2 step 40 30` — live repeats of what is in a group.
 //! - 7: `include "kit.msc"` — the colors, styles, themes and symbols of another file.
+//! - 8: `artboard "Трава" 64x64 tile` — an artboard that repeats as a tile of a field.
 
 /// The newest format this Motif reads.
-pub const VERSION: u32 = 7;
+pub const VERSION: u32 = 8;
 
 /// The lowest format version that reads `src`: the first one that has everything it uses.
 pub fn needed(src: &str) -> u32 {
@@ -60,7 +61,15 @@ pub fn needed(src: &str) -> u32 {
     // A statement starts its line; `include` came with version 7.
     // The words the library finds a symbol by (`tags кнопка меню`) came with version 7 too.
     let include = src.lines().any(|l| matches!(l.split_whitespace().next(), Some("include" | "tags")));
-    if include {
+    // An artboard that repeats as a tile (`artboard … tile`) came with version 8.
+    let tile = src.lines().any(|l| {
+        let code: String = l.split("//").next().unwrap_or("").split('"').step_by(2).collect::<Vec<_>>().join(" ");
+        let mut words = code.split_whitespace();
+        words.next() == Some("artboard") && words.any(|w| matches!(w, "tile" | "tile-x" | "tile-y"))
+    });
+    if tile {
+        8
+    } else if include {
         7
     } else if repeat {
         6

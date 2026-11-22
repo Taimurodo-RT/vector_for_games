@@ -73,7 +73,7 @@ pub use edit::{
     delete_key, delete_keys, delete_node, directions_text, duplicate_anim, fmt_value, gradient_text, group_nodes, guide_text, move_key, move_node, paste_keys,
     paste_nodes, paste_nodes_into, path_to_d, remove_guides, rename_anim, rename_node, restack, retime_keys, reverse_anim, set_anim_duration, set_anim_loop,
     set_backdrop, set_clip, set_directions, set_gradient, set_guide, set_key, set_key_ease, set_keys_ease, set_light, set_own_text, set_path, set_prop,
-    set_purpose, set_stroke_gradient, set_style, set_world, ungroup, world_text, write_event, write_event_data, write_tracks,
+    set_purpose, set_stroke_gradient, set_style, set_tile, set_world, ungroup, world_text, write_event, write_event_data, write_tracks,
 };
 pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
 pub use extract::{Bundled, Extracted, bundle_scene, copy_fonts, extract_symbol, file_name_for};
