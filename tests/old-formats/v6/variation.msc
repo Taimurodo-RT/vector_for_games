@@ -1,0 +1,49 @@
+motif 6
+// Разброс: повторы отличаются от первого, а зерно всегда даёт тот же рисунок.
+// У каждого повтора свой сдвиг, поворот, размер и оттенок. Они считаются из числа vary-seed
+// и места повтора, поэтому сцена одна и та же при каждом открытии и на каждой машине.
+let ink = #2f2a26
+let stone = #b9a98c
+let moss = #5b6b4a
+let leaf = #6fae5a
+let rust = #c0392b
+
+// Куст из одного символа: число look — зерно его листьев. Другое число — другой куст.
+symbol Bush look=1 {
+  group leaves rot -80 repeat circle 9 arc 160 vary-rot 9 vary-scale 0.3 vary-fill #2d4a26 0.5 vary-seed look {
+    path blade d "M 0 0 C 8 -8 8 -26 0 -36 C -8 -26 -8 -8 0 0 Z" fill leaf stroke ink 1.5
+  }
+}
+
+artboard "Двор" 520x340 bg #efe6d2
+rect ground at 260 255 size 520 170 fill #e3d6ba
+
+// Пруд и камыши по его краю: сдвиг только поперёк контура, вдоль него они стоят ровно.
+ellipse pond at 392 96 size 190 92 fill #9ccbd6 stroke ink 2
+group reeds repeat along pond 26 offset -3 upright vary-at 0 4 vary-rot 10 vary-scale 0.3 vary-fill rust 0.35 vary-seed 5 {
+  path reed d "M 0 0 C 2 -8 -2 -14 0 -22" stroke #4f7a3c 3 cap round fill none
+  ellipse head at 0 -23 size 5 11 fill #8a5a3c
+}
+
+// Цветок: лепестки по кругу, каждый своего оттенка и чуть своей длины.
+group flower at 104 92 repeat circle 12 vary-rot 6 vary-scale 0.18 vary-fill #ffd23f 0.7 vary-seed 2 {
+  path petal d "M 0 -8 C 11 -18 11 -40 0 -52 C -11 -40 -11 -18 0 -8 Z" fill #e8734a stroke ink 1.5
+}
+ellipse heart at 104 92 size 24 24 fill #ffd23f stroke ink 1.5
+
+// Три куста из одного символа с разным зерном.
+use Bush b1 at 226 176 look=1
+use Bush b2 at 282 178 look=2 scale 0.8
+use Bush b3 at 180 178 look=7 scale 0.7
+
+// Мостовая: первый камень нарисован, остальные слегка сдвинуты, повёрнуты и разного размера.
+group paving at 46 214 repeat grid 10 3 step 47 38 vary-at 5 4 vary-rot 14 vary-scale 0.22 vary-fill moss 0.55 vary-seed 3 {
+  rect slab size 36 26 r 9 fill stone stroke ink 2
+  ellipse fleck at -7 -5 size 8 4 fill #d8ccb4
+}
+
+anim Idle 6s loop {
+  flower.rot 0: -3 ease-in-out | 3: 3 ease-in-out | 6: -3
+  heart.sx 0: 1 ease-in-out | 3: 1.08 ease-in-out | 6: 1
+  heart.sy 0: 1 ease-in-out | 3: 1.08 ease-in-out | 6: 1
+}

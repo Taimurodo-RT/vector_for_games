@@ -304,6 +304,16 @@ fn run() -> Result<(), String> {
             if !themes.is_empty() {
                 println!("темы: {}", themes.join(", "));
             }
+            // The other files the scene is read with: it does not open without them.
+            let mut included: Vec<&str> = Vec::new();
+            for f in boards.iter().flat_map(|d| &d.includes) {
+                if !included.contains(&f.as_str()) {
+                    included.push(f);
+                }
+            }
+            if !included.is_empty() {
+                println!("подключено: {}", included.join(", "));
+            }
             for doc in &boards {
                 if total > 1 {
                     let (w, h) = (motif_script::fmt_num(doc.artboard.width), motif_script::fmt_num(doc.artboard.height));

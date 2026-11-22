@@ -13,8 +13,17 @@ pub use svg::{Svg, render};
 /// way: a gradient, a number or a style that a theme changes is not a token.
 pub fn with_script_themes(config: &Config, src: &str, base: Option<&std::path::Path>) -> Config {
     let mut out = config.clone();
+    // The themes written in the script and the themes of the files it includes.
+    let mut names = motif_script::theme_names(src);
+    if let Ok(scenes) = motif_script::parse_boards(src, base) {
+        for t in scenes.iter().flat_map(|s| &s.doc.themes) {
+            if !names.contains(t) {
+                names.push(t.clone());
+            }
+        }
+    }
     // `default` is the name the package gives to the scene as written.
-    for name in motif_script::theme_names(src).into_iter().filter(|n| n != "default") {
+    for name in names.into_iter().filter(|n| n != "default") {
         let Ok(scenes) = motif_script::parse_boards_themed(src, base, Some(&name)) else { continue };
         for s in scenes.iter().flat_map(|s| &s.palette).filter(|s| s.themed && config.tokens.contains_key(&s.name)) {
             out.themes.entry(name.clone()).or_default().entry(s.name.clone()).or_insert_with(|| s.color.to_hex());

@@ -353,6 +353,15 @@ impl Player {
         Ok(true)
     }
 
+    /// The other files the scene is read with (`include "kit.msc"`), each once, as paths from
+    /// the folder given to [`Player::load`]: the files those include are among them. A game
+    /// that reloads a scene when its file changes watches these too and calls
+    /// [`Player::reload`] when one of them changes. They are read from the disk whenever the
+    /// script is read: at `load`, `reload`, `set_theme` and `set_vary_seed`.
+    pub fn includes(&self) -> Vec<String> {
+        self.doc.includes.clone()
+    }
+
     /// Whether some repeats of the board differ from each other by a seed (`repeat … vary-rot
     /// 15`), so that [`set_vary_seed`](Self::set_vary_seed) gives another variant of the drawing.
     pub fn varies(&self) -> bool {
@@ -1312,6 +1321,43 @@ machine M {
         p.reload(&gone, None).unwrap();
         assert_eq!(p.state(), "Idle");
         assert!(p.time() < TICK, "{}", p.time());
+    }
+
+    #[test]
+    fn a_scene_plays_with_the_files_it_includes_and_follows_them_on_reload() {
+        let dir = std::env::temp_dir().join(format!("motif-runtime-include-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("kits")).unwrap();
+        let kit = |face: &str| {
+            format!("include \"colors.msc\"\ntheme night {{\n  ink = #ffffff\n}}\nsymbol Dot {{\n  ellipse d size 6 6 fill {face} stroke ink 1\n}}\n")
+        };
+        std::fs::write(dir.join("kits/colors.msc"), "let ink = #000000\n").unwrap();
+        std::fs::write(dir.join("kits/kit.msc"), kit("#ff0000")).unwrap();
+        let src = format!("include \"kits/kit.msc\"\n{RELOADED}use Dot dot at 10 10\n");
+        // A scene that is not read from a folder has nowhere to find the file.
+        assert!(Player::load(&src, None, "", "", "").unwrap_err().contains("нет папки"));
+        let mut p = Player::load(&src, Some(&dir), "", "", "").unwrap();
+        // The files a game watches besides the scene, as paths from the folder of the scene.
+        assert_eq!(p.includes(), ["kits/kit.msc", "kits/colors.msc"]);
+        let dot = |p: &Player| p.frame().doc.node("dot-d").map(|n| (n.fill.unwrap().to_hex(), n.stroke.unwrap().to_hex())).unwrap();
+        assert_eq!(dot(&p), ("#ff0000".to_string(), "#000000".to_string()));
+        // The theme of the kit is a theme of the scene.
+        assert_eq!(p.themes(), ["night"]);
+        assert_eq!(p.set_theme("night"), Ok(true));
+        assert_eq!(dot(&p).1, "#ffffff");
+        // The kit changed: the same script read again shows it, and what plays goes on.
+        p.fire("hurt").unwrap();
+        p.advance(0.1);
+        let (state, time) = (p.state(), p.time());
+        std::fs::write(dir.join("kits/kit.msc"), kit("#00ff00")).unwrap();
+        p.reload(&src, Some(&dir)).unwrap();
+        assert_eq!(dot(&p), ("#00ff00".to_string(), "#ffffff".to_string()));
+        assert_eq!((p.state(), p.time(), p.theme()), (state, time, "night"));
+        // A kit with a mistake: the reload is refused and the scene plays on as it was.
+        std::fs::write(dir.join("kits/kit.msc"), "symbol Dot {\n").unwrap();
+        assert!(p.reload(&src, Some(&dir)).unwrap_err().contains("в подключённом файле «kits/kit.msc» ошибка"));
+        assert_eq!(dot(&p).0, "#00ff00");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

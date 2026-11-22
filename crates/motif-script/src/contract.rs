@@ -47,6 +47,11 @@ pub struct Board {
     /// own seed for another variant of the drawing. The field is left out of a scene without them.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub varies: bool,
+    /// The other files the board is read with (`include "kit.msc"`), as paths from the folder of
+    /// the scene: the scene does not open without them, and changes when one of them changes.
+    /// The field is left out of a scene that includes nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub includes: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -244,6 +249,7 @@ fn board(doc: &Document) -> Board {
             .collect(),
         themes: doc.themes.clone(),
         varies: doc.varies,
+        includes: doc.includes.clone(),
     }
 }
 

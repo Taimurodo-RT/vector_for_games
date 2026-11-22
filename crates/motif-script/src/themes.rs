@@ -44,7 +44,9 @@ pub(crate) fn new_entry(src: &str, scene: &Scene, decl: Span, line: &str) -> Opt
     let theme = scene.theme.as_deref()?;
     let head = crate::head_end(src);
     let shared = |at: usize| at < head;
-    match scene.themes.iter().find(|t| t.name == theme && shared(t.span.start) == shared(decl.start)) {
+    // A block of the theme that an included file gives is not a place of this script.
+    let own = |t: &&crate::ThemeSite| scene.included(t.span).is_none();
+    match scene.themes.iter().filter(own).find(|t| t.name == theme && shared(t.span.start) == shared(decl.start)) {
         Some(t) => {
             let line_start = src[..t.close].rfind('\n').map_or(0, |i| i + 1);
             // The closing brace has a line of its own unless the block was typed in one line.
@@ -121,13 +123,20 @@ pub fn add_theme(file: &str, base: Option<&Path>, name: &str) -> Option<String> 
 }
 
 /// Every block of the theme `name` in the file, each once: a block of the head is seen by
-/// every board.
-fn blocks(file: &str, base: Option<&Path>, name: &str) -> Option<Vec<(Span, Span)>> {
+/// every board. The blocks an included file gives are not in the file: with `whole` the answer
+/// is `None` when there are such.
+fn blocks(file: &str, base: Option<&Path>, name: &str, whole: bool) -> Option<Vec<(Span, Span)>> {
     let views = board_views(file, base)?;
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for v in &views {
         for t in v.scene.themes.iter().filter(|t| t.name == name) {
+            if v.scene.included(t.span).is_some() {
+                if whole {
+                    return None;
+                }
+                continue;
+            }
             let at = v.in_file(t.span);
             if seen.insert(at.start) {
                 out.push((at, v.in_file(t.name_span)));
@@ -138,12 +147,13 @@ fn blocks(file: &str, base: Option<&Path>, name: &str) -> Option<Vec<(Span, Span
 }
 
 /// Returns the file with the theme `old` called `new` in every block of it, on every board.
-/// `None` when there is no such theme, the new name cannot be used, or a board has errors.
+/// `None` when there is no such theme, the new name cannot be used, a board has errors, or an
+/// included file writes the theme too: there it would keep the old name.
 pub fn rename_theme(file: &str, base: Option<&Path>, old: &str, new: &str) -> Option<String> {
     if !theme_name_ok(file, new) {
         return None;
     }
-    let edits = blocks(file, base, old)?.into_iter().map(|(_, name)| (name, new.to_string())).collect();
+    let edits = blocks(file, base, old, true)?.into_iter().map(|(_, name)| (name, new.to_string())).collect();
     let out = splice_all(file, edits);
     crate::parse_boards(&out, base).ok()?;
     Some(out)
@@ -151,8 +161,9 @@ pub fn rename_theme(file: &str, base: Option<&Path>, old: &str, new: &str) -> Op
 
 /// Returns the file without the theme `name`: every block of it goes, on every board. The scene
 /// as it is written does not change. `None` when there is no such theme or a board has errors.
+/// What an included file writes for the theme stays: the file itself is not changed.
 pub fn delete_theme(file: &str, base: Option<&Path>, name: &str) -> Option<String> {
-    let edits = blocks(file, base, name)?.into_iter().map(|(block, _)| (whole_line(file, block), String::new())).collect();
+    let edits = blocks(file, base, name, false)?.into_iter().map(|(block, _)| (whole_line(file, block), String::new())).collect();
     let out = splice_all(file, edits);
     crate::parse_boards(&out, base).ok()?;
     Some(out)
@@ -166,7 +177,7 @@ pub fn reset_in_theme(src: &str, scene: &Scene, name: &str, style: bool) -> Opti
     let edits: Vec<(Span, String)> = scene
         .themes
         .iter()
-        .filter(|t| t.name == theme)
+        .filter(|t| t.name == theme && scene.included(t.span).is_none())
         .flat_map(|t| t.entries.iter().filter(|e| e.name == name && e.style == style).map(move |e| (t, e)))
         .map(|(t, e)| {
             let line = whole_line(src, e.span);

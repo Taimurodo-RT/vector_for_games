@@ -314,6 +314,16 @@ pub enum Stmt {
         span: Span,
     },
     Use(UseAst),
+    /// `include "kit.msc"`: the colors, gradients, styles, themes and symbols another file gives.
+    /// `body` is those lines of the file, every one written where the `include` line is.
+    Include {
+        /// The file as it is written.
+        path: String,
+        path_span: Span,
+        /// From `include` to the closing quote.
+        span: Span,
+        body: Vec<Stmt>,
+    },
     /// `variant main face=#ff5a36 hide icon` inside a `symbol` block: a named set of parameter
     /// values and of objects that are not shown. A copy takes it with `variant main`.
     Variant {
@@ -501,11 +511,43 @@ pub struct Parser<'a> {
     vars: std::collections::HashSet<String>,
     /// Whether a statement was read: the format version can only come before any.
     started: bool,
+    /// The folder of the file being read: the file of an `include` is found from it.
+    base: Option<std::path::PathBuf>,
+    /// How many blocks are open around the statement being read.
+    nesting: usize,
+    /// Where each statement of the file itself is among the tokens, in the order of
+    /// [`Parser::block`]'s answer for the whole file.
+    pub top: Vec<std::ops::Range<usize>>,
+    /// What each `include` of the file read, in the order written.
+    pub included: Vec<std::sync::Arc<crate::include::Loaded>>,
+    /// An `include` named a file that could not be read at all.
+    pub missing: bool,
+    /// The files whose lines are read already: a file included twice gives its lines once.
+    given: Vec<std::path::PathBuf>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(src: &'a str, toks: Vec<Token>) -> Self {
-        Parser { src, toks, pos: 0, errors: Vec::new(), vars: Default::default(), started: false }
+        Parser {
+            src,
+            toks,
+            pos: 0,
+            errors: Vec::new(),
+            vars: Default::default(),
+            started: false,
+            base: None,
+            nesting: 0,
+            top: Vec::new(),
+            included: Vec::new(),
+            missing: false,
+            given: Vec::new(),
+        }
+    }
+
+    /// The parser of a script saved in `base`: the files it includes are found from there.
+    pub fn in_folder(mut self, base: Option<&std::path::Path>) -> Self {
+        self.base = base.map(std::path::Path::to_path_buf);
+        self
     }
 
     fn peek(&self) -> Option<&Tok> {
@@ -597,6 +639,13 @@ impl<'a> Parser<'a> {
 
     /// Parses statements until the end of input or a closing brace (for blocks).
     pub fn block(&mut self, nested: bool) -> Vec<Stmt> {
+        self.nesting += usize::from(nested);
+        let out = self.lines(nested);
+        self.nesting -= usize::from(nested);
+        out
+    }
+
+    fn lines(&mut self, nested: bool) -> Vec<Stmt> {
         let mut out = Vec::new();
         loop {
             match self.peek() {
@@ -617,15 +666,73 @@ impl<'a> Parser<'a> {
                     self.errors.push(self.err(span, "лишняя «}»"));
                     self.pos += 1;
                 }
-                Some(_) => match self.statement() {
-                    Ok(s) => out.push(s),
-                    Err(e) => {
-                        self.errors.push(e);
-                        self.skip_line();
+                Some(_) => {
+                    let start = self.pos;
+                    match self.statement() {
+                        Ok(s) => {
+                            if !nested {
+                                self.top.push(start..self.pos);
+                            }
+                            out.push(s);
+                        }
+                        Err(e) => {
+                            self.errors.push(e);
+                            self.skip_line();
+                        }
                     }
-                },
+                }
             }
         }
+    }
+
+    /// `include "kit.msc"`: reads the file and the lines it gives. They are read with the names
+    /// of that file only, as the file reads them itself, and every place in them is the place
+    /// of the `include` line: the scene has nowhere else to show.
+    fn include(&mut self, start: usize) -> Result<Stmt, ScriptError> {
+        let (path, path_span) = match self.next() {
+            Some(Token { tok: Tok::Str(s), span }) => (s, span),
+            Some(t) => return Err(self.err(t.span, "после include — имя файла в кавычках: include \"kit.msc\"")),
+            None => return Err(self.err(self.peek_span(), "после include — имя файла в кавычках: include \"kit.msc\"")),
+        };
+        if !self.at_line_end() {
+            return Err(self.err(self.peek_span(), "в строке include пишется только имя файла: include \"kit.msc\""));
+        }
+        if self.nesting > 0 {
+            return Err(self.err(Span::new(start, start), "include пишется на верхнем уровне файла, не внутри группы, цикла или символа"));
+        }
+        let span = Span::new(start, path_span.end);
+        let file = match &self.base {
+            Some(base) => crate::include::resolve(base, &path).map_err(|m| self.err(path_span, m))?,
+            None => {
+                return Err(self
+                    .err(path_span, format!("include \"{path}\": у сцены нет папки, от которой искать файл. Сохраните сцену в файл или читайте её из файла")));
+            }
+        };
+        let lib = match crate::include::load(&file) {
+            Ok(lib) => lib,
+            Err(m) => {
+                self.missing = true;
+                return Err(self.err(path_span, m));
+            }
+        };
+        if let Some(e) = &lib.error {
+            self.errors.push(self.err(path_span, format!("в подключённом файле «{path}» ошибка, {e}")));
+        }
+        let mut toks = Vec::new();
+        lib.toks(&mut self.given, &mut toks);
+        for t in &mut toks {
+            t.span = span;
+        }
+        let mut inner = Parser::new(self.src, toks);
+        inner.started = true;
+        let body = inner.block(false);
+        // A file with no errors of its own reads here as it reads there.
+        if lib.error.is_none() {
+            self.errors.append(&mut inner.errors);
+        }
+        self.vars.extend(inner.vars);
+        self.included.push(lib);
+        Ok(Stmt::Include { path, path_span, span, body })
     }
 
     fn close_block(&mut self) -> Result<usize, ScriptError> {
@@ -637,7 +744,7 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<Stmt, ScriptError> {
         let first = !std::mem::replace(&mut self.started, true);
         let (word, span) = self.ident(
-            "команда: artboard, world, directions, backdrop, let, style, theme, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
+            "команда: artboard, include, world, directions, backdrop, let, style, theme, rect, ellipse, star, polygon, path, group, symbol, use, for, anim, machine, weights или override",
         )?;
         match word.as_str() {
             "motif" => {
@@ -676,6 +783,7 @@ impl<'a> Parser<'a> {
             }
             "style" => self.style(span.start),
             "theme" => self.theme(span),
+            "include" => self.include(span.start),
             "for" => {
                 let (var, _) = self.ident("имя переменной цикла")?;
                 self.vars.insert(var.clone());

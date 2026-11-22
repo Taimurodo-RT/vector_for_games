@@ -38,6 +38,10 @@ pub struct Document {
     /// Some repeats of the scene differ from each other by a seed (`repeat … vary-rot 15`): a
     /// game may give its own seed, and the scene is read as another variant of the same drawing.
     pub varies: bool,
+    /// The other files the scene is read with (`include "kit.msc"`), each once: paths from the
+    /// folder of the scene, the files those include among them. A game that reloads a scene when
+    /// its file changes watches these too.
+    pub includes: Vec<String>,
 }
 
 /// What a scene is made for. The editor hides what the other kind of work needs.
@@ -1088,6 +1092,7 @@ impl Document {
             seed: 0,
             themes: Vec::new(),
             varies: false,
+            includes: Vec::new(),
         }
     }
 

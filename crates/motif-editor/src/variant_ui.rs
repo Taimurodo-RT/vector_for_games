@@ -196,6 +196,13 @@ impl App {
             self.status = "Копия создана циклом: вариант пишется в её строке use в скрипте".into();
             return;
         }
+        // The variants of a symbol of an included file are lines of that file.
+        if !matches!(act, VariantAct::Take(_))
+            && let Some(file) = self.symbol_from(&inst.symbol)
+        {
+            self.refuse_included(&format!("Символ {} с его вариантами", inst.symbol), &file);
+            return;
+        }
         let current = inst.variant.as_ref().map(|(v, _)| v.clone());
         let base = self.path.as_ref().and_then(|p| p.parent()).map(std::path::Path::to_path_buf);
         let base = base.as_deref();

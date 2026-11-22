@@ -39,6 +39,7 @@ pub mod fonts;
 pub mod format;
 pub mod forms;
 pub mod ids;
+mod include;
 mod lexer;
 mod machine;
 pub mod marks;
@@ -73,6 +74,7 @@ pub use edit::{
     set_purpose, set_stroke_gradient, set_style, set_world, ungroup, world_text, write_event, write_event_data, write_tracks,
 };
 pub use edit::{delete_nodes, move_nodes, restack_nodes, selected_roots, style_nodes};
+pub use include::{IncludeSite, add_include, file_includes, include_path, inline_includes, remove_include, touched as include_touched, with_included_names};
 pub use machine::{
     MachineItem, add_machine, delete_machine, delete_machine_item, edit_machine, fmt_listener, fmt_machine, fmt_transition, free_name, make_entry,
 };
@@ -248,6 +250,12 @@ pub struct Scene {
     pub editing: Option<String>,
     /// Every group that repeats what is inside it (`repeat grid 4 2 step 40 30`), by its id.
     pub repeats: HashMap<String, RepeatSite>,
+    /// Every `include "kit.msc"` line, in the order written. What a file gives (colors,
+    /// gradients, styles, themes, symbols) is in the lists above like the scene's own, and every
+    /// place of it is the place of its `include` line: [`Scene::included`] tells them apart.
+    /// The places of colors, gradients and styles used inside those lines are not kept: an edit
+    /// of the whole scene leaves the other file alone.
+    pub includes: Vec<IncludeSite>,
 }
 
 /// How a script is read. The script is the same; what differs is which values are shown and
@@ -606,10 +614,12 @@ pub fn parse_themed(src: &str, base: Option<&std::path::Path>, theme: Option<&st
 pub fn parse_as(src: &str, base: Option<&std::path::Path>, reading: Reading) -> Result<Scene, Vec<ScriptError>> {
     let theme = reading.theme;
     let toks = lexer::lex(src).map_err(|e| vec![e])?;
-    let mut parser = parser::Parser::new(src, toks);
+    let mut parser = parser::Parser::new(src, toks).in_folder(base);
     let stmts = parser.block(false);
+    let (stmts, includes) = include::spread(stmts, &parser.included);
     let read = |theme: Option<&str>| {
         let mut ev = eval::Evaluator::new(src, base);
+        ev.include(&includes);
         ev.theme = theme.map(str::to_string);
         ev.editing = reading.symbol_of.map(str::to_string);
         ev.vary_seed = reading.vary_seed;

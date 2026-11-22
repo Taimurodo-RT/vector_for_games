@@ -52,7 +52,7 @@ pub struct Evaluator<'a> {
     pub vary_seed: u32,
     /// The lines of that theme.
     theme_entries: Vec<crate::parser::ThemeEntryAst>,
-    /// The lines of the theme that found the name they change, by where each starts.
+    /// The lines of the theme that found the name they change, by their place in `theme_entries`.
     theme_used: std::collections::HashSet<usize>,
     /// Put before every id while a symbol is being copied: `coin1-`.
     prefix: String,
@@ -147,12 +147,36 @@ impl<'a> Evaluator<'a> {
                 theme: None,
                 editing: None,
                 repeats: HashMap::new(),
+                includes: Vec::new(),
             },
             errors: Vec::new(),
         }
     }
 
+    /// The `include` lines of the script. The places of colors, gradients and styles inside
+    /// what they give are not noted: all of them are the place of the line.
+    pub fn include(&mut self, includes: &[crate::IncludeSite]) {
+        self.scene.includes = includes.to_vec();
+        for i in includes {
+            self.paint_seen.insert(i.span.start);
+            self.style_uses_seen.insert(i.span.start);
+            for file in &i.files {
+                let from_scene = self.base.as_deref().and_then(|b| file.strip_prefix(b).ok()).unwrap_or(file);
+                let name = from_scene.to_string_lossy().replace('\\', "/");
+                if !self.scene.doc.includes.contains(&name) {
+                    self.scene.doc.includes.push(name);
+                }
+            }
+        }
+    }
+
     fn err(&mut self, span: Span, msg: impl Into<String>) {
+        let msg = match self.scene.included(span) {
+            // The file tells its own mistakes itself, and the scene told that at the line.
+            Some(site) if site.broken => return,
+            Some(site) => format!("в подключённом файле «{}»: {}", site.path, msg.into()),
+            None => msg.into(),
+        };
         self.errors.push(ScriptError::at(self.src, span.start, msg));
     }
 
@@ -235,9 +259,9 @@ impl<'a> Evaluator<'a> {
     /// The line of the theme being read that changes `name` (a style, or a name of the
     /// palette), marked as having found it.
     fn theme_entry(&mut self, name: &str, style: bool) -> Option<crate::parser::ThemeEntryAst> {
-        let e = self.theme_entries.iter().find(|e| e.name == name && matches!(e.value, crate::parser::ThemeValueAst::Style { .. }) == style)?.clone();
-        self.theme_used.insert(e.span.start);
-        Some(e)
+        let at = self.theme_entries.iter().position(|e| e.name == name && matches!(e.value, crate::parser::ThemeValueAst::Style { .. }) == style)?;
+        self.theme_used.insert(at);
+        Some(self.theme_entries[at].clone())
     }
 
     pub fn run(&mut self, stmts: &[Stmt]) {
@@ -359,8 +383,8 @@ impl<'a> Evaluator<'a> {
         self.stmts(stmts, None, false);
         // A line of the theme that changes nothing is a mistyped name.
         let theme = self.theme.clone().unwrap_or_default();
-        for e in self.theme_entries.clone() {
-            if self.theme_used.contains(&e.span.start) {
+        for (at, e) in self.theme_entries.clone().into_iter().enumerate() {
+            if self.theme_used.contains(&at) {
                 continue;
             }
             let list = |names: Vec<&str>| if names.is_empty() { "их пока нет".to_string() } else { names.join(", ") };
@@ -1170,6 +1194,8 @@ impl<'a> Evaluator<'a> {
                     }
                 }
                 Stmt::Use(u) => self.use_symbol(u, parent, generated),
+                // Its lines are read in its place: see `include::spread`.
+                Stmt::Include { .. } => {}
                 Stmt::Variant { name_span, .. } => {
                     if !symbol_top {
                         self.err(
@@ -1261,8 +1287,9 @@ impl<'a> Evaluator<'a> {
                         .iter_mut()
                         .filter(|s| s.name == u.symbol)
                         .flat_map(|s| &mut s.variants)
+                        .filter(|v| v.name == *name)
                         .flat_map(|v| &mut v.values)
-                        .find(|v| v.span == p.value.span)
+                        .find(|v| v.name == p.name)
                 {
                     known.value = Some(value);
                 }
@@ -1310,7 +1337,9 @@ impl<'a> Evaluator<'a> {
         }
         // The copy the symbol is edited through: its objects are the lines of the symbol
         // themselves. For every other copy the lines are shared, as the lines of a loop are.
-        let edited = self.editing.as_deref() == Some(id.as_str());
+        // A symbol of an included file is changed in that file: here its lines are not written.
+        let foreign = self.scene.symbols.iter().find(|s| s.name == u.symbol).is_some_and(|s| self.scene.included(s.span).is_some());
+        let edited = !foreign && self.editing.as_deref() == Some(id.as_str());
         if edited {
             self.scene.editing = Some(id.clone());
         }
@@ -2381,7 +2410,22 @@ impl<'a> Evaluator<'a> {
             node.set(prop, Value::Num(v));
         }
         if n.kind == ShapeKind::Text {
-            let loaded = crate::fonts::load(font.as_deref(), self.base.as_deref());
+            // The font file of a text that an included file gives lies by that file.
+            let loaded = match self.scene.included(n.span) {
+                Some(site) => {
+                    let mut dirs: Vec<&std::path::Path> = site.files.iter().filter_map(|f| f.parent()).collect();
+                    dirs.dedup();
+                    let mut found = crate::fonts::load(font.as_deref(), self.base.as_deref());
+                    for dir in dirs {
+                        if found.is_ok() {
+                            break;
+                        }
+                        found = crate::fonts::load(font.as_deref(), Some(dir)).or(found);
+                    }
+                    found
+                }
+                None => crate::fonts::load(font.as_deref(), self.base.as_deref()),
+            };
             match loaded.clone().and_then(|bytes| motif_core::TextShape::new(&content, &bytes)) {
                 Ok(mut shape) => {
                     if let Ok(data) = loaded {

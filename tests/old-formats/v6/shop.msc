@@ -1,0 +1,123 @@
+motif 5
+// Набор магазина из трёх символов: монета, кнопка и карточка товара.
+// Символы, палитра, стили и тема записаны один раз в начале файла и общие для обоих холстов.
+// Карточка: лента «ХИТ», замок и отметка «куплено» в символе скрыты (hidden), их показывают
+// варианты hit, locked и sold. Обычная карточка — копия без варианта. Если в символ добавить
+// ещё одну скрытую деталь, готовые копии не изменятся.
+// Кнопка: варианты меняют цвета (buy, quiet) и убирают подпись (icon).
+// Название и цену каждая карточка получает своими правками в блоке override.
+let paper = #f4efe6
+let panel = #ffffff
+let ink = #1b1d24
+let muted = #6b7080
+let main = #3b6cff
+let good = #2fb573
+let gold = #ffc93c
+let gold_deep = #c98a12
+let hot = #ff5a36
+let well = #e9e3d6
+let quiet_text = #1b1d24
+style sheet fill panel stroke ink 3 r 16
+style title fill ink font bold font-size 15
+style heading fill ink font bold font-size 22
+style note fill muted font-size 12
+style sum fill ink font bold font-size 15
+
+theme night {
+  paper = #14161f
+  panel = #232838
+  ink = #0a0c12
+  muted = #9aa1b5
+  well = #1a1e2b
+  quiet_text = #f4efe6
+  style title fill #f4efe6 font bold font-size 15
+  style heading fill #f4efe6 font bold font-size 22
+  style sum fill #f4efe6 font bold font-size 15
+}
+
+symbol Coin size=18 {
+  ellipse rim size {size} {size} fill gold_deep stroke ink 2
+  ellipse face at 0 -1 size {size - 5} {size - 5} fill gold
+}
+
+symbol Button face=#3b6cff text=#ffffff {
+  variant buy face=good
+  variant quiet face=well text=quiet_text
+  variant icon hide label
+  group row stack row center gap 6 pad 12 {
+    rect bg fit r 10 fill face stroke ink 3
+    star glyph size 14 14 points 5 inner 0.5 fill text hidden
+    text label content "Купить" font bold font-size 14 fill text
+  }
+}
+
+symbol Card tint=#3b6cff points=5 inner=0.5 {
+  variant hit show ribbon
+  variant locked show lock hide price
+  variant sold show stamp hide price
+  rect sheet size 132 168 style sheet
+  rect picture at 0 -34 size 108 76 r 10 fill well
+  star item at 0 -34 size 46 46 points {points} inner {inner} fill tint stroke ink 3
+  text name at 0 22 content "Товар" style title
+  group price at 0 52 stack row center gap 6 {
+    use Coin coin
+    text cost content "100" style sum
+  }
+  group ribbon at 42 -76 rot 8 hidden {
+    rect ribbon_bg size 50 20 r 6 fill hot stroke ink 3
+    text ribbon_text content "ХИТ" font bold font-size 11 fill #ffffff
+  }
+  group stamp at 0 52 hidden {
+    rect stamp_bg size 86 22 r 11 fill good stroke ink 3
+    text stamp_text content "Куплено" font bold font-size 12 fill #ffffff
+  }
+  group lock hidden {
+    rect lock_shade size 132 168 r 16 fill #1b1d2499
+    ellipse lock_arc at 0 -48 size 22 26 fill none stroke #ffffff 4
+    rect lock_body at 0 -32 size 34 26 r 6 fill #ffffff stroke ink 3
+    text lock_text at 0 52 content "Уровень 5" font bold font-size 13 fill #ffffff
+  }
+}
+
+artboard "Витрина" 640x330 bg paper ui
+text shop_title at 82 40 content "Магазин" style heading
+group wallet at 566 40 stack row center gap 6 pad 8 {
+  rect wallet_bg fit r 16 fill panel stroke ink 3
+  use Coin wallet_coin size=20
+  text wallet_sum content "340" style sum
+}
+use Card sword "Меч" at 95 170 variant hit tint=#ff5a36 points=4 inner=0.35
+use Card shield "Щит" at 245 170
+use Card gem "Камень" at 395 170 variant sold tint=#2fb573 points=6 inner=0.7
+use Card crown "Корона" at 545 170 variant locked tint=#ffc93c points=8 inner=0.6
+text shop_note at 128 296 content "Нажмите на товар, чтобы купить" style note
+override {
+  sword-name.content = "Меч"
+  sword-cost.content = "120"
+  shield-name.content = "Щит"
+  shield-cost.content = "80"
+  gem-name.content = "Камень"
+  crown-name.content = "Корона"
+}
+anim Idle 1.6s loop {
+  sword-ribbon.sx 0: 1 ease-in-out-sine | 0.8: 1.12 ease-in-out-sine | 1.6: 1
+  sword-ribbon.sy 0: 1 ease-in-out-sine | 0.8: 1.12 ease-in-out-sine | 1.6: 1
+  sword-item.rot 0: -6 ease-in-out-sine | 0.8: 6 ease-in-out-sine | 1.6: -6
+}
+
+artboard "Покупка" 420x260 bg paper ui
+rect dialog at 210 130 size 380 220 style sheet
+use Card pick "Товар" at 100 130 variant hit tint=#ff5a36 points=4 inner=0.35
+text ask at 290 70 content "Купить меч?" style heading
+text ask_note at 290 98 content "Останется 220 монет" style note
+use Button yes "Купить" at 290 150 variant buy
+use Button no "Назад" at 290 204 variant quiet
+override {
+  pick-name.content = "Меч"
+  pick-cost.content = "120"
+  no-label.content = "Назад"
+}
+anim Appear 0.4s {
+  dialog.sy 0: 0.9 ease-out-back | 0.4: 1
+  dialog.opacity 0: 0 | 0.2: 1
+}
