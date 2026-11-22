@@ -167,3 +167,50 @@ fn a_mirror_reflects_an_object_in_its_side_and_a_group_beside_its_content() {
     assert!(app.src.contains("repeat circle 3 mirror {"), "{}", app.src);
     assert_eq!(app.scene.repeats["wing"].clones, ["wing-1m", "wing-2", "wing-2m", "wing-3", "wing-3m"]);
 }
+
+#[test]
+fn the_repeats_of_a_group_vary_by_a_seed_and_another_seed_is_one_step_back() {
+    use motif_script::{Vary, VaryFill};
+    let mut app = started(DOTS, "dots");
+    let exact = at(&app, "dots-2-1-dot");
+    // A number being scrubbed is one undo step, however many values it passes.
+    for rot in [5.0, 10.0, 15.0] {
+        assert!(app.set_vary("dots", &Vary { rot, ..Vary::default() }, "vary-rot", true));
+    }
+    assert!(app.src.contains("group dots at 100 100 repeat grid 3 2 step 30 20 vary-rot 15 {"), "{}", app.src);
+    let turned = app.src.clone();
+    let fill = VaryFill { text: "#c0392b".into(), color: motif_core::Color::rgb(192, 57, 43), amount: 0.4 };
+    let vary = Vary { at: (4.0, 3.0), rot: 15.0, scale: 0.2, fill: Some(fill), seed: 1 };
+    assert!(app.set_vary("dots", &vary, "vary-x", true));
+    assert!(app.src.contains("step 30 20 vary-at 4 3 vary-rot 15 vary-scale 0.2 vary-fill #c0392b 0.4 {"), "{}", app.src);
+    // The written dot stays, the others moved; what an animation says about them still holds.
+    assert_eq!(at(&app, "dot"), (100.0, 100.0));
+    let first = at(&app, "dots-2-1-dot");
+    assert_ne!(first, exact);
+    assert!((first.0 - exact.0).abs() <= 4.0 && (first.1 - exact.1).abs() <= 3.0, "{first:?}");
+    assert!(app.src.contains("dots-2-1-dot.opacity 0: 1 | 1: 0"), "{}", app.src);
+    // «Другой вариант»: the next seed, another drawing, and one step back to the one before.
+    let before = app.src.clone();
+    assert!(app.set_vary("dots", &Vary { seed: 2, ..vary.clone() }, "vary-next", false));
+    assert!(app.src.contains("vary-fill #c0392b 0.4 vary-seed 2 {"), "{}", app.src);
+    assert_ne!(at(&app, "dots-2-1-dot"), first);
+    app.undo();
+    assert_eq!(app.src, before);
+    assert_eq!(at(&app, "dots-2-1-dot"), first);
+    app.undo();
+    assert_eq!(app.src, turned);
+    app.undo();
+    assert_eq!(app.src, DOTS);
+    // Another kind of repeat keeps the variation; with reflections it goes.
+    assert!(app.set_vary("dots", &vary, "vary-x", false));
+    app.switch_repeat("dots", 2);
+    assert!(app.src.contains("repeat circle 6 vary-at 4 3 vary-rot 15 vary-scale 0.2 vary-fill #c0392b 0.4 pivot 0 15 {"), "{}", app.src);
+    assert!(app.set_repeat("dots", Some(RepeatKind::Circle { count: 6, arc: 360.0, upright: false, mirror: true }), false));
+    assert!(app.src.contains("repeat circle 6 mirror pivot 0 15 {"), "{}", app.src);
+    assert!(!app.set_vary("dots", &vary, "vary-x", false));
+    // A made repeat and a plain group have nothing to vary.
+    assert!(!app.set_vary("dots-2", &vary, "vary-x", false));
+    let mut app = started(PANEL, "rivet");
+    assert!(!app.set_vary("rivet", &vary, "vary-x", false));
+    assert_eq!(app.src, PANEL);
+}
