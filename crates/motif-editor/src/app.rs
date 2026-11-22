@@ -439,7 +439,7 @@ impl App {
     pub(crate) fn parse_shown(&self, src: &str) -> Result<Scene, Vec<motif_script::ScriptError>> {
         let theme = (!self.theme.is_empty()).then_some(self.theme.as_str());
         let copy = self.symbol_copy();
-        let reading = motif_script::Reading { theme, symbol_of: copy.as_deref() };
+        let reading = motif_script::Reading { theme, symbol_of: copy.as_deref(), vary_seed: 0 };
         motif_script::parse_as(src, self.path.as_ref().and_then(|p| p.parent()), reading)
     }
 

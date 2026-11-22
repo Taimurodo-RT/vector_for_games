@@ -43,6 +43,10 @@ pub struct Board {
     /// or none for the scene as it is written. The field is left out of a scene without them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub themes: Vec<String>,
+    /// Some repeats of the board differ by a seed (`repeat … vary-rot 15`): a game may give its
+    /// own seed for another variant of the drawing. The field is left out of a scene without them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub varies: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -239,6 +243,7 @@ fn board(doc: &Document) -> Board {
             })
             .collect(),
         themes: doc.themes.clone(),
+        varies: doc.varies,
     }
 }
 

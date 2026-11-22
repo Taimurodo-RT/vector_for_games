@@ -20,7 +20,8 @@
       "areas": [],
       "themes": [
         "frost"
-      ]
+      ],
+      "varies": true
     }
   ]
 }

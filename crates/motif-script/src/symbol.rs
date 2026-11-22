@@ -194,7 +194,7 @@ override {
 ";
 
     fn through(src: &str, copy: &str) -> Scene {
-        parse_as(src, None, Reading { theme: None, symbol_of: Some(copy) }).unwrap()
+        parse_as(src, None, Reading { theme: None, symbol_of: Some(copy), vary_seed: 0 }).unwrap()
     }
 
     fn hex(scene: &Scene, id: &str) -> String {
@@ -410,7 +410,7 @@ override {
         assert_eq!((words(&scene, "play-label").as_str(), words(&scene, "buy-label").as_str()), ("Играть", "Купить всё"));
         assert!(scene.doc.node("buy-label").unwrap().width > scene.doc.node("play-label").unwrap().width + 20.0, "the longer words are wider");
         // The symbol itself, while it is edited through the copy.
-        let edited = parse_as(LABELS, None, Reading { theme: None, symbol_of: Some("buy") }).unwrap();
+        let edited = parse_as(LABELS, None, Reading { theme: None, symbol_of: Some("buy"), vary_seed: 0 }).unwrap();
         assert_eq!(words(&edited, "buy-label"), "Играть");
 
         // The words are one of the changes of the copy and are taken back like the others.

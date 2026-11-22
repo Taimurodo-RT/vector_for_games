@@ -89,6 +89,8 @@ pub struct Player {
     dir: Option<std::path::PathBuf>,
     /// The theme shown (`theme dark { … }`); empty is the scene as it is written.
     theme: String,
+    /// The seed the game gave to what varies (`repeat … vary-rot 15`); 0 is the scene as written.
+    vary_seed: u32,
 }
 
 /// One pose to draw, apart from the player: it can be drawn on another thread while the game
@@ -296,7 +298,8 @@ impl Player {
         let plain = machine.clone();
         let shown = Arc::new(doc.clone());
         let (src, dir, theme) = (src.to_string(), base.map(std::path::Path::to_path_buf), String::new());
-        let mut p = Player { doc, board, alone, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0, src, dir, theme };
+        let vary_seed = 0;
+        let mut p = Player { doc, board, alone, plain, machine, run, rest: 0.0, base: 0.0, told: Vec::new(), side, shown, pose: 0, src, dir, theme, vary_seed };
         p.turn(side);
         Ok(p)
     }
@@ -307,10 +310,11 @@ impl Player {
     /// tweak shows at once without starting the scene again. A state, input or animation renamed
     /// in Motif is found by its hidden id. When the new scene has errors, or its board or
     /// machine is gone, the player plays on unchanged and the errors are returned. The theme
-    /// shown stays; a theme the new scene no longer has gives way to the scene as written.
+    /// shown stays; a theme the new scene no longer has gives way to the scene as written. The
+    /// seed of what varies stays too.
     pub fn reload(&mut self, src: &str, base: Option<&std::path::Path>) -> Result<(), String> {
         let theme = self.theme.clone();
-        self.read(src, base, &theme)?;
+        self.read(src, base, &theme, self.vary_seed)?;
         self.src = src.to_string();
         self.dir = base.map(std::path::Path::to_path_buf);
         if !self.doc.themes.contains(&self.theme) {
@@ -344,15 +348,49 @@ impl Player {
             return Err(format!("нет темы «{name}»; {all}"));
         }
         let (src, dir) = (self.src.clone(), self.dir.clone());
-        self.read(&src, dir.as_deref(), name)?;
+        self.read(&src, dir.as_deref(), name, self.vary_seed)?;
         self.theme = name.to_string();
         Ok(true)
     }
 
-    /// Plays on in scene `src` shown in `theme`. See [`reload`](Self::reload).
-    fn read(&mut self, src: &str, base: Option<&std::path::Path>, theme: &str) -> Result<(), String> {
-        let theme = (!theme.is_empty()).then_some(theme);
-        let boards = motif_script::parse_boards_themed(src, base, theme).map_err(|errs| errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n"))?;
+    /// Whether some repeats of the board differ from each other by a seed (`repeat … vary-rot
+    /// 15`), so that [`set_vary_seed`](Self::set_vary_seed) gives another variant of the drawing.
+    pub fn varies(&self) -> bool {
+        self.doc.varies
+    }
+
+    /// The seed the game gave to what varies; 0 is the scene as it is written.
+    pub fn vary_seed(&self) -> u32 {
+        self.vary_seed
+    }
+
+    /// Shows another variant of the scene: the repeats that vary (`repeat … vary-at 5 4 vary-rot
+    /// 15`) are counted from the seeds of the script with `seed` added to each. 0 is the scene
+    /// as it is written, and the same number is the same drawing on every machine and in every
+    /// run. Only the drawing changes: the state and its time, the inputs, springs, ropes,
+    /// particles and the side go on, and no time passes. Returns whether the drawing changed (a
+    /// scene where nothing varies stays as it is). Like the theme, this seed is the game's
+    /// choice and is not a part of [`PlayerState`]; it has nothing to do with
+    /// [`set_seed`](Self::set_seed), which seeds what is random while the scene plays.
+    pub fn set_vary_seed(&mut self, seed: u32) -> Result<bool, String> {
+        if seed == self.vary_seed {
+            return Ok(false);
+        }
+        if !self.doc.varies {
+            self.vary_seed = seed;
+            return Ok(false);
+        }
+        let (src, dir, theme) = (self.src.clone(), self.dir.clone(), self.theme.clone());
+        self.read(&src, dir.as_deref(), &theme, seed)?;
+        self.vary_seed = seed;
+        Ok(true)
+    }
+
+    /// Plays on in scene `src` shown in `theme`, with what varies counted from `vary_seed`. See
+    /// [`reload`](Self::reload).
+    fn read(&mut self, src: &str, base: Option<&std::path::Path>, theme: &str, vary_seed: u32) -> Result<(), String> {
+        let reading = motif_script::Reading { theme: (!theme.is_empty()).then_some(theme), symbol_of: None, vary_seed };
+        let boards = motif_script::parse_boards_as(src, base, reading).map_err(|errs| errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n"))?;
         let name = &self.doc.artboard.name;
         let doc = boards.iter().find(|s| s.doc.artboard.name == *name).or_else(|| boards.get(self.board)).map(|s| s.doc.clone());
         let doc = doc.ok_or_else(|| format!("в сцене больше нет холста «{name}»"))?;
@@ -1274,6 +1312,68 @@ machine M {
         p.reload(&gone, None).unwrap();
         assert_eq!(p.state(), "Idle");
         assert!(p.time() < TICK, "{}", p.time());
+    }
+
+    #[test]
+    fn the_games_seed_of_what_varies_gives_another_drawing_and_nothing_that_plays_changes() {
+        let src = format!(
+            "{RELOADED}group stones at 20 60 repeat grid 4 1 step 20 0 vary-at 4 3 vary-rot 30 vary-seed 2 {{\n  rect stone size 8 6 fill #808080\n}}\n"
+        );
+        let stones =
+            |p: &Player| p.frame().doc.nodes.iter().filter(|n| n.id.starts_with("stones-")).map(|n| (n.id.clone(), n.x, n.y, n.rotation)).collect::<Vec<_>>();
+        let play = |seed: Option<u32>| {
+            let mut p = Player::load(&src, None, "", "", "").unwrap();
+            p.set_seed(5);
+            p.fire("hurt").unwrap();
+            let mut events = Vec::new();
+            for step in 0..30 {
+                // The variant is changed in the middle of a clip, with sparks in the air.
+                if let Some(seed) = seed.filter(|_| step == 12) {
+                    let (pose, state, time, at) = (p.pose(), p.state(), p.time(), ball(&p));
+                    assert_eq!(p.set_vary_seed(seed), Ok(true));
+                    assert_eq!((p.state(), p.time(), ball(&p), p.vary_seed()), (state, time, at, seed));
+                    assert_ne!(p.pose(), pose, "the new drawing is shown");
+                    assert_eq!(p.set_vary_seed(seed), Ok(false));
+                }
+                events.extend(p.advance(1.0 / 60.0).events.into_iter().map(|e| e.name));
+            }
+            (p, events)
+        };
+        let (plain, plain_events) = play(None);
+        let (mut other, other_events) = play(Some(7));
+        assert!(plain.varies() && plain.vary_seed() == 0);
+        // The same states, events and sparks; the stones lie another way.
+        assert_eq!((other.state(), other.time(), other_events), (plain.state(), plain.time(), plain_events));
+        let rest = |p: &Player| {
+            p.frame().doc.nodes.iter().filter(|n| !n.id.starts_with("stones-")).map(|n| (n.id.clone(), n.x, n.y, n.particles.clone())).collect::<Vec<_>>()
+        };
+        assert!(rest(&other) == rest(&plain));
+        assert_ne!(stones(&other), stones(&plain));
+        // The same seed in another player is the same drawing; seed 0 is the scene as written.
+        let (again, _) = play(Some(7));
+        assert_eq!(stones(&again), stones(&other));
+        assert_eq!(other.set_vary_seed(0), Ok(true));
+        assert!(*other.frame().doc == *plain.frame().doc);
+        // A reload keeps the seed of the game: the scene as if every `vary-seed` were 7 larger.
+        other.set_vary_seed(7).unwrap();
+        let seven = stones(&other);
+        other.reload(&src.replace("fill #808080", "fill #909090"), None).unwrap();
+        assert_eq!((other.vary_seed(), stones(&other)), (7, seven.clone()));
+        let mut written = Player::load(&src.replace("vary-seed 2", "vary-seed 9"), None, "", "", "").unwrap();
+        written.advance(0.0);
+        assert_eq!(stones(&written), seven);
+        // It is the game's choice, not a part of a saved state.
+        let state = plain.save_state();
+        other.load_state(&state).unwrap();
+        assert_eq!((other.vary_seed(), stones(&other)), (7, seven));
+        // Where nothing varies, the seed is kept for a scene that will, and nothing is drawn anew.
+        let mut bare = Player::load(RELOADED, None, "", "", "").unwrap();
+        let pose = bare.pose();
+        assert!(!bare.varies());
+        assert_eq!(bare.set_vary_seed(7), Ok(false));
+        assert_eq!((bare.pose(), bare.vary_seed()), (pose, 7));
+        bare.reload(&src, None).unwrap();
+        assert_eq!(stones(&bare), stones(&again));
     }
 
     /// [`RELOADED`] with its ball painted by a name of the palette that a theme changes.

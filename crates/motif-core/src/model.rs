@@ -35,6 +35,9 @@ pub struct Document {
     /// The themes the scene can be shown in (`theme dark { … }`), in the order written. The
     /// document itself is one of them, or the scene as it is written.
     pub themes: Vec<String>,
+    /// Some repeats of the scene differ from each other by a seed (`repeat … vary-rot 15`): a
+    /// game may give its own seed, and the scene is read as another variant of the same drawing.
+    pub varies: bool,
 }
 
 /// What a scene is made for. The editor hides what the other kind of work needs.
@@ -1084,6 +1087,7 @@ impl Document {
             ids: crate::Ids::default(),
             seed: 0,
             themes: Vec::new(),
+            varies: false,
         }
     }
 

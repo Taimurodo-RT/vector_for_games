@@ -45,6 +45,11 @@ render, frames, video, kit, screen, godot и svg рисуют её цветам�
 (СЦЕНА-ИМЯ.png), чтобы две темы не писали один файл. Без --theme сцена берётся как записана. check
 проверяет все темы и называет их, contract перечисляет темы холста в поле themes.
 
+Разброс: если у повторов сцены есть слова vary-…, параметр --vary-seed N у любой команды берёт другой
+вариант того же рисунка: N прибавляется к каждому vary-seed. Без параметра (или с 0) сцена берётся как
+записана; одно и то же N всегда даёт одну и ту же картинку. В игре это set_vary_seed(N). contract
+отмечает такие холсты полем varies.
+
 Параметры рендера:
   --scale N        пикселей на единицу артборда (по умолчанию 1)
   --width W        итоговая ширина в пикселях вместо --scale
@@ -111,6 +116,7 @@ struct Args {
     length: Option<f64>,
     side: Option<String>,
     theme: Option<String>,
+    vary_seed: u32,
     web_profile: Option<motif_web::Profile>,
     strict: bool,
     css: Option<PathBuf>,
@@ -148,6 +154,7 @@ fn parse_args() -> Result<Args, String> {
         length: None,
         side: None,
         theme: None,
+        vary_seed: 0,
         web_profile: None,
         strict: false,
         css: None,
@@ -175,6 +182,13 @@ fn parse_args() -> Result<Args, String> {
             "--length" => a.length = Some(num(it.next(), "--length")?),
             "--side" => a.side = Some(it.next().ok_or("после --side нужна сторона: down, right, up…")?),
             "--theme" => a.theme = Some(it.next().ok_or("после --theme нужно имя темы из сцены (theme dark { … })")?),
+            "--vary-seed" => {
+                let n = num(it.next(), "--vary-seed")?;
+                if n.fract() != 0.0 || !(0.0..=f64::from(u32::MAX)).contains(&n) {
+                    return Err("после --vary-seed нужно целое число от 0: зерно, которое прибавляется к vary-seed повторов сцены".into());
+                }
+                a.vary_seed = n as u32;
+            }
             "--machine" => a.machine = Some(it.next().ok_or("после --machine нужно имя машины")?),
             "--pivot" => a.pivot = Some((num(it.next(), "--pivot")?, num(it.next(), "--pivot")?)),
             "--no-aa" => a.antialias = false,
@@ -211,7 +225,8 @@ fn run() -> Result<(), String> {
     if a.cmd == "import-html" {
         return html_import::run(&a, &src);
     }
-    let scenes = motif_script::parse_boards_themed(&src, a.scene.parent(), a.theme.as_deref())
+    let reading = motif_script::Reading { theme: a.theme.as_deref(), symbol_of: None, vary_seed: a.vary_seed };
+    let scenes = motif_script::parse_boards_as(&src, a.scene.parent(), reading)
         .map_err(|errs| errs.iter().map(|e| format!("{}: {e}", a.scene.display())).collect::<Vec<_>>().join("\n"))?;
     let total = scenes.len();
     // The themes of the file, of any board, in the order written.

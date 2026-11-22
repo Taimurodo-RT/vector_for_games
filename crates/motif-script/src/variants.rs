@@ -355,7 +355,7 @@ use Button b4 at 220 140 variant icon w=60 face=#000000
     #[test]
     fn a_theme_changes_the_value_a_variant_takes_from_the_palette() {
         let src = format!("{BUTTONS}theme night {{\n  accent = #112233\n}}\n");
-        let night = parse_as(&src, None, Reading { theme: Some("night"), symbol_of: None }).unwrap();
+        let night = parse_as(&src, None, Reading { theme: Some("night"), symbol_of: None, vary_seed: 0 }).unwrap();
         assert_eq!(fill(&night, "b2-bg"), "#112233");
         assert_eq!(fill(&parse(&src).unwrap(), "b2-bg"), "#ff5a36");
     }
@@ -386,7 +386,7 @@ use Button b4 at 220 140 variant icon w=60 face=#000000
 
     #[test]
     fn the_copy_a_symbol_is_edited_through_shows_all_of_the_symbol() {
-        let through = parse_as(BUTTONS, None, Reading { theme: None, symbol_of: Some("b3") }).unwrap();
+        let through = parse_as(BUTTONS, None, Reading { theme: None, symbol_of: Some("b3"), vary_seed: 0 }).unwrap();
         assert!(through.doc.node("b3-label").unwrap().visible, "the hidden object can be reached and edited");
         assert_eq!(width(&through, "b3-bg"), 44.0, "the values of the variant stay");
         assert!(!through.doc.node("b4-label").unwrap().visible);
@@ -471,7 +471,7 @@ use Button b4 at 220 140 variant icon w=60 face=#000000
         let src = BUTTONS
             .replace("variant main face=accent", "variant main face=accent hide label glyph")
             .replace("hide label\n", "hide glyph ink=#111111 hide label\n");
-        let through = |src: &str| parse_as(src, None, Reading { theme: None, symbol_of: Some("b1") }).unwrap();
+        let through = |src: &str| parse_as(src, None, Reading { theme: None, symbol_of: Some("b1"), vary_seed: 0 }).unwrap();
         let (out, ..) = crate::delete_nodes(&src, &through(&src), &["b1-label".to_string()], None).unwrap();
         assert!(out.contains("  variant main face=accent hide glyph\n  variant icon w=44 hide glyph ink=#111111\n  rect bg"), "{out}");
         let (out, ..) = crate::delete_nodes(&src, &through(&src), &["b1-glyph".to_string()], None).unwrap();
@@ -507,7 +507,7 @@ use Card c at 250 100 variant locked
         assert!(seen(&scene, "b-ribbon") && !seen(&scene, "b-lock"));
         assert!(seen(&scene, "c-lock") && !seen(&scene, "c-price") && !seen(&scene, "c-ribbon"));
         // The copy a symbol is edited through is the symbol itself.
-        let edited = parse_as(CARDS, None, Reading { theme: None, symbol_of: Some("b") }).unwrap();
+        let edited = parse_as(CARDS, None, Reading { theme: None, symbol_of: Some("b"), vary_seed: 0 }).unwrap();
         assert!(!seen(&edited, "b-ribbon") && seen(&edited, "c-lock"));
 
         let told = |src: &str| parse(src).unwrap_err().iter().map(ToString::to_string).collect::<Vec<_>>().join("\n");
@@ -538,7 +538,7 @@ use Card c at 250 100 variant locked
         assert_eq!(parse(&out).unwrap().doc, scene.doc);
 
         // An object deleted from the symbol leaves the lists of shown ones too.
-        let through = parse_as(CARDS, None, Reading { theme: None, symbol_of: Some("a") }).unwrap();
+        let through = parse_as(CARDS, None, Reading { theme: None, symbol_of: Some("a"), vary_seed: 0 }).unwrap();
         let (out, ..) = crate::delete_nodes(CARDS, &through, &["a-lock".to_string()], None).unwrap();
         assert!(out.contains("  variant hit show ribbon\n  variant locked hide price\n  rect sheet"), "{out}");
     }
