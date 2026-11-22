@@ -56,8 +56,8 @@ mod variants;
 mod palette;
 pub mod parameters;
 pub use boards::{
-    BOARD_GAP, BoardGrid, BoardSize, board_file_name, board_layout, boards, head_end, new_board, parse_boards, parse_boards_themed, rename_artboard,
-    set_artboard_size, set_board_cell,
+    BOARD_GAP, BoardGrid, BoardSize, board_file_name, board_layout, boards, head_end, new_board, parse_boards, parse_boards_as, parse_boards_themed,
+    rename_artboard, set_artboard_size, set_board_cell,
 };
 pub use bone::{add_bone, add_ik_target, add_weight_stroke, attach_to_bone, clear_weights, fmt_stroke, set_ik, set_skin};
 pub mod character;
@@ -261,6 +261,10 @@ pub struct Reading<'a> {
     /// the functions that edit an object edit the symbol. What the copy changes for itself in
     /// `override { }` is not applied meanwhile: the copy shows the symbol as it is.
     pub symbol_of: Option<&'a str>,
+    /// The seed a game gives to what varies (`repeat … vary-rot 15`): it is added to every
+    /// `vary-seed` of the script, so 0 reads the scene as it is written and any other number
+    /// reads another variant of it, the same one every time.
+    pub vary_seed: u32,
 }
 
 /// A place of the script where a color is written.
@@ -594,7 +598,7 @@ pub fn parse_in(src: &str, base: Option<&std::path::Path>) -> Result<Scene, Vec<
 /// a mistake in any theme is an error of the script whichever theme is shown, and the places of
 /// colors, gradients and styles that only another theme reads are known too.
 pub fn parse_themed(src: &str, base: Option<&std::path::Path>, theme: Option<&str>) -> Result<Scene, Vec<ScriptError>> {
-    parse_as(src, base, Reading { theme, symbol_of: None })
+    parse_as(src, base, Reading { theme, ..Reading::default() })
 }
 
 /// [`parse_themed`] with the whole choice of how the script is read: the theme and the symbol
@@ -608,6 +612,7 @@ pub fn parse_as(src: &str, base: Option<&std::path::Path>, reading: Reading) -> 
         let mut ev = eval::Evaluator::new(src, base);
         ev.theme = theme.map(str::to_string);
         ev.editing = reading.symbol_of.map(str::to_string);
+        ev.vary_seed = reading.vary_seed;
         ev.run(&stmts);
         ev.read_unused();
         (ev.scene, ev.errors)

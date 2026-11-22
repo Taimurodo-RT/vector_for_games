@@ -54,7 +54,7 @@ fn plan(file: &str, base: Option<&std::path::Path>, board: usize, copy: &str, id
     let site = |scene: &Scene| scene.symbols.iter().find(|s| s.name == symbol).cloned();
     let sym = site(&active.scene)?;
     let which = active.in_file(sym.span);
-    let through = |text: &str, copy: &str| parse_as(text, base, Reading { theme: None, symbol_of: Some(copy) }).ok();
+    let through = |text: &str, copy: &str| parse_as(text, base, Reading { theme: None, symbol_of: Some(copy), vary_seed: 0 }).ok();
 
     let edited = through(&active.text, copy)?;
     let roots = selected_roots(&edited, ids);

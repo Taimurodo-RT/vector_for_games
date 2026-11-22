@@ -48,6 +48,8 @@ pub struct Evaluator<'a> {
     /// The copy whose symbol is being edited: the lines of the symbol are read for it as lines
     /// written by hand, so that an edit of its objects changes the symbol.
     pub editing: Option<String>,
+    /// The seed a game gives to what varies: added to every `vary-seed` ([`crate::Reading::vary_seed`]).
+    pub vary_seed: u32,
     /// The lines of that theme.
     theme_entries: Vec<crate::parser::ThemeEntryAst>,
     /// The lines of the theme that found the name they change, by where each starts.
@@ -94,6 +96,7 @@ impl<'a> Evaluator<'a> {
             paint_seen: Default::default(),
             theme: None,
             editing: None,
+            vary_seed: 0,
             theme_entries: Vec::new(),
             theme_used: Default::default(),
             prefix: String::new(),
@@ -2787,6 +2790,9 @@ impl<'a> Evaluator<'a> {
             _ if vary.moves() => self.content_middle(index).unwrap_or(anchor),
             _ => anchor,
         };
+        // What each repeat gets is counted from the seed of the line and the seed of the game.
+        let counted = Vary { seed: vary.seed.wrapping_add(self.vary_seed), ..vary.clone() };
+        self.scene.doc.varies |= !vary.is_none();
         let mut clones = Vec::new();
         for ((suffix, (x, y, rot)), flip) in kind.suffixes().into_iter().zip(kind.places(anchor, pivot)).zip(kind.flips()) {
             let clone = format!("{id}-{suffix}");
@@ -2807,7 +2813,7 @@ impl<'a> Evaluator<'a> {
                 group.pivot = pivot;
             }
             // A varied repeat: moved along its own axes, then turned and scaled around its middle.
-            let varied = vary.of(&suffix);
+            let varied = counted.of(&suffix);
             if vary.moves() {
                 // Along an outline the place and the turn are given when the outline is known.
                 if !matches!(kind, RepeatKind::Along { .. }) {
@@ -2935,6 +2941,7 @@ impl<'a> Evaluator<'a> {
             let points = crate::repeat::along(&(to_parent * path), count, offset);
             let Some(&(first, turn)) = points.first() else { continue };
             let turn = if upright { 0.0 } else { turn };
+            let counted = Vary { seed: vary.seed.wrapping_add(self.vary_seed), ..vary };
             // What `override` moved by hand stays where it was put.
             let free = |scene: &Scene, id: &str, prop: Prop| !scene.sources.get(&(id.to_string(), prop)).is_some_and(|s| s.from_override);
             let put = |scene: &mut Scene, id: &str, x: f64, y: f64, rot: f64| {
@@ -2951,7 +2958,7 @@ impl<'a> Evaluator<'a> {
                 let at = back * (p - first).to_point();
                 let rot = if upright { 0.0 } else { dir - turn };
                 // A varied repeat moves along the outline and across it, and turns where it stands.
-                let varied = vary.of(clone.strip_prefix(id.as_str()).map_or("", |s| s.trim_start_matches('-')));
+                let varied = counted.of(clone.strip_prefix(id.as_str()).map_or("", |s| s.trim_start_matches('-')));
                 let at = at + (Affine::rotate(rot.to_radians()) * varied.at.to_point()).to_vec2();
                 put(&mut self.scene, clone, at.x, at.y, rot + varied.rot);
             }

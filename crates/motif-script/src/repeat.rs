@@ -1242,6 +1242,40 @@ anim Blink 1s {{
     }
 
     #[test]
+    fn the_seed_of_a_game_is_added_to_the_seeds_of_the_script() {
+        use crate::{Reading, parse_as, parse_boards_as};
+        let src = |grid: u32, ring: u32| {
+            format!(
+                "{BOARD}path wire d \"M 0 0 L 300 0\" at 20 200\ngroup g at 100 50 repeat grid 3 2 step 40 30 vary-at 6 4 vary-rot 20 vary-fill #ff0000 0.5 vary-seed {grid} {{\n  rect stone size 12 8 fill #808080\n}}\ngroup ring at 300 100 repeat circle 5 vary-scale 0.3 vary-seed {ring} {{\n  rect petal at 0 -30 size 6 12\n}}\ngroup beads repeat along wire 5 vary-at 0 6 {{\n  rect bead size 4 4\n}}\n"
+            )
+        };
+        let read = |text: &str, vary_seed: u32| parse_as(text, None, Reading { vary_seed, ..Reading::default() }).unwrap();
+        // Seed 0 is the scene as it is written.
+        let written = scene(&src(3, 9));
+        assert!(read(&src(3, 9), 0).doc == written.doc);
+        assert!(written.doc.varies);
+        // Another seed of the game: every group as if its own seed were that much larger
+        // (the beads have none written, which is 1).
+        let other = read(&src(3, 9), 5);
+        assert!(other.doc != written.doc);
+        let shifted = src(8, 14).replace("vary-at 0 6 {", "vary-at 0 6 vary-seed 6 {");
+        assert!(other.doc == scene(&shifted).doc);
+        // The same seed, the same scene; the line of the script stays as it is written.
+        assert!(read(&src(3, 9), 5).doc == other.doc);
+        assert_eq!(other.repeats["g"].vary.seed, 3);
+        assert_eq!(other.repeats["beads"].vary.seed, 1);
+        // Every board of a file is read with it.
+        let two = format!("{}artboard \"b\" 100x100\nrect plain size 4 4\n", src(3, 9));
+        let boards = parse_boards_as(&two, None, Reading { vary_seed: 5, ..Reading::default() }).unwrap();
+        assert!(boards[0].doc == other.doc);
+        // Where nothing varies the seed of the game changes nothing, and the scene says so.
+        assert!(!boards[1].doc.varies);
+        let exact = format!("{BOARD}group g repeat grid 3 2 step 40 30 {{\n  rect stone size 12 8\n}}\n");
+        assert!(!scene(&exact).doc.varies);
+        assert!(read(&exact, 77).doc == scene(&exact).doc);
+    }
+
+    #[test]
     fn a_wrong_repeat_says_what_is_wrong() {
         let group =
             |line: &str| format!("{BOARD}rect frame at 100 100 size 50 50\ngroup inside {{\n  rect own size 4 4\n}}\n{line} {{\n  rect own2 size 4 4\n}}\n");

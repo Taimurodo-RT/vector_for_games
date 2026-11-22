@@ -17,7 +17,8 @@
       "parameters": [],
       "events": [],
       "sockets": [],
-      "areas": []
+      "areas": [],
+      "varies": true
     }
   ]
 }

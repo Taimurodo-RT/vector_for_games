@@ -261,7 +261,7 @@ impl App {
         let Some(group) = self.isolated.clone() else { return (out, ids.to_vec()) };
         let base = self.path.as_ref().and_then(|p| p.parent());
         let copy = self.symbol_copy();
-        let reading = motif_script::Reading { theme: None, symbol_of: copy.as_deref() };
+        let reading = motif_script::Reading { theme: None, symbol_of: copy.as_deref(), vary_seed: 0 };
         let Ok(scene) = motif_script::parse_as(&out, base, reading) else { return (out, ids.to_vec()) };
         let doc = &scene.doc;
         let Some(g) = doc.index_of(&group) else { return (out, ids.to_vec()) };

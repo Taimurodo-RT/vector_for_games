@@ -1483,7 +1483,7 @@ fn movable(scene: &Scene, node: &str) -> Result<(), String> {
 /// with the same symbol being edited ([`Scene::editing`]), so the next step finds the objects of
 /// the symbol where the first one did.
 pub(crate) fn reparse(src: &str, base: Option<&std::path::Path>, like: &Scene) -> Result<Scene, String> {
-    let reading = crate::Reading { theme: None, symbol_of: like.editing.as_deref() };
+    let reading = crate::Reading { theme: None, symbol_of: like.editing.as_deref(), vary_seed: 0 };
     crate::parse_as(src, base, reading).map_err(|e| e.first().map_or_else(|| "скрипт не читается".to_string(), |e| e.message.clone()))
 }
 
